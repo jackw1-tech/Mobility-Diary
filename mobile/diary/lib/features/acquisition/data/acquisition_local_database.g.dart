@@ -1,0 +1,3096 @@
+// GENERATED CODE - DO NOT MODIFY BY HAND
+
+part of 'acquisition_local_database.dart';
+
+// ignore_for_file: type=lint
+class $AcquisitionSessionsTable extends AcquisitionSessions
+    with TableInfo<$AcquisitionSessionsTable, AcquisitionSession> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $AcquisitionSessionsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+      'id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _deviceIdMeta =
+      const VerificationMeta('deviceId');
+  @override
+  late final GeneratedColumn<String> deviceId = GeneratedColumn<String>(
+      'device_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _startedAtMeta =
+      const VerificationMeta('startedAt');
+  @override
+  late final GeneratedColumn<DateTime> startedAt = GeneratedColumn<DateTime>(
+      'started_at', aliasedName, false,
+      type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  static const VerificationMeta _endedAtMeta =
+      const VerificationMeta('endedAt');
+  @override
+  late final GeneratedColumn<DateTime> endedAt = GeneratedColumn<DateTime>(
+      'ended_at', aliasedName, true,
+      type: DriftSqlType.dateTime, requiredDuringInsert: false);
+  @override
+  List<GeneratedColumn> get $columns => [id, deviceId, startedAt, endedAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'acquisition_sessions';
+  @override
+  VerificationContext validateIntegrity(Insertable<AcquisitionSession> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('device_id')) {
+      context.handle(_deviceIdMeta,
+          deviceId.isAcceptableOrUnknown(data['device_id']!, _deviceIdMeta));
+    } else if (isInserting) {
+      context.missing(_deviceIdMeta);
+    }
+    if (data.containsKey('started_at')) {
+      context.handle(_startedAtMeta,
+          startedAt.isAcceptableOrUnknown(data['started_at']!, _startedAtMeta));
+    } else if (isInserting) {
+      context.missing(_startedAtMeta);
+    }
+    if (data.containsKey('ended_at')) {
+      context.handle(_endedAtMeta,
+          endedAt.isAcceptableOrUnknown(data['ended_at']!, _endedAtMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  AcquisitionSession map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return AcquisitionSession(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}id'])!,
+      deviceId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}device_id'])!,
+      startedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}started_at'])!,
+      endedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}ended_at']),
+    );
+  }
+
+  @override
+  $AcquisitionSessionsTable createAlias(String alias) {
+    return $AcquisitionSessionsTable(attachedDatabase, alias);
+  }
+}
+
+class AcquisitionSession extends DataClass
+    implements Insertable<AcquisitionSession> {
+  final String id;
+  final String deviceId;
+  final DateTime startedAt;
+  final DateTime? endedAt;
+  const AcquisitionSession(
+      {required this.id,
+      required this.deviceId,
+      required this.startedAt,
+      this.endedAt});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['device_id'] = Variable<String>(deviceId);
+    map['started_at'] = Variable<DateTime>(startedAt);
+    if (!nullToAbsent || endedAt != null) {
+      map['ended_at'] = Variable<DateTime>(endedAt);
+    }
+    return map;
+  }
+
+  AcquisitionSessionsCompanion toCompanion(bool nullToAbsent) {
+    return AcquisitionSessionsCompanion(
+      id: Value(id),
+      deviceId: Value(deviceId),
+      startedAt: Value(startedAt),
+      endedAt: endedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(endedAt),
+    );
+  }
+
+  factory AcquisitionSession.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return AcquisitionSession(
+      id: serializer.fromJson<String>(json['id']),
+      deviceId: serializer.fromJson<String>(json['deviceId']),
+      startedAt: serializer.fromJson<DateTime>(json['startedAt']),
+      endedAt: serializer.fromJson<DateTime?>(json['endedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'deviceId': serializer.toJson<String>(deviceId),
+      'startedAt': serializer.toJson<DateTime>(startedAt),
+      'endedAt': serializer.toJson<DateTime?>(endedAt),
+    };
+  }
+
+  AcquisitionSession copyWith(
+          {String? id,
+          String? deviceId,
+          DateTime? startedAt,
+          Value<DateTime?> endedAt = const Value.absent()}) =>
+      AcquisitionSession(
+        id: id ?? this.id,
+        deviceId: deviceId ?? this.deviceId,
+        startedAt: startedAt ?? this.startedAt,
+        endedAt: endedAt.present ? endedAt.value : this.endedAt,
+      );
+  AcquisitionSession copyWithCompanion(AcquisitionSessionsCompanion data) {
+    return AcquisitionSession(
+      id: data.id.present ? data.id.value : this.id,
+      deviceId: data.deviceId.present ? data.deviceId.value : this.deviceId,
+      startedAt: data.startedAt.present ? data.startedAt.value : this.startedAt,
+      endedAt: data.endedAt.present ? data.endedAt.value : this.endedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('AcquisitionSession(')
+          ..write('id: $id, ')
+          ..write('deviceId: $deviceId, ')
+          ..write('startedAt: $startedAt, ')
+          ..write('endedAt: $endedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, deviceId, startedAt, endedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is AcquisitionSession &&
+          other.id == this.id &&
+          other.deviceId == this.deviceId &&
+          other.startedAt == this.startedAt &&
+          other.endedAt == this.endedAt);
+}
+
+class AcquisitionSessionsCompanion extends UpdateCompanion<AcquisitionSession> {
+  final Value<String> id;
+  final Value<String> deviceId;
+  final Value<DateTime> startedAt;
+  final Value<DateTime?> endedAt;
+  final Value<int> rowid;
+  const AcquisitionSessionsCompanion({
+    this.id = const Value.absent(),
+    this.deviceId = const Value.absent(),
+    this.startedAt = const Value.absent(),
+    this.endedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  AcquisitionSessionsCompanion.insert({
+    required String id,
+    required String deviceId,
+    required DateTime startedAt,
+    this.endedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  })  : id = Value(id),
+        deviceId = Value(deviceId),
+        startedAt = Value(startedAt);
+  static Insertable<AcquisitionSession> custom({
+    Expression<String>? id,
+    Expression<String>? deviceId,
+    Expression<DateTime>? startedAt,
+    Expression<DateTime>? endedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (deviceId != null) 'device_id': deviceId,
+      if (startedAt != null) 'started_at': startedAt,
+      if (endedAt != null) 'ended_at': endedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  AcquisitionSessionsCompanion copyWith(
+      {Value<String>? id,
+      Value<String>? deviceId,
+      Value<DateTime>? startedAt,
+      Value<DateTime?>? endedAt,
+      Value<int>? rowid}) {
+    return AcquisitionSessionsCompanion(
+      id: id ?? this.id,
+      deviceId: deviceId ?? this.deviceId,
+      startedAt: startedAt ?? this.startedAt,
+      endedAt: endedAt ?? this.endedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (deviceId.present) {
+      map['device_id'] = Variable<String>(deviceId.value);
+    }
+    if (startedAt.present) {
+      map['started_at'] = Variable<DateTime>(startedAt.value);
+    }
+    if (endedAt.present) {
+      map['ended_at'] = Variable<DateTime>(endedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('AcquisitionSessionsCompanion(')
+          ..write('id: $id, ')
+          ..write('deviceId: $deviceId, ')
+          ..write('startedAt: $startedAt, ')
+          ..write('endedAt: $endedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $StateTransitionsTable extends StateTransitions
+    with TableInfo<$StateTransitionsTable, StateTransition> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $StateTransitionsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+      'id', aliasedName, false,
+      hasAutoIncrement: true,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('PRIMARY KEY AUTOINCREMENT'));
+  static const VerificationMeta _sessionIdMeta =
+      const VerificationMeta('sessionId');
+  @override
+  late final GeneratedColumn<String> sessionId = GeneratedColumn<String>(
+      'session_id', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: true,
+      defaultConstraints: GeneratedColumn.constraintIsAlways(
+          'REFERENCES acquisition_sessions (id)'));
+  static const VerificationMeta _fromStateMeta =
+      const VerificationMeta('fromState');
+  @override
+  late final GeneratedColumn<String> fromState = GeneratedColumn<String>(
+      'from_state', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _toStateMeta =
+      const VerificationMeta('toState');
+  @override
+  late final GeneratedColumn<String> toState = GeneratedColumn<String>(
+      'to_state', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _reasonMeta = const VerificationMeta('reason');
+  @override
+  late final GeneratedColumn<String> reason = GeneratedColumn<String>(
+      'reason', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _timestampMeta =
+      const VerificationMeta('timestamp');
+  @override
+  late final GeneratedColumn<DateTime> timestamp = GeneratedColumn<DateTime>(
+      'timestamp', aliasedName, false,
+      type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  static const VerificationMeta _sigmaMeta = const VerificationMeta('sigma');
+  @override
+  late final GeneratedColumn<double> sigma = GeneratedColumn<double>(
+      'sigma', aliasedName, true,
+      type: DriftSqlType.double, requiredDuringInsert: false);
+  static const VerificationMeta _speedMpsMeta =
+      const VerificationMeta('speedMps');
+  @override
+  late final GeneratedColumn<double> speedMps = GeneratedColumn<double>(
+      'speed_mps', aliasedName, true,
+      type: DriftSqlType.double, requiredDuringInsert: false);
+  @override
+  List<GeneratedColumn> get $columns =>
+      [id, sessionId, fromState, toState, reason, timestamp, sigma, speedMps];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'state_transitions';
+  @override
+  VerificationContext validateIntegrity(Insertable<StateTransition> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('session_id')) {
+      context.handle(_sessionIdMeta,
+          sessionId.isAcceptableOrUnknown(data['session_id']!, _sessionIdMeta));
+    } else if (isInserting) {
+      context.missing(_sessionIdMeta);
+    }
+    if (data.containsKey('from_state')) {
+      context.handle(_fromStateMeta,
+          fromState.isAcceptableOrUnknown(data['from_state']!, _fromStateMeta));
+    } else if (isInserting) {
+      context.missing(_fromStateMeta);
+    }
+    if (data.containsKey('to_state')) {
+      context.handle(_toStateMeta,
+          toState.isAcceptableOrUnknown(data['to_state']!, _toStateMeta));
+    } else if (isInserting) {
+      context.missing(_toStateMeta);
+    }
+    if (data.containsKey('reason')) {
+      context.handle(_reasonMeta,
+          reason.isAcceptableOrUnknown(data['reason']!, _reasonMeta));
+    } else if (isInserting) {
+      context.missing(_reasonMeta);
+    }
+    if (data.containsKey('timestamp')) {
+      context.handle(_timestampMeta,
+          timestamp.isAcceptableOrUnknown(data['timestamp']!, _timestampMeta));
+    } else if (isInserting) {
+      context.missing(_timestampMeta);
+    }
+    if (data.containsKey('sigma')) {
+      context.handle(
+          _sigmaMeta, sigma.isAcceptableOrUnknown(data['sigma']!, _sigmaMeta));
+    }
+    if (data.containsKey('speed_mps')) {
+      context.handle(_speedMpsMeta,
+          speedMps.isAcceptableOrUnknown(data['speed_mps']!, _speedMpsMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  StateTransition map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return StateTransition(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
+      sessionId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}session_id'])!,
+      fromState: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}from_state'])!,
+      toState: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}to_state'])!,
+      reason: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}reason'])!,
+      timestamp: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}timestamp'])!,
+      sigma: attachedDatabase.typeMapping
+          .read(DriftSqlType.double, data['${effectivePrefix}sigma']),
+      speedMps: attachedDatabase.typeMapping
+          .read(DriftSqlType.double, data['${effectivePrefix}speed_mps']),
+    );
+  }
+
+  @override
+  $StateTransitionsTable createAlias(String alias) {
+    return $StateTransitionsTable(attachedDatabase, alias);
+  }
+}
+
+class StateTransition extends DataClass implements Insertable<StateTransition> {
+  final int id;
+  final String sessionId;
+  final String fromState;
+  final String toState;
+  final String reason;
+  final DateTime timestamp;
+  final double? sigma;
+  final double? speedMps;
+  const StateTransition(
+      {required this.id,
+      required this.sessionId,
+      required this.fromState,
+      required this.toState,
+      required this.reason,
+      required this.timestamp,
+      this.sigma,
+      this.speedMps});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['session_id'] = Variable<String>(sessionId);
+    map['from_state'] = Variable<String>(fromState);
+    map['to_state'] = Variable<String>(toState);
+    map['reason'] = Variable<String>(reason);
+    map['timestamp'] = Variable<DateTime>(timestamp);
+    if (!nullToAbsent || sigma != null) {
+      map['sigma'] = Variable<double>(sigma);
+    }
+    if (!nullToAbsent || speedMps != null) {
+      map['speed_mps'] = Variable<double>(speedMps);
+    }
+    return map;
+  }
+
+  StateTransitionsCompanion toCompanion(bool nullToAbsent) {
+    return StateTransitionsCompanion(
+      id: Value(id),
+      sessionId: Value(sessionId),
+      fromState: Value(fromState),
+      toState: Value(toState),
+      reason: Value(reason),
+      timestamp: Value(timestamp),
+      sigma:
+          sigma == null && nullToAbsent ? const Value.absent() : Value(sigma),
+      speedMps: speedMps == null && nullToAbsent
+          ? const Value.absent()
+          : Value(speedMps),
+    );
+  }
+
+  factory StateTransition.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return StateTransition(
+      id: serializer.fromJson<int>(json['id']),
+      sessionId: serializer.fromJson<String>(json['sessionId']),
+      fromState: serializer.fromJson<String>(json['fromState']),
+      toState: serializer.fromJson<String>(json['toState']),
+      reason: serializer.fromJson<String>(json['reason']),
+      timestamp: serializer.fromJson<DateTime>(json['timestamp']),
+      sigma: serializer.fromJson<double?>(json['sigma']),
+      speedMps: serializer.fromJson<double?>(json['speedMps']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'sessionId': serializer.toJson<String>(sessionId),
+      'fromState': serializer.toJson<String>(fromState),
+      'toState': serializer.toJson<String>(toState),
+      'reason': serializer.toJson<String>(reason),
+      'timestamp': serializer.toJson<DateTime>(timestamp),
+      'sigma': serializer.toJson<double?>(sigma),
+      'speedMps': serializer.toJson<double?>(speedMps),
+    };
+  }
+
+  StateTransition copyWith(
+          {int? id,
+          String? sessionId,
+          String? fromState,
+          String? toState,
+          String? reason,
+          DateTime? timestamp,
+          Value<double?> sigma = const Value.absent(),
+          Value<double?> speedMps = const Value.absent()}) =>
+      StateTransition(
+        id: id ?? this.id,
+        sessionId: sessionId ?? this.sessionId,
+        fromState: fromState ?? this.fromState,
+        toState: toState ?? this.toState,
+        reason: reason ?? this.reason,
+        timestamp: timestamp ?? this.timestamp,
+        sigma: sigma.present ? sigma.value : this.sigma,
+        speedMps: speedMps.present ? speedMps.value : this.speedMps,
+      );
+  StateTransition copyWithCompanion(StateTransitionsCompanion data) {
+    return StateTransition(
+      id: data.id.present ? data.id.value : this.id,
+      sessionId: data.sessionId.present ? data.sessionId.value : this.sessionId,
+      fromState: data.fromState.present ? data.fromState.value : this.fromState,
+      toState: data.toState.present ? data.toState.value : this.toState,
+      reason: data.reason.present ? data.reason.value : this.reason,
+      timestamp: data.timestamp.present ? data.timestamp.value : this.timestamp,
+      sigma: data.sigma.present ? data.sigma.value : this.sigma,
+      speedMps: data.speedMps.present ? data.speedMps.value : this.speedMps,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('StateTransition(')
+          ..write('id: $id, ')
+          ..write('sessionId: $sessionId, ')
+          ..write('fromState: $fromState, ')
+          ..write('toState: $toState, ')
+          ..write('reason: $reason, ')
+          ..write('timestamp: $timestamp, ')
+          ..write('sigma: $sigma, ')
+          ..write('speedMps: $speedMps')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+      id, sessionId, fromState, toState, reason, timestamp, sigma, speedMps);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is StateTransition &&
+          other.id == this.id &&
+          other.sessionId == this.sessionId &&
+          other.fromState == this.fromState &&
+          other.toState == this.toState &&
+          other.reason == this.reason &&
+          other.timestamp == this.timestamp &&
+          other.sigma == this.sigma &&
+          other.speedMps == this.speedMps);
+}
+
+class StateTransitionsCompanion extends UpdateCompanion<StateTransition> {
+  final Value<int> id;
+  final Value<String> sessionId;
+  final Value<String> fromState;
+  final Value<String> toState;
+  final Value<String> reason;
+  final Value<DateTime> timestamp;
+  final Value<double?> sigma;
+  final Value<double?> speedMps;
+  const StateTransitionsCompanion({
+    this.id = const Value.absent(),
+    this.sessionId = const Value.absent(),
+    this.fromState = const Value.absent(),
+    this.toState = const Value.absent(),
+    this.reason = const Value.absent(),
+    this.timestamp = const Value.absent(),
+    this.sigma = const Value.absent(),
+    this.speedMps = const Value.absent(),
+  });
+  StateTransitionsCompanion.insert({
+    this.id = const Value.absent(),
+    required String sessionId,
+    required String fromState,
+    required String toState,
+    required String reason,
+    required DateTime timestamp,
+    this.sigma = const Value.absent(),
+    this.speedMps = const Value.absent(),
+  })  : sessionId = Value(sessionId),
+        fromState = Value(fromState),
+        toState = Value(toState),
+        reason = Value(reason),
+        timestamp = Value(timestamp);
+  static Insertable<StateTransition> custom({
+    Expression<int>? id,
+    Expression<String>? sessionId,
+    Expression<String>? fromState,
+    Expression<String>? toState,
+    Expression<String>? reason,
+    Expression<DateTime>? timestamp,
+    Expression<double>? sigma,
+    Expression<double>? speedMps,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (sessionId != null) 'session_id': sessionId,
+      if (fromState != null) 'from_state': fromState,
+      if (toState != null) 'to_state': toState,
+      if (reason != null) 'reason': reason,
+      if (timestamp != null) 'timestamp': timestamp,
+      if (sigma != null) 'sigma': sigma,
+      if (speedMps != null) 'speed_mps': speedMps,
+    });
+  }
+
+  StateTransitionsCompanion copyWith(
+      {Value<int>? id,
+      Value<String>? sessionId,
+      Value<String>? fromState,
+      Value<String>? toState,
+      Value<String>? reason,
+      Value<DateTime>? timestamp,
+      Value<double?>? sigma,
+      Value<double?>? speedMps}) {
+    return StateTransitionsCompanion(
+      id: id ?? this.id,
+      sessionId: sessionId ?? this.sessionId,
+      fromState: fromState ?? this.fromState,
+      toState: toState ?? this.toState,
+      reason: reason ?? this.reason,
+      timestamp: timestamp ?? this.timestamp,
+      sigma: sigma ?? this.sigma,
+      speedMps: speedMps ?? this.speedMps,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (sessionId.present) {
+      map['session_id'] = Variable<String>(sessionId.value);
+    }
+    if (fromState.present) {
+      map['from_state'] = Variable<String>(fromState.value);
+    }
+    if (toState.present) {
+      map['to_state'] = Variable<String>(toState.value);
+    }
+    if (reason.present) {
+      map['reason'] = Variable<String>(reason.value);
+    }
+    if (timestamp.present) {
+      map['timestamp'] = Variable<DateTime>(timestamp.value);
+    }
+    if (sigma.present) {
+      map['sigma'] = Variable<double>(sigma.value);
+    }
+    if (speedMps.present) {
+      map['speed_mps'] = Variable<double>(speedMps.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('StateTransitionsCompanion(')
+          ..write('id: $id, ')
+          ..write('sessionId: $sessionId, ')
+          ..write('fromState: $fromState, ')
+          ..write('toState: $toState, ')
+          ..write('reason: $reason, ')
+          ..write('timestamp: $timestamp, ')
+          ..write('sigma: $sigma, ')
+          ..write('speedMps: $speedMps')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $GpsPointsTable extends GpsPoints
+    with TableInfo<$GpsPointsTable, GpsPoint> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $GpsPointsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+      'id', aliasedName, false,
+      hasAutoIncrement: true,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('PRIMARY KEY AUTOINCREMENT'));
+  static const VerificationMeta _sessionIdMeta =
+      const VerificationMeta('sessionId');
+  @override
+  late final GeneratedColumn<String> sessionId = GeneratedColumn<String>(
+      'session_id', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: true,
+      defaultConstraints: GeneratedColumn.constraintIsAlways(
+          'REFERENCES acquisition_sessions (id)'));
+  static const VerificationMeta _latitudeMeta =
+      const VerificationMeta('latitude');
+  @override
+  late final GeneratedColumn<double> latitude = GeneratedColumn<double>(
+      'latitude', aliasedName, false,
+      type: DriftSqlType.double, requiredDuringInsert: true);
+  static const VerificationMeta _longitudeMeta =
+      const VerificationMeta('longitude');
+  @override
+  late final GeneratedColumn<double> longitude = GeneratedColumn<double>(
+      'longitude', aliasedName, false,
+      type: DriftSqlType.double, requiredDuringInsert: true);
+  static const VerificationMeta _timestampMeta =
+      const VerificationMeta('timestamp');
+  @override
+  late final GeneratedColumn<DateTime> timestamp = GeneratedColumn<DateTime>(
+      'timestamp', aliasedName, false,
+      type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  static const VerificationMeta _speedMpsMeta =
+      const VerificationMeta('speedMps');
+  @override
+  late final GeneratedColumn<double> speedMps = GeneratedColumn<double>(
+      'speed_mps', aliasedName, false,
+      type: DriftSqlType.double, requiredDuringInsert: true);
+  static const VerificationMeta _accuracyMetersMeta =
+      const VerificationMeta('accuracyMeters');
+  @override
+  late final GeneratedColumn<double> accuracyMeters = GeneratedColumn<double>(
+      'accuracy_meters', aliasedName, true,
+      type: DriftSqlType.double, requiredDuringInsert: false);
+  static const VerificationMeta _acceptedMeta =
+      const VerificationMeta('accepted');
+  @override
+  late final GeneratedColumn<bool> accepted = GeneratedColumn<bool>(
+      'accepted', aliasedName, false,
+      type: DriftSqlType.bool,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('CHECK ("accepted" IN (0, 1))'),
+      defaultValue: const Constant(true));
+  static const VerificationMeta _rejectionReasonMeta =
+      const VerificationMeta('rejectionReason');
+  @override
+  late final GeneratedColumn<String> rejectionReason = GeneratedColumn<String>(
+      'rejection_reason', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _isSyncedMeta =
+      const VerificationMeta('isSynced');
+  @override
+  late final GeneratedColumn<bool> isSynced = GeneratedColumn<bool>(
+      'is_synced', aliasedName, false,
+      type: DriftSqlType.bool,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('CHECK ("is_synced" IN (0, 1))'),
+      defaultValue: const Constant(false));
+  @override
+  List<GeneratedColumn> get $columns => [
+        id,
+        sessionId,
+        latitude,
+        longitude,
+        timestamp,
+        speedMps,
+        accuracyMeters,
+        accepted,
+        rejectionReason,
+        isSynced
+      ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'gps_points';
+  @override
+  VerificationContext validateIntegrity(Insertable<GpsPoint> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('session_id')) {
+      context.handle(_sessionIdMeta,
+          sessionId.isAcceptableOrUnknown(data['session_id']!, _sessionIdMeta));
+    } else if (isInserting) {
+      context.missing(_sessionIdMeta);
+    }
+    if (data.containsKey('latitude')) {
+      context.handle(_latitudeMeta,
+          latitude.isAcceptableOrUnknown(data['latitude']!, _latitudeMeta));
+    } else if (isInserting) {
+      context.missing(_latitudeMeta);
+    }
+    if (data.containsKey('longitude')) {
+      context.handle(_longitudeMeta,
+          longitude.isAcceptableOrUnknown(data['longitude']!, _longitudeMeta));
+    } else if (isInserting) {
+      context.missing(_longitudeMeta);
+    }
+    if (data.containsKey('timestamp')) {
+      context.handle(_timestampMeta,
+          timestamp.isAcceptableOrUnknown(data['timestamp']!, _timestampMeta));
+    } else if (isInserting) {
+      context.missing(_timestampMeta);
+    }
+    if (data.containsKey('speed_mps')) {
+      context.handle(_speedMpsMeta,
+          speedMps.isAcceptableOrUnknown(data['speed_mps']!, _speedMpsMeta));
+    } else if (isInserting) {
+      context.missing(_speedMpsMeta);
+    }
+    if (data.containsKey('accuracy_meters')) {
+      context.handle(
+          _accuracyMetersMeta,
+          accuracyMeters.isAcceptableOrUnknown(
+              data['accuracy_meters']!, _accuracyMetersMeta));
+    }
+    if (data.containsKey('accepted')) {
+      context.handle(_acceptedMeta,
+          accepted.isAcceptableOrUnknown(data['accepted']!, _acceptedMeta));
+    }
+    if (data.containsKey('rejection_reason')) {
+      context.handle(
+          _rejectionReasonMeta,
+          rejectionReason.isAcceptableOrUnknown(
+              data['rejection_reason']!, _rejectionReasonMeta));
+    }
+    if (data.containsKey('is_synced')) {
+      context.handle(_isSyncedMeta,
+          isSynced.isAcceptableOrUnknown(data['is_synced']!, _isSyncedMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  GpsPoint map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return GpsPoint(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
+      sessionId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}session_id'])!,
+      latitude: attachedDatabase.typeMapping
+          .read(DriftSqlType.double, data['${effectivePrefix}latitude'])!,
+      longitude: attachedDatabase.typeMapping
+          .read(DriftSqlType.double, data['${effectivePrefix}longitude'])!,
+      timestamp: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}timestamp'])!,
+      speedMps: attachedDatabase.typeMapping
+          .read(DriftSqlType.double, data['${effectivePrefix}speed_mps'])!,
+      accuracyMeters: attachedDatabase.typeMapping
+          .read(DriftSqlType.double, data['${effectivePrefix}accuracy_meters']),
+      accepted: attachedDatabase.typeMapping
+          .read(DriftSqlType.bool, data['${effectivePrefix}accepted'])!,
+      rejectionReason: attachedDatabase.typeMapping.read(
+          DriftSqlType.string, data['${effectivePrefix}rejection_reason']),
+      isSynced: attachedDatabase.typeMapping
+          .read(DriftSqlType.bool, data['${effectivePrefix}is_synced'])!,
+    );
+  }
+
+  @override
+  $GpsPointsTable createAlias(String alias) {
+    return $GpsPointsTable(attachedDatabase, alias);
+  }
+}
+
+class GpsPoint extends DataClass implements Insertable<GpsPoint> {
+  final int id;
+  final String sessionId;
+  final double latitude;
+  final double longitude;
+  final DateTime timestamp;
+  final double speedMps;
+  final double? accuracyMeters;
+  final bool accepted;
+  final String? rejectionReason;
+  final bool isSynced;
+  const GpsPoint(
+      {required this.id,
+      required this.sessionId,
+      required this.latitude,
+      required this.longitude,
+      required this.timestamp,
+      required this.speedMps,
+      this.accuracyMeters,
+      required this.accepted,
+      this.rejectionReason,
+      required this.isSynced});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['session_id'] = Variable<String>(sessionId);
+    map['latitude'] = Variable<double>(latitude);
+    map['longitude'] = Variable<double>(longitude);
+    map['timestamp'] = Variable<DateTime>(timestamp);
+    map['speed_mps'] = Variable<double>(speedMps);
+    if (!nullToAbsent || accuracyMeters != null) {
+      map['accuracy_meters'] = Variable<double>(accuracyMeters);
+    }
+    map['accepted'] = Variable<bool>(accepted);
+    if (!nullToAbsent || rejectionReason != null) {
+      map['rejection_reason'] = Variable<String>(rejectionReason);
+    }
+    map['is_synced'] = Variable<bool>(isSynced);
+    return map;
+  }
+
+  GpsPointsCompanion toCompanion(bool nullToAbsent) {
+    return GpsPointsCompanion(
+      id: Value(id),
+      sessionId: Value(sessionId),
+      latitude: Value(latitude),
+      longitude: Value(longitude),
+      timestamp: Value(timestamp),
+      speedMps: Value(speedMps),
+      accuracyMeters: accuracyMeters == null && nullToAbsent
+          ? const Value.absent()
+          : Value(accuracyMeters),
+      accepted: Value(accepted),
+      rejectionReason: rejectionReason == null && nullToAbsent
+          ? const Value.absent()
+          : Value(rejectionReason),
+      isSynced: Value(isSynced),
+    );
+  }
+
+  factory GpsPoint.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return GpsPoint(
+      id: serializer.fromJson<int>(json['id']),
+      sessionId: serializer.fromJson<String>(json['sessionId']),
+      latitude: serializer.fromJson<double>(json['latitude']),
+      longitude: serializer.fromJson<double>(json['longitude']),
+      timestamp: serializer.fromJson<DateTime>(json['timestamp']),
+      speedMps: serializer.fromJson<double>(json['speedMps']),
+      accuracyMeters: serializer.fromJson<double?>(json['accuracyMeters']),
+      accepted: serializer.fromJson<bool>(json['accepted']),
+      rejectionReason: serializer.fromJson<String?>(json['rejectionReason']),
+      isSynced: serializer.fromJson<bool>(json['isSynced']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'sessionId': serializer.toJson<String>(sessionId),
+      'latitude': serializer.toJson<double>(latitude),
+      'longitude': serializer.toJson<double>(longitude),
+      'timestamp': serializer.toJson<DateTime>(timestamp),
+      'speedMps': serializer.toJson<double>(speedMps),
+      'accuracyMeters': serializer.toJson<double?>(accuracyMeters),
+      'accepted': serializer.toJson<bool>(accepted),
+      'rejectionReason': serializer.toJson<String?>(rejectionReason),
+      'isSynced': serializer.toJson<bool>(isSynced),
+    };
+  }
+
+  GpsPoint copyWith(
+          {int? id,
+          String? sessionId,
+          double? latitude,
+          double? longitude,
+          DateTime? timestamp,
+          double? speedMps,
+          Value<double?> accuracyMeters = const Value.absent(),
+          bool? accepted,
+          Value<String?> rejectionReason = const Value.absent(),
+          bool? isSynced}) =>
+      GpsPoint(
+        id: id ?? this.id,
+        sessionId: sessionId ?? this.sessionId,
+        latitude: latitude ?? this.latitude,
+        longitude: longitude ?? this.longitude,
+        timestamp: timestamp ?? this.timestamp,
+        speedMps: speedMps ?? this.speedMps,
+        accuracyMeters:
+            accuracyMeters.present ? accuracyMeters.value : this.accuracyMeters,
+        accepted: accepted ?? this.accepted,
+        rejectionReason: rejectionReason.present
+            ? rejectionReason.value
+            : this.rejectionReason,
+        isSynced: isSynced ?? this.isSynced,
+      );
+  GpsPoint copyWithCompanion(GpsPointsCompanion data) {
+    return GpsPoint(
+      id: data.id.present ? data.id.value : this.id,
+      sessionId: data.sessionId.present ? data.sessionId.value : this.sessionId,
+      latitude: data.latitude.present ? data.latitude.value : this.latitude,
+      longitude: data.longitude.present ? data.longitude.value : this.longitude,
+      timestamp: data.timestamp.present ? data.timestamp.value : this.timestamp,
+      speedMps: data.speedMps.present ? data.speedMps.value : this.speedMps,
+      accuracyMeters: data.accuracyMeters.present
+          ? data.accuracyMeters.value
+          : this.accuracyMeters,
+      accepted: data.accepted.present ? data.accepted.value : this.accepted,
+      rejectionReason: data.rejectionReason.present
+          ? data.rejectionReason.value
+          : this.rejectionReason,
+      isSynced: data.isSynced.present ? data.isSynced.value : this.isSynced,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('GpsPoint(')
+          ..write('id: $id, ')
+          ..write('sessionId: $sessionId, ')
+          ..write('latitude: $latitude, ')
+          ..write('longitude: $longitude, ')
+          ..write('timestamp: $timestamp, ')
+          ..write('speedMps: $speedMps, ')
+          ..write('accuracyMeters: $accuracyMeters, ')
+          ..write('accepted: $accepted, ')
+          ..write('rejectionReason: $rejectionReason, ')
+          ..write('isSynced: $isSynced')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, sessionId, latitude, longitude, timestamp,
+      speedMps, accuracyMeters, accepted, rejectionReason, isSynced);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is GpsPoint &&
+          other.id == this.id &&
+          other.sessionId == this.sessionId &&
+          other.latitude == this.latitude &&
+          other.longitude == this.longitude &&
+          other.timestamp == this.timestamp &&
+          other.speedMps == this.speedMps &&
+          other.accuracyMeters == this.accuracyMeters &&
+          other.accepted == this.accepted &&
+          other.rejectionReason == this.rejectionReason &&
+          other.isSynced == this.isSynced);
+}
+
+class GpsPointsCompanion extends UpdateCompanion<GpsPoint> {
+  final Value<int> id;
+  final Value<String> sessionId;
+  final Value<double> latitude;
+  final Value<double> longitude;
+  final Value<DateTime> timestamp;
+  final Value<double> speedMps;
+  final Value<double?> accuracyMeters;
+  final Value<bool> accepted;
+  final Value<String?> rejectionReason;
+  final Value<bool> isSynced;
+  const GpsPointsCompanion({
+    this.id = const Value.absent(),
+    this.sessionId = const Value.absent(),
+    this.latitude = const Value.absent(),
+    this.longitude = const Value.absent(),
+    this.timestamp = const Value.absent(),
+    this.speedMps = const Value.absent(),
+    this.accuracyMeters = const Value.absent(),
+    this.accepted = const Value.absent(),
+    this.rejectionReason = const Value.absent(),
+    this.isSynced = const Value.absent(),
+  });
+  GpsPointsCompanion.insert({
+    this.id = const Value.absent(),
+    required String sessionId,
+    required double latitude,
+    required double longitude,
+    required DateTime timestamp,
+    required double speedMps,
+    this.accuracyMeters = const Value.absent(),
+    this.accepted = const Value.absent(),
+    this.rejectionReason = const Value.absent(),
+    this.isSynced = const Value.absent(),
+  })  : sessionId = Value(sessionId),
+        latitude = Value(latitude),
+        longitude = Value(longitude),
+        timestamp = Value(timestamp),
+        speedMps = Value(speedMps);
+  static Insertable<GpsPoint> custom({
+    Expression<int>? id,
+    Expression<String>? sessionId,
+    Expression<double>? latitude,
+    Expression<double>? longitude,
+    Expression<DateTime>? timestamp,
+    Expression<double>? speedMps,
+    Expression<double>? accuracyMeters,
+    Expression<bool>? accepted,
+    Expression<String>? rejectionReason,
+    Expression<bool>? isSynced,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (sessionId != null) 'session_id': sessionId,
+      if (latitude != null) 'latitude': latitude,
+      if (longitude != null) 'longitude': longitude,
+      if (timestamp != null) 'timestamp': timestamp,
+      if (speedMps != null) 'speed_mps': speedMps,
+      if (accuracyMeters != null) 'accuracy_meters': accuracyMeters,
+      if (accepted != null) 'accepted': accepted,
+      if (rejectionReason != null) 'rejection_reason': rejectionReason,
+      if (isSynced != null) 'is_synced': isSynced,
+    });
+  }
+
+  GpsPointsCompanion copyWith(
+      {Value<int>? id,
+      Value<String>? sessionId,
+      Value<double>? latitude,
+      Value<double>? longitude,
+      Value<DateTime>? timestamp,
+      Value<double>? speedMps,
+      Value<double?>? accuracyMeters,
+      Value<bool>? accepted,
+      Value<String?>? rejectionReason,
+      Value<bool>? isSynced}) {
+    return GpsPointsCompanion(
+      id: id ?? this.id,
+      sessionId: sessionId ?? this.sessionId,
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
+      timestamp: timestamp ?? this.timestamp,
+      speedMps: speedMps ?? this.speedMps,
+      accuracyMeters: accuracyMeters ?? this.accuracyMeters,
+      accepted: accepted ?? this.accepted,
+      rejectionReason: rejectionReason ?? this.rejectionReason,
+      isSynced: isSynced ?? this.isSynced,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (sessionId.present) {
+      map['session_id'] = Variable<String>(sessionId.value);
+    }
+    if (latitude.present) {
+      map['latitude'] = Variable<double>(latitude.value);
+    }
+    if (longitude.present) {
+      map['longitude'] = Variable<double>(longitude.value);
+    }
+    if (timestamp.present) {
+      map['timestamp'] = Variable<DateTime>(timestamp.value);
+    }
+    if (speedMps.present) {
+      map['speed_mps'] = Variable<double>(speedMps.value);
+    }
+    if (accuracyMeters.present) {
+      map['accuracy_meters'] = Variable<double>(accuracyMeters.value);
+    }
+    if (accepted.present) {
+      map['accepted'] = Variable<bool>(accepted.value);
+    }
+    if (rejectionReason.present) {
+      map['rejection_reason'] = Variable<String>(rejectionReason.value);
+    }
+    if (isSynced.present) {
+      map['is_synced'] = Variable<bool>(isSynced.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('GpsPointsCompanion(')
+          ..write('id: $id, ')
+          ..write('sessionId: $sessionId, ')
+          ..write('latitude: $latitude, ')
+          ..write('longitude: $longitude, ')
+          ..write('timestamp: $timestamp, ')
+          ..write('speedMps: $speedMps, ')
+          ..write('accuracyMeters: $accuracyMeters, ')
+          ..write('accepted: $accepted, ')
+          ..write('rejectionReason: $rejectionReason, ')
+          ..write('isSynced: $isSynced')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $SensorWindowsTable extends SensorWindows
+    with TableInfo<$SensorWindowsTable, SensorWindow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SensorWindowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+      'id', aliasedName, false,
+      hasAutoIncrement: true,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('PRIMARY KEY AUTOINCREMENT'));
+  static const VerificationMeta _sessionIdMeta =
+      const VerificationMeta('sessionId');
+  @override
+  late final GeneratedColumn<String> sessionId = GeneratedColumn<String>(
+      'session_id', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: true,
+      defaultConstraints: GeneratedColumn.constraintIsAlways(
+          'REFERENCES acquisition_sessions (id)'));
+  static const VerificationMeta _startTimestampMeta =
+      const VerificationMeta('startTimestamp');
+  @override
+  late final GeneratedColumn<DateTime> startTimestamp =
+      GeneratedColumn<DateTime>('start_timestamp', aliasedName, false,
+          type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  static const VerificationMeta _endTimestampMeta =
+      const VerificationMeta('endTimestamp');
+  @override
+  late final GeneratedColumn<DateTime> endTimestamp = GeneratedColumn<DateTime>(
+      'end_timestamp', aliasedName, false,
+      type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  static const VerificationMeta _sampleCountMeta =
+      const VerificationMeta('sampleCount');
+  @override
+  late final GeneratedColumn<int> sampleCount = GeneratedColumn<int>(
+      'sample_count', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _frequencyHzMeta =
+      const VerificationMeta('frequencyHz');
+  @override
+  late final GeneratedColumn<int> frequencyHz = GeneratedColumn<int>(
+      'frequency_hz', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _matrixJsonMeta =
+      const VerificationMeta('matrixJson');
+  @override
+  late final GeneratedColumn<String> matrixJson = GeneratedColumn<String>(
+      'matrix_json', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _isSyncedMeta =
+      const VerificationMeta('isSynced');
+  @override
+  late final GeneratedColumn<bool> isSynced = GeneratedColumn<bool>(
+      'is_synced', aliasedName, false,
+      type: DriftSqlType.bool,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('CHECK ("is_synced" IN (0, 1))'),
+      defaultValue: const Constant(false));
+  @override
+  List<GeneratedColumn> get $columns => [
+        id,
+        sessionId,
+        startTimestamp,
+        endTimestamp,
+        sampleCount,
+        frequencyHz,
+        matrixJson,
+        isSynced
+      ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'sensor_windows';
+  @override
+  VerificationContext validateIntegrity(Insertable<SensorWindow> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('session_id')) {
+      context.handle(_sessionIdMeta,
+          sessionId.isAcceptableOrUnknown(data['session_id']!, _sessionIdMeta));
+    } else if (isInserting) {
+      context.missing(_sessionIdMeta);
+    }
+    if (data.containsKey('start_timestamp')) {
+      context.handle(
+          _startTimestampMeta,
+          startTimestamp.isAcceptableOrUnknown(
+              data['start_timestamp']!, _startTimestampMeta));
+    } else if (isInserting) {
+      context.missing(_startTimestampMeta);
+    }
+    if (data.containsKey('end_timestamp')) {
+      context.handle(
+          _endTimestampMeta,
+          endTimestamp.isAcceptableOrUnknown(
+              data['end_timestamp']!, _endTimestampMeta));
+    } else if (isInserting) {
+      context.missing(_endTimestampMeta);
+    }
+    if (data.containsKey('sample_count')) {
+      context.handle(
+          _sampleCountMeta,
+          sampleCount.isAcceptableOrUnknown(
+              data['sample_count']!, _sampleCountMeta));
+    } else if (isInserting) {
+      context.missing(_sampleCountMeta);
+    }
+    if (data.containsKey('frequency_hz')) {
+      context.handle(
+          _frequencyHzMeta,
+          frequencyHz.isAcceptableOrUnknown(
+              data['frequency_hz']!, _frequencyHzMeta));
+    } else if (isInserting) {
+      context.missing(_frequencyHzMeta);
+    }
+    if (data.containsKey('matrix_json')) {
+      context.handle(
+          _matrixJsonMeta,
+          matrixJson.isAcceptableOrUnknown(
+              data['matrix_json']!, _matrixJsonMeta));
+    } else if (isInserting) {
+      context.missing(_matrixJsonMeta);
+    }
+    if (data.containsKey('is_synced')) {
+      context.handle(_isSyncedMeta,
+          isSynced.isAcceptableOrUnknown(data['is_synced']!, _isSyncedMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  SensorWindow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SensorWindow(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
+      sessionId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}session_id'])!,
+      startTimestamp: attachedDatabase.typeMapping.read(
+          DriftSqlType.dateTime, data['${effectivePrefix}start_timestamp'])!,
+      endTimestamp: attachedDatabase.typeMapping.read(
+          DriftSqlType.dateTime, data['${effectivePrefix}end_timestamp'])!,
+      sampleCount: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}sample_count'])!,
+      frequencyHz: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}frequency_hz'])!,
+      matrixJson: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}matrix_json'])!,
+      isSynced: attachedDatabase.typeMapping
+          .read(DriftSqlType.bool, data['${effectivePrefix}is_synced'])!,
+    );
+  }
+
+  @override
+  $SensorWindowsTable createAlias(String alias) {
+    return $SensorWindowsTable(attachedDatabase, alias);
+  }
+}
+
+class SensorWindow extends DataClass implements Insertable<SensorWindow> {
+  final int id;
+  final String sessionId;
+  final DateTime startTimestamp;
+  final DateTime endTimestamp;
+  final int sampleCount;
+  final int frequencyHz;
+  final String matrixJson;
+  final bool isSynced;
+  const SensorWindow(
+      {required this.id,
+      required this.sessionId,
+      required this.startTimestamp,
+      required this.endTimestamp,
+      required this.sampleCount,
+      required this.frequencyHz,
+      required this.matrixJson,
+      required this.isSynced});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['session_id'] = Variable<String>(sessionId);
+    map['start_timestamp'] = Variable<DateTime>(startTimestamp);
+    map['end_timestamp'] = Variable<DateTime>(endTimestamp);
+    map['sample_count'] = Variable<int>(sampleCount);
+    map['frequency_hz'] = Variable<int>(frequencyHz);
+    map['matrix_json'] = Variable<String>(matrixJson);
+    map['is_synced'] = Variable<bool>(isSynced);
+    return map;
+  }
+
+  SensorWindowsCompanion toCompanion(bool nullToAbsent) {
+    return SensorWindowsCompanion(
+      id: Value(id),
+      sessionId: Value(sessionId),
+      startTimestamp: Value(startTimestamp),
+      endTimestamp: Value(endTimestamp),
+      sampleCount: Value(sampleCount),
+      frequencyHz: Value(frequencyHz),
+      matrixJson: Value(matrixJson),
+      isSynced: Value(isSynced),
+    );
+  }
+
+  factory SensorWindow.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SensorWindow(
+      id: serializer.fromJson<int>(json['id']),
+      sessionId: serializer.fromJson<String>(json['sessionId']),
+      startTimestamp: serializer.fromJson<DateTime>(json['startTimestamp']),
+      endTimestamp: serializer.fromJson<DateTime>(json['endTimestamp']),
+      sampleCount: serializer.fromJson<int>(json['sampleCount']),
+      frequencyHz: serializer.fromJson<int>(json['frequencyHz']),
+      matrixJson: serializer.fromJson<String>(json['matrixJson']),
+      isSynced: serializer.fromJson<bool>(json['isSynced']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'sessionId': serializer.toJson<String>(sessionId),
+      'startTimestamp': serializer.toJson<DateTime>(startTimestamp),
+      'endTimestamp': serializer.toJson<DateTime>(endTimestamp),
+      'sampleCount': serializer.toJson<int>(sampleCount),
+      'frequencyHz': serializer.toJson<int>(frequencyHz),
+      'matrixJson': serializer.toJson<String>(matrixJson),
+      'isSynced': serializer.toJson<bool>(isSynced),
+    };
+  }
+
+  SensorWindow copyWith(
+          {int? id,
+          String? sessionId,
+          DateTime? startTimestamp,
+          DateTime? endTimestamp,
+          int? sampleCount,
+          int? frequencyHz,
+          String? matrixJson,
+          bool? isSynced}) =>
+      SensorWindow(
+        id: id ?? this.id,
+        sessionId: sessionId ?? this.sessionId,
+        startTimestamp: startTimestamp ?? this.startTimestamp,
+        endTimestamp: endTimestamp ?? this.endTimestamp,
+        sampleCount: sampleCount ?? this.sampleCount,
+        frequencyHz: frequencyHz ?? this.frequencyHz,
+        matrixJson: matrixJson ?? this.matrixJson,
+        isSynced: isSynced ?? this.isSynced,
+      );
+  SensorWindow copyWithCompanion(SensorWindowsCompanion data) {
+    return SensorWindow(
+      id: data.id.present ? data.id.value : this.id,
+      sessionId: data.sessionId.present ? data.sessionId.value : this.sessionId,
+      startTimestamp: data.startTimestamp.present
+          ? data.startTimestamp.value
+          : this.startTimestamp,
+      endTimestamp: data.endTimestamp.present
+          ? data.endTimestamp.value
+          : this.endTimestamp,
+      sampleCount:
+          data.sampleCount.present ? data.sampleCount.value : this.sampleCount,
+      frequencyHz:
+          data.frequencyHz.present ? data.frequencyHz.value : this.frequencyHz,
+      matrixJson:
+          data.matrixJson.present ? data.matrixJson.value : this.matrixJson,
+      isSynced: data.isSynced.present ? data.isSynced.value : this.isSynced,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SensorWindow(')
+          ..write('id: $id, ')
+          ..write('sessionId: $sessionId, ')
+          ..write('startTimestamp: $startTimestamp, ')
+          ..write('endTimestamp: $endTimestamp, ')
+          ..write('sampleCount: $sampleCount, ')
+          ..write('frequencyHz: $frequencyHz, ')
+          ..write('matrixJson: $matrixJson, ')
+          ..write('isSynced: $isSynced')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, sessionId, startTimestamp, endTimestamp,
+      sampleCount, frequencyHz, matrixJson, isSynced);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SensorWindow &&
+          other.id == this.id &&
+          other.sessionId == this.sessionId &&
+          other.startTimestamp == this.startTimestamp &&
+          other.endTimestamp == this.endTimestamp &&
+          other.sampleCount == this.sampleCount &&
+          other.frequencyHz == this.frequencyHz &&
+          other.matrixJson == this.matrixJson &&
+          other.isSynced == this.isSynced);
+}
+
+class SensorWindowsCompanion extends UpdateCompanion<SensorWindow> {
+  final Value<int> id;
+  final Value<String> sessionId;
+  final Value<DateTime> startTimestamp;
+  final Value<DateTime> endTimestamp;
+  final Value<int> sampleCount;
+  final Value<int> frequencyHz;
+  final Value<String> matrixJson;
+  final Value<bool> isSynced;
+  const SensorWindowsCompanion({
+    this.id = const Value.absent(),
+    this.sessionId = const Value.absent(),
+    this.startTimestamp = const Value.absent(),
+    this.endTimestamp = const Value.absent(),
+    this.sampleCount = const Value.absent(),
+    this.frequencyHz = const Value.absent(),
+    this.matrixJson = const Value.absent(),
+    this.isSynced = const Value.absent(),
+  });
+  SensorWindowsCompanion.insert({
+    this.id = const Value.absent(),
+    required String sessionId,
+    required DateTime startTimestamp,
+    required DateTime endTimestamp,
+    required int sampleCount,
+    required int frequencyHz,
+    required String matrixJson,
+    this.isSynced = const Value.absent(),
+  })  : sessionId = Value(sessionId),
+        startTimestamp = Value(startTimestamp),
+        endTimestamp = Value(endTimestamp),
+        sampleCount = Value(sampleCount),
+        frequencyHz = Value(frequencyHz),
+        matrixJson = Value(matrixJson);
+  static Insertable<SensorWindow> custom({
+    Expression<int>? id,
+    Expression<String>? sessionId,
+    Expression<DateTime>? startTimestamp,
+    Expression<DateTime>? endTimestamp,
+    Expression<int>? sampleCount,
+    Expression<int>? frequencyHz,
+    Expression<String>? matrixJson,
+    Expression<bool>? isSynced,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (sessionId != null) 'session_id': sessionId,
+      if (startTimestamp != null) 'start_timestamp': startTimestamp,
+      if (endTimestamp != null) 'end_timestamp': endTimestamp,
+      if (sampleCount != null) 'sample_count': sampleCount,
+      if (frequencyHz != null) 'frequency_hz': frequencyHz,
+      if (matrixJson != null) 'matrix_json': matrixJson,
+      if (isSynced != null) 'is_synced': isSynced,
+    });
+  }
+
+  SensorWindowsCompanion copyWith(
+      {Value<int>? id,
+      Value<String>? sessionId,
+      Value<DateTime>? startTimestamp,
+      Value<DateTime>? endTimestamp,
+      Value<int>? sampleCount,
+      Value<int>? frequencyHz,
+      Value<String>? matrixJson,
+      Value<bool>? isSynced}) {
+    return SensorWindowsCompanion(
+      id: id ?? this.id,
+      sessionId: sessionId ?? this.sessionId,
+      startTimestamp: startTimestamp ?? this.startTimestamp,
+      endTimestamp: endTimestamp ?? this.endTimestamp,
+      sampleCount: sampleCount ?? this.sampleCount,
+      frequencyHz: frequencyHz ?? this.frequencyHz,
+      matrixJson: matrixJson ?? this.matrixJson,
+      isSynced: isSynced ?? this.isSynced,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (sessionId.present) {
+      map['session_id'] = Variable<String>(sessionId.value);
+    }
+    if (startTimestamp.present) {
+      map['start_timestamp'] = Variable<DateTime>(startTimestamp.value);
+    }
+    if (endTimestamp.present) {
+      map['end_timestamp'] = Variable<DateTime>(endTimestamp.value);
+    }
+    if (sampleCount.present) {
+      map['sample_count'] = Variable<int>(sampleCount.value);
+    }
+    if (frequencyHz.present) {
+      map['frequency_hz'] = Variable<int>(frequencyHz.value);
+    }
+    if (matrixJson.present) {
+      map['matrix_json'] = Variable<String>(matrixJson.value);
+    }
+    if (isSynced.present) {
+      map['is_synced'] = Variable<bool>(isSynced.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SensorWindowsCompanion(')
+          ..write('id: $id, ')
+          ..write('sessionId: $sessionId, ')
+          ..write('startTimestamp: $startTimestamp, ')
+          ..write('endTimestamp: $endTimestamp, ')
+          ..write('sampleCount: $sampleCount, ')
+          ..write('frequencyHz: $frequencyHz, ')
+          ..write('matrixJson: $matrixJson, ')
+          ..write('isSynced: $isSynced')
+          ..write(')'))
+        .toString();
+  }
+}
+
+abstract class _$AcquisitionLocalDatabase extends GeneratedDatabase {
+  _$AcquisitionLocalDatabase(QueryExecutor e) : super(e);
+  $AcquisitionLocalDatabaseManager get managers =>
+      $AcquisitionLocalDatabaseManager(this);
+  late final $AcquisitionSessionsTable acquisitionSessions =
+      $AcquisitionSessionsTable(this);
+  late final $StateTransitionsTable stateTransitions =
+      $StateTransitionsTable(this);
+  late final $GpsPointsTable gpsPoints = $GpsPointsTable(this);
+  late final $SensorWindowsTable sensorWindows = $SensorWindowsTable(this);
+  late final AcquisitionDao acquisitionDao =
+      AcquisitionDao(this as AcquisitionLocalDatabase);
+  @override
+  Iterable<TableInfo<Table, Object?>> get allTables =>
+      allSchemaEntities.whereType<TableInfo<Table, Object?>>();
+  @override
+  List<DatabaseSchemaEntity> get allSchemaEntities =>
+      [acquisitionSessions, stateTransitions, gpsPoints, sensorWindows];
+}
+
+typedef $$AcquisitionSessionsTableCreateCompanionBuilder
+    = AcquisitionSessionsCompanion Function({
+  required String id,
+  required String deviceId,
+  required DateTime startedAt,
+  Value<DateTime?> endedAt,
+  Value<int> rowid,
+});
+typedef $$AcquisitionSessionsTableUpdateCompanionBuilder
+    = AcquisitionSessionsCompanion Function({
+  Value<String> id,
+  Value<String> deviceId,
+  Value<DateTime> startedAt,
+  Value<DateTime?> endedAt,
+  Value<int> rowid,
+});
+
+final class $$AcquisitionSessionsTableReferences extends BaseReferences<
+    _$AcquisitionLocalDatabase, $AcquisitionSessionsTable, AcquisitionSession> {
+  $$AcquisitionSessionsTableReferences(
+      super.$_db, super.$_table, super.$_typedResult);
+
+  static MultiTypedResultKey<$StateTransitionsTable, List<StateTransition>>
+      _stateTransitionsRefsTable(_$AcquisitionLocalDatabase db) =>
+          MultiTypedResultKey.fromTable(db.stateTransitions,
+              aliasName: $_aliasNameGenerator(
+                  db.acquisitionSessions.id, db.stateTransitions.sessionId));
+
+  $$StateTransitionsTableProcessedTableManager get stateTransitionsRefs {
+    final manager = $$StateTransitionsTableTableManager(
+            $_db, $_db.stateTransitions)
+        .filter((f) => f.sessionId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache =
+        $_typedResult.readTableOrNull(_stateTransitionsRefsTable($_db));
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: cache));
+  }
+
+  static MultiTypedResultKey<$GpsPointsTable, List<GpsPoint>>
+      _gpsPointsRefsTable(_$AcquisitionLocalDatabase db) =>
+          MultiTypedResultKey.fromTable(db.gpsPoints,
+              aliasName: $_aliasNameGenerator(
+                  db.acquisitionSessions.id, db.gpsPoints.sessionId));
+
+  $$GpsPointsTableProcessedTableManager get gpsPointsRefs {
+    final manager = $$GpsPointsTableTableManager($_db, $_db.gpsPoints)
+        .filter((f) => f.sessionId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_gpsPointsRefsTable($_db));
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: cache));
+  }
+
+  static MultiTypedResultKey<$SensorWindowsTable, List<SensorWindow>>
+      _sensorWindowsRefsTable(_$AcquisitionLocalDatabase db) =>
+          MultiTypedResultKey.fromTable(db.sensorWindows,
+              aliasName: $_aliasNameGenerator(
+                  db.acquisitionSessions.id, db.sensorWindows.sessionId));
+
+  $$SensorWindowsTableProcessedTableManager get sensorWindowsRefs {
+    final manager = $$SensorWindowsTableTableManager($_db, $_db.sensorWindows)
+        .filter((f) => f.sessionId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_sensorWindowsRefsTable($_db));
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: cache));
+  }
+}
+
+class $$AcquisitionSessionsTableFilterComposer
+    extends Composer<_$AcquisitionLocalDatabase, $AcquisitionSessionsTable> {
+  $$AcquisitionSessionsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get deviceId => $composableBuilder(
+      column: $table.deviceId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get startedAt => $composableBuilder(
+      column: $table.startedAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get endedAt => $composableBuilder(
+      column: $table.endedAt, builder: (column) => ColumnFilters(column));
+
+  Expression<bool> stateTransitionsRefs(
+      Expression<bool> Function($$StateTransitionsTableFilterComposer f) f) {
+    final $$StateTransitionsTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.stateTransitions,
+        getReferencedColumn: (t) => t.sessionId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$StateTransitionsTableFilterComposer(
+              $db: $db,
+              $table: $db.stateTransitions,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
+
+  Expression<bool> gpsPointsRefs(
+      Expression<bool> Function($$GpsPointsTableFilterComposer f) f) {
+    final $$GpsPointsTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.gpsPoints,
+        getReferencedColumn: (t) => t.sessionId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$GpsPointsTableFilterComposer(
+              $db: $db,
+              $table: $db.gpsPoints,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
+
+  Expression<bool> sensorWindowsRefs(
+      Expression<bool> Function($$SensorWindowsTableFilterComposer f) f) {
+    final $$SensorWindowsTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.sensorWindows,
+        getReferencedColumn: (t) => t.sessionId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$SensorWindowsTableFilterComposer(
+              $db: $db,
+              $table: $db.sensorWindows,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
+}
+
+class $$AcquisitionSessionsTableOrderingComposer
+    extends Composer<_$AcquisitionLocalDatabase, $AcquisitionSessionsTable> {
+  $$AcquisitionSessionsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get deviceId => $composableBuilder(
+      column: $table.deviceId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get startedAt => $composableBuilder(
+      column: $table.startedAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get endedAt => $composableBuilder(
+      column: $table.endedAt, builder: (column) => ColumnOrderings(column));
+}
+
+class $$AcquisitionSessionsTableAnnotationComposer
+    extends Composer<_$AcquisitionLocalDatabase, $AcquisitionSessionsTable> {
+  $$AcquisitionSessionsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get deviceId =>
+      $composableBuilder(column: $table.deviceId, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get startedAt =>
+      $composableBuilder(column: $table.startedAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get endedAt =>
+      $composableBuilder(column: $table.endedAt, builder: (column) => column);
+
+  Expression<T> stateTransitionsRefs<T extends Object>(
+      Expression<T> Function($$StateTransitionsTableAnnotationComposer a) f) {
+    final $$StateTransitionsTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.stateTransitions,
+        getReferencedColumn: (t) => t.sessionId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$StateTransitionsTableAnnotationComposer(
+              $db: $db,
+              $table: $db.stateTransitions,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
+
+  Expression<T> gpsPointsRefs<T extends Object>(
+      Expression<T> Function($$GpsPointsTableAnnotationComposer a) f) {
+    final $$GpsPointsTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.gpsPoints,
+        getReferencedColumn: (t) => t.sessionId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$GpsPointsTableAnnotationComposer(
+              $db: $db,
+              $table: $db.gpsPoints,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
+
+  Expression<T> sensorWindowsRefs<T extends Object>(
+      Expression<T> Function($$SensorWindowsTableAnnotationComposer a) f) {
+    final $$SensorWindowsTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.sensorWindows,
+        getReferencedColumn: (t) => t.sessionId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$SensorWindowsTableAnnotationComposer(
+              $db: $db,
+              $table: $db.sensorWindows,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
+}
+
+class $$AcquisitionSessionsTableTableManager extends RootTableManager<
+    _$AcquisitionLocalDatabase,
+    $AcquisitionSessionsTable,
+    AcquisitionSession,
+    $$AcquisitionSessionsTableFilterComposer,
+    $$AcquisitionSessionsTableOrderingComposer,
+    $$AcquisitionSessionsTableAnnotationComposer,
+    $$AcquisitionSessionsTableCreateCompanionBuilder,
+    $$AcquisitionSessionsTableUpdateCompanionBuilder,
+    (AcquisitionSession, $$AcquisitionSessionsTableReferences),
+    AcquisitionSession,
+    PrefetchHooks Function(
+        {bool stateTransitionsRefs,
+        bool gpsPointsRefs,
+        bool sensorWindowsRefs})> {
+  $$AcquisitionSessionsTableTableManager(
+      _$AcquisitionLocalDatabase db, $AcquisitionSessionsTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$AcquisitionSessionsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$AcquisitionSessionsTableOrderingComposer(
+                  $db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$AcquisitionSessionsTableAnnotationComposer(
+                  $db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<String> id = const Value.absent(),
+            Value<String> deviceId = const Value.absent(),
+            Value<DateTime> startedAt = const Value.absent(),
+            Value<DateTime?> endedAt = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              AcquisitionSessionsCompanion(
+            id: id,
+            deviceId: deviceId,
+            startedAt: startedAt,
+            endedAt: endedAt,
+            rowid: rowid,
+          ),
+          createCompanionCallback: ({
+            required String id,
+            required String deviceId,
+            required DateTime startedAt,
+            Value<DateTime?> endedAt = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              AcquisitionSessionsCompanion.insert(
+            id: id,
+            deviceId: deviceId,
+            startedAt: startedAt,
+            endedAt: endedAt,
+            rowid: rowid,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (
+                    e.readTable(table),
+                    $$AcquisitionSessionsTableReferences(db, table, e)
+                  ))
+              .toList(),
+          prefetchHooksCallback: (
+              {stateTransitionsRefs = false,
+              gpsPointsRefs = false,
+              sensorWindowsRefs = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [
+                if (stateTransitionsRefs) db.stateTransitions,
+                if (gpsPointsRefs) db.gpsPoints,
+                if (sensorWindowsRefs) db.sensorWindows
+              ],
+              addJoins: null,
+              getPrefetchedDataCallback: (items) async {
+                return [
+                  if (stateTransitionsRefs)
+                    await $_getPrefetchedData<AcquisitionSession,
+                            $AcquisitionSessionsTable, StateTransition>(
+                        currentTable: table,
+                        referencedTable: $$AcquisitionSessionsTableReferences
+                            ._stateTransitionsRefsTable(db),
+                        managerFromTypedResult: (p0) =>
+                            $$AcquisitionSessionsTableReferences(db, table, p0)
+                                .stateTransitionsRefs,
+                        referencedItemsForCurrentItem:
+                            (item, referencedItems) => referencedItems
+                                .where((e) => e.sessionId == item.id),
+                        typedResults: items),
+                  if (gpsPointsRefs)
+                    await $_getPrefetchedData<AcquisitionSession,
+                            $AcquisitionSessionsTable, GpsPoint>(
+                        currentTable: table,
+                        referencedTable: $$AcquisitionSessionsTableReferences
+                            ._gpsPointsRefsTable(db),
+                        managerFromTypedResult: (p0) =>
+                            $$AcquisitionSessionsTableReferences(db, table, p0)
+                                .gpsPointsRefs,
+                        referencedItemsForCurrentItem:
+                            (item, referencedItems) => referencedItems
+                                .where((e) => e.sessionId == item.id),
+                        typedResults: items),
+                  if (sensorWindowsRefs)
+                    await $_getPrefetchedData<AcquisitionSession,
+                            $AcquisitionSessionsTable, SensorWindow>(
+                        currentTable: table,
+                        referencedTable: $$AcquisitionSessionsTableReferences
+                            ._sensorWindowsRefsTable(db),
+                        managerFromTypedResult: (p0) =>
+                            $$AcquisitionSessionsTableReferences(db, table, p0)
+                                .sensorWindowsRefs,
+                        referencedItemsForCurrentItem:
+                            (item, referencedItems) => referencedItems
+                                .where((e) => e.sessionId == item.id),
+                        typedResults: items)
+                ];
+              },
+            );
+          },
+        ));
+}
+
+typedef $$AcquisitionSessionsTableProcessedTableManager = ProcessedTableManager<
+    _$AcquisitionLocalDatabase,
+    $AcquisitionSessionsTable,
+    AcquisitionSession,
+    $$AcquisitionSessionsTableFilterComposer,
+    $$AcquisitionSessionsTableOrderingComposer,
+    $$AcquisitionSessionsTableAnnotationComposer,
+    $$AcquisitionSessionsTableCreateCompanionBuilder,
+    $$AcquisitionSessionsTableUpdateCompanionBuilder,
+    (AcquisitionSession, $$AcquisitionSessionsTableReferences),
+    AcquisitionSession,
+    PrefetchHooks Function(
+        {bool stateTransitionsRefs,
+        bool gpsPointsRefs,
+        bool sensorWindowsRefs})>;
+typedef $$StateTransitionsTableCreateCompanionBuilder
+    = StateTransitionsCompanion Function({
+  Value<int> id,
+  required String sessionId,
+  required String fromState,
+  required String toState,
+  required String reason,
+  required DateTime timestamp,
+  Value<double?> sigma,
+  Value<double?> speedMps,
+});
+typedef $$StateTransitionsTableUpdateCompanionBuilder
+    = StateTransitionsCompanion Function({
+  Value<int> id,
+  Value<String> sessionId,
+  Value<String> fromState,
+  Value<String> toState,
+  Value<String> reason,
+  Value<DateTime> timestamp,
+  Value<double?> sigma,
+  Value<double?> speedMps,
+});
+
+final class $$StateTransitionsTableReferences extends BaseReferences<
+    _$AcquisitionLocalDatabase, $StateTransitionsTable, StateTransition> {
+  $$StateTransitionsTableReferences(
+      super.$_db, super.$_table, super.$_typedResult);
+
+  static $AcquisitionSessionsTable _sessionIdTable(
+          _$AcquisitionLocalDatabase db) =>
+      db.acquisitionSessions.createAlias($_aliasNameGenerator(
+          db.stateTransitions.sessionId, db.acquisitionSessions.id));
+
+  $$AcquisitionSessionsTableProcessedTableManager get sessionId {
+    final $_column = $_itemColumn<String>('session_id')!;
+
+    final manager =
+        $$AcquisitionSessionsTableTableManager($_db, $_db.acquisitionSessions)
+            .filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_sessionIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: [item]));
+  }
+}
+
+class $$StateTransitionsTableFilterComposer
+    extends Composer<_$AcquisitionLocalDatabase, $StateTransitionsTable> {
+  $$StateTransitionsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get fromState => $composableBuilder(
+      column: $table.fromState, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get toState => $composableBuilder(
+      column: $table.toState, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get reason => $composableBuilder(
+      column: $table.reason, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get timestamp => $composableBuilder(
+      column: $table.timestamp, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<double> get sigma => $composableBuilder(
+      column: $table.sigma, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<double> get speedMps => $composableBuilder(
+      column: $table.speedMps, builder: (column) => ColumnFilters(column));
+
+  $$AcquisitionSessionsTableFilterComposer get sessionId {
+    final $$AcquisitionSessionsTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.sessionId,
+        referencedTable: $db.acquisitionSessions,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$AcquisitionSessionsTableFilterComposer(
+              $db: $db,
+              $table: $db.acquisitionSessions,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$StateTransitionsTableOrderingComposer
+    extends Composer<_$AcquisitionLocalDatabase, $StateTransitionsTable> {
+  $$StateTransitionsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get fromState => $composableBuilder(
+      column: $table.fromState, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get toState => $composableBuilder(
+      column: $table.toState, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get reason => $composableBuilder(
+      column: $table.reason, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get timestamp => $composableBuilder(
+      column: $table.timestamp, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<double> get sigma => $composableBuilder(
+      column: $table.sigma, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<double> get speedMps => $composableBuilder(
+      column: $table.speedMps, builder: (column) => ColumnOrderings(column));
+
+  $$AcquisitionSessionsTableOrderingComposer get sessionId {
+    final $$AcquisitionSessionsTableOrderingComposer composer =
+        $composerBuilder(
+            composer: this,
+            getCurrentColumn: (t) => t.sessionId,
+            referencedTable: $db.acquisitionSessions,
+            getReferencedColumn: (t) => t.id,
+            builder: (joinBuilder,
+                    {$addJoinBuilderToRootComposer,
+                    $removeJoinBuilderFromRootComposer}) =>
+                $$AcquisitionSessionsTableOrderingComposer(
+                  $db: $db,
+                  $table: $db.acquisitionSessions,
+                  $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                  joinBuilder: joinBuilder,
+                  $removeJoinBuilderFromRootComposer:
+                      $removeJoinBuilderFromRootComposer,
+                ));
+    return composer;
+  }
+}
+
+class $$StateTransitionsTableAnnotationComposer
+    extends Composer<_$AcquisitionLocalDatabase, $StateTransitionsTable> {
+  $$StateTransitionsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get fromState =>
+      $composableBuilder(column: $table.fromState, builder: (column) => column);
+
+  GeneratedColumn<String> get toState =>
+      $composableBuilder(column: $table.toState, builder: (column) => column);
+
+  GeneratedColumn<String> get reason =>
+      $composableBuilder(column: $table.reason, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get timestamp =>
+      $composableBuilder(column: $table.timestamp, builder: (column) => column);
+
+  GeneratedColumn<double> get sigma =>
+      $composableBuilder(column: $table.sigma, builder: (column) => column);
+
+  GeneratedColumn<double> get speedMps =>
+      $composableBuilder(column: $table.speedMps, builder: (column) => column);
+
+  $$AcquisitionSessionsTableAnnotationComposer get sessionId {
+    final $$AcquisitionSessionsTableAnnotationComposer composer =
+        $composerBuilder(
+            composer: this,
+            getCurrentColumn: (t) => t.sessionId,
+            referencedTable: $db.acquisitionSessions,
+            getReferencedColumn: (t) => t.id,
+            builder: (joinBuilder,
+                    {$addJoinBuilderToRootComposer,
+                    $removeJoinBuilderFromRootComposer}) =>
+                $$AcquisitionSessionsTableAnnotationComposer(
+                  $db: $db,
+                  $table: $db.acquisitionSessions,
+                  $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                  joinBuilder: joinBuilder,
+                  $removeJoinBuilderFromRootComposer:
+                      $removeJoinBuilderFromRootComposer,
+                ));
+    return composer;
+  }
+}
+
+class $$StateTransitionsTableTableManager extends RootTableManager<
+    _$AcquisitionLocalDatabase,
+    $StateTransitionsTable,
+    StateTransition,
+    $$StateTransitionsTableFilterComposer,
+    $$StateTransitionsTableOrderingComposer,
+    $$StateTransitionsTableAnnotationComposer,
+    $$StateTransitionsTableCreateCompanionBuilder,
+    $$StateTransitionsTableUpdateCompanionBuilder,
+    (StateTransition, $$StateTransitionsTableReferences),
+    StateTransition,
+    PrefetchHooks Function({bool sessionId})> {
+  $$StateTransitionsTableTableManager(
+      _$AcquisitionLocalDatabase db, $StateTransitionsTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$StateTransitionsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$StateTransitionsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$StateTransitionsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            Value<String> sessionId = const Value.absent(),
+            Value<String> fromState = const Value.absent(),
+            Value<String> toState = const Value.absent(),
+            Value<String> reason = const Value.absent(),
+            Value<DateTime> timestamp = const Value.absent(),
+            Value<double?> sigma = const Value.absent(),
+            Value<double?> speedMps = const Value.absent(),
+          }) =>
+              StateTransitionsCompanion(
+            id: id,
+            sessionId: sessionId,
+            fromState: fromState,
+            toState: toState,
+            reason: reason,
+            timestamp: timestamp,
+            sigma: sigma,
+            speedMps: speedMps,
+          ),
+          createCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            required String sessionId,
+            required String fromState,
+            required String toState,
+            required String reason,
+            required DateTime timestamp,
+            Value<double?> sigma = const Value.absent(),
+            Value<double?> speedMps = const Value.absent(),
+          }) =>
+              StateTransitionsCompanion.insert(
+            id: id,
+            sessionId: sessionId,
+            fromState: fromState,
+            toState: toState,
+            reason: reason,
+            timestamp: timestamp,
+            sigma: sigma,
+            speedMps: speedMps,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (
+                    e.readTable(table),
+                    $$StateTransitionsTableReferences(db, table, e)
+                  ))
+              .toList(),
+          prefetchHooksCallback: ({sessionId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins: <
+                  T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic>>(state) {
+                if (sessionId) {
+                  state = state.withJoin(
+                    currentTable: table,
+                    currentColumn: table.sessionId,
+                    referencedTable:
+                        $$StateTransitionsTableReferences._sessionIdTable(db),
+                    referencedColumn: $$StateTransitionsTableReferences
+                        ._sessionIdTable(db)
+                        .id,
+                  ) as T;
+                }
+
+                return state;
+              },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ));
+}
+
+typedef $$StateTransitionsTableProcessedTableManager = ProcessedTableManager<
+    _$AcquisitionLocalDatabase,
+    $StateTransitionsTable,
+    StateTransition,
+    $$StateTransitionsTableFilterComposer,
+    $$StateTransitionsTableOrderingComposer,
+    $$StateTransitionsTableAnnotationComposer,
+    $$StateTransitionsTableCreateCompanionBuilder,
+    $$StateTransitionsTableUpdateCompanionBuilder,
+    (StateTransition, $$StateTransitionsTableReferences),
+    StateTransition,
+    PrefetchHooks Function({bool sessionId})>;
+typedef $$GpsPointsTableCreateCompanionBuilder = GpsPointsCompanion Function({
+  Value<int> id,
+  required String sessionId,
+  required double latitude,
+  required double longitude,
+  required DateTime timestamp,
+  required double speedMps,
+  Value<double?> accuracyMeters,
+  Value<bool> accepted,
+  Value<String?> rejectionReason,
+  Value<bool> isSynced,
+});
+typedef $$GpsPointsTableUpdateCompanionBuilder = GpsPointsCompanion Function({
+  Value<int> id,
+  Value<String> sessionId,
+  Value<double> latitude,
+  Value<double> longitude,
+  Value<DateTime> timestamp,
+  Value<double> speedMps,
+  Value<double?> accuracyMeters,
+  Value<bool> accepted,
+  Value<String?> rejectionReason,
+  Value<bool> isSynced,
+});
+
+final class $$GpsPointsTableReferences extends BaseReferences<
+    _$AcquisitionLocalDatabase, $GpsPointsTable, GpsPoint> {
+  $$GpsPointsTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static $AcquisitionSessionsTable _sessionIdTable(
+          _$AcquisitionLocalDatabase db) =>
+      db.acquisitionSessions.createAlias($_aliasNameGenerator(
+          db.gpsPoints.sessionId, db.acquisitionSessions.id));
+
+  $$AcquisitionSessionsTableProcessedTableManager get sessionId {
+    final $_column = $_itemColumn<String>('session_id')!;
+
+    final manager =
+        $$AcquisitionSessionsTableTableManager($_db, $_db.acquisitionSessions)
+            .filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_sessionIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: [item]));
+  }
+}
+
+class $$GpsPointsTableFilterComposer
+    extends Composer<_$AcquisitionLocalDatabase, $GpsPointsTable> {
+  $$GpsPointsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<double> get latitude => $composableBuilder(
+      column: $table.latitude, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<double> get longitude => $composableBuilder(
+      column: $table.longitude, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get timestamp => $composableBuilder(
+      column: $table.timestamp, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<double> get speedMps => $composableBuilder(
+      column: $table.speedMps, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<double> get accuracyMeters => $composableBuilder(
+      column: $table.accuracyMeters,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<bool> get accepted => $composableBuilder(
+      column: $table.accepted, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get rejectionReason => $composableBuilder(
+      column: $table.rejectionReason,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<bool> get isSynced => $composableBuilder(
+      column: $table.isSynced, builder: (column) => ColumnFilters(column));
+
+  $$AcquisitionSessionsTableFilterComposer get sessionId {
+    final $$AcquisitionSessionsTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.sessionId,
+        referencedTable: $db.acquisitionSessions,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$AcquisitionSessionsTableFilterComposer(
+              $db: $db,
+              $table: $db.acquisitionSessions,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$GpsPointsTableOrderingComposer
+    extends Composer<_$AcquisitionLocalDatabase, $GpsPointsTable> {
+  $$GpsPointsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<double> get latitude => $composableBuilder(
+      column: $table.latitude, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<double> get longitude => $composableBuilder(
+      column: $table.longitude, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get timestamp => $composableBuilder(
+      column: $table.timestamp, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<double> get speedMps => $composableBuilder(
+      column: $table.speedMps, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<double> get accuracyMeters => $composableBuilder(
+      column: $table.accuracyMeters,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<bool> get accepted => $composableBuilder(
+      column: $table.accepted, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get rejectionReason => $composableBuilder(
+      column: $table.rejectionReason,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<bool> get isSynced => $composableBuilder(
+      column: $table.isSynced, builder: (column) => ColumnOrderings(column));
+
+  $$AcquisitionSessionsTableOrderingComposer get sessionId {
+    final $$AcquisitionSessionsTableOrderingComposer composer =
+        $composerBuilder(
+            composer: this,
+            getCurrentColumn: (t) => t.sessionId,
+            referencedTable: $db.acquisitionSessions,
+            getReferencedColumn: (t) => t.id,
+            builder: (joinBuilder,
+                    {$addJoinBuilderToRootComposer,
+                    $removeJoinBuilderFromRootComposer}) =>
+                $$AcquisitionSessionsTableOrderingComposer(
+                  $db: $db,
+                  $table: $db.acquisitionSessions,
+                  $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                  joinBuilder: joinBuilder,
+                  $removeJoinBuilderFromRootComposer:
+                      $removeJoinBuilderFromRootComposer,
+                ));
+    return composer;
+  }
+}
+
+class $$GpsPointsTableAnnotationComposer
+    extends Composer<_$AcquisitionLocalDatabase, $GpsPointsTable> {
+  $$GpsPointsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<double> get latitude =>
+      $composableBuilder(column: $table.latitude, builder: (column) => column);
+
+  GeneratedColumn<double> get longitude =>
+      $composableBuilder(column: $table.longitude, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get timestamp =>
+      $composableBuilder(column: $table.timestamp, builder: (column) => column);
+
+  GeneratedColumn<double> get speedMps =>
+      $composableBuilder(column: $table.speedMps, builder: (column) => column);
+
+  GeneratedColumn<double> get accuracyMeters => $composableBuilder(
+      column: $table.accuracyMeters, builder: (column) => column);
+
+  GeneratedColumn<bool> get accepted =>
+      $composableBuilder(column: $table.accepted, builder: (column) => column);
+
+  GeneratedColumn<String> get rejectionReason => $composableBuilder(
+      column: $table.rejectionReason, builder: (column) => column);
+
+  GeneratedColumn<bool> get isSynced =>
+      $composableBuilder(column: $table.isSynced, builder: (column) => column);
+
+  $$AcquisitionSessionsTableAnnotationComposer get sessionId {
+    final $$AcquisitionSessionsTableAnnotationComposer composer =
+        $composerBuilder(
+            composer: this,
+            getCurrentColumn: (t) => t.sessionId,
+            referencedTable: $db.acquisitionSessions,
+            getReferencedColumn: (t) => t.id,
+            builder: (joinBuilder,
+                    {$addJoinBuilderToRootComposer,
+                    $removeJoinBuilderFromRootComposer}) =>
+                $$AcquisitionSessionsTableAnnotationComposer(
+                  $db: $db,
+                  $table: $db.acquisitionSessions,
+                  $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                  joinBuilder: joinBuilder,
+                  $removeJoinBuilderFromRootComposer:
+                      $removeJoinBuilderFromRootComposer,
+                ));
+    return composer;
+  }
+}
+
+class $$GpsPointsTableTableManager extends RootTableManager<
+    _$AcquisitionLocalDatabase,
+    $GpsPointsTable,
+    GpsPoint,
+    $$GpsPointsTableFilterComposer,
+    $$GpsPointsTableOrderingComposer,
+    $$GpsPointsTableAnnotationComposer,
+    $$GpsPointsTableCreateCompanionBuilder,
+    $$GpsPointsTableUpdateCompanionBuilder,
+    (GpsPoint, $$GpsPointsTableReferences),
+    GpsPoint,
+    PrefetchHooks Function({bool sessionId})> {
+  $$GpsPointsTableTableManager(
+      _$AcquisitionLocalDatabase db, $GpsPointsTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$GpsPointsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$GpsPointsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$GpsPointsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            Value<String> sessionId = const Value.absent(),
+            Value<double> latitude = const Value.absent(),
+            Value<double> longitude = const Value.absent(),
+            Value<DateTime> timestamp = const Value.absent(),
+            Value<double> speedMps = const Value.absent(),
+            Value<double?> accuracyMeters = const Value.absent(),
+            Value<bool> accepted = const Value.absent(),
+            Value<String?> rejectionReason = const Value.absent(),
+            Value<bool> isSynced = const Value.absent(),
+          }) =>
+              GpsPointsCompanion(
+            id: id,
+            sessionId: sessionId,
+            latitude: latitude,
+            longitude: longitude,
+            timestamp: timestamp,
+            speedMps: speedMps,
+            accuracyMeters: accuracyMeters,
+            accepted: accepted,
+            rejectionReason: rejectionReason,
+            isSynced: isSynced,
+          ),
+          createCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            required String sessionId,
+            required double latitude,
+            required double longitude,
+            required DateTime timestamp,
+            required double speedMps,
+            Value<double?> accuracyMeters = const Value.absent(),
+            Value<bool> accepted = const Value.absent(),
+            Value<String?> rejectionReason = const Value.absent(),
+            Value<bool> isSynced = const Value.absent(),
+          }) =>
+              GpsPointsCompanion.insert(
+            id: id,
+            sessionId: sessionId,
+            latitude: latitude,
+            longitude: longitude,
+            timestamp: timestamp,
+            speedMps: speedMps,
+            accuracyMeters: accuracyMeters,
+            accepted: accepted,
+            rejectionReason: rejectionReason,
+            isSynced: isSynced,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (
+                    e.readTable(table),
+                    $$GpsPointsTableReferences(db, table, e)
+                  ))
+              .toList(),
+          prefetchHooksCallback: ({sessionId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins: <
+                  T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic>>(state) {
+                if (sessionId) {
+                  state = state.withJoin(
+                    currentTable: table,
+                    currentColumn: table.sessionId,
+                    referencedTable:
+                        $$GpsPointsTableReferences._sessionIdTable(db),
+                    referencedColumn:
+                        $$GpsPointsTableReferences._sessionIdTable(db).id,
+                  ) as T;
+                }
+
+                return state;
+              },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ));
+}
+
+typedef $$GpsPointsTableProcessedTableManager = ProcessedTableManager<
+    _$AcquisitionLocalDatabase,
+    $GpsPointsTable,
+    GpsPoint,
+    $$GpsPointsTableFilterComposer,
+    $$GpsPointsTableOrderingComposer,
+    $$GpsPointsTableAnnotationComposer,
+    $$GpsPointsTableCreateCompanionBuilder,
+    $$GpsPointsTableUpdateCompanionBuilder,
+    (GpsPoint, $$GpsPointsTableReferences),
+    GpsPoint,
+    PrefetchHooks Function({bool sessionId})>;
+typedef $$SensorWindowsTableCreateCompanionBuilder = SensorWindowsCompanion
+    Function({
+  Value<int> id,
+  required String sessionId,
+  required DateTime startTimestamp,
+  required DateTime endTimestamp,
+  required int sampleCount,
+  required int frequencyHz,
+  required String matrixJson,
+  Value<bool> isSynced,
+});
+typedef $$SensorWindowsTableUpdateCompanionBuilder = SensorWindowsCompanion
+    Function({
+  Value<int> id,
+  Value<String> sessionId,
+  Value<DateTime> startTimestamp,
+  Value<DateTime> endTimestamp,
+  Value<int> sampleCount,
+  Value<int> frequencyHz,
+  Value<String> matrixJson,
+  Value<bool> isSynced,
+});
+
+final class $$SensorWindowsTableReferences extends BaseReferences<
+    _$AcquisitionLocalDatabase, $SensorWindowsTable, SensorWindow> {
+  $$SensorWindowsTableReferences(
+      super.$_db, super.$_table, super.$_typedResult);
+
+  static $AcquisitionSessionsTable _sessionIdTable(
+          _$AcquisitionLocalDatabase db) =>
+      db.acquisitionSessions.createAlias($_aliasNameGenerator(
+          db.sensorWindows.sessionId, db.acquisitionSessions.id));
+
+  $$AcquisitionSessionsTableProcessedTableManager get sessionId {
+    final $_column = $_itemColumn<String>('session_id')!;
+
+    final manager =
+        $$AcquisitionSessionsTableTableManager($_db, $_db.acquisitionSessions)
+            .filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_sessionIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: [item]));
+  }
+}
+
+class $$SensorWindowsTableFilterComposer
+    extends Composer<_$AcquisitionLocalDatabase, $SensorWindowsTable> {
+  $$SensorWindowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get startTimestamp => $composableBuilder(
+      column: $table.startTimestamp,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get endTimestamp => $composableBuilder(
+      column: $table.endTimestamp, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get sampleCount => $composableBuilder(
+      column: $table.sampleCount, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get frequencyHz => $composableBuilder(
+      column: $table.frequencyHz, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get matrixJson => $composableBuilder(
+      column: $table.matrixJson, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<bool> get isSynced => $composableBuilder(
+      column: $table.isSynced, builder: (column) => ColumnFilters(column));
+
+  $$AcquisitionSessionsTableFilterComposer get sessionId {
+    final $$AcquisitionSessionsTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.sessionId,
+        referencedTable: $db.acquisitionSessions,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$AcquisitionSessionsTableFilterComposer(
+              $db: $db,
+              $table: $db.acquisitionSessions,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$SensorWindowsTableOrderingComposer
+    extends Composer<_$AcquisitionLocalDatabase, $SensorWindowsTable> {
+  $$SensorWindowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get startTimestamp => $composableBuilder(
+      column: $table.startTimestamp,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get endTimestamp => $composableBuilder(
+      column: $table.endTimestamp,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get sampleCount => $composableBuilder(
+      column: $table.sampleCount, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get frequencyHz => $composableBuilder(
+      column: $table.frequencyHz, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get matrixJson => $composableBuilder(
+      column: $table.matrixJson, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<bool> get isSynced => $composableBuilder(
+      column: $table.isSynced, builder: (column) => ColumnOrderings(column));
+
+  $$AcquisitionSessionsTableOrderingComposer get sessionId {
+    final $$AcquisitionSessionsTableOrderingComposer composer =
+        $composerBuilder(
+            composer: this,
+            getCurrentColumn: (t) => t.sessionId,
+            referencedTable: $db.acquisitionSessions,
+            getReferencedColumn: (t) => t.id,
+            builder: (joinBuilder,
+                    {$addJoinBuilderToRootComposer,
+                    $removeJoinBuilderFromRootComposer}) =>
+                $$AcquisitionSessionsTableOrderingComposer(
+                  $db: $db,
+                  $table: $db.acquisitionSessions,
+                  $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                  joinBuilder: joinBuilder,
+                  $removeJoinBuilderFromRootComposer:
+                      $removeJoinBuilderFromRootComposer,
+                ));
+    return composer;
+  }
+}
+
+class $$SensorWindowsTableAnnotationComposer
+    extends Composer<_$AcquisitionLocalDatabase, $SensorWindowsTable> {
+  $$SensorWindowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get startTimestamp => $composableBuilder(
+      column: $table.startTimestamp, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get endTimestamp => $composableBuilder(
+      column: $table.endTimestamp, builder: (column) => column);
+
+  GeneratedColumn<int> get sampleCount => $composableBuilder(
+      column: $table.sampleCount, builder: (column) => column);
+
+  GeneratedColumn<int> get frequencyHz => $composableBuilder(
+      column: $table.frequencyHz, builder: (column) => column);
+
+  GeneratedColumn<String> get matrixJson => $composableBuilder(
+      column: $table.matrixJson, builder: (column) => column);
+
+  GeneratedColumn<bool> get isSynced =>
+      $composableBuilder(column: $table.isSynced, builder: (column) => column);
+
+  $$AcquisitionSessionsTableAnnotationComposer get sessionId {
+    final $$AcquisitionSessionsTableAnnotationComposer composer =
+        $composerBuilder(
+            composer: this,
+            getCurrentColumn: (t) => t.sessionId,
+            referencedTable: $db.acquisitionSessions,
+            getReferencedColumn: (t) => t.id,
+            builder: (joinBuilder,
+                    {$addJoinBuilderToRootComposer,
+                    $removeJoinBuilderFromRootComposer}) =>
+                $$AcquisitionSessionsTableAnnotationComposer(
+                  $db: $db,
+                  $table: $db.acquisitionSessions,
+                  $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                  joinBuilder: joinBuilder,
+                  $removeJoinBuilderFromRootComposer:
+                      $removeJoinBuilderFromRootComposer,
+                ));
+    return composer;
+  }
+}
+
+class $$SensorWindowsTableTableManager extends RootTableManager<
+    _$AcquisitionLocalDatabase,
+    $SensorWindowsTable,
+    SensorWindow,
+    $$SensorWindowsTableFilterComposer,
+    $$SensorWindowsTableOrderingComposer,
+    $$SensorWindowsTableAnnotationComposer,
+    $$SensorWindowsTableCreateCompanionBuilder,
+    $$SensorWindowsTableUpdateCompanionBuilder,
+    (SensorWindow, $$SensorWindowsTableReferences),
+    SensorWindow,
+    PrefetchHooks Function({bool sessionId})> {
+  $$SensorWindowsTableTableManager(
+      _$AcquisitionLocalDatabase db, $SensorWindowsTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SensorWindowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SensorWindowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$SensorWindowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            Value<String> sessionId = const Value.absent(),
+            Value<DateTime> startTimestamp = const Value.absent(),
+            Value<DateTime> endTimestamp = const Value.absent(),
+            Value<int> sampleCount = const Value.absent(),
+            Value<int> frequencyHz = const Value.absent(),
+            Value<String> matrixJson = const Value.absent(),
+            Value<bool> isSynced = const Value.absent(),
+          }) =>
+              SensorWindowsCompanion(
+            id: id,
+            sessionId: sessionId,
+            startTimestamp: startTimestamp,
+            endTimestamp: endTimestamp,
+            sampleCount: sampleCount,
+            frequencyHz: frequencyHz,
+            matrixJson: matrixJson,
+            isSynced: isSynced,
+          ),
+          createCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            required String sessionId,
+            required DateTime startTimestamp,
+            required DateTime endTimestamp,
+            required int sampleCount,
+            required int frequencyHz,
+            required String matrixJson,
+            Value<bool> isSynced = const Value.absent(),
+          }) =>
+              SensorWindowsCompanion.insert(
+            id: id,
+            sessionId: sessionId,
+            startTimestamp: startTimestamp,
+            endTimestamp: endTimestamp,
+            sampleCount: sampleCount,
+            frequencyHz: frequencyHz,
+            matrixJson: matrixJson,
+            isSynced: isSynced,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (
+                    e.readTable(table),
+                    $$SensorWindowsTableReferences(db, table, e)
+                  ))
+              .toList(),
+          prefetchHooksCallback: ({sessionId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins: <
+                  T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic>>(state) {
+                if (sessionId) {
+                  state = state.withJoin(
+                    currentTable: table,
+                    currentColumn: table.sessionId,
+                    referencedTable:
+                        $$SensorWindowsTableReferences._sessionIdTable(db),
+                    referencedColumn:
+                        $$SensorWindowsTableReferences._sessionIdTable(db).id,
+                  ) as T;
+                }
+
+                return state;
+              },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ));
+}
+
+typedef $$SensorWindowsTableProcessedTableManager = ProcessedTableManager<
+    _$AcquisitionLocalDatabase,
+    $SensorWindowsTable,
+    SensorWindow,
+    $$SensorWindowsTableFilterComposer,
+    $$SensorWindowsTableOrderingComposer,
+    $$SensorWindowsTableAnnotationComposer,
+    $$SensorWindowsTableCreateCompanionBuilder,
+    $$SensorWindowsTableUpdateCompanionBuilder,
+    (SensorWindow, $$SensorWindowsTableReferences),
+    SensorWindow,
+    PrefetchHooks Function({bool sessionId})>;
+
+class $AcquisitionLocalDatabaseManager {
+  final _$AcquisitionLocalDatabase _db;
+  $AcquisitionLocalDatabaseManager(this._db);
+  $$AcquisitionSessionsTableTableManager get acquisitionSessions =>
+      $$AcquisitionSessionsTableTableManager(_db, _db.acquisitionSessions);
+  $$StateTransitionsTableTableManager get stateTransitions =>
+      $$StateTransitionsTableTableManager(_db, _db.stateTransitions);
+  $$GpsPointsTableTableManager get gpsPoints =>
+      $$GpsPointsTableTableManager(_db, _db.gpsPoints);
+  $$SensorWindowsTableTableManager get sensorWindows =>
+      $$SensorWindowsTableTableManager(_db, _db.sensorWindows);
+}
+
+mixin _$AcquisitionDaoMixin on DatabaseAccessor<AcquisitionLocalDatabase> {
+  $AcquisitionSessionsTable get acquisitionSessions =>
+      attachedDatabase.acquisitionSessions;
+  $StateTransitionsTable get stateTransitions =>
+      attachedDatabase.stateTransitions;
+  $GpsPointsTable get gpsPoints => attachedDatabase.gpsPoints;
+  $SensorWindowsTable get sensorWindows => attachedDatabase.sensorWindows;
+  AcquisitionDaoManager get managers => AcquisitionDaoManager(this);
+}
+
+class AcquisitionDaoManager {
+  final _$AcquisitionDaoMixin _db;
+  AcquisitionDaoManager(this._db);
+  $$AcquisitionSessionsTableTableManager get acquisitionSessions =>
+      $$AcquisitionSessionsTableTableManager(
+          _db.attachedDatabase, _db.acquisitionSessions);
+  $$StateTransitionsTableTableManager get stateTransitions =>
+      $$StateTransitionsTableTableManager(
+          _db.attachedDatabase, _db.stateTransitions);
+  $$GpsPointsTableTableManager get gpsPoints =>
+      $$GpsPointsTableTableManager(_db.attachedDatabase, _db.gpsPoints);
+  $$SensorWindowsTableTableManager get sensorWindows =>
+      $$SensorWindowsTableTableManager(_db.attachedDatabase, _db.sensorWindows);
+}

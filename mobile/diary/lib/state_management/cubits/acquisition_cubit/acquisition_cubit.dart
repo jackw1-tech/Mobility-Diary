@@ -1,0 +1,85 @@
+import 'dart:async';
+
+import 'package:diary/features/acquisition/domain/acquisition_domain.dart';
+import 'package:diary/repositories/acquisition_repository.dart';
+import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubit_state.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+
+class AcquisitionCubit extends Cubit<AcquisitionCubitState> {
+  static const int _maxMetricClusters = 60;
+  static const Duration _metricClusterDuration = Duration(seconds: 1);
+
+  final AcquisitionRepository _repository;
+  late final StreamSubscription<AcquisitionSnapshot> _snapshotSubscription;
+
+  AcquisitionCubit(this._repository)
+      : super(
+          AcquisitionCubitState.fromSnapshot(
+            _repository.currentSnapshot,
+          ),
+        ) {
+    _snapshotSubscription = _repository.snapshots.listen(_emitSnapshot);
+  }
+
+  Future<void> startTracking() async {
+    await _repository.startTracking();
+    _emitSnapshot(_repository.currentSnapshot, resetMetrics: true);
+  }
+
+  Future<void> stopTracking() async {
+    await _repository.stopTracking();
+    _emitSnapshot(_repository.currentSnapshot);
+  }
+
+  Future<void> ingestEvent(TrackingEvent event) async {
+    await _repository.ingestEvent(event);
+    _emitSnapshot(_repository.currentSnapshot);
+  }
+
+  void _emitSnapshot(
+    AcquisitionSnapshot snapshot, {
+    bool resetMetrics = false,
+  }) {
+    final metricClusters = resetMetrics
+        ? <AcquisitionMetricCluster>[]
+        : _updatedMetricClusters(snapshot);
+    emit(
+      AcquisitionCubitState.fromSnapshot(
+        snapshot,
+        metricClusters: metricClusters,
+      ),
+    );
+  }
+
+  List<AcquisitionMetricCluster> _updatedMetricClusters(
+    AcquisitionSnapshot snapshot,
+  ) {
+    if (!snapshot.isTracking) {
+      return state.metricClusters;
+    }
+
+    final clusters = List<AcquisitionMetricCluster>.from(
+      state.metricClusters,
+    );
+
+    if (clusters.isNotEmpty &&
+        snapshot.updatedAt.difference(clusters.first.startedAt) <
+            _metricClusterDuration) {
+      clusters[0] = clusters.first.merge(snapshot);
+    } else {
+      clusters.insert(0, AcquisitionMetricCluster.fromSnapshot(snapshot));
+    }
+
+    if (clusters.length > _maxMetricClusters) {
+      return clusters.take(_maxMetricClusters).toList(growable: false);
+    }
+
+    return clusters;
+  }
+
+  @override
+  Future<void> close() async {
+    await _snapshotSubscription.cancel();
+    return super.close();
+  }
+}
