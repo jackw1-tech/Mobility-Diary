@@ -1,20 +1,31 @@
 import 'tracking_state.dart';
 
+enum GpsAccuracyProfile {
+  lowPower,
+  highAccuracy,
+}
+
 class SamplingProfile {
   final int accelerometerHz;
   final int gyroscopeHz;
+  final int magnetometerHz;
   final bool gpsEnabled;
   final Duration? gpsInterval;
   final double? gpsDistanceFilterMeters;
+  final GpsAccuracyProfile gpsAccuracy;
+  final bool harWindowEnabled;
   final bool persistSensorWindows;
   final bool persistGpsPoints;
 
   const SamplingProfile({
     required this.accelerometerHz,
     required this.gyroscopeHz,
+    required this.magnetometerHz,
     required this.gpsEnabled,
     required this.gpsInterval,
     required this.gpsDistanceFilterMeters,
+    required this.gpsAccuracy,
+    required this.harWindowEnabled,
     required this.persistSensorWindows,
     required this.persistGpsPoints,
   });
@@ -23,31 +34,40 @@ class SamplingProfile {
       : this(
           accelerometerHz: 10,
           gyroscopeHz: 0,
-          gpsEnabled: false,
-          gpsInterval: null,
-          gpsDistanceFilterMeters: null,
+          magnetometerHz: 0,
+          gpsEnabled: true,
+          gpsInterval: const Duration(minutes: 3),
+          gpsDistanceFilterMeters: 100,
+          gpsAccuracy: GpsAccuracyProfile.lowPower,
+          harWindowEnabled: false,
           persistSensorWindows: false,
-          persistGpsPoints: false,
+          persistGpsPoints: true,
         );
 
   const SamplingProfile.potentialMotion()
       : this(
-          accelerometerHz: 50,
-          gyroscopeHz: 50,
+          accelerometerHz: 100,
+          gyroscopeHz: 100,
+          magnetometerHz: 100,
           gpsEnabled: true,
           gpsInterval: const Duration(seconds: 5),
           gpsDistanceFilterMeters: null,
+          gpsAccuracy: GpsAccuracyProfile.highAccuracy,
+          harWindowEnabled: true,
           persistSensorWindows: false,
           persistGpsPoints: false,
         );
 
   const SamplingProfile.activeTracking()
       : this(
-          accelerometerHz: 50,
-          gyroscopeHz: 50,
+          accelerometerHz: 100,
+          gyroscopeHz: 100,
+          magnetometerHz: 100,
           gpsEnabled: true,
           gpsInterval: const Duration(seconds: 2),
           gpsDistanceFilterMeters: 3,
+          gpsAccuracy: GpsAccuracyProfile.highAccuracy,
+          harWindowEnabled: true,
           persistSensorWindows: true,
           persistGpsPoints: true,
         );

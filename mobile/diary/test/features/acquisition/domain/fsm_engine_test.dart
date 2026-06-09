@@ -16,7 +16,11 @@ void main() {
 
       expect(decision.state, TrackingState.stationary);
       expect(decision.samplingProfile.accelerometerHz, 10);
-      expect(decision.samplingProfile.gpsEnabled, isFalse);
+      expect(decision.samplingProfile.gpsEnabled, isTrue);
+      expect(decision.samplingProfile.gpsInterval, const Duration(minutes: 3));
+      expect(decision.samplingProfile.gpsAccuracy, GpsAccuracyProfile.lowPower);
+      expect(decision.samplingProfile.harWindowEnabled, isFalse);
+      expect(decision.samplingProfile.persistGpsPoints, isTrue);
       expect(decision.didTransition, isFalse);
     });
 
@@ -35,9 +39,12 @@ void main() {
 
       expect(firstDecision.state, TrackingState.stationary);
       expect(fourthDecision.state, TrackingState.potentialMotion);
-      expect(fourthDecision.samplingProfile.accelerometerHz, 50);
-      expect(fourthDecision.samplingProfile.gyroscopeHz, 50);
+      expect(fourthDecision.samplingProfile.accelerometerHz, 100);
+      expect(fourthDecision.samplingProfile.gyroscopeHz, 100);
+      expect(fourthDecision.samplingProfile.magnetometerHz, 100);
       expect(fourthDecision.samplingProfile.gpsEnabled, isTrue);
+      expect(fourthDecision.samplingProfile.harWindowEnabled, isTrue);
+      expect(fourthDecision.samplingProfile.persistSensorWindows, isFalse);
       expect(
         fourthDecision.transition?.reason,
         'movement_sigma_above_threshold',
@@ -65,7 +72,8 @@ void main() {
       expect(decision.transition?.reason, 'gps_speed_above_active_threshold');
     });
 
-    test('moves to active tracking after sustained motion without GPS speed',
+    test(
+        'keeps potential motion when reliable GPS says stationary despite motion',
         () {
       final fsm = AcquisitionFsm();
       final now = DateTime.utc(2026, 1, 1);
@@ -79,18 +87,72 @@ void main() {
         ),
       );
 
-      for (var index = 0; index < 4; index += 1) {
+      for (var index = 0; index < 8; index += 1) {
         decision = _applyMotionWindow(
           fsm,
           now.add(Duration(seconds: 13 + (index * 5))),
-          sampleCount: 250,
+          sampleCount: 500,
+        );
+      }
+
+      expect(decision.state, TrackingState.potentialMotion);
+      expect(decision.didTransition, isFalse);
+    });
+
+    test('returns to stationary when reliable GPS rejects potential motion',
+        () {
+      final fsm = AcquisitionFsm();
+      final now = DateTime.utc(2026, 1, 1);
+
+      _enterPotentialMotion(fsm, now);
+      fsm.apply(
+        GpsFixReceived(
+          timestamp: now.add(const Duration(seconds: 8)),
+          speedMetersPerSecond: 0,
+          accuracyMeters: 12,
+        ),
+      );
+      final decision = fsm.apply(
+        GpsFixReceived(
+          timestamp: now.add(const Duration(seconds: 13)),
+          speedMetersPerSecond: 0,
+          accuracyMeters: 12,
+        ),
+      );
+
+      expect(decision.state, TrackingState.stationary);
+      expect(
+        decision.transition?.reason,
+        'gps_stationary_in_potential_motion',
+      );
+    });
+
+    test('moves to active tracking after sustained motion without reliable GPS',
+        () {
+      final fsm = AcquisitionFsm();
+      final now = DateTime.utc(2026, 1, 1);
+
+      _enterPotentialMotion(fsm, now);
+      FsmDecision decision = fsm.apply(
+        GpsFixReceived(
+          timestamp: now.add(const Duration(seconds: 8)),
+          speedMetersPerSecond: 0,
+          accuracyMeters: 80,
+        ),
+      );
+
+      for (var index = 0; index < 8; index += 1) {
+        decision = _applyMotionWindow(
+          fsm,
+          now.add(Duration(seconds: 13 + (index * 5))),
+          sampleCount: 500,
         );
       }
 
       expect(decision.state, TrackingState.activeTracking);
       expect(
         decision.transition?.reason,
-        'sustained_motion_without_gps_speed',
+        'sustained_motion_without_reliable_gps',
       );
     });
 
@@ -130,7 +192,7 @@ void main() {
         MotionWindowEvaluated(
           timestamp: now.add(const Duration(seconds: 11)),
           sigma: 0.05,
-          sampleCount: 250,
+          sampleCount: 500,
         ),
       );
 
@@ -139,7 +201,7 @@ void main() {
           MotionWindowEvaluated(
             timestamp: now.add(Duration(seconds: 11 + (index * 5))),
             sigma: 0.04,
-            sampleCount: 250,
+            sampleCount: 500,
           ),
         );
       }
@@ -166,7 +228,7 @@ void main() {
         MotionWindowEvaluated(
           timestamp: now.add(const Duration(minutes: 10)),
           sigma: 0.05,
-          sampleCount: 250,
+          sampleCount: 500,
         ),
       );
 
@@ -190,14 +252,14 @@ void main() {
         MotionWindowEvaluated(
           timestamp: now,
           sigma: 0.05,
-          sampleCount: 250,
+          sampleCount: 500,
         ),
       );
       final decision = fsm.apply(
         MotionWindowEvaluated(
           timestamp: now.add(const Duration(minutes: 2, seconds: 1)),
           sigma: 0.04,
-          sampleCount: 250,
+          sampleCount: 500,
         ),
       );
 

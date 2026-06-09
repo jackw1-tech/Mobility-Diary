@@ -7,18 +7,22 @@ class FsmConfig {
   final int requiredMotionWindows;
   final int requiredPotentialMotionWindows;
   final int requiredPotentialStationaryWindows;
+  final int requiredPotentialStationaryGpsFixes;
   final double activeSpeedThresholdMetersPerSecond;
   final double stationarySpeedThresholdMetersPerSecond;
+  final double potentialGpsReliableAccuracyMeters;
   final Duration potentialMotionTimeout;
   final Duration activeStationaryGracePeriod;
 
   const FsmConfig({
     this.movementSigmaThreshold = 1,
     this.requiredMotionWindows = 4,
-    this.requiredPotentialMotionWindows = 4,
+    this.requiredPotentialMotionWindows = 8,
     this.requiredPotentialStationaryWindows = 4,
+    this.requiredPotentialStationaryGpsFixes = 2,
     this.activeSpeedThresholdMetersPerSecond = 2 / 3.6,
     this.stationarySpeedThresholdMetersPerSecond = 0.1,
+    this.potentialGpsReliableAccuracyMeters = 35,
     this.potentialMotionTimeout = const Duration(seconds: 60),
     this.activeStationaryGracePeriod = const Duration(minutes: 2),
   });
@@ -59,6 +63,8 @@ class AcquisitionFsm {
   int _consecutiveMotionWindows = 0;
   int _potentialMotionWindows = 0;
   int _potentialStationaryWindows = 0;
+  int _potentialStationaryGpsFixes = 0;
+  bool _hasReliablePotentialGpsFix = false;
   double _latestSigma = 0;
   double _latestSpeedMetersPerSecond = 0;
   DateTime? _stationaryEvidenceStartedAt;
@@ -124,10 +130,11 @@ class AcquisitionFsm {
           );
         }
 
-        if (_potentialMotionWindows >= config.requiredPotentialMotionWindows) {
+        if (!_hasReliablePotentialGpsFix &&
+            _potentialMotionWindows >= config.requiredPotentialMotionWindows) {
           return _transitionTo(
             TrackingState.activeTracking,
-            'sustained_motion_without_gps_speed',
+            'sustained_motion_without_reliable_gps',
             event.timestamp,
           );
         }
@@ -145,6 +152,13 @@ class AcquisitionFsm {
       case TrackingState.stationary:
         return _stay();
       case TrackingState.potentialMotion:
+        final hasReliableGpsFix = _isReliableGpsFix(event);
+        if (!hasReliableGpsFix) {
+          return _stay();
+        }
+
+        _hasReliablePotentialGpsFix = true;
+
         if (_isActiveSpeed(event.speedMetersPerSecond)) {
           return _transitionTo(
             TrackingState.activeTracking,
@@ -152,6 +166,22 @@ class AcquisitionFsm {
             event.timestamp,
           );
         }
+
+        if (_isStationarySpeed(event.speedMetersPerSecond)) {
+          _potentialStationaryGpsFixes += 1;
+
+          if (_potentialStationaryGpsFixes >=
+              config.requiredPotentialStationaryGpsFixes) {
+            return _transitionTo(
+              TrackingState.stationary,
+              'gps_stationary_in_potential_motion',
+              event.timestamp,
+            );
+          }
+        } else {
+          _potentialStationaryGpsFixes = 0;
+        }
+
         return _stay();
       case TrackingState.activeTracking:
         return _evaluateActiveStationaryEvidence(event.timestamp);
@@ -165,8 +195,12 @@ class AcquisitionFsm {
       return _stay();
     }
 
-    final hasConfirmedMotion = _isActiveSpeed(_latestSpeedMetersPerSecond) ||
+    final hasGpsConfirmedMotion = _hasReliablePotentialGpsFix &&
+        _isActiveSpeed(_latestSpeedMetersPerSecond);
+    final hasFallbackMotionWithoutReliableGps = !_hasReliablePotentialGpsFix &&
         _potentialMotionWindows >= config.requiredPotentialMotionWindows;
+    final hasConfirmedMotion =
+        hasGpsConfirmedMotion || hasFallbackMotionWithoutReliableGps;
 
     if (!hasConfirmedMotion) {
       return _transitionTo(
@@ -178,7 +212,9 @@ class AcquisitionFsm {
 
     return _transitionTo(
       TrackingState.activeTracking,
-      'motion_confirmed_without_gps_speed',
+      hasGpsConfirmedMotion
+          ? 'gps_speed_above_active_threshold'
+          : 'motion_confirmed_without_reliable_gps',
       event.timestamp,
     );
   }
@@ -215,21 +251,18 @@ class AcquisitionFsm {
     _state = nextState;
 
     if (nextState == TrackingState.potentialMotion) {
-      _potentialMotionWindows = 0;
-      _potentialStationaryWindows = 0;
+      _resetPotentialEvidence();
     }
 
     if (nextState == TrackingState.stationary) {
       _consecutiveMotionWindows = 0;
-      _potentialMotionWindows = 0;
-      _potentialStationaryWindows = 0;
+      _resetPotentialEvidence();
     }
 
     if (nextState != TrackingState.activeTracking) {
       _stationaryEvidenceStartedAt = null;
     } else {
-      _potentialMotionWindows = 0;
-      _potentialStationaryWindows = 0;
+      _resetPotentialEvidence();
     }
 
     return FsmDecision(
@@ -260,5 +293,18 @@ class AcquisitionFsm {
   bool _isStationarySpeed(double speedMetersPerSecond) {
     return speedMetersPerSecond <=
         config.stationarySpeedThresholdMetersPerSecond;
+  }
+
+  bool _isReliableGpsFix(GpsFixReceived event) {
+    final accuracyMeters = event.accuracyMeters;
+    return accuracyMeters == null ||
+        accuracyMeters <= config.potentialGpsReliableAccuracyMeters;
+  }
+
+  void _resetPotentialEvidence() {
+    _potentialMotionWindows = 0;
+    _potentialStationaryWindows = 0;
+    _potentialStationaryGpsFixes = 0;
+    _hasReliablePotentialGpsFix = false;
   }
 }

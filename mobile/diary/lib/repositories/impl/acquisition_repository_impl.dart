@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:diary/features/acquisition/data/acquisition_local_database.dart';
 import 'package:diary/features/acquisition/domain/acquisition_domain.dart';
@@ -20,6 +21,7 @@ class AcquisitionRepositoryImpl implements AcquisitionRepository {
   AcquisitionSnapshot _currentSnapshot = AcquisitionSnapshot.idle();
   String? _currentSessionId;
   Timer? _potentialMotionTimeoutTimer;
+  final Set<String> _persistedSensorWindowKeys = {};
 
   AcquisitionRepositoryImpl({
     FsmConfig config = const FsmConfig(),
@@ -51,6 +53,7 @@ class AcquisitionRepositoryImpl implements AcquisitionRepository {
     }
 
     _potentialMotionTimeoutTimer?.cancel();
+    _persistedSensorWindowKeys.clear();
     final now = DateTime.now();
     final sessionId = _uuid.v4();
     _fsm = AcquisitionFsm(config: _config);
@@ -74,6 +77,7 @@ class AcquisitionRepositoryImpl implements AcquisitionRepository {
     await _runtime?.start(
       profile: const SamplingProfile.stationary(),
       onEvent: ingestEvent,
+      onHarWindow: _persistHarWindowIfActive,
     );
   }
 
@@ -91,6 +95,7 @@ class AcquisitionRepositoryImpl implements AcquisitionRepository {
     }
 
     _currentSessionId = null;
+    _persistedSensorWindowKeys.clear();
     _fsm = AcquisitionFsm(config: _config);
     _emit(AcquisitionSnapshot.idle());
   }
@@ -133,6 +138,8 @@ class AcquisitionRepositoryImpl implements AcquisitionRepository {
         accuracyMeters: event.accuracyMeters,
       );
     }
+
+    await _persistCompletedHarWindowsIfNeeded(decision);
 
     _emit(
       AcquisitionSnapshot(
@@ -179,5 +186,57 @@ class AcquisitionRepositoryImpl implements AcquisitionRepository {
     if (!_snapshotController.isClosed) {
       _snapshotController.add(snapshot);
     }
+  }
+
+  Future<void> _persistCompletedHarWindowsIfNeeded(
+    FsmDecision decision,
+  ) async {
+    final runtime = _runtime;
+    final sessionId = _currentSessionId;
+    if (!decision.samplingProfile.persistSensorWindows ||
+        runtime == null ||
+        sessionId == null) {
+      return;
+    }
+
+    for (final window in runtime.completedHarWindows.reversed) {
+      await _persistHarWindow(sessionId: sessionId, window: window);
+    }
+  }
+
+  Future<void> _persistHarWindowIfActive(HarSensorWindow window) async {
+    final sessionId = _currentSessionId;
+    if (sessionId == null ||
+        !_currentSnapshot.samplingProfile.persistSensorWindows) {
+      return;
+    }
+
+    await _persistHarWindow(sessionId: sessionId, window: window);
+  }
+
+  Future<void> _persistHarWindow({
+    required String sessionId,
+    required HarSensorWindow window,
+  }) async {
+    final windowKey = _sensorWindowKey(window);
+    if (_persistedSensorWindowKeys.contains(windowKey)) {
+      return;
+    }
+
+    final modelInput = window.modelInputMatrix;
+    await _dao.insertSensorWindow(
+      sessionId: sessionId,
+      startTimestamp: window.startedAt,
+      endTimestamp: window.endedAt,
+      sampleCount: modelInput.length,
+      frequencyHz: HarSensorWindow.targetSamplingHz,
+      matrixJson: jsonEncode(modelInput),
+    );
+    _persistedSensorWindowKeys.add(windowKey);
+  }
+
+  String _sensorWindowKey(HarSensorWindow window) {
+    return '${window.startedAt.microsecondsSinceEpoch}-'
+        '${window.endedAt.microsecondsSinceEpoch}';
   }
 }

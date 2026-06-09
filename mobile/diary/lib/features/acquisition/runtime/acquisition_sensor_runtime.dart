@@ -8,27 +8,43 @@ import 'package:sensors_plus/sensors_plus.dart';
 
 typedef AcquisitionRuntimeEventSink = Future<void> Function(
     TrackingEvent event);
+typedef HarWindowSink = Future<void> Function(HarSensorWindow window);
 
 class AcquisitionSensorRuntime {
   static const double _minimumSpeedDistanceMeters = 2;
   static const double _accuracyDeadZoneFactor = 0.35;
   static const double _maximumDeadZoneMeters = 12;
+  static const Duration _harWindowDuration = HarSensorWindow.targetDuration;
+  static const int _maxCompletedHarWindows = 12;
 
   final List<AccelerationSample> _accelerationWindow = [];
+  final List<HarSensorSample> _harWindowSamples = [];
+  final List<HarSensorWindow> _completedHarWindows = [];
 
   StreamSubscription<AccelerometerEvent>? _accelerometerSubscription;
   StreamSubscription<GyroscopeEvent>? _gyroscopeSubscription;
+  StreamSubscription<MagnetometerEvent>? _magnetometerSubscription;
   StreamSubscription<Position>? _positionSubscription;
   Position? _lastPosition;
+  GyroscopeEvent? _latestGyroscopeEvent;
+  MagnetometerEvent? _latestMagnetometerEvent;
+  DateTime? _harWindowStartedAt;
   AcquisitionRuntimeEventSink? _eventSink;
+  HarWindowSink? _harWindowSink;
   SamplingProfile? _currentProfile;
   bool _isStarted = false;
+
+  List<HarSensorWindow> get completedHarWindows {
+    return List<HarSensorWindow>.unmodifiable(_completedHarWindows);
+  }
 
   Future<void> start({
     required SamplingProfile profile,
     required AcquisitionRuntimeEventSink onEvent,
+    HarWindowSink? onHarWindow,
   }) async {
     _eventSink = onEvent;
+    _harWindowSink = onHarWindow;
     _isStarted = true;
     await configure(profile);
   }
@@ -49,9 +65,22 @@ class AcquisitionSensorRuntime {
       await _restartGyroscope(profile.gyroscopeHz);
     }
 
+    if (previousProfile?.magnetometerHz != profile.magnetometerHz) {
+      await _restartMagnetometer(profile.magnetometerHz);
+    }
+
+    if (previousProfile?.harWindowEnabled != profile.harWindowEnabled) {
+      _resetHarWindow();
+      if (!profile.harWindowEnabled) {
+        _completedHarWindows.clear();
+      }
+    }
+
     final gpsChanged = previousProfile?.gpsEnabled != profile.gpsEnabled ||
+        previousProfile?.gpsInterval != profile.gpsInterval ||
         previousProfile?.gpsDistanceFilterMeters !=
-            profile.gpsDistanceFilterMeters;
+            profile.gpsDistanceFilterMeters ||
+        previousProfile?.gpsAccuracy != profile.gpsAccuracy;
 
     if (gpsChanged) {
       await _restartGps(profile);
@@ -62,14 +91,21 @@ class AcquisitionSensorRuntime {
     _isStarted = false;
     _currentProfile = null;
     _eventSink = null;
+    _harWindowSink = null;
     _accelerationWindow.clear();
+    _resetHarWindow();
+    _completedHarWindows.clear();
     await _accelerometerSubscription?.cancel();
     await _gyroscopeSubscription?.cancel();
+    await _magnetometerSubscription?.cancel();
     await _positionSubscription?.cancel();
     _accelerometerSubscription = null;
     _gyroscopeSubscription = null;
+    _magnetometerSubscription = null;
     _positionSubscription = null;
     _lastPosition = null;
+    _latestGyroscopeEvent = null;
+    _latestMagnetometerEvent = null;
   }
 
   Future<void> dispose() => stop();
@@ -91,6 +127,7 @@ class AcquisitionSensorRuntime {
   Future<void> _restartGyroscope(int frequencyHz) async {
     await _gyroscopeSubscription?.cancel();
     _gyroscopeSubscription = null;
+    _latestGyroscopeEvent = null;
 
     if (frequencyHz <= 0) {
       return;
@@ -98,7 +135,21 @@ class AcquisitionSensorRuntime {
 
     _gyroscopeSubscription = gyroscopeEventStream(
       samplingPeriod: _samplingPeriodFor(frequencyHz),
-    ).listen((_) {});
+    ).listen(_onGyroscopeEvent);
+  }
+
+  Future<void> _restartMagnetometer(int frequencyHz) async {
+    await _magnetometerSubscription?.cancel();
+    _magnetometerSubscription = null;
+    _latestMagnetometerEvent = null;
+
+    if (frequencyHz <= 0) {
+      return;
+    }
+
+    _magnetometerSubscription = magnetometerEventStream(
+      samplingPeriod: _samplingPeriodFor(frequencyHz),
+    ).listen(_onMagnetometerEvent);
   }
 
   Future<void> _restartGps(SamplingProfile profile) async {
@@ -152,6 +203,7 @@ class AcquisitionSensorRuntime {
         z: event.z,
       ),
     );
+    await _appendHarSensorSample(event, DateTime.now());
 
     final windowSize = _windowSizeFor(profile.accelerometerHz);
     if (_accelerationWindow.length < windowSize) {
@@ -169,6 +221,68 @@ class AcquisitionSensorRuntime {
         sampleCount: window.length,
       ),
     );
+  }
+
+  void _onGyroscopeEvent(GyroscopeEvent event) {
+    _latestGyroscopeEvent = event;
+  }
+
+  void _onMagnetometerEvent(MagnetometerEvent event) {
+    _latestMagnetometerEvent = event;
+  }
+
+  Future<void> _appendHarSensorSample(
+    AccelerometerEvent event,
+    DateTime timestamp,
+  ) async {
+    final profile = _currentProfile;
+    if (profile == null || !profile.harWindowEnabled) {
+      return;
+    }
+
+    _harWindowStartedAt ??= timestamp;
+    final gyroscopeEvent = _latestGyroscopeEvent;
+    final magnetometerEvent = _latestMagnetometerEvent;
+
+    _harWindowSamples.add(
+      HarSensorSample(
+        timestamp: timestamp,
+        accX: event.x,
+        accY: event.y,
+        accZ: event.z,
+        gyrX: gyroscopeEvent?.x ?? 0,
+        gyrY: gyroscopeEvent?.y ?? 0,
+        gyrZ: gyroscopeEvent?.z ?? 0,
+        magX: magnetometerEvent?.x ?? 0,
+        magY: magnetometerEvent?.y ?? 0,
+        magZ: magnetometerEvent?.z ?? 0,
+      ),
+    );
+
+    final startedAt = _harWindowStartedAt!;
+    if (timestamp.difference(startedAt) < _harWindowDuration) {
+      return;
+    }
+
+    final window = HarSensorWindow(
+      startedAt: startedAt,
+      endedAt: timestamp,
+      accelerometerHz: profile.accelerometerHz,
+      gyroscopeHz: profile.gyroscopeHz,
+      magnetometerHz: profile.magnetometerHz,
+      samples: List<HarSensorSample>.from(_harWindowSamples),
+    );
+    _completedHarWindows.insert(0, window);
+    if (_completedHarWindows.length > _maxCompletedHarWindows) {
+      _completedHarWindows.removeLast();
+    }
+    _resetHarWindow();
+    await _harWindowSink?.call(window);
+  }
+
+  void _resetHarWindow() {
+    _harWindowSamples.clear();
+    _harWindowStartedAt = null;
   }
 
   Future<void> _onPosition(Position position) async {
@@ -239,18 +353,41 @@ class AcquisitionSensorRuntime {
     int distanceFilter,
   ) {
     final interval = profile.gpsInterval;
+    final accuracy = _locationAccuracyFor(profile.gpsAccuracy);
     if (Platform.isAndroid && interval != null) {
       return AndroidSettings(
-        accuracy: LocationAccuracy.high,
+        accuracy: accuracy,
         distanceFilter: distanceFilter,
         intervalDuration: interval,
       );
     }
 
+    if (Platform.isIOS || Platform.isMacOS) {
+      return AppleSettings(
+        accuracy: accuracy,
+        distanceFilter: distanceFilter,
+        pauseLocationUpdatesAutomatically:
+            profile.gpsAccuracy == GpsAccuracyProfile.lowPower,
+        activityType: profile.gpsAccuracy == GpsAccuracyProfile.highAccuracy
+            ? ActivityType.fitness
+            : ActivityType.other,
+        allowBackgroundLocationUpdates: false,
+      );
+    }
+
     return LocationSettings(
-      accuracy: LocationAccuracy.high,
+      accuracy: accuracy,
       distanceFilter: distanceFilter,
     );
+  }
+
+  LocationAccuracy _locationAccuracyFor(GpsAccuracyProfile accuracyProfile) {
+    switch (accuracyProfile) {
+      case GpsAccuracyProfile.lowPower:
+        return LocationAccuracy.low;
+      case GpsAccuracyProfile.highAccuracy:
+        return LocationAccuracy.high;
+    }
   }
 
   double _distanceMeters(
@@ -287,7 +424,7 @@ class AcquisitionSensorRuntime {
 
   int _windowSizeFor(int frequencyHz) {
     if (frequencyHz >= 50) {
-      return 250;
+      return frequencyHz * _harWindowDuration.inSeconds;
     }
 
     return 20;

@@ -219,10 +219,22 @@ class _SensorList extends StatelessWidget {
         isActive: state.isTracking && profile.gyroscopeHz > 0,
       ),
       _SensorRowData(
+        icon: Icons.explore,
+        label: 'Magnetometro',
+        value: '${profile.magnetometerHz} Hz',
+        isActive: state.isTracking && profile.magnetometerHz > 0,
+      ),
+      _SensorRowData(
         icon: Icons.gps_fixed,
         label: 'GPS',
         value: profile.gpsEnabled ? 'on' : 'off',
         isActive: state.isTracking && profile.gpsEnabled,
+      ),
+      _SensorRowData(
+        icon: Icons.view_timeline,
+        label: 'Finestre HAR',
+        value: profile.harWindowEnabled ? 'RAM' : 'off',
+        isActive: state.isTracking && profile.harWindowEnabled,
       ),
       _SensorRowData(
         icon: Icons.storage,

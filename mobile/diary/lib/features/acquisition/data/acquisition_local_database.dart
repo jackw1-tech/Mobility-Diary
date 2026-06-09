@@ -215,6 +215,24 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
     return query.map((row) => row.read(count) ?? 0).getSingle();
   }
 
+  Future<List<SensorWindow>> sensorWindowsForSession(String sessionId) {
+    return (select(sensorWindows)
+          ..where((window) => window.sessionId.equals(sessionId))
+          ..orderBy([
+            (window) => OrderingTerm.asc(window.startTimestamp),
+          ]))
+        .get();
+  }
+
+  Future<int> countSensorWindowsForSession(String sessionId) {
+    final count = sensorWindows.id.count();
+    final query = selectOnly(sensorWindows)
+      ..addColumns([count])
+      ..where(sensorWindows.sessionId.equals(sessionId));
+
+    return query.map((row) => row.read(count) ?? 0).getSingle();
+  }
+
   Future<int> countSessions() {
     final count = acquisitionSessions.id.count();
     final query = selectOnly(acquisitionSessions)..addColumns([count]);
