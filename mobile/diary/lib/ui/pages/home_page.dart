@@ -2,8 +2,11 @@ import 'package:auto_route/auto_route.dart';
 import 'package:diary/features/acquisition/domain/acquisition_domain.dart';
 import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubit.dart';
 import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubit_state.dart';
+import 'package:diary/state_management/cubits/auth_cubit/auth_cubit.dart';
+import 'package:diary/state_management/cubits/auth_cubit/auth_cubit_state.dart';
 import 'package:diary/theme/Dimensions.dart';
 import 'package:diary/theme/color_palette.dart';
+import 'package:diary/ui/pages/auth_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -13,13 +16,44 @@ class HomePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return BlocBuilder<AuthCubit, AuthCubitState>(
+      builder: (context, authState) {
+        if (authState.status == AuthStatus.initial ||
+            authState.status == AuthStatus.loading) {
+          return const _AuthLoadingPage();
+        }
+
+        if (!authState.isAuthenticated) {
+          return const AuthPage();
+        }
+
+        return _AuthenticatedHomePage(userLabel: authState.user?.displayName);
+      },
+    );
+  }
+}
+
+class _AuthenticatedHomePage extends StatelessWidget {
+  final String? userLabel;
+
+  const _AuthenticatedHomePage({required this.userLabel});
+
+  @override
+  Widget build(BuildContext context) {
     return BlocBuilder<AcquisitionCubit, AcquisitionCubitState>(
       builder: (context, state) {
         return Scaffold(
           appBar: AppBar(
-            title: const Text('Mobile Edge'),
+            title: Text(userLabel == null ? 'Mobile Edge' : userLabel!),
             backgroundColor: ColorPalette.primary,
             foregroundColor: Colors.white,
+            actions: [
+              IconButton(
+                tooltip: 'Logout',
+                onPressed: () => context.read<AuthCubit>().logout(),
+                icon: const Icon(Icons.logout),
+              ),
+            ],
           ),
           body: ColoredBox(
             color: ColorPalette.background,
@@ -42,6 +76,20 @@ class HomePage extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _AuthLoadingPage extends StatelessWidget {
+  const _AuthLoadingPage();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      backgroundColor: ColorPalette.background,
+      body: Center(
+        child: CircularProgressIndicator(),
+      ),
     );
   }
 }

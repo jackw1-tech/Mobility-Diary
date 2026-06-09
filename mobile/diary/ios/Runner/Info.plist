@@ -30,6 +30,11 @@
 	<string>Mobility Diary usa la posizione durante una sessione di tracking per ricostruire gli spostamenti.</string>
 	<key>NSMotionUsageDescription</key>
 	<string>Mobility Diary usa accelerometro e giroscopio per stimare il contesto di movimento.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

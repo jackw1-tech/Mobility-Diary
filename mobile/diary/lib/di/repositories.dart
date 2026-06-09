@@ -1,8 +1,14 @@
 part of 'dependency_injector.dart';
 
-final List<RepositoryProvider> repositories = [
-  RepositoryProvider<AcquisitionRepository>(
-    create: (_) => AcquisitionRepositoryImpl(),
-    dispose: (repository) => repository.dispose(),
-  ),
-];
+List<RepositoryProvider> buildRepositories({
+  AuthRepository? authRepository,
+}) =>
+    [
+      RepositoryProvider<AuthRepository>(
+        create: (_) => authRepository ?? AuthRepositoryImpl(),
+      ),
+      RepositoryProvider<AcquisitionRepository>(
+        create: (_) => AcquisitionRepositoryImpl(),
+        dispose: (repository) => repository.dispose(),
+      ),
+    ];

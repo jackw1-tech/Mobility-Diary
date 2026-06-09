@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 
 
@@ -7,6 +8,13 @@ class Trip(models.Model):
         CLOSED = "CLOSED", "Closed"
         PROCESSED = "PROCESSED", "Processed"
 
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="trips",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+    )
     device_id = models.CharField(max_length=128)
     status = models.CharField(max_length=32, choices=Status.choices, default=Status.OPEN)
     started_at = models.DateTimeField(auto_now_add=True)
@@ -74,4 +82,3 @@ class HarJob(models.Model):
     error = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-
