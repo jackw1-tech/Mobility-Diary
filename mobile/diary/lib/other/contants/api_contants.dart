@@ -3,7 +3,7 @@ class ApiConstants {
     if (const bool.hasEnvironment('API_BASE_URL')) {
       return const String.fromEnvironment('API_BASE_URL');
     }
-    return 'https://dev.giacomobianco.com/api';
+    return 'https://django-api-production-df02.up.railway.app/api';
   }
 
   static const String loginPath = '/auth/login';
