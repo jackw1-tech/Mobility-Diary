@@ -161,11 +161,14 @@ CELERY_TASK_TIME_LIMIT = 30 * 60
 # S3_ENDPOINT_URL: usato dal backend/Celery (rete interna Docker, es. http://minio:9000).
 # S3_PUBLIC_ENDPOINT_URL: host con cui il MOBILE raggiunge lo storage per i presigned URL
 #   (in locale l'IP LAN del Mac; default = endpoint interno). In deploy coincidono.
-S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL", "http://minio:9000")
-S3_PUBLIC_ENDPOINT_URL = os.getenv("S3_PUBLIC_ENDPOINT_URL", S3_ENDPOINT_URL)
+S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL", os.getenv("S3_ENDPOINT", "http://minio:9000"))
+S3_PUBLIC_ENDPOINT_URL = os.getenv(
+    "S3_PUBLIC_ENDPOINT_URL",
+    os.getenv("S3_PUBLIC_ENDPOINT", S3_ENDPOINT_URL),
+)
 S3_ACCESS_KEY_ID = os.getenv("S3_ACCESS_KEY_ID", "minioadmin")
 S3_SECRET_ACCESS_KEY = os.getenv("S3_SECRET_ACCESS_KEY", "minioadmin")
-S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "mobility-trips")
+S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", os.getenv("S3_BUCKET", "mobility-trips"))
 S3_REGION = os.getenv("S3_REGION", "us-east-1")
 # Durata dei presigned URL (secondi).
 S3_PRESIGN_EXPIRES_SECONDS = int(os.getenv("S3_PRESIGN_EXPIRES_SECONDS", "900"))
