@@ -8,6 +8,8 @@ from .models import (
     SignificantPlace,
     StateTransition,
     Trip,
+    TripIngestion,
+    TripIngestionPart,
 )
 
 
@@ -51,3 +53,63 @@ class MobilitySegmentAdmin(admin.ModelAdmin):
 class HarJobAdmin(admin.ModelAdmin):
     list_display = ("id", "trip", "kind", "status", "created_at", "updated_at")
     list_filter = ("kind", "status", "created_at")
+
+
+class TripIngestionPartInline(admin.TabularInline):
+    model = TripIngestionPart
+    extra = 0
+    fields = ("kind", "sequence", "size_bytes", "object_key", "received_at", "created_at")
+    readonly_fields = ("created_at",)
+
+
+@admin.register(TripIngestion)
+class TripIngestionAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "user",
+        "client_session_id",
+        "status",
+        "trip",
+        "device_id",
+        "created_at",
+        "updated_at",
+    )
+    list_filter = ("status", "schema_version", "device_platform", "created_at")
+    search_fields = (
+        "id",
+        "user__email",
+        "client_session_id",
+        "device_id",
+        "raw_base_path",
+        "manifest_sha256",
+        "error_message",
+    )
+    readonly_fields = (
+        "created_at",
+        "updated_at",
+        "queued_at",
+        "started_processing_at",
+        "completed_at",
+        "failed_at",
+    )
+    raw_id_fields = ("user", "trip")
+    inlines = (TripIngestionPartInline,)
+    ordering = ("-created_at",)
+
+
+@admin.register(TripIngestionPart)
+class TripIngestionPartAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "ingestion",
+        "kind",
+        "sequence",
+        "size_bytes",
+        "received_at",
+        "created_at",
+    )
+    list_filter = ("kind", "received_at", "created_at")
+    search_fields = ("id", "ingestion__client_session_id", "object_key", "sha256")
+    readonly_fields = ("created_at",)
+    raw_id_fields = ("ingestion",)
+    ordering = ("-created_at",)
