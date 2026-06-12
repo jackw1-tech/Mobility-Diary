@@ -1,11 +1,16 @@
-.git
-.venv
-__pycache__
-*.pyc
-.pytest_cache
-.mypy_cache
-.ruff_cache
-db_data
-media
-staticfiles
+.git/
+.venv/
+__pycache__/
+*.py[cod]
 
+.env
+.env.*
+
+staticfiles/
+media/
+db.sqlite3
+db_data/
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
