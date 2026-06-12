@@ -11,14 +11,21 @@ class AcquisitionCubit extends Cubit<AcquisitionCubitState> {
 
   final AcquisitionRepository _repository;
   late final StreamSubscription<AcquisitionSnapshot> _snapshotSubscription;
+  late final StreamSubscription<AcquisitionSyncSnapshot>
+      _syncSnapshotSubscription;
 
   AcquisitionCubit(this._repository)
       : super(
           AcquisitionCubitState.fromSnapshot(
             _repository.currentSnapshot,
+            syncSnapshot: _repository.currentSyncSnapshot,
           ),
         ) {
     _snapshotSubscription = _repository.snapshots.listen(_emitSnapshot);
+    _syncSnapshotSubscription =
+        _repository.syncSnapshots.listen(_emitSyncSnapshot);
+    // All'avvio (post-login) riprende eventuali upload rimasti in sospeso.
+    unawaited(_repository.resumeSync());
   }
 
   Future<void> startTracking() async {
@@ -36,6 +43,10 @@ class AcquisitionCubit extends Cubit<AcquisitionCubitState> {
     _emitSnapshot(_repository.currentSnapshot);
   }
 
+  Future<void> resumeSync() async {
+    await _repository.resumeSync();
+  }
+
   void _emitSnapshot(
     AcquisitionSnapshot snapshot, {
     bool resetMetrics = false,
@@ -46,9 +57,14 @@ class AcquisitionCubit extends Cubit<AcquisitionCubitState> {
     emit(
       AcquisitionCubitState.fromSnapshot(
         snapshot,
+        syncSnapshot: state.syncSnapshot,
         metricClusters: metricClusters,
       ),
     );
+  }
+
+  void _emitSyncSnapshot(AcquisitionSyncSnapshot snapshot) {
+    emit(state.copyWith(syncSnapshot: snapshot));
   }
 
   List<AcquisitionMetricCluster> _updatedMetricClusters(
@@ -80,6 +96,7 @@ class AcquisitionCubit extends Cubit<AcquisitionCubitState> {
   @override
   Future<void> close() async {
     await _snapshotSubscription.cancel();
+    await _syncSnapshotSubscription.cancel();
     return super.close();
   }
 }

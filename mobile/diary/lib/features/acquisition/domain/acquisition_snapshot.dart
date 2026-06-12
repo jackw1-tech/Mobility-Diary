@@ -29,7 +29,7 @@ class AcquisitionSnapshot {
       latestSigma: 0,
       latestSpeedMetersPerSecond: 0,
       lastTransition: null,
-      updatedAt: updatedAt ?? DateTime.now(),
+      updatedAt: updatedAt ?? DateTime.now().toUtc(),
     );
   }
 

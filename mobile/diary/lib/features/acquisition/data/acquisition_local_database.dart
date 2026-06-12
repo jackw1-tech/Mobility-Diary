@@ -52,12 +52,53 @@ class SensorWindows extends Table {
   BoolColumn get isSynced => boolean().withDefault(const Constant(false))();
 }
 
+/// Coda di sincronizzazione persistente: un job per sessione conclusa.
+/// Disaccoppia lo stato del viaggio dallo stato di upload, cosi' lo STOP non
+/// resta bloccato sulla rete e la sync riprende all'apertura app
+/// (REPORT_STRATEGIA_INGESTION_ASINCRONA.md D5, SyncJob).
+class SyncJobs extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  TextColumn get localSessionId =>
+      text().references(AcquisitionSessions, #id)();
+  IntColumn get remoteIngestionId => integer().nullable()();
+  TextColumn get status => text().withDefault(const Constant(syncJobPending))();
+  IntColumn get attempts => integer().withDefault(const Constant(0))();
+  DateTimeColumn get nextRetryAt => dateTime().nullable()();
+  TextColumn get lastError => text().nullable()();
+  DateTimeColumn get createdAt => dateTime()();
+  DateTimeColumn get updatedAt => dateTime()();
+
+  @override
+  List<Set<Column>> get uniqueKeys => [
+        {localSessionId},
+      ];
+}
+
+// Stati del SyncJob (vedi report). Tenuti come costanti per evitare enum nel DB.
+const String syncJobPending = 'PENDING';
+const String syncJobPackaging = 'PACKAGING';
+const String syncJobUploading = 'UPLOADING';
+const String syncJobWaitingProcessing = 'WAITING_PROCESSING';
+const String syncJobCompleted = 'COMPLETED';
+const String syncJobFailedRetryable = 'FAILED_RETRYABLE';
+const String syncJobFailedFinal = 'FAILED_FINAL';
+
+// Stati su cui il processore puo' ancora lavorare (claimable).
+const List<String> syncJobActiveStatuses = [
+  syncJobPending,
+  syncJobPackaging,
+  syncJobUploading,
+  syncJobWaitingProcessing,
+  syncJobFailedRetryable,
+];
+
 @DriftDatabase(
   tables: [
     AcquisitionSessions,
     StateTransitions,
     GpsPoints,
     SensorWindows,
+    SyncJobs,
   ],
   daos: [AcquisitionDao],
 )
@@ -66,7 +107,16 @@ class AcquisitionLocalDatabase extends _$AcquisitionLocalDatabase {
       : super(executor ?? _openConnection());
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+        onUpgrade: (m, from, to) async {
+          if (from < 2) {
+            await m.createTable(syncJobs);
+          }
+        },
+      );
 }
 
 @DriftAccessor(
@@ -75,6 +125,7 @@ class AcquisitionLocalDatabase extends _$AcquisitionLocalDatabase {
     StateTransitions,
     GpsPoints,
     SensorWindows,
+    SyncJobs,
   ],
 )
 class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
@@ -90,7 +141,7 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
       AcquisitionSessionsCompanion.insert(
         id: id,
         deviceId: deviceId,
-        startedAt: startedAt,
+        startedAt: _asUtc(startedAt),
       ),
     );
   }
@@ -103,7 +154,7 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
           ..where((session) => session.id.equals(id)))
         .write(
       AcquisitionSessionsCompanion(
-        endedAt: Value(endedAt),
+        endedAt: Value(_asUtc(endedAt)),
       ),
     );
   }
@@ -123,7 +174,7 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
         fromState: fromState,
         toState: toState,
         reason: reason,
-        timestamp: timestamp,
+        timestamp: _asUtc(timestamp),
         sigma: Value(sigma),
         speedMps: Value(speedMps),
       ),
@@ -145,7 +196,7 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
         sessionId: sessionId,
         latitude: latitude,
         longitude: longitude,
-        timestamp: timestamp,
+        timestamp: _asUtc(timestamp),
         speedMps: speedMps,
         accuracyMeters: Value(accuracyMeters),
         accepted: Value(accepted),
@@ -165,8 +216,8 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
     return into(sensorWindows).insert(
       SensorWindowsCompanion.insert(
         sessionId: sessionId,
-        startTimestamp: startTimestamp,
-        endTimestamp: endTimestamp,
+        startTimestamp: _asUtc(startTimestamp),
+        endTimestamp: _asUtc(endTimestamp),
         sampleCount: sampleCount,
         frequencyHz: frequencyHz,
         matrixJson: matrixJson,
@@ -177,7 +228,8 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
   Future<AcquisitionSession?> findSession(String id) {
     return (select(acquisitionSessions)
           ..where((session) => session.id.equals(id)))
-        .getSingleOrNull();
+        .getSingleOrNull()
+        .then((session) => session == null ? null : _sessionAsUtc(session));
   }
 
   Future<List<AcquisitionSession>> allSessions() {
@@ -185,7 +237,8 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
           ..orderBy([
             (session) => OrderingTerm.asc(session.startedAt),
           ]))
-        .get();
+        .get()
+        .then((sessions) => sessions.map(_sessionAsUtc).toList());
   }
 
   Future<List<StateTransition>> transitionsForSession(String sessionId) {
@@ -194,7 +247,8 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
           ..orderBy([
             (transition) => OrderingTerm.asc(transition.timestamp),
           ]))
-        .get();
+        .get()
+        .then((transitions) => transitions.map(_transitionAsUtc).toList());
   }
 
   Future<int> countTransitionsForSession(String sessionId) {
@@ -221,7 +275,8 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
           ..orderBy([
             (window) => OrderingTerm.asc(window.startTimestamp),
           ]))
-        .get();
+        .get()
+        .then((windows) => windows.map(_sensorWindowAsUtc).toList());
   }
 
   Future<int> countSensorWindowsForSession(String sessionId) {
@@ -233,12 +288,175 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
     return query.map((row) => row.read(count) ?? 0).getSingle();
   }
 
+  Future<List<GpsPoint>> gpsPointsForSession(String sessionId) {
+    return (select(gpsPoints)
+          ..where(
+              (p) => p.sessionId.equals(sessionId) & p.accepted.equals(true))
+          ..orderBy([(p) => OrderingTerm.asc(p.timestamp)]))
+        .get()
+        .then((points) => points.map(_gpsPointAsUtc).toList());
+  }
+
+  Future<List<GpsPoint>> unsyncedGpsPoints(String sessionId) {
+    return (select(gpsPoints)
+          ..where(
+              (p) => p.sessionId.equals(sessionId) & p.isSynced.equals(false))
+          ..orderBy([(p) => OrderingTerm.asc(p.timestamp)]))
+        .get()
+        .then((points) => points.map(_gpsPointAsUtc).toList());
+  }
+
+  Future<void> markGpsPointsSynced(List<int> ids) async {
+    if (ids.isEmpty) return;
+    await (update(gpsPoints)..where((p) => p.id.isIn(ids)))
+        .write(const GpsPointsCompanion(isSynced: Value(true)));
+  }
+
+  Future<List<SensorWindow>> unsyncedSensorWindows(String sessionId) {
+    return (select(sensorWindows)
+          ..where(
+              (w) => w.sessionId.equals(sessionId) & w.isSynced.equals(false))
+          ..orderBy([(w) => OrderingTerm.asc(w.startTimestamp)]))
+        .get()
+        .then((windows) => windows.map(_sensorWindowAsUtc).toList());
+  }
+
+  Future<void> markSensorWindowsSynced(List<int> ids) async {
+    if (ids.isEmpty) return;
+    await (update(sensorWindows)..where((w) => w.id.isIn(ids)))
+        .write(const SensorWindowsCompanion(isSynced: Value(true)));
+  }
+
   Future<int> countSessions() {
     final count = acquisitionSessions.id.count();
     final query = selectOnly(acquisitionSessions)..addColumns([count]);
 
     return query.map((row) => row.read(count) ?? 0).getSingle();
   }
+
+  // --- SyncJob ---------------------------------------------------------- //
+
+  /// Crea il SyncJob per la sessione se non esiste gia' (idempotente: un re-stop
+  /// non duplica il job). Ritorna il job esistente o quello appena creato.
+  Future<SyncJob> createSyncJobIfAbsent(String localSessionId) async {
+    final existing = await (select(syncJobs)
+          ..where((j) => j.localSessionId.equals(localSessionId)))
+        .getSingleOrNull();
+    if (existing != null) {
+      return _syncJobAsUtc(existing);
+    }
+    final now = DateTime.now().toUtc();
+    await into(syncJobs).insert(
+      SyncJobsCompanion.insert(
+        localSessionId: localSessionId,
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+    final created = await (select(syncJobs)
+          ..where((j) => j.localSessionId.equals(localSessionId)))
+        .getSingle();
+    return _syncJobAsUtc(created);
+  }
+
+  /// Job su cui il processore puo' lavorare ora: stato attivo e senza un
+  /// next_retry_at futuro.
+  Future<List<SyncJob>> claimableSyncJobs(DateTime now) {
+    final nowUtc = _asUtc(now);
+    return (select(syncJobs)
+          ..where((j) =>
+              j.status.isIn(syncJobActiveStatuses) &
+              (j.nextRetryAt.isNull() |
+                  j.nextRetryAt.isSmallerOrEqualValue(nowUtc)))
+          ..orderBy([(j) => OrderingTerm.asc(j.createdAt)]))
+        .get()
+        .then((jobs) => jobs.map(_syncJobAsUtc).toList());
+  }
+
+  Future<SyncJob?> syncJobForSession(String localSessionId) {
+    return (select(syncJobs)
+          ..where((j) => j.localSessionId.equals(localSessionId)))
+        .getSingleOrNull()
+        .then((job) => job == null ? null : _syncJobAsUtc(job));
+  }
+
+  Stream<SyncJob?> watchSyncJobForSession(String localSessionId) {
+    return (select(syncJobs)
+          ..where((j) => j.localSessionId.equals(localSessionId)))
+        .watchSingleOrNull()
+        .map((job) => job == null ? null : _syncJobAsUtc(job));
+  }
+
+  Stream<SyncJob?> watchLatestSyncJob() {
+    return (select(syncJobs)
+          ..orderBy([(j) => OrderingTerm.desc(j.updatedAt)])
+          ..limit(1))
+        .watchSingleOrNull()
+        .map((job) => job == null ? null : _syncJobAsUtc(job));
+  }
+
+  Future<void> updateSyncJob(
+    int id, {
+    String? status,
+    int? attempts,
+    Value<int?> remoteIngestionId = const Value.absent(),
+    Value<DateTime?> nextRetryAt = const Value.absent(),
+    Value<String?> lastError = const Value.absent(),
+  }) async {
+    await (update(syncJobs)..where((j) => j.id.equals(id))).write(
+      SyncJobsCompanion(
+        status: status == null ? const Value.absent() : Value(status),
+        attempts: attempts == null ? const Value.absent() : Value(attempts),
+        remoteIngestionId: remoteIngestionId,
+        nextRetryAt: nextRetryAt.present
+            ? Value(
+                nextRetryAt.value == null ? null : _asUtc(nextRetryAt.value!))
+            : const Value.absent(),
+        lastError: lastError,
+        updatedAt: Value(DateTime.now().toUtc()),
+      ),
+    );
+  }
+}
+
+DateTime _asUtc(DateTime value) {
+  return value.isUtc ? value : value.toUtc();
+}
+
+AcquisitionSession _sessionAsUtc(AcquisitionSession session) {
+  final endedAt = session.endedAt;
+  if (endedAt == null) {
+    return session.copyWith(startedAt: _asUtc(session.startedAt));
+  }
+  return session.copyWith(
+    startedAt: _asUtc(session.startedAt),
+    endedAt: Value(_asUtc(endedAt)),
+  );
+}
+
+StateTransition _transitionAsUtc(StateTransition transition) {
+  return transition.copyWith(timestamp: _asUtc(transition.timestamp));
+}
+
+GpsPoint _gpsPointAsUtc(GpsPoint point) {
+  return point.copyWith(timestamp: _asUtc(point.timestamp));
+}
+
+SensorWindow _sensorWindowAsUtc(SensorWindow window) {
+  return window.copyWith(
+    startTimestamp: _asUtc(window.startTimestamp),
+    endTimestamp: _asUtc(window.endTimestamp),
+  );
+}
+
+SyncJob _syncJobAsUtc(SyncJob job) {
+  return job.copyWith(
+    createdAt: _asUtc(job.createdAt),
+    updatedAt: _asUtc(job.updatedAt),
+    nextRetryAt: Value(
+      job.nextRetryAt == null ? null : _asUtc(job.nextRetryAt!),
+    ),
+  );
 }
 
 LazyDatabase _openConnection() {

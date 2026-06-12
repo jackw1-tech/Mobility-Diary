@@ -1,4 +1,5 @@
 export 'acquisition_snapshot.dart';
+export 'acquisition_sync_snapshot.dart';
 export 'fsm_engine.dart';
 export 'har_sensor_window.dart';
 export 'motion_metrics.dart';

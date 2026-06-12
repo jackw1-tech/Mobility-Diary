@@ -33,6 +33,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django.contrib.gis",
     "accounts",
     "mobility",
 ]
@@ -69,7 +70,7 @@ WSGI_APPLICATION = "config.wsgi.application"
 
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.postgresql",
+        "ENGINE": "django.contrib.gis.db.backends.postgis",
         "NAME": os.getenv("POSTGRES_DB", "mobility"),
         "USER": os.getenv("POSTGRES_USER", "mobility"),
         "PASSWORD": os.getenv("POSTGRES_PASSWORD", "mobility"),
@@ -108,3 +109,23 @@ CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", REDIS_URL)
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6381/1")
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 30 * 60
+
+# Object storage S3-compatibile per l'ingestione asincrona dei viaggi.
+# MinIO in locale, Railway Buckets in deploy (vedi REPORT_STRATEGIA_INGESTION_ASINCRONA.md D7).
+# S3_ENDPOINT_URL: usato dal backend/Celery (rete interna Docker, es. http://minio:9000).
+# S3_PUBLIC_ENDPOINT_URL: host con cui il MOBILE raggiunge lo storage per i presigned URL
+#   (in locale l'IP LAN del Mac; default = endpoint interno). In deploy coincidono.
+S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL", "http://minio:9000")
+S3_PUBLIC_ENDPOINT_URL = os.getenv("S3_PUBLIC_ENDPOINT_URL", S3_ENDPOINT_URL)
+S3_ACCESS_KEY_ID = os.getenv("S3_ACCESS_KEY_ID", "minioadmin")
+S3_SECRET_ACCESS_KEY = os.getenv("S3_SECRET_ACCESS_KEY", "minioadmin")
+S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "mobility-trips")
+S3_REGION = os.getenv("S3_REGION", "us-east-1")
+# Durata dei presigned URL (secondi).
+S3_PRESIGN_EXPIRES_SECONDS = int(os.getenv("S3_PRESIGN_EXPIRES_SECONDS", "900"))
+# Limite dimensione per singola parte caricata (byte). Default 25 MB.
+INGESTION_MAX_PART_BYTES = int(os.getenv("INGESTION_MAX_PART_BYTES", str(25 * 1024 * 1024)))
+
+# CONGELATO: la cancellazione dei blob raw dopo HAR e' predisposta ma disattivata
+# finche' HAR non e' operativo (vedi REPORT D9). NON attivare senza HAR validato.
+HAR_CLEANUP_ENABLED = env_bool("HAR_CLEANUP_ENABLED", False)

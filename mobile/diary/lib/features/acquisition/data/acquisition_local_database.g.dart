@@ -1642,6 +1642,482 @@ class SensorWindowsCompanion extends UpdateCompanion<SensorWindow> {
   }
 }
 
+class $SyncJobsTable extends SyncJobs with TableInfo<$SyncJobsTable, SyncJob> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SyncJobsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+      'id', aliasedName, false,
+      hasAutoIncrement: true,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('PRIMARY KEY AUTOINCREMENT'));
+  static const VerificationMeta _localSessionIdMeta =
+      const VerificationMeta('localSessionId');
+  @override
+  late final GeneratedColumn<String> localSessionId = GeneratedColumn<String>(
+      'local_session_id', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: true,
+      defaultConstraints: GeneratedColumn.constraintIsAlways(
+          'REFERENCES acquisition_sessions (id)'));
+  static const VerificationMeta _remoteIngestionIdMeta =
+      const VerificationMeta('remoteIngestionId');
+  @override
+  late final GeneratedColumn<int> remoteIngestionId = GeneratedColumn<int>(
+      'remote_ingestion_id', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _statusMeta = const VerificationMeta('status');
+  @override
+  late final GeneratedColumn<String> status = GeneratedColumn<String>(
+      'status', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(syncJobPending));
+  static const VerificationMeta _attemptsMeta =
+      const VerificationMeta('attempts');
+  @override
+  late final GeneratedColumn<int> attempts = GeneratedColumn<int>(
+      'attempts', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(0));
+  static const VerificationMeta _nextRetryAtMeta =
+      const VerificationMeta('nextRetryAt');
+  @override
+  late final GeneratedColumn<DateTime> nextRetryAt = GeneratedColumn<DateTime>(
+      'next_retry_at', aliasedName, true,
+      type: DriftSqlType.dateTime, requiredDuringInsert: false);
+  static const VerificationMeta _lastErrorMeta =
+      const VerificationMeta('lastError');
+  @override
+  late final GeneratedColumn<String> lastError = GeneratedColumn<String>(
+      'last_error', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _createdAtMeta =
+      const VerificationMeta('createdAt');
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+      'created_at', aliasedName, false,
+      type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  static const VerificationMeta _updatedAtMeta =
+      const VerificationMeta('updatedAt');
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+      'updated_at', aliasedName, false,
+      type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  @override
+  List<GeneratedColumn> get $columns => [
+        id,
+        localSessionId,
+        remoteIngestionId,
+        status,
+        attempts,
+        nextRetryAt,
+        lastError,
+        createdAt,
+        updatedAt
+      ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'sync_jobs';
+  @override
+  VerificationContext validateIntegrity(Insertable<SyncJob> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('local_session_id')) {
+      context.handle(
+          _localSessionIdMeta,
+          localSessionId.isAcceptableOrUnknown(
+              data['local_session_id']!, _localSessionIdMeta));
+    } else if (isInserting) {
+      context.missing(_localSessionIdMeta);
+    }
+    if (data.containsKey('remote_ingestion_id')) {
+      context.handle(
+          _remoteIngestionIdMeta,
+          remoteIngestionId.isAcceptableOrUnknown(
+              data['remote_ingestion_id']!, _remoteIngestionIdMeta));
+    }
+    if (data.containsKey('status')) {
+      context.handle(_statusMeta,
+          status.isAcceptableOrUnknown(data['status']!, _statusMeta));
+    }
+    if (data.containsKey('attempts')) {
+      context.handle(_attemptsMeta,
+          attempts.isAcceptableOrUnknown(data['attempts']!, _attemptsMeta));
+    }
+    if (data.containsKey('next_retry_at')) {
+      context.handle(
+          _nextRetryAtMeta,
+          nextRetryAt.isAcceptableOrUnknown(
+              data['next_retry_at']!, _nextRetryAtMeta));
+    }
+    if (data.containsKey('last_error')) {
+      context.handle(_lastErrorMeta,
+          lastError.isAcceptableOrUnknown(data['last_error']!, _lastErrorMeta));
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(_createdAtMeta,
+          createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(_updatedAtMeta,
+          updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta));
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  List<Set<GeneratedColumn>> get uniqueKeys => [
+        {localSessionId},
+      ];
+  @override
+  SyncJob map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SyncJob(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
+      localSessionId: attachedDatabase.typeMapping.read(
+          DriftSqlType.string, data['${effectivePrefix}local_session_id'])!,
+      remoteIngestionId: attachedDatabase.typeMapping.read(
+          DriftSqlType.int, data['${effectivePrefix}remote_ingestion_id']),
+      status: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}status'])!,
+      attempts: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}attempts'])!,
+      nextRetryAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}next_retry_at']),
+      lastError: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}last_error']),
+      createdAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
+      updatedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}updated_at'])!,
+    );
+  }
+
+  @override
+  $SyncJobsTable createAlias(String alias) {
+    return $SyncJobsTable(attachedDatabase, alias);
+  }
+}
+
+class SyncJob extends DataClass implements Insertable<SyncJob> {
+  final int id;
+  final String localSessionId;
+  final int? remoteIngestionId;
+  final String status;
+  final int attempts;
+  final DateTime? nextRetryAt;
+  final String? lastError;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  const SyncJob(
+      {required this.id,
+      required this.localSessionId,
+      this.remoteIngestionId,
+      required this.status,
+      required this.attempts,
+      this.nextRetryAt,
+      this.lastError,
+      required this.createdAt,
+      required this.updatedAt});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['local_session_id'] = Variable<String>(localSessionId);
+    if (!nullToAbsent || remoteIngestionId != null) {
+      map['remote_ingestion_id'] = Variable<int>(remoteIngestionId);
+    }
+    map['status'] = Variable<String>(status);
+    map['attempts'] = Variable<int>(attempts);
+    if (!nullToAbsent || nextRetryAt != null) {
+      map['next_retry_at'] = Variable<DateTime>(nextRetryAt);
+    }
+    if (!nullToAbsent || lastError != null) {
+      map['last_error'] = Variable<String>(lastError);
+    }
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  SyncJobsCompanion toCompanion(bool nullToAbsent) {
+    return SyncJobsCompanion(
+      id: Value(id),
+      localSessionId: Value(localSessionId),
+      remoteIngestionId: remoteIngestionId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(remoteIngestionId),
+      status: Value(status),
+      attempts: Value(attempts),
+      nextRetryAt: nextRetryAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(nextRetryAt),
+      lastError: lastError == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastError),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory SyncJob.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SyncJob(
+      id: serializer.fromJson<int>(json['id']),
+      localSessionId: serializer.fromJson<String>(json['localSessionId']),
+      remoteIngestionId: serializer.fromJson<int?>(json['remoteIngestionId']),
+      status: serializer.fromJson<String>(json['status']),
+      attempts: serializer.fromJson<int>(json['attempts']),
+      nextRetryAt: serializer.fromJson<DateTime?>(json['nextRetryAt']),
+      lastError: serializer.fromJson<String?>(json['lastError']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'localSessionId': serializer.toJson<String>(localSessionId),
+      'remoteIngestionId': serializer.toJson<int?>(remoteIngestionId),
+      'status': serializer.toJson<String>(status),
+      'attempts': serializer.toJson<int>(attempts),
+      'nextRetryAt': serializer.toJson<DateTime?>(nextRetryAt),
+      'lastError': serializer.toJson<String?>(lastError),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  SyncJob copyWith(
+          {int? id,
+          String? localSessionId,
+          Value<int?> remoteIngestionId = const Value.absent(),
+          String? status,
+          int? attempts,
+          Value<DateTime?> nextRetryAt = const Value.absent(),
+          Value<String?> lastError = const Value.absent(),
+          DateTime? createdAt,
+          DateTime? updatedAt}) =>
+      SyncJob(
+        id: id ?? this.id,
+        localSessionId: localSessionId ?? this.localSessionId,
+        remoteIngestionId: remoteIngestionId.present
+            ? remoteIngestionId.value
+            : this.remoteIngestionId,
+        status: status ?? this.status,
+        attempts: attempts ?? this.attempts,
+        nextRetryAt: nextRetryAt.present ? nextRetryAt.value : this.nextRetryAt,
+        lastError: lastError.present ? lastError.value : this.lastError,
+        createdAt: createdAt ?? this.createdAt,
+        updatedAt: updatedAt ?? this.updatedAt,
+      );
+  SyncJob copyWithCompanion(SyncJobsCompanion data) {
+    return SyncJob(
+      id: data.id.present ? data.id.value : this.id,
+      localSessionId: data.localSessionId.present
+          ? data.localSessionId.value
+          : this.localSessionId,
+      remoteIngestionId: data.remoteIngestionId.present
+          ? data.remoteIngestionId.value
+          : this.remoteIngestionId,
+      status: data.status.present ? data.status.value : this.status,
+      attempts: data.attempts.present ? data.attempts.value : this.attempts,
+      nextRetryAt:
+          data.nextRetryAt.present ? data.nextRetryAt.value : this.nextRetryAt,
+      lastError: data.lastError.present ? data.lastError.value : this.lastError,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SyncJob(')
+          ..write('id: $id, ')
+          ..write('localSessionId: $localSessionId, ')
+          ..write('remoteIngestionId: $remoteIngestionId, ')
+          ..write('status: $status, ')
+          ..write('attempts: $attempts, ')
+          ..write('nextRetryAt: $nextRetryAt, ')
+          ..write('lastError: $lastError, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, localSessionId, remoteIngestionId, status,
+      attempts, nextRetryAt, lastError, createdAt, updatedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SyncJob &&
+          other.id == this.id &&
+          other.localSessionId == this.localSessionId &&
+          other.remoteIngestionId == this.remoteIngestionId &&
+          other.status == this.status &&
+          other.attempts == this.attempts &&
+          other.nextRetryAt == this.nextRetryAt &&
+          other.lastError == this.lastError &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt);
+}
+
+class SyncJobsCompanion extends UpdateCompanion<SyncJob> {
+  final Value<int> id;
+  final Value<String> localSessionId;
+  final Value<int?> remoteIngestionId;
+  final Value<String> status;
+  final Value<int> attempts;
+  final Value<DateTime?> nextRetryAt;
+  final Value<String?> lastError;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> updatedAt;
+  const SyncJobsCompanion({
+    this.id = const Value.absent(),
+    this.localSessionId = const Value.absent(),
+    this.remoteIngestionId = const Value.absent(),
+    this.status = const Value.absent(),
+    this.attempts = const Value.absent(),
+    this.nextRetryAt = const Value.absent(),
+    this.lastError = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+  });
+  SyncJobsCompanion.insert({
+    this.id = const Value.absent(),
+    required String localSessionId,
+    this.remoteIngestionId = const Value.absent(),
+    this.status = const Value.absent(),
+    this.attempts = const Value.absent(),
+    this.nextRetryAt = const Value.absent(),
+    this.lastError = const Value.absent(),
+    required DateTime createdAt,
+    required DateTime updatedAt,
+  })  : localSessionId = Value(localSessionId),
+        createdAt = Value(createdAt),
+        updatedAt = Value(updatedAt);
+  static Insertable<SyncJob> custom({
+    Expression<int>? id,
+    Expression<String>? localSessionId,
+    Expression<int>? remoteIngestionId,
+    Expression<String>? status,
+    Expression<int>? attempts,
+    Expression<DateTime>? nextRetryAt,
+    Expression<String>? lastError,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? updatedAt,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (localSessionId != null) 'local_session_id': localSessionId,
+      if (remoteIngestionId != null) 'remote_ingestion_id': remoteIngestionId,
+      if (status != null) 'status': status,
+      if (attempts != null) 'attempts': attempts,
+      if (nextRetryAt != null) 'next_retry_at': nextRetryAt,
+      if (lastError != null) 'last_error': lastError,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+    });
+  }
+
+  SyncJobsCompanion copyWith(
+      {Value<int>? id,
+      Value<String>? localSessionId,
+      Value<int?>? remoteIngestionId,
+      Value<String>? status,
+      Value<int>? attempts,
+      Value<DateTime?>? nextRetryAt,
+      Value<String?>? lastError,
+      Value<DateTime>? createdAt,
+      Value<DateTime>? updatedAt}) {
+    return SyncJobsCompanion(
+      id: id ?? this.id,
+      localSessionId: localSessionId ?? this.localSessionId,
+      remoteIngestionId: remoteIngestionId ?? this.remoteIngestionId,
+      status: status ?? this.status,
+      attempts: attempts ?? this.attempts,
+      nextRetryAt: nextRetryAt ?? this.nextRetryAt,
+      lastError: lastError ?? this.lastError,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (localSessionId.present) {
+      map['local_session_id'] = Variable<String>(localSessionId.value);
+    }
+    if (remoteIngestionId.present) {
+      map['remote_ingestion_id'] = Variable<int>(remoteIngestionId.value);
+    }
+    if (status.present) {
+      map['status'] = Variable<String>(status.value);
+    }
+    if (attempts.present) {
+      map['attempts'] = Variable<int>(attempts.value);
+    }
+    if (nextRetryAt.present) {
+      map['next_retry_at'] = Variable<DateTime>(nextRetryAt.value);
+    }
+    if (lastError.present) {
+      map['last_error'] = Variable<String>(lastError.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SyncJobsCompanion(')
+          ..write('id: $id, ')
+          ..write('localSessionId: $localSessionId, ')
+          ..write('remoteIngestionId: $remoteIngestionId, ')
+          ..write('status: $status, ')
+          ..write('attempts: $attempts, ')
+          ..write('nextRetryAt: $nextRetryAt, ')
+          ..write('lastError: $lastError, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AcquisitionLocalDatabase extends GeneratedDatabase {
   _$AcquisitionLocalDatabase(QueryExecutor e) : super(e);
   $AcquisitionLocalDatabaseManager get managers =>
@@ -1652,14 +2128,20 @@ abstract class _$AcquisitionLocalDatabase extends GeneratedDatabase {
       $StateTransitionsTable(this);
   late final $GpsPointsTable gpsPoints = $GpsPointsTable(this);
   late final $SensorWindowsTable sensorWindows = $SensorWindowsTable(this);
+  late final $SyncJobsTable syncJobs = $SyncJobsTable(this);
   late final AcquisitionDao acquisitionDao =
       AcquisitionDao(this as AcquisitionLocalDatabase);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
   @override
-  List<DatabaseSchemaEntity> get allSchemaEntities =>
-      [acquisitionSessions, stateTransitions, gpsPoints, sensorWindows];
+  List<DatabaseSchemaEntity> get allSchemaEntities => [
+        acquisitionSessions,
+        stateTransitions,
+        gpsPoints,
+        sensorWindows,
+        syncJobs
+      ];
 }
 
 typedef $$AcquisitionSessionsTableCreateCompanionBuilder
@@ -1727,6 +2209,21 @@ final class $$AcquisitionSessionsTableReferences extends BaseReferences<
         .filter((f) => f.sessionId.id.sqlEquals($_itemColumn<String>('id')!));
 
     final cache = $_typedResult.readTableOrNull(_sensorWindowsRefsTable($_db));
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: cache));
+  }
+
+  static MultiTypedResultKey<$SyncJobsTable, List<SyncJob>> _syncJobsRefsTable(
+          _$AcquisitionLocalDatabase db) =>
+      MultiTypedResultKey.fromTable(db.syncJobs,
+          aliasName: $_aliasNameGenerator(
+              db.acquisitionSessions.id, db.syncJobs.localSessionId));
+
+  $$SyncJobsTableProcessedTableManager get syncJobsRefs {
+    final manager = $$SyncJobsTableTableManager($_db, $_db.syncJobs).filter(
+        (f) => f.localSessionId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_syncJobsRefsTable($_db));
     return ProcessedTableManager(
         manager.$state.copyWith(prefetchedData: cache));
   }
@@ -1808,6 +2305,27 @@ class $$AcquisitionSessionsTableFilterComposer
             $$SensorWindowsTableFilterComposer(
               $db: $db,
               $table: $db.sensorWindows,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
+
+  Expression<bool> syncJobsRefs(
+      Expression<bool> Function($$SyncJobsTableFilterComposer f) f) {
+    final $$SyncJobsTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.syncJobs,
+        getReferencedColumn: (t) => t.localSessionId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$SyncJobsTableFilterComposer(
+              $db: $db,
+              $table: $db.syncJobs,
               $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
               joinBuilder: joinBuilder,
               $removeJoinBuilderFromRootComposer:
@@ -1922,6 +2440,27 @@ class $$AcquisitionSessionsTableAnnotationComposer
             ));
     return f(composer);
   }
+
+  Expression<T> syncJobsRefs<T extends Object>(
+      Expression<T> Function($$SyncJobsTableAnnotationComposer a) f) {
+    final $$SyncJobsTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.syncJobs,
+        getReferencedColumn: (t) => t.localSessionId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$SyncJobsTableAnnotationComposer(
+              $db: $db,
+              $table: $db.syncJobs,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
 }
 
 class $$AcquisitionSessionsTableTableManager extends RootTableManager<
@@ -1938,7 +2477,8 @@ class $$AcquisitionSessionsTableTableManager extends RootTableManager<
     PrefetchHooks Function(
         {bool stateTransitionsRefs,
         bool gpsPointsRefs,
-        bool sensorWindowsRefs})> {
+        bool sensorWindowsRefs,
+        bool syncJobsRefs})> {
   $$AcquisitionSessionsTableTableManager(
       _$AcquisitionLocalDatabase db, $AcquisitionSessionsTable table)
       : super(TableManagerState(
@@ -1989,13 +2529,15 @@ class $$AcquisitionSessionsTableTableManager extends RootTableManager<
           prefetchHooksCallback: (
               {stateTransitionsRefs = false,
               gpsPointsRefs = false,
-              sensorWindowsRefs = false}) {
+              sensorWindowsRefs = false,
+              syncJobsRefs = false}) {
             return PrefetchHooks(
               db: db,
               explicitlyWatchedTables: [
                 if (stateTransitionsRefs) db.stateTransitions,
                 if (gpsPointsRefs) db.gpsPoints,
-                if (sensorWindowsRefs) db.sensorWindows
+                if (sensorWindowsRefs) db.sensorWindows,
+                if (syncJobsRefs) db.syncJobs
               ],
               addJoins: null,
               getPrefetchedDataCallback: (items) async {
@@ -2038,6 +2580,19 @@ class $$AcquisitionSessionsTableTableManager extends RootTableManager<
                         referencedItemsForCurrentItem:
                             (item, referencedItems) => referencedItems
                                 .where((e) => e.sessionId == item.id),
+                        typedResults: items),
+                  if (syncJobsRefs)
+                    await $_getPrefetchedData<AcquisitionSession,
+                            $AcquisitionSessionsTable, SyncJob>(
+                        currentTable: table,
+                        referencedTable: $$AcquisitionSessionsTableReferences
+                            ._syncJobsRefsTable(db),
+                        managerFromTypedResult: (p0) =>
+                            $$AcquisitionSessionsTableReferences(db, table, p0)
+                                .syncJobsRefs,
+                        referencedItemsForCurrentItem:
+                            (item, referencedItems) => referencedItems
+                                .where((e) => e.localSessionId == item.id),
                         typedResults: items)
                 ];
               },
@@ -2060,7 +2615,8 @@ typedef $$AcquisitionSessionsTableProcessedTableManager = ProcessedTableManager<
     PrefetchHooks Function(
         {bool stateTransitionsRefs,
         bool gpsPointsRefs,
-        bool sensorWindowsRefs})>;
+        bool sensorWindowsRefs,
+        bool syncJobsRefs})>;
 typedef $$StateTransitionsTableCreateCompanionBuilder
     = StateTransitionsCompanion Function({
   Value<int> id,
@@ -3056,6 +3612,338 @@ typedef $$SensorWindowsTableProcessedTableManager = ProcessedTableManager<
     (SensorWindow, $$SensorWindowsTableReferences),
     SensorWindow,
     PrefetchHooks Function({bool sessionId})>;
+typedef $$SyncJobsTableCreateCompanionBuilder = SyncJobsCompanion Function({
+  Value<int> id,
+  required String localSessionId,
+  Value<int?> remoteIngestionId,
+  Value<String> status,
+  Value<int> attempts,
+  Value<DateTime?> nextRetryAt,
+  Value<String?> lastError,
+  required DateTime createdAt,
+  required DateTime updatedAt,
+});
+typedef $$SyncJobsTableUpdateCompanionBuilder = SyncJobsCompanion Function({
+  Value<int> id,
+  Value<String> localSessionId,
+  Value<int?> remoteIngestionId,
+  Value<String> status,
+  Value<int> attempts,
+  Value<DateTime?> nextRetryAt,
+  Value<String?> lastError,
+  Value<DateTime> createdAt,
+  Value<DateTime> updatedAt,
+});
+
+final class $$SyncJobsTableReferences extends BaseReferences<
+    _$AcquisitionLocalDatabase, $SyncJobsTable, SyncJob> {
+  $$SyncJobsTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static $AcquisitionSessionsTable _localSessionIdTable(
+          _$AcquisitionLocalDatabase db) =>
+      db.acquisitionSessions.createAlias($_aliasNameGenerator(
+          db.syncJobs.localSessionId, db.acquisitionSessions.id));
+
+  $$AcquisitionSessionsTableProcessedTableManager get localSessionId {
+    final $_column = $_itemColumn<String>('local_session_id')!;
+
+    final manager =
+        $$AcquisitionSessionsTableTableManager($_db, $_db.acquisitionSessions)
+            .filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_localSessionIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: [item]));
+  }
+}
+
+class $$SyncJobsTableFilterComposer
+    extends Composer<_$AcquisitionLocalDatabase, $SyncJobsTable> {
+  $$SyncJobsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get remoteIngestionId => $composableBuilder(
+      column: $table.remoteIngestionId,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get status => $composableBuilder(
+      column: $table.status, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get attempts => $composableBuilder(
+      column: $table.attempts, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get nextRetryAt => $composableBuilder(
+      column: $table.nextRetryAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get lastError => $composableBuilder(
+      column: $table.lastError, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+      column: $table.updatedAt, builder: (column) => ColumnFilters(column));
+
+  $$AcquisitionSessionsTableFilterComposer get localSessionId {
+    final $$AcquisitionSessionsTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.localSessionId,
+        referencedTable: $db.acquisitionSessions,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$AcquisitionSessionsTableFilterComposer(
+              $db: $db,
+              $table: $db.acquisitionSessions,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$SyncJobsTableOrderingComposer
+    extends Composer<_$AcquisitionLocalDatabase, $SyncJobsTable> {
+  $$SyncJobsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get remoteIngestionId => $composableBuilder(
+      column: $table.remoteIngestionId,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get status => $composableBuilder(
+      column: $table.status, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get attempts => $composableBuilder(
+      column: $table.attempts, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get nextRetryAt => $composableBuilder(
+      column: $table.nextRetryAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get lastError => $composableBuilder(
+      column: $table.lastError, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+      column: $table.updatedAt, builder: (column) => ColumnOrderings(column));
+
+  $$AcquisitionSessionsTableOrderingComposer get localSessionId {
+    final $$AcquisitionSessionsTableOrderingComposer composer =
+        $composerBuilder(
+            composer: this,
+            getCurrentColumn: (t) => t.localSessionId,
+            referencedTable: $db.acquisitionSessions,
+            getReferencedColumn: (t) => t.id,
+            builder: (joinBuilder,
+                    {$addJoinBuilderToRootComposer,
+                    $removeJoinBuilderFromRootComposer}) =>
+                $$AcquisitionSessionsTableOrderingComposer(
+                  $db: $db,
+                  $table: $db.acquisitionSessions,
+                  $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                  joinBuilder: joinBuilder,
+                  $removeJoinBuilderFromRootComposer:
+                      $removeJoinBuilderFromRootComposer,
+                ));
+    return composer;
+  }
+}
+
+class $$SyncJobsTableAnnotationComposer
+    extends Composer<_$AcquisitionLocalDatabase, $SyncJobsTable> {
+  $$SyncJobsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<int> get remoteIngestionId => $composableBuilder(
+      column: $table.remoteIngestionId, builder: (column) => column);
+
+  GeneratedColumn<String> get status =>
+      $composableBuilder(column: $table.status, builder: (column) => column);
+
+  GeneratedColumn<int> get attempts =>
+      $composableBuilder(column: $table.attempts, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get nextRetryAt => $composableBuilder(
+      column: $table.nextRetryAt, builder: (column) => column);
+
+  GeneratedColumn<String> get lastError =>
+      $composableBuilder(column: $table.lastError, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  $$AcquisitionSessionsTableAnnotationComposer get localSessionId {
+    final $$AcquisitionSessionsTableAnnotationComposer composer =
+        $composerBuilder(
+            composer: this,
+            getCurrentColumn: (t) => t.localSessionId,
+            referencedTable: $db.acquisitionSessions,
+            getReferencedColumn: (t) => t.id,
+            builder: (joinBuilder,
+                    {$addJoinBuilderToRootComposer,
+                    $removeJoinBuilderFromRootComposer}) =>
+                $$AcquisitionSessionsTableAnnotationComposer(
+                  $db: $db,
+                  $table: $db.acquisitionSessions,
+                  $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                  joinBuilder: joinBuilder,
+                  $removeJoinBuilderFromRootComposer:
+                      $removeJoinBuilderFromRootComposer,
+                ));
+    return composer;
+  }
+}
+
+class $$SyncJobsTableTableManager extends RootTableManager<
+    _$AcquisitionLocalDatabase,
+    $SyncJobsTable,
+    SyncJob,
+    $$SyncJobsTableFilterComposer,
+    $$SyncJobsTableOrderingComposer,
+    $$SyncJobsTableAnnotationComposer,
+    $$SyncJobsTableCreateCompanionBuilder,
+    $$SyncJobsTableUpdateCompanionBuilder,
+    (SyncJob, $$SyncJobsTableReferences),
+    SyncJob,
+    PrefetchHooks Function({bool localSessionId})> {
+  $$SyncJobsTableTableManager(
+      _$AcquisitionLocalDatabase db, $SyncJobsTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SyncJobsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SyncJobsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$SyncJobsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            Value<String> localSessionId = const Value.absent(),
+            Value<int?> remoteIngestionId = const Value.absent(),
+            Value<String> status = const Value.absent(),
+            Value<int> attempts = const Value.absent(),
+            Value<DateTime?> nextRetryAt = const Value.absent(),
+            Value<String?> lastError = const Value.absent(),
+            Value<DateTime> createdAt = const Value.absent(),
+            Value<DateTime> updatedAt = const Value.absent(),
+          }) =>
+              SyncJobsCompanion(
+            id: id,
+            localSessionId: localSessionId,
+            remoteIngestionId: remoteIngestionId,
+            status: status,
+            attempts: attempts,
+            nextRetryAt: nextRetryAt,
+            lastError: lastError,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+          ),
+          createCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            required String localSessionId,
+            Value<int?> remoteIngestionId = const Value.absent(),
+            Value<String> status = const Value.absent(),
+            Value<int> attempts = const Value.absent(),
+            Value<DateTime?> nextRetryAt = const Value.absent(),
+            Value<String?> lastError = const Value.absent(),
+            required DateTime createdAt,
+            required DateTime updatedAt,
+          }) =>
+              SyncJobsCompanion.insert(
+            id: id,
+            localSessionId: localSessionId,
+            remoteIngestionId: remoteIngestionId,
+            status: status,
+            attempts: attempts,
+            nextRetryAt: nextRetryAt,
+            lastError: lastError,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) =>
+                  (e.readTable(table), $$SyncJobsTableReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: ({localSessionId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins: <
+                  T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic>>(state) {
+                if (localSessionId) {
+                  state = state.withJoin(
+                    currentTable: table,
+                    currentColumn: table.localSessionId,
+                    referencedTable:
+                        $$SyncJobsTableReferences._localSessionIdTable(db),
+                    referencedColumn:
+                        $$SyncJobsTableReferences._localSessionIdTable(db).id,
+                  ) as T;
+                }
+
+                return state;
+              },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ));
+}
+
+typedef $$SyncJobsTableProcessedTableManager = ProcessedTableManager<
+    _$AcquisitionLocalDatabase,
+    $SyncJobsTable,
+    SyncJob,
+    $$SyncJobsTableFilterComposer,
+    $$SyncJobsTableOrderingComposer,
+    $$SyncJobsTableAnnotationComposer,
+    $$SyncJobsTableCreateCompanionBuilder,
+    $$SyncJobsTableUpdateCompanionBuilder,
+    (SyncJob, $$SyncJobsTableReferences),
+    SyncJob,
+    PrefetchHooks Function({bool localSessionId})>;
 
 class $AcquisitionLocalDatabaseManager {
   final _$AcquisitionLocalDatabase _db;
@@ -3068,6 +3956,8 @@ class $AcquisitionLocalDatabaseManager {
       $$GpsPointsTableTableManager(_db, _db.gpsPoints);
   $$SensorWindowsTableTableManager get sensorWindows =>
       $$SensorWindowsTableTableManager(_db, _db.sensorWindows);
+  $$SyncJobsTableTableManager get syncJobs =>
+      $$SyncJobsTableTableManager(_db, _db.syncJobs);
 }
 
 mixin _$AcquisitionDaoMixin on DatabaseAccessor<AcquisitionLocalDatabase> {
@@ -3077,6 +3967,7 @@ mixin _$AcquisitionDaoMixin on DatabaseAccessor<AcquisitionLocalDatabase> {
       attachedDatabase.stateTransitions;
   $GpsPointsTable get gpsPoints => attachedDatabase.gpsPoints;
   $SensorWindowsTable get sensorWindows => attachedDatabase.sensorWindows;
+  $SyncJobsTable get syncJobs => attachedDatabase.syncJobs;
   AcquisitionDaoManager get managers => AcquisitionDaoManager(this);
 }
 
@@ -3093,4 +3984,6 @@ class AcquisitionDaoManager {
       $$GpsPointsTableTableManager(_db.attachedDatabase, _db.gpsPoints);
   $$SensorWindowsTableTableManager get sensorWindows =>
       $$SensorWindowsTableTableManager(_db.attachedDatabase, _db.sensorWindows);
+  $$SyncJobsTableTableManager get syncJobs =>
+      $$SyncJobsTableTableManager(_db.attachedDatabase, _db.syncJobs);
 }

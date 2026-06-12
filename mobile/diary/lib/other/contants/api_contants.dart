@@ -1,16 +1,20 @@
 class ApiConstants {
-  static const String baseApiUrl = String.fromEnvironment(
-    'API_BASE_URL',
-    defaultValue: 'http://127.0.0.1:8000/api',
-  );
+  static String get baseApiUrl {
+    if (const bool.hasEnvironment('API_BASE_URL')) {
+      return const String.fromEnvironment('API_BASE_URL');
+    }
+    return 'https://dev.giacomobianco.com/api';
+  }
 
   static const String loginPath = '/auth/login';
   static const String registerPath = '/auth/register';
   static const String mePath = '/auth/me';
   static const String logoutPath = '/auth/logout';
+
+  static const String mobilityTripsPath = '/trips/';
 }
 
 class Apicontants {
   @Deprecated('Use ApiConstants.baseApiUrl')
-  static const String baseApiUrl = ApiConstants.baseApiUrl;
+  static String get baseApiUrl => ApiConstants.baseApiUrl;
 }

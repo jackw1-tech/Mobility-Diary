@@ -30,7 +30,23 @@ class SamplingProfile {
     required this.persistGpsPoints,
   });
 
-  const SamplingProfile.stationary()
+  const SamplingProfile.stationary() : this.stationaryRecent();
+
+  const SamplingProfile.stationaryRecent()
+      : this(
+          accelerometerHz: 10,
+          gyroscopeHz: 0,
+          magnetometerHz: 0,
+          gpsEnabled: true,
+          gpsInterval: const Duration(seconds: 20),
+          gpsDistanceFilterMeters: 30,
+          gpsAccuracy: GpsAccuracyProfile.highAccuracy,
+          harWindowEnabled: false,
+          persistSensorWindows: false,
+          persistGpsPoints: true,
+        );
+
+  const SamplingProfile.stationaryDeep()
       : this(
           accelerometerHz: 10,
           gyroscopeHz: 0,
@@ -72,10 +88,15 @@ class SamplingProfile {
           persistGpsPoints: true,
         );
 
-  factory SamplingProfile.forState(TrackingState state) {
+  factory SamplingProfile.forState(
+    TrackingState state, {
+    bool stationaryDeep = false,
+  }) {
     switch (state) {
       case TrackingState.stationary:
-        return const SamplingProfile.stationary();
+        return stationaryDeep
+            ? const SamplingProfile.stationaryDeep()
+            : const SamplingProfile.stationaryRecent();
       case TrackingState.potentialMotion:
         return const SamplingProfile.potentialMotion();
       case TrackingState.activeTracking:

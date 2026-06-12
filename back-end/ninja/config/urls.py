@@ -4,10 +4,12 @@ from ninja import NinjaAPI
 
 from accounts.api import router as auth_router
 from mobility.api import router as mobility_router
+from mobility.ingestion.api import router as ingestion_router
 
 api = NinjaAPI(title="Mobility Diary API", version="0.1.0")
 api.add_router("/auth/", auth_router)
 api.add_router("/mobility/", mobility_router)
+api.add_router("/ingestion/", ingestion_router)
 
 urlpatterns = [
     path("admin/", admin.site.urls),

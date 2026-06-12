@@ -8,11 +8,13 @@ enum AcquisitionCubitStatus {
 class AcquisitionCubitState {
   final AcquisitionCubitStatus status;
   final AcquisitionSnapshot snapshot;
+  final AcquisitionSyncSnapshot syncSnapshot;
   final List<AcquisitionMetricCluster> metricClusters;
 
   const AcquisitionCubitState({
     required this.status,
     required this.snapshot,
+    this.syncSnapshot = const AcquisitionSyncSnapshot.none(),
     this.metricClusters = const [],
   });
 
@@ -22,6 +24,7 @@ class AcquisitionCubitState {
 
   factory AcquisitionCubitState.fromSnapshot(
     AcquisitionSnapshot snapshot, {
+    AcquisitionSyncSnapshot syncSnapshot = const AcquisitionSyncSnapshot.none(),
     List<AcquisitionMetricCluster> metricClusters = const [],
   }) {
     return AcquisitionCubitState(
@@ -29,7 +32,22 @@ class AcquisitionCubitState {
           ? AcquisitionCubitStatus.tracking
           : AcquisitionCubitStatus.idle,
       snapshot: snapshot,
+      syncSnapshot: syncSnapshot,
       metricClusters: metricClusters,
+    );
+  }
+
+  AcquisitionCubitState copyWith({
+    AcquisitionCubitStatus? status,
+    AcquisitionSnapshot? snapshot,
+    AcquisitionSyncSnapshot? syncSnapshot,
+    List<AcquisitionMetricCluster>? metricClusters,
+  }) {
+    return AcquisitionCubitState(
+      status: status ?? this.status,
+      snapshot: snapshot ?? this.snapshot,
+      syncSnapshot: syncSnapshot ?? this.syncSnapshot,
+      metricClusters: metricClusters ?? this.metricClusters,
     );
   }
 

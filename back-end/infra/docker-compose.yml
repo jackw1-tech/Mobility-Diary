@@ -72,5 +72,37 @@ services:
       timeout: 3s
       retries: 20
 
+  # Object storage S3-compatibile per lo sviluppo locale (REPORT_STRATEGIA_INGESTION_ASINCRONA.md D7).
+  # In deploy su Railway viene sostituito da Railway Buckets cambiando solo le env var S3_*.
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:-minioadmin}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Crea il bucket locale al primo avvio, poi esce. Idempotente (mb --ignore-existing).
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${S3_ACCESS_KEY_ID:-minioadmin} ${S3_SECRET_ACCESS_KEY:-minioadmin} &&
+      mc mb --ignore-existing local/${S3_BUCKET_NAME:-mobility-trips}
+      "
+
 volumes:
   postgres_data:
+  minio_data:

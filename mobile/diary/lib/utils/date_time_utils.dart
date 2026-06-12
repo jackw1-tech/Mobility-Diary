@@ -3,23 +3,23 @@ import 'package:intl/intl.dart';
 class DateTimeUtils {
   static String formatDate(DateTime date, {String format = 'dd/MM/yyyy'}) {
     final formatter = DateFormat(format);
-    return formatter.format(date);
+    return formatter.format(date.toLocal());
   }
 
   static String formatTime(DateTime time, {String format = 'HH:mm'}) {
     final formatter = DateFormat(format);
-    return formatter.format(time);
+    return formatter.format(time.toLocal());
   }
 
   static String formatDateTime(DateTime dateTime,
       {String format = 'dd/MM/yyyy HH:mm'}) {
     final formatter = DateFormat(format);
-    return formatter.format(dateTime);
+    return formatter.format(dateTime.toLocal());
   }
 
   static String getRelativeTime(DateTime dateTime) {
-    final now = DateTime.now();
-    final difference = now.difference(dateTime);
+    final now = DateTime.now().toUtc();
+    final difference = now.difference(dateTime.toUtc());
 
     if (difference.inDays > 365) {
       return '${(difference.inDays / 365).floor()} anni fa';

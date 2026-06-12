@@ -1,0 +1,7 @@
+{
+  "0": "IDLE",
+  "1": "WALKING",
+  "2": "RUNNING",
+  "3": "BIKING",
+  "4": "MOVING_VEHICLE"
+}

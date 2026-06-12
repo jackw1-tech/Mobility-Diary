@@ -195,6 +195,14 @@ class _AuthPageState extends State<AuthPage> {
                                 _isRegister ? 'Crea account' : 'Entra',
                               ),
                             ),
+                            const SizedBox(height: Dimensions.paddingMedium),
+                            OutlinedButton.icon(
+                              onPressed: state.isLoading
+                                  ? null
+                                  : () => context.read<AuthCubit>().loginAsGuest(),
+                              icon: const Icon(Icons.person_outline),
+                              label: const Text('Entra senza login (Ospite)'),
+                            ),
                             if (kDebugMode) ...[
                               const SizedBox(height: Dimensions.paddingSmall),
                               TextButton.icon(

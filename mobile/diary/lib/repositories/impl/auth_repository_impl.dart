@@ -86,6 +86,26 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 
   @override
+  Future<AuthSession> loginAsGuest() async {
+    const fakeUser = AuthUser(
+      id: -1,
+      email: 'guest@mobilitydiary.local',
+      firstName: 'Ospite',
+      lastName: '',
+      isStaff: false,
+      isSuperuser: false,
+    );
+    final session = AuthSession(
+      user: fakeUser,
+      accessToken: 'dummy_guest_token',
+      tokenType: 'Bearer',
+      expiresAt: DateTime.now().add(const Duration(days: 365)),
+    );
+    await _persistSession(session);
+    return session;
+  }
+
+  @override
   Future<AuthSession> register({
     required String email,
     required String password,
@@ -106,6 +126,20 @@ class AuthRepositoryImpl implements AuthRepository {
 
   @override
   Future<AuthUser> loadCurrentUser() async {
+    if (_accessToken == 'dummy_guest_token') {
+      const fakeUser = AuthUser(
+        id: -1,
+        email: 'guest@mobilitydiary.local',
+        firstName: 'Ospite',
+        lastName: '',
+        isStaff: false,
+        isSuperuser: false,
+      );
+      _currentUser = fakeUser;
+      await _storage.write(key: _userKey, value: jsonEncode(fakeUser.toJson()));
+      return fakeUser;
+    }
+
     final data = await _sendJson(
       method: 'GET',
       path: ApiConstants.mePath,
@@ -119,7 +153,7 @@ class AuthRepositoryImpl implements AuthRepository {
 
   @override
   Future<void> logout() async {
-    if (_accessToken != null) {
+    if (_accessToken != null && _accessToken != 'dummy_guest_token') {
       try {
         await _sendJson(
           method: 'POST',

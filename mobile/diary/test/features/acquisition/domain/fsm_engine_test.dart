@@ -3,7 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('AcquisitionFsm', () {
-    test('starts in stationary with the low-power sampling profile', () {
+    test('starts in stationary with the recent high-accuracy sampling profile',
+        () {
       final fsm = AcquisitionFsm();
 
       final decision = fsm.apply(
@@ -17,10 +18,39 @@ void main() {
       expect(decision.state, TrackingState.stationary);
       expect(decision.samplingProfile.accelerometerHz, 10);
       expect(decision.samplingProfile.gpsEnabled, isTrue);
-      expect(decision.samplingProfile.gpsInterval, const Duration(minutes: 3));
-      expect(decision.samplingProfile.gpsAccuracy, GpsAccuracyProfile.lowPower);
+      expect(decision.samplingProfile.gpsInterval, const Duration(seconds: 20));
+      expect(decision.samplingProfile.gpsDistanceFilterMeters, 30);
+      expect(decision.samplingProfile.gpsAccuracy,
+          GpsAccuracyProfile.highAccuracy);
       expect(decision.samplingProfile.harWindowEnabled, isFalse);
       expect(decision.samplingProfile.persistGpsPoints, isTrue);
+      expect(decision.didTransition, isFalse);
+    });
+
+    test('switches stationary to deep low-power sampling after ten minutes',
+        () {
+      final fsm = AcquisitionFsm();
+      final now = DateTime.utc(2026, 1, 1);
+
+      fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: now,
+          sigma: 0.1,
+          sampleCount: 20,
+        ),
+      );
+      final decision = fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: now.add(const Duration(minutes: 10, seconds: 1)),
+          sigma: 0.1,
+          sampleCount: 20,
+        ),
+      );
+
+      expect(decision.state, TrackingState.stationary);
+      expect(decision.samplingProfile.gpsInterval, const Duration(minutes: 3));
+      expect(decision.samplingProfile.gpsDistanceFilterMeters, 100);
+      expect(decision.samplingProfile.gpsAccuracy, GpsAccuracyProfile.lowPower);
       expect(decision.didTransition, isFalse);
     });
 
@@ -48,6 +78,151 @@ void main() {
       expect(
         fourthDecision.transition?.reason,
         'movement_sigma_above_threshold',
+      );
+    });
+
+    test(
+        'moves from stationary to potential motion after two reliable GPS motion fixes',
+        () {
+      final fsm = AcquisitionFsm();
+      final now = DateTime.utc(2026, 1, 1);
+
+      final firstDecision = fsm.apply(
+        GpsFixReceived(
+          timestamp: now,
+          speedMetersPerSecond: 0.8,
+          accuracyMeters: 12,
+        ),
+      );
+      final secondDecision = fsm.apply(
+        GpsFixReceived(
+          timestamp: now.add(const Duration(seconds: 20)),
+          speedMetersPerSecond: 0.8,
+          accuracyMeters: 12,
+        ),
+      );
+
+      expect(firstDecision.state, TrackingState.stationary);
+      expect(firstDecision.didTransition, isFalse);
+      expect(secondDecision.state, TrackingState.potentialMotion);
+      expect(
+        secondDecision.transition?.reason,
+        'gps_reliable_motion_confirmed_in_stationary',
+      );
+      expect(
+        secondDecision.samplingProfile.gpsInterval,
+        const Duration(seconds: 5),
+      );
+    });
+
+    test('moves reliable fast GPS from stationary to potential after two fixes',
+        () {
+      final fsm = AcquisitionFsm();
+      final now = DateTime.utc(2026, 1, 1);
+
+      final firstDecision = fsm.apply(
+        GpsFixReceived(
+          timestamp: now,
+          speedMetersPerSecond: 3,
+          accuracyMeters: 12,
+        ),
+      );
+      final secondDecision = fsm.apply(
+        GpsFixReceived(
+          timestamp: now.add(const Duration(seconds: 20)),
+          speedMetersPerSecond: 3,
+          accuracyMeters: 12,
+        ),
+      );
+
+      expect(firstDecision.state, TrackingState.stationary);
+      expect(firstDecision.didTransition, isFalse);
+      expect(secondDecision.state, TrackingState.potentialMotion);
+      expect(
+        secondDecision.transition?.reason,
+        'gps_reliable_motion_confirmed_in_stationary',
+      );
+      expect(
+        secondDecision.samplingProfile.gpsInterval,
+        const Duration(seconds: 5),
+      );
+    });
+
+    test(
+        'moves from stationary to potential motion after three unreliable GPS motion fixes',
+        () {
+      final fsm = AcquisitionFsm();
+      final now = DateTime.utc(2026, 1, 1);
+
+      FsmDecision decision = fsm.apply(
+        GpsFixReceived(
+          timestamp: now,
+          speedMetersPerSecond: 0.8,
+          accuracyMeters: 60,
+        ),
+      );
+      expect(decision.state, TrackingState.stationary);
+
+      decision = fsm.apply(
+        GpsFixReceived(
+          timestamp: now.add(const Duration(seconds: 20)),
+          speedMetersPerSecond: 0.8,
+          accuracyMeters: 60,
+        ),
+      );
+      expect(decision.state, TrackingState.stationary);
+
+      decision = fsm.apply(
+        GpsFixReceived(
+          timestamp: now.add(const Duration(seconds: 40)),
+          speedMetersPerSecond: 0.8,
+          accuracyMeters: 60,
+        ),
+      );
+
+      expect(decision.state, TrackingState.potentialMotion);
+      expect(
+        decision.transition?.reason,
+        'gps_unreliable_motion_confirmed_in_stationary',
+      );
+    });
+
+    test(
+        'moves from stationary directly to active after three unreliable fast GPS fixes',
+        () {
+      final fsm = AcquisitionFsm();
+      final now = DateTime.utc(2026, 1, 1);
+
+      FsmDecision decision = fsm.apply(
+        GpsFixReceived(
+          timestamp: now,
+          speedMetersPerSecond: 3,
+          accuracyMeters: 60,
+        ),
+      );
+      expect(decision.state, TrackingState.stationary);
+
+      decision = fsm.apply(
+        GpsFixReceived(
+          timestamp: now.add(const Duration(seconds: 20)),
+          speedMetersPerSecond: 3,
+          accuracyMeters: 60,
+        ),
+      );
+      expect(decision.state, TrackingState.stationary);
+
+      decision = fsm.apply(
+        GpsFixReceived(
+          timestamp: now.add(const Duration(seconds: 40)),
+          speedMetersPerSecond: 3,
+          accuracyMeters: 60,
+        ),
+      );
+
+      expect(decision.state, TrackingState.activeTracking);
+      expect(
+        decision.transition?.reason,
+        'gps_unreliable_fast_speed_confirmed_in_stationary',
       );
     });
 
@@ -167,6 +342,39 @@ void main() {
           timestamp: now.add(const Duration(seconds: 5)),
           speedMetersPerSecond: 0,
           accuracyMeters: 8,
+        ),
+      );
+
+      final decision = fsm.apply(
+        PotentialMotionTimeoutElapsed(
+          timestamp: now.add(const Duration(seconds: 60)),
+        ),
+      );
+
+      expect(decision.state, TrackingState.stationary);
+      expect(
+        decision.transition?.reason,
+        'potential_motion_timeout_without_confirmed_trip',
+      );
+    });
+
+    test('ignores unreliable stale speed when potential motion times out', () {
+      final fsm = AcquisitionFsm();
+      final now = DateTime.utc(2026, 1, 1);
+
+      _enterPotentialMotion(fsm, now);
+      fsm.apply(
+        GpsFixReceived(
+          timestamp: now.add(const Duration(seconds: 5)),
+          speedMetersPerSecond: 0,
+          accuracyMeters: 8,
+        ),
+      );
+      fsm.apply(
+        GpsFixReceived(
+          timestamp: now.add(const Duration(seconds: 25)),
+          speedMetersPerSecond: 3,
+          accuracyMeters: 80,
         ),
       );
 

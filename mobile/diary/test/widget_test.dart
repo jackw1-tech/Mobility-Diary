@@ -49,6 +49,9 @@ class _AuthenticatedAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<AuthSession> loginAsGuest() async => _session;
+
+  @override
   Future<void> logout() async {}
 
   @override

@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math';
 
 import 'package:diary/features/acquisition/domain/acquisition_domain.dart';
+import 'package:diary/features/acquisition/runtime/gps_speed_estimator.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 
@@ -11,21 +11,18 @@ typedef AcquisitionRuntimeEventSink = Future<void> Function(
 typedef HarWindowSink = Future<void> Function(HarSensorWindow window);
 
 class AcquisitionSensorRuntime {
-  static const double _minimumSpeedDistanceMeters = 2;
-  static const double _accuracyDeadZoneFactor = 0.35;
-  static const double _maximumDeadZoneMeters = 12;
   static const Duration _harWindowDuration = HarSensorWindow.targetDuration;
   static const int _maxCompletedHarWindows = 12;
 
   final List<AccelerationSample> _accelerationWindow = [];
   final List<HarSensorSample> _harWindowSamples = [];
   final List<HarSensorWindow> _completedHarWindows = [];
+  final GpsSpeedEstimator _gpsSpeedEstimator = GpsSpeedEstimator();
 
   StreamSubscription<AccelerometerEvent>? _accelerometerSubscription;
   StreamSubscription<GyroscopeEvent>? _gyroscopeSubscription;
   StreamSubscription<MagnetometerEvent>? _magnetometerSubscription;
   StreamSubscription<Position>? _positionSubscription;
-  Position? _lastPosition;
   GyroscopeEvent? _latestGyroscopeEvent;
   MagnetometerEvent? _latestMagnetometerEvent;
   DateTime? _harWindowStartedAt;
@@ -46,6 +43,7 @@ class AcquisitionSensorRuntime {
     _eventSink = onEvent;
     _harWindowSink = onHarWindow;
     _isStarted = true;
+    _gpsSpeedEstimator.reset();
     await configure(profile);
   }
 
@@ -103,7 +101,7 @@ class AcquisitionSensorRuntime {
     _gyroscopeSubscription = null;
     _magnetometerSubscription = null;
     _positionSubscription = null;
-    _lastPosition = null;
+    _gpsSpeedEstimator.reset();
     _latestGyroscopeEvent = null;
     _latestMagnetometerEvent = null;
   }
@@ -155,7 +153,6 @@ class AcquisitionSensorRuntime {
   Future<void> _restartGps(SamplingProfile profile) async {
     await _positionSubscription?.cancel();
     _positionSubscription = null;
-    _lastPosition = null;
 
     if (!profile.gpsEnabled) {
       return;
@@ -203,7 +200,8 @@ class AcquisitionSensorRuntime {
         z: event.z,
       ),
     );
-    await _appendHarSensorSample(event, DateTime.now());
+    final timestamp = DateTime.now().toUtc();
+    await _appendHarSensorSample(event, timestamp);
 
     final windowSize = _windowSizeFor(profile.accelerometerHz);
     if (_accelerationWindow.length < windowSize) {
@@ -216,7 +214,7 @@ class AcquisitionSensorRuntime {
 
     await eventSink(
       MotionWindowEvaluated(
-        timestamp: DateTime.now(),
+        timestamp: timestamp,
         sigma: sigma,
         sampleCount: window.length,
       ),
@@ -291,61 +289,26 @@ class AcquisitionSensorRuntime {
       return;
     }
 
-    final speedMetersPerSecond = _effectiveSpeedMetersPerSecond(position);
-    _lastPosition = position;
+    final timestamp = position.timestamp.toUtc();
+    final speedMetersPerSecond = _gpsSpeedEstimator.add(
+      GpsSpeedFix(
+        timestamp: timestamp,
+        latitude: position.latitude,
+        longitude: position.longitude,
+        accuracyMeters: position.accuracy,
+        platformSpeedMetersPerSecond: position.speed,
+      ),
+    );
 
     await eventSink(
       GpsFixReceived(
-        timestamp: position.timestamp,
+        timestamp: timestamp,
         latitude: position.latitude,
         longitude: position.longitude,
         speedMetersPerSecond: speedMetersPerSecond,
         accuracyMeters: position.accuracy,
       ),
     );
-  }
-
-  double _effectiveSpeedMetersPerSecond(Position position) {
-    if (position.speed > 0) {
-      return position.speed;
-    }
-
-    final previousPosition = _lastPosition;
-    if (previousPosition == null) {
-      return 0;
-    }
-
-    final elapsedSeconds = position.timestamp
-            .difference(previousPosition.timestamp)
-            .inMilliseconds /
-        1000;
-    if (elapsedSeconds <= 0) {
-      return 0;
-    }
-
-    final distanceMeters = _distanceMeters(
-      previousPosition.latitude,
-      previousPosition.longitude,
-      position.latitude,
-      position.longitude,
-    );
-    final uncertaintyMeters = max(
-      previousPosition.accuracy,
-      position.accuracy,
-    );
-    final deadZoneMeters = min(
-      _maximumDeadZoneMeters,
-      max(
-        _minimumSpeedDistanceMeters,
-        uncertaintyMeters * _accuracyDeadZoneFactor,
-      ),
-    );
-
-    if (distanceMeters <= deadZoneMeters) {
-      return 0;
-    }
-
-    return distanceMeters / elapsedSeconds;
   }
 
   LocationSettings _locationSettingsFor(
@@ -359,6 +322,14 @@ class AcquisitionSensorRuntime {
         accuracy: accuracy,
         distanceFilter: distanceFilter,
         intervalDuration: interval,
+        foregroundNotificationConfig: const ForegroundNotificationConfig(
+          notificationTitle: 'Mobility Diary attivo',
+          notificationText:
+              'Il tracking continua a usare la posizione in background.',
+          notificationChannelName: 'Mobility tracking',
+          enableWakeLock: true,
+          setOngoing: true,
+        ),
       );
     }
 
@@ -371,7 +342,8 @@ class AcquisitionSensorRuntime {
         activityType: profile.gpsAccuracy == GpsAccuracyProfile.highAccuracy
             ? ActivityType.fitness
             : ActivityType.other,
-        allowBackgroundLocationUpdates: false,
+        showBackgroundLocationIndicator: true,
+        allowBackgroundLocationUpdates: true,
       );
     }
 
@@ -388,34 +360,6 @@ class AcquisitionSensorRuntime {
       case GpsAccuracyProfile.highAccuracy:
         return LocationAccuracy.high;
     }
-  }
-
-  double _distanceMeters(
-    double startLatitude,
-    double startLongitude,
-    double endLatitude,
-    double endLongitude,
-  ) {
-    const earthRadiusMeters = 6371000.0;
-    final startLatitudeRadians = _degreesToRadians(startLatitude);
-    final endLatitudeRadians = _degreesToRadians(endLatitude);
-    final deltaLatitudeRadians = _degreesToRadians(endLatitude - startLatitude);
-    final deltaLongitudeRadians =
-        _degreesToRadians(endLongitude - startLongitude);
-
-    final haversine =
-        sin(deltaLatitudeRadians / 2) * sin(deltaLatitudeRadians / 2) +
-            cos(startLatitudeRadians) *
-                cos(endLatitudeRadians) *
-                sin(deltaLongitudeRadians / 2) *
-                sin(deltaLongitudeRadians / 2);
-    final centralAngle = 2 * atan2(sqrt(haversine), sqrt(1 - haversine));
-
-    return earthRadiusMeters * centralAngle;
-  }
-
-  double _degreesToRadians(double degrees) {
-    return degrees * pi / 180;
   }
 
   Duration _samplingPeriodFor(int frequencyHz) {

@@ -62,6 +62,10 @@ class _AuthenticatedHomePage extends StatelessWidget {
                 padding: const EdgeInsets.all(Dimensions.paddingMedium),
                 children: [
                   _TrackingHeader(state: state),
+                  if (state.syncSnapshot.hasJob) ...[
+                    const SizedBox(height: Dimensions.paddingMedium),
+                    _SyncStatusPanel(state: state),
+                  ],
                   const SizedBox(height: Dimensions.paddingMedium),
                   _CoreMetrics(state: state),
                   const SizedBox(height: Dimensions.paddingMedium),
@@ -156,10 +160,262 @@ class _TrackingHeader extends StatelessWidget {
   Future<void> _toggleTracking(
     BuildContext context,
     AcquisitionCubitState state,
-  ) {
+  ) async {
     final cubit = context.read<AcquisitionCubit>();
-    return state.isTracking ? cubit.stopTracking() : cubit.startTracking();
+    try {
+      if (state.isTracking) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Chiusura viaggio in corso...')),
+        );
+        await cubit.stopTracking();
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Viaggio salvato. Sincronizzazione in background.'),
+              backgroundColor: ColorPalette.info,
+            ),
+          );
+        }
+      } else {
+        await cubit.startTracking();
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Acquisizione avviata con successo.'),
+              backgroundColor: ColorPalette.success,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Errore durante la comunicazione HTTP: $e'),
+            backgroundColor: ColorPalette.error,
+          ),
+        );
+      }
+    }
   }
+}
+
+class _SyncStatusPanel extends StatelessWidget {
+  final AcquisitionCubitState state;
+
+  const _SyncStatusPanel({required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    final sync = state.syncSnapshot;
+    final data = _syncStatusData(sync.status);
+    final nextRetryAt = sync.nextRetryAt;
+
+    return _Panel(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SyncStatusIcon(sync: sync, data: data),
+          const SizedBox(width: Dimensions.paddingSmall),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  data.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  _syncSubtitle(sync),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: ColorPalette.textSecondary,
+                      ),
+                ),
+                if (sync.lastError != null && sync.isFailed) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    sync.lastError!,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: ColorPalette.error,
+                        ),
+                  ),
+                ],
+                if (nextRetryAt != null &&
+                    sync.status == AcquisitionSyncStatus.failedRetryable) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    'Retry dopo ${_formatTime(nextRetryAt)}',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: ColorPalette.textSecondary,
+                        ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (sync.isFailed)
+            TextButton.icon(
+              onPressed: () => context.read<AcquisitionCubit>().resumeSync(),
+              icon: const Icon(Icons.refresh),
+              label: const Text('Riprova'),
+            ),
+        ],
+      ),
+    );
+  }
+
+  _SyncStatusData _syncStatusData(AcquisitionSyncStatus status) {
+    switch (status) {
+      case AcquisitionSyncStatus.none:
+        return const _SyncStatusData(
+          title: 'Nessuna sincronizzazione',
+          icon: Icons.cloud_off,
+          color: ColorPalette.textSecondary,
+        );
+      case AcquisitionSyncStatus.pending:
+        return const _SyncStatusData(
+          title: 'Sync in coda',
+          icon: Icons.schedule,
+          color: ColorPalette.info,
+        );
+      case AcquisitionSyncStatus.packaging:
+        return const _SyncStatusData(
+          title: 'Preparazione pacchetto',
+          icon: Icons.inventory_2,
+          color: ColorPalette.info,
+        );
+      case AcquisitionSyncStatus.uploading:
+        return const _SyncStatusData(
+          title: 'Upload viaggio',
+          icon: Icons.cloud_upload,
+          color: ColorPalette.info,
+        );
+      case AcquisitionSyncStatus.waitingProcessing:
+        return const _SyncStatusData(
+          title: 'Analisi backend',
+          icon: Icons.manage_search,
+          color: ColorPalette.warning,
+        );
+      case AcquisitionSyncStatus.completed:
+        return const _SyncStatusData(
+          title: 'Viaggio sincronizzato',
+          icon: Icons.cloud_done,
+          color: ColorPalette.success,
+        );
+      case AcquisitionSyncStatus.failedRetryable:
+        return const _SyncStatusData(
+          title: 'Sync in attesa',
+          icon: Icons.sync_problem,
+          color: ColorPalette.warning,
+        );
+      case AcquisitionSyncStatus.failedFinal:
+        return const _SyncStatusData(
+          title: 'Sync fallita',
+          icon: Icons.error_outline,
+          color: ColorPalette.error,
+        );
+    }
+  }
+
+  String _syncSubtitle(AcquisitionSyncSnapshot sync) {
+    final ingestion = sync.remoteIngestionId == null
+        ? null
+        : 'ingestion #${sync.remoteIngestionId}';
+    final attemptText =
+        sync.attempts == 0 ? null : 'tentativo ${sync.attempts}';
+
+    switch (sync.status) {
+      case AcquisitionSyncStatus.none:
+        return 'Nessun viaggio da caricare';
+      case AcquisitionSyncStatus.pending:
+        return 'Il viaggio e salvato localmente e aspetta la rete';
+      case AcquisitionSyncStatus.packaging:
+        return 'Compressione e divisione dei dati in parti';
+      case AcquisitionSyncStatus.uploading:
+        return ingestion == null
+            ? 'Caricamento delle parti compresse'
+            : 'Caricamento parti su $ingestion';
+      case AcquisitionSyncStatus.waitingProcessing:
+        return ingestion == null
+            ? 'Dati caricati, elaborazione asincrona in corso'
+            : 'Dati caricati, $ingestion in elaborazione';
+      case AcquisitionSyncStatus.completed:
+        return ingestion == null
+            ? 'Dati disponibili sul backend'
+            : '$ingestion completata';
+      case AcquisitionSyncStatus.failedRetryable:
+        return attemptText == null
+            ? 'Errore temporaneo, verra ritentato'
+            : 'Errore temporaneo, $attemptText';
+      case AcquisitionSyncStatus.failedFinal:
+        return attemptText == null
+            ? 'Serve un nuovo tentativo manuale'
+            : 'Errore definitivo dopo $attemptText';
+    }
+  }
+
+  String _formatTime(DateTime time) {
+    final localTime = time.toLocal();
+    return '${localTime.hour.toString().padLeft(2, '0')}:'
+        '${localTime.minute.toString().padLeft(2, '0')}';
+  }
+}
+
+class _SyncStatusIcon extends StatelessWidget {
+  final AcquisitionSyncSnapshot sync;
+  final _SyncStatusData data;
+
+  const _SyncStatusIcon({
+    required this.sync,
+    required this.data,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 40,
+      height: 40,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: data.color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(Dimensions.borderRadiusSmall),
+        ),
+        child: Center(
+          child: sync.isWorking
+              ? SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: data.color,
+                  ),
+                )
+              : Icon(data.icon, color: data.color),
+        ),
+      ),
+    );
+  }
+}
+
+class _SyncStatusData {
+  final String title;
+  final IconData icon;
+  final Color color;
+
+  const _SyncStatusData({
+    required this.title,
+    required this.icon,
+    required this.color,
+  });
 }
 
 class _CoreMetrics extends StatelessWidget {

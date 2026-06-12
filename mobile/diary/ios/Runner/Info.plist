@@ -28,6 +28,8 @@
 	<true/>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Mobility Diary usa la posizione durante una sessione di tracking per ricostruire gli spostamenti.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Mobility Diary usa la posizione anche in background durante una sessione di tracking attiva per rilevare partenze e arrivi in modo affidabile.</string>
 	<key>NSMotionUsageDescription</key>
 	<string>Mobility Diary usa accelerometro e giroscopio per stimare il contesto di movimento.</string>
 	<key>NSAppTransportSecurity</key>
@@ -37,6 +39,10 @@
 	</dict>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

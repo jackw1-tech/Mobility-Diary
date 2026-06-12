@@ -52,5 +52,28 @@ void main() {
       expect(cubit.state.samplingProfile.accelerometerHz, 100);
       expect(cubit.state.samplingProfile.gyroscopeHz, 100);
     });
+
+    test('surfaces sync status after stop', () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        enableRuntime: false,
+      );
+      final cubit = AcquisitionCubit(repository);
+      addTearDown(repository.dispose);
+      addTearDown(cubit.close);
+
+      await cubit.startTracking();
+      final pendingStateFuture = cubit.stream.firstWhere(
+        (state) => state.syncSnapshot.status == AcquisitionSyncStatus.pending,
+      );
+
+      await cubit.stopTracking();
+      final pendingState = await pendingStateFuture;
+
+      expect(pendingState.status, AcquisitionCubitStatus.idle);
+      expect(pendingState.syncSnapshot.status, AcquisitionSyncStatus.pending);
+      expect(pendingState.syncSnapshot.localSessionId, isNotNull);
+    });
   });
 }

@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:diary/features/acquisition/data/acquisition_local_database.dart';
 import 'package:diary/features/acquisition/domain/acquisition_domain.dart';
 import 'package:diary/features/acquisition/runtime/acquisition_sensor_runtime.dart';
+import 'package:diary/features/acquisition/sync/trip_sync_queue.dart';
 import 'package:diary/repositories/acquisition_repository.dart';
 import 'package:uuid/uuid.dart';
 
@@ -14,13 +15,17 @@ class AcquisitionRepositoryImpl implements AcquisitionRepository {
   final Uuid _uuid;
   final String _deviceId;
   final AcquisitionSensorRuntime? _runtime;
+  final TripSyncQueue? _syncQueue;
   final StreamController<AcquisitionSnapshot> _snapshotController =
       StreamController<AcquisitionSnapshot>.broadcast();
 
   late AcquisitionFsm _fsm;
   AcquisitionSnapshot _currentSnapshot = AcquisitionSnapshot.idle();
+  AcquisitionSyncSnapshot _currentSyncSnapshot =
+      const AcquisitionSyncSnapshot.none();
   String? _currentSessionId;
   Timer? _potentialMotionTimeoutTimer;
+  Timer? _syncRetryTimer;
   final Set<String> _persistedSensorWindowKeys = {};
 
   AcquisitionRepositoryImpl({
@@ -30,10 +35,12 @@ class AcquisitionRepositoryImpl implements AcquisitionRepository {
     String deviceId = 'local_device',
     bool enableRuntime = true,
     AcquisitionSensorRuntime? runtime,
+    TripSyncQueue? syncQueue,
   })  : _config = config,
         _database = database ?? AcquisitionLocalDatabase(),
         _uuid = uuid ?? const Uuid(),
         _deviceId = deviceId,
+        _syncQueue = syncQueue,
         _runtime =
             enableRuntime ? runtime ?? AcquisitionSensorRuntime() : null {
     _dao = _database.acquisitionDao;
@@ -44,7 +51,20 @@ class AcquisitionRepositoryImpl implements AcquisitionRepository {
   Stream<AcquisitionSnapshot> get snapshots => _snapshotController.stream;
 
   @override
+  Stream<AcquisitionSyncSnapshot> get syncSnapshots {
+    return _dao.watchLatestSyncJob().map((job) {
+      final snapshot = _syncSnapshotFromJob(job);
+      _currentSyncSnapshot = snapshot;
+      _scheduleSyncRetry(snapshot);
+      return snapshot;
+    });
+  }
+
+  @override
   AcquisitionSnapshot get currentSnapshot => _currentSnapshot;
+
+  @override
+  AcquisitionSyncSnapshot get currentSyncSnapshot => _currentSyncSnapshot;
 
   @override
   Future<void> startTracking() async {
@@ -54,7 +74,7 @@ class AcquisitionRepositoryImpl implements AcquisitionRepository {
 
     _potentialMotionTimeoutTimer?.cancel();
     _persistedSensorWindowKeys.clear();
-    final now = DateTime.now();
+    final now = DateTime.now().toUtc();
     final sessionId = _uuid.v4();
     _fsm = AcquisitionFsm(config: _config);
     await _dao.createSession(
@@ -90,7 +110,7 @@ class AcquisitionRepositoryImpl implements AcquisitionRepository {
     if (sessionId != null) {
       await _dao.endSession(
         id: sessionId,
-        endedAt: DateTime.now(),
+        endedAt: DateTime.now().toUtc(),
       );
     }
 
@@ -98,6 +118,13 @@ class AcquisitionRepositoryImpl implements AcquisitionRepository {
     _persistedSensorWindowKeys.clear();
     _fsm = AcquisitionFsm(config: _config);
     _emit(AcquisitionSnapshot.idle());
+
+    // STOP non bloccante: si accoda un SyncJob persistente (insert locale veloce)
+    // e si "kicka" la coda senza attendere la rete (REPORT D5).
+    if (sessionId != null) {
+      await _dao.createSyncJobIfAbsent(sessionId);
+      unawaited(_syncQueue?.kick() ?? Future<void>.value());
+    }
   }
 
   @override
@@ -156,8 +183,14 @@ class AcquisitionRepositoryImpl implements AcquisitionRepository {
   }
 
   @override
+  Future<void> resumeSync() async {
+    await _syncQueue?.kick();
+  }
+
+  @override
   void dispose() {
     _potentialMotionTimeoutTimer?.cancel();
+    _syncRetryTimer?.cancel();
     _runtime?.dispose();
     _snapshotController.close();
     _database.close();
@@ -169,7 +202,7 @@ class AcquisitionRepositoryImpl implements AcquisitionRepository {
       _potentialMotionTimeoutTimer = Timer(
         _config.potentialMotionTimeout,
         () => ingestEvent(
-          PotentialMotionTimeoutElapsed(timestamp: DateTime.now()),
+          PotentialMotionTimeoutElapsed(timestamp: DateTime.now().toUtc()),
         ),
       );
       return;
@@ -186,6 +219,62 @@ class AcquisitionRepositoryImpl implements AcquisitionRepository {
     if (!_snapshotController.isClosed) {
       _snapshotController.add(snapshot);
     }
+  }
+
+  void _scheduleSyncRetry(AcquisitionSyncSnapshot snapshot) {
+    _syncRetryTimer?.cancel();
+
+    final shouldPoll =
+        snapshot.status == AcquisitionSyncStatus.waitingProcessing ||
+            snapshot.status == AcquisitionSyncStatus.failedRetryable;
+    final nextRetryAt = snapshot.nextRetryAt;
+    if (!shouldPoll || nextRetryAt == null) {
+      return;
+    }
+
+    final now = DateTime.now().toUtc();
+    final delay =
+        nextRetryAt.isAfter(now) ? nextRetryAt.difference(now) : Duration.zero;
+    _syncRetryTimer = Timer(delay, () {
+      unawaited(_syncQueue?.kick() ?? Future<void>.value());
+    });
+  }
+
+  AcquisitionSyncSnapshot _syncSnapshotFromJob(SyncJob? job) {
+    if (job == null) {
+      return const AcquisitionSyncSnapshot.none();
+    }
+
+    return AcquisitionSyncSnapshot(
+      status: _syncStatusFromWire(job.status),
+      localSessionId: job.localSessionId,
+      remoteIngestionId: job.remoteIngestionId,
+      attempts: job.attempts,
+      nextRetryAt: job.nextRetryAt,
+      lastError: job.lastError,
+      updatedAt: job.updatedAt,
+    );
+  }
+
+  AcquisitionSyncStatus _syncStatusFromWire(String status) {
+    switch (status) {
+      case syncJobPending:
+        return AcquisitionSyncStatus.pending;
+      case syncJobPackaging:
+        return AcquisitionSyncStatus.packaging;
+      case syncJobUploading:
+        return AcquisitionSyncStatus.uploading;
+      case syncJobWaitingProcessing:
+        return AcquisitionSyncStatus.waitingProcessing;
+      case syncJobCompleted:
+        return AcquisitionSyncStatus.completed;
+      case syncJobFailedRetryable:
+        return AcquisitionSyncStatus.failedRetryable;
+      case syncJobFailedFinal:
+        return AcquisitionSyncStatus.failedFinal;
+    }
+
+    return AcquisitionSyncStatus.none;
   }
 
   Future<void> _persistCompletedHarWindowsIfNeeded(

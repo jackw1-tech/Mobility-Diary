@@ -63,6 +63,10 @@ class AuthCubit extends Cubit<AuthCubitState> {
     );
   }
 
+  Future<void> loginAsGuest() async {
+    await _submit(() => _repository.loginAsGuest());
+  }
+
   void loginAsDev() {
     const fakeUser = AuthUser(
       id: 0,

@@ -25,7 +25,11 @@ void main() {
       expect(repository.currentSnapshot.samplingProfile.gpsEnabled, isTrue);
       expect(
         repository.currentSnapshot.samplingProfile.gpsInterval,
-        const Duration(minutes: 3),
+        const Duration(seconds: 20),
+      );
+      expect(
+        repository.currentSnapshot.samplingProfile.gpsDistanceFilterMeters,
+        30,
       );
       expect(
           repository.currentSnapshot.samplingProfile.persistGpsPoints, isTrue);
@@ -221,6 +225,77 @@ void main() {
         ),
         1,
       );
+    });
+
+    test('stop enqueues a persistent SyncJob without blocking on network',
+        () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        enableRuntime: false,
+      );
+      addTearDown(repository.dispose);
+
+      await repository.startTracking();
+      final sessions = await database.acquisitionDao.allSessions();
+      final sessionId = sessions.single.id;
+
+      await repository.stopTracking();
+
+      final job = await database.acquisitionDao.syncJobForSession(sessionId);
+      expect(job, isNotNull);
+      expect(job!.status, syncJobPending);
+      expect(job.attempts, 0);
+      expect(job.remoteIngestionId, isNull);
+
+      // Claimable subito (nessun next_retry_at futuro).
+      final claimable = await database.acquisitionDao
+          .claimableSyncJobs(DateTime.now().toUtc());
+      expect(
+        claimable.where((j) => j.localSessionId == sessionId),
+        hasLength(1),
+      );
+    });
+
+    test('exposes the latest SyncJob as a UI sync snapshot on stop', () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        enableRuntime: false,
+      );
+      addTearDown(repository.dispose);
+
+      await repository.startTracking();
+      final syncSnapshotFuture = repository.syncSnapshots.firstWhere(
+        (snapshot) => snapshot.status == AcquisitionSyncStatus.pending,
+      );
+
+      await repository.stopTracking();
+      final syncSnapshot = await syncSnapshotFuture;
+
+      expect(syncSnapshot.status, AcquisitionSyncStatus.pending);
+      expect(syncSnapshot.localSessionId, isNotNull);
+      expect(syncSnapshot.remoteIngestionId, isNull);
+      expect(
+          repository.currentSyncSnapshot.status, AcquisitionSyncStatus.pending);
+    });
+
+    test('createSyncJobIfAbsent is idempotent per session', () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      addTearDown(database.close);
+      final dao = database.acquisitionDao;
+      await dao.createSession(
+        id: 'sess-1',
+        deviceId: 'dev',
+        startedAt: DateTime.utc(2026, 1, 1),
+      );
+
+      final first = await dao.createSyncJobIfAbsent('sess-1');
+      final second = await dao.createSyncJobIfAbsent('sess-1');
+
+      expect(first.id, second.id);
+      final claimable = await dao.claimableSyncJobs(DateTime.now().toUtc());
+      expect(claimable, hasLength(1));
     });
   });
 }
