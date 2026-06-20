@@ -79,8 +79,8 @@ void main() {
 
     final pkg = await builder().build('s1');
 
-    expect(pkg.expectedParts,
-        {'gps_points': 1, 'state_transitions': 1, 'sensor_windows': 1});
+    expect(pkg.expectedCoreParts, {'gps_points': 1, 'state_transitions': 1});
+    expect(pkg.expectedRawParts, {'sensor_windows': 1});
     expect(pkg.startedAt, DateTime.utc(2026, 6, 12, 10));
     expect(pkg.endedAt, DateTime.utc(2026, 6, 12, 10, 35));
 
@@ -90,8 +90,8 @@ void main() {
     expect(gps.sizeBytes, bytes.length);
     expect(gps.sha256, sha256.convert(bytes).toString());
     // Il blob e' gzip + JSON valido col formato atteso dal backend.
-    final decoded = jsonDecode(utf8.decode(gzip.decode(bytes)))
-        as Map<String, dynamic>;
+    final decoded =
+        jsonDecode(utf8.decode(gzip.decode(bytes))) as Map<String, dynamic>;
     final points = decoded['points'] as List<dynamic>;
     expect(points, hasLength(1));
     expect((points.first as Map)['latitude'], 45.4642);
@@ -109,7 +109,7 @@ void main() {
         pkg.parts.where((p) => p.kind == 'sensor_windows').toList();
     expect(sensorParts, hasLength(5));
     expect(sensorParts.map((p) => p.sequence).toList(), [1, 2, 3, 4, 5]);
-    expect(pkg.expectedParts['sensor_windows'], 5);
+    expect(pkg.expectedRawParts['sensor_windows'], 5);
 
     // Ogni parte e' un JSON valido con una finestra.
     for (final part in sensorParts) {
@@ -131,6 +131,7 @@ void main() {
     final pkg = await builder().build('s3');
 
     expect(pkg.parts, isEmpty);
-    expect(pkg.expectedParts, isEmpty);
+    expect(pkg.expectedCoreParts, isEmpty);
+    expect(pkg.expectedRawParts, isEmpty);
   });
 }

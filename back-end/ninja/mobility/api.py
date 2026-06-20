@@ -1,7 +1,12 @@
+import json
+
+from django.contrib.gis.db.models.functions import AsGeoJSON, Length
 from django.contrib.gis.geos import Point
+from django.db.models import Count
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from ninja import Router
+from ninja.errors import HttpError
 
 from accounts.auth import mobile_bearer_auth
 
@@ -16,6 +21,7 @@ from .schemas import (
     SensorWindowBatchIn,
     StateTransitionBatchIn,
     StoredOut,
+    TrackOut,
     TripCreateIn,
     TripOut,
 )
@@ -149,4 +155,32 @@ def get_trip_diary(request, trip_id: int):
         processed=trip.status == Trip.Status.PROCESSED,
         segments=segments,
         places=list(place_by_id.values()),
+    )
+
+
+@router.get("/trips/{trip_id}/track", response=TrackOut, auth=mobile_bearer_auth)
+def get_trip_track(request, trip_id: int):
+    row = (
+        Trip.objects.filter(pk=trip_id, user_id=request.auth.user_id)
+        .annotate(
+            track_geojson=AsGeoJSON("path"),
+            track_distance=Length("path"),
+            point_count=Count("gps_points"),
+        )
+        .values("id", "track_geojson", "track_distance", "point_count")
+        .first()
+    )
+    if row is None:
+        raise HttpError(404, "Trip non trovato")
+
+    distance = row["track_distance"]
+    return TrackOut(
+        trip_id=row["id"],
+        point_count=row["point_count"],
+        distance_meters=float(
+            distance.m if hasattr(distance, "m") else distance or 0
+        ),
+        geojson=json.loads(row["track_geojson"])
+        if row["track_geojson"] is not None
+        else None,
     )

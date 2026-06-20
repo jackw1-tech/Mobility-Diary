@@ -244,7 +244,7 @@ void main() {
 
       final job = await database.acquisitionDao.syncJobForSession(sessionId);
       expect(job, isNotNull);
-      expect(job!.status, syncJobPending);
+      expect(job!.coreStatus, syncJobPending);
       expect(job.attempts, 0);
       expect(job.remoteIngestionId, isNull);
 

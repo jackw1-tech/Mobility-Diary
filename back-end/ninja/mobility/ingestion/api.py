@@ -4,7 +4,8 @@ Upload "stupido" e affidabile: il backend non riceve mai i byte pesanti, genera
 presigned URL e tiene la contabilita' delle parti. Il processing (materializzazione
 Trip + HAR) e' demandato a Celery (REPORT_STRATEGIA_INGESTION_ASINCRONA.md).
 
-Flusso: create -> presign (N) -> PUT diretto su storage -> confirm (N) -> complete.
+Flusso: create -> presign/PUT/confirm core -> complete-core ->
+presign/PUT/confirm raw -> complete-raw.
 """
 from __future__ import annotations
 
@@ -33,12 +34,13 @@ from .schemas import (
 
 router = Router(tags=["ingestion"])
 
-_VALID_KINDS = set(PartKind.values)
-# Stati in cui si possono ancora ricevere/confermare parti.
+_CORE_KINDS = {PartKind.GPS_POINTS, PartKind.STATE_TRANSITIONS}
+_RAW_KINDS = {PartKind.SENSOR_WINDOWS}
+_VALID_KINDS = _CORE_KINDS | _RAW_KINDS
 _RECEIVING_STATES = {
-    TripIngestion.Status.CREATED,
-    TripIngestion.Status.RECEIVING,
-    TripIngestion.Status.READY_TO_PROCESS,
+    TripIngestion.PhaseStatus.PENDING,
+    TripIngestion.PhaseStatus.RECEIVING,
+    TripIngestion.PhaseStatus.RECEIVED,
 }
 
 
@@ -48,12 +50,81 @@ def _object_key(base_path: str, kind: str, sequence: int) -> str:
     return f"{base_path}{kind}.json.gz"
 
 
-def _expected_part_keys(ingestion: TripIngestion) -> list[tuple[str, int]]:
+def _expected_part_keys(parts: dict[str, int]) -> list[tuple[str, int]]:
     expected: list[tuple[str, int]] = []
-    for kind, count in (ingestion.expected_parts or {}).items():
+    for kind, count in (parts or {}).items():
         for sequence in range(1, int(count) + 1):
             expected.append((kind, sequence))
     return expected
+
+
+def _part_phase(kind: str) -> str:
+    if kind in _CORE_KINDS:
+        return "core"
+    if kind in _RAW_KINDS:
+        return "raw"
+    raise HttpError(422, f"kind non valido: {kind}")
+
+
+def _phase_status(ingestion: TripIngestion, phase: str) -> str:
+    return ingestion.core_status if phase == "core" else ingestion.raw_status
+
+
+def _set_phase_status(ingestion: TripIngestion, phase: str, status: str) -> None:
+    if phase == "core":
+        ingestion.core_status = status
+    else:
+        ingestion.raw_status = status
+
+
+def _expected_parts_for_phase(ingestion: TripIngestion, phase: str) -> dict[str, int]:
+    return ingestion.expected_core_parts if phase == "core" else ingestion.expected_raw_parts
+
+
+def _confirmed_parts(ingestion: TripIngestion) -> set[tuple[str, int]]:
+    return {
+        (kind, seq)
+        for kind, seq in ingestion.parts.filter(received_at__isnull=False).values_list(
+            "kind", "sequence"
+        )
+    }
+
+
+def _phase_part_state(
+    ingestion: TripIngestion,
+    phase: str,
+) -> tuple[list[dict[str, int | str]], list[dict[str, int | str]], int]:
+    confirmed = _confirmed_parts(ingestion)
+    expected = _expected_part_keys(_expected_parts_for_phase(ingestion, phase))
+    received_parts = [
+        {"kind": kind, "sequence": seq}
+        for kind, seq in expected
+        if (kind, seq) in confirmed
+    ]
+    missing_parts = [
+        {"kind": kind, "sequence": seq}
+        for kind, seq in expected
+        if (kind, seq) not in confirmed
+    ]
+    progress = round(100 * len(received_parts) / len(expected)) if expected else 100
+    return received_parts, missing_parts, progress
+
+
+def _mark_phase_received_if_complete(ingestion: TripIngestion, phase: str) -> None:
+    expected = _expected_part_keys(_expected_parts_for_phase(ingestion, phase))
+    if not expected:
+        return
+    confirmed = _confirmed_parts(ingestion)
+    if all(part_key in confirmed for part_key in expected):
+        current = _phase_status(ingestion, phase)
+        if current == TripIngestion.PhaseStatus.RECEIVING:
+            _set_phase_status(ingestion, phase, TripIngestion.PhaseStatus.RECEIVED)
+            ingestion.save(
+                update_fields=[
+                    "core_status" if phase == "core" else "raw_status",
+                    "updated_at",
+                ]
+            )
 
 
 def _get_owned_ingestion(request, ingestion_id: int) -> TripIngestion:
@@ -67,16 +138,59 @@ def _validate_kind(kind: str) -> None:
         raise HttpError(422, f"kind non valido: {kind}")
 
 
+def _validate_expected_parts(
+    parts: dict[str, int],
+    allowed_kinds: set[str],
+    label: str,
+) -> dict[str, int]:
+    normalized: dict[str, int] = {}
+    for kind, count in (parts or {}).items():
+        if kind not in allowed_kinds:
+            raise HttpError(422, f"expected_{label}_parts contiene kind non valido: {kind}")
+        if count <= 0:
+            raise HttpError(422, f"expected_{label}_parts contiene count non valido: {kind}")
+        normalized[kind] = int(count)
+    return normalized
+
+
+def _ensure_part_was_declared(
+    ingestion: TripIngestion,
+    phase: str,
+    kind: str,
+    sequence: int,
+) -> None:
+    expected_count = int(_expected_parts_for_phase(ingestion, phase).get(kind, 0) or 0)
+    if sequence < 1 or sequence > expected_count:
+        raise HttpError(409, f"parte non dichiarata nel manifest iniziale: {kind}#{sequence}")
+
+
 @router.post("/trips", response=IngestionCreateOut, auth=mobile_bearer_auth)
 def create_ingestion(request, payload: IngestionCreateIn):
     user_id = request.auth.user_id
+    expected_core_parts = _validate_expected_parts(
+        payload.expected_core_parts,
+        _CORE_KINDS,
+        "core",
+    )
+    expected_raw_parts = _validate_expected_parts(
+        payload.expected_raw_parts,
+        _RAW_KINDS,
+        "raw",
+    )
+    raw_status = (
+        TripIngestion.PhaseStatus.PENDING
+        if expected_raw_parts
+        else TripIngestion.PhaseStatus.COMPLETED
+    )
     ingestion, created = TripIngestion.objects.get_or_create(
         user_id=user_id,
         client_session_id=payload.client_session_id,
         defaults={
             "device_id": payload.device_id,
             "schema_version": payload.schema_version,
-            "expected_parts": payload.expected_parts,
+            "expected_core_parts": expected_core_parts,
+            "expected_raw_parts": expected_raw_parts,
+            "raw_status": raw_status,
             "started_at": payload.started_at,
             "ended_at": payload.ended_at,
             "timezone": payload.timezone,
@@ -90,7 +204,8 @@ def create_ingestion(request, payload: IngestionCreateIn):
 
     return IngestionCreateOut(
         ingestion_id=ingestion.id,
-        status=ingestion.status,
+        core_status=ingestion.core_status,
+        raw_status=ingestion.raw_status,
         already_exists=not created,
     )
 
@@ -109,8 +224,14 @@ def presign_part(request, ingestion_id: int, payload: PartPresignIn):
         )
 
     ingestion = _get_owned_ingestion(request, ingestion_id)
-    if ingestion.status not in _RECEIVING_STATES:
-        raise HttpError(409, f"ingestion in stato {ingestion.status}, upload non ammesso")
+    phase = _part_phase(payload.kind)
+    phase_status = _phase_status(ingestion, phase)
+    _ensure_part_was_declared(ingestion, phase, payload.kind, payload.sequence)
+    if phase_status not in _RECEIVING_STATES:
+        raise HttpError(
+            409,
+            f"ingestion {phase} in stato {phase_status}, upload non ammesso",
+        )
 
     object_key = _object_key(ingestion.raw_base_path, payload.kind, payload.sequence)
 
@@ -135,9 +256,14 @@ def presign_part(request, ingestion_id: int, payload: PartPresignIn):
             part.object_key = object_key
             part.save(update_fields=["sha256", "size_bytes", "object_key"])
 
-        if ingestion.status == TripIngestion.Status.CREATED:
-            ingestion.status = TripIngestion.Status.RECEIVING
-            ingestion.save(update_fields=["status", "updated_at"])
+        if phase_status == TripIngestion.PhaseStatus.PENDING:
+            _set_phase_status(ingestion, phase, TripIngestion.PhaseStatus.RECEIVING)
+            ingestion.save(
+                update_fields=[
+                    "core_status" if phase == "core" else "raw_status",
+                    "updated_at",
+                ]
+            )
 
     upload_headers = {
         "Content-Type": "application/gzip",
@@ -195,6 +321,7 @@ def confirm_part(request, ingestion_id: int, payload: PartConfirmIn):
 
     part.received_at = timezone.now()
     part.save(update_fields=["received_at"])
+    _mark_phase_received_if_complete(ingestion, _part_phase(part.kind))
     return PartConfirmOut(
         ingestion_id=ingestion.id,
         kind=part.kind,
@@ -204,45 +331,105 @@ def confirm_part(request, ingestion_id: int, payload: PartConfirmIn):
 
 
 @router.post(
-    "/trips/{ingestion_id}/complete", response={202: CompleteOut}, auth=mobile_bearer_auth
+    "/trips/{ingestion_id}/complete-core",
+    response={202: CompleteOut},
+    auth=mobile_bearer_auth,
 )
-def complete_ingestion(request, ingestion_id: int, payload: CompleteIn):
+def complete_core_ingestion(request, ingestion_id: int, payload: CompleteIn):
     ingestion = _get_owned_ingestion(request, ingestion_id)
 
     # Idempotente: se gia' in coda o oltre, non rifare nulla.
-    if ingestion.status in {
-        TripIngestion.Status.QUEUED,
-        TripIngestion.Status.PROCESSING,
-        TripIngestion.Status.PROCESSED,
-        TripIngestion.Status.COMPLETED,
-        TripIngestion.Status.FAILED_RETRYABLE,
+    if ingestion.core_status in {
+        TripIngestion.PhaseStatus.QUEUED,
+        TripIngestion.PhaseStatus.PROCESSING,
+        TripIngestion.PhaseStatus.COMPLETED,
+        TripIngestion.PhaseStatus.FAILED_RETRYABLE,
     }:
-        return 202, CompleteOut(ingestion_id=ingestion.id, status=ingestion.status)
-    if ingestion.status == TripIngestion.Status.FAILED_FINAL:
-        raise HttpError(409, "ingestion fallita definitivamente")
-
-    confirmed = {
-        (kind, seq)
-        for kind, seq in ingestion.parts.filter(received_at__isnull=False).values_list(
-            "kind", "sequence"
+        return 202, CompleteOut(
+            ingestion_id=ingestion.id,
+            core_status=ingestion.core_status,
+            raw_status=ingestion.raw_status,
         )
-    }
-    missing = [pk for pk in _expected_part_keys(ingestion) if pk not in confirmed]
+    if ingestion.core_status == TripIngestion.PhaseStatus.FAILED_FINAL:
+        raise HttpError(409, "core ingestion fallita definitivamente")
+
+    expected = _expected_part_keys(ingestion.expected_core_parts)
+    if not expected:
+        raise HttpError(409, "nessuna parte core attesa")
+    confirmed = _confirmed_parts(ingestion)
+    missing = [pk for pk in expected if pk not in confirmed]
     if missing:
         readable = ", ".join(f"{kind}#{seq}" for kind, seq in missing)
-        raise HttpError(409, f"parti mancanti: {readable}")
+        raise HttpError(409, f"parti core mancanti: {readable}")
 
     with transaction.atomic():
         ingestion.manifest_sha256 = payload.manifest_sha256
-        ingestion.status = TripIngestion.Status.QUEUED
+        ingestion.core_status = TripIngestion.PhaseStatus.QUEUED
         ingestion.queued_at = timezone.now()
-        ingestion.save(update_fields=["manifest_sha256", "status", "queued_at", "updated_at"])
+        ingestion.save(
+            update_fields=["manifest_sha256", "core_status", "queued_at", "updated_at"]
+        )
 
     # Import locale: evita import circolare e accoppiamento a Celery a load-time.
     from ..tasks import process_trip_ingestion
 
     transaction.on_commit(lambda: process_trip_ingestion.delay(ingestion.id))
-    return 202, CompleteOut(ingestion_id=ingestion.id, status=ingestion.status)
+    return 202, CompleteOut(
+        ingestion_id=ingestion.id,
+        core_status=ingestion.core_status,
+        raw_status=ingestion.raw_status,
+    )
+
+
+@router.post(
+    "/trips/{ingestion_id}/complete-raw",
+    response={202: CompleteOut},
+    auth=mobile_bearer_auth,
+)
+def complete_raw_ingestion(request, ingestion_id: int, payload: CompleteIn):
+    ingestion = _get_owned_ingestion(request, ingestion_id)
+
+    if ingestion.core_status != TripIngestion.PhaseStatus.COMPLETED:
+        raise HttpError(409, "core ingestion non ancora completata")
+
+    if ingestion.raw_status in {
+        TripIngestion.PhaseStatus.RECEIVED,
+        TripIngestion.PhaseStatus.COMPLETED,
+        TripIngestion.PhaseStatus.FAILED_RETRYABLE,
+    }:
+        return 202, CompleteOut(
+            ingestion_id=ingestion.id,
+            core_status=ingestion.core_status,
+            raw_status=ingestion.raw_status,
+        )
+    if ingestion.raw_status == TripIngestion.PhaseStatus.FAILED_FINAL:
+        raise HttpError(409, "raw sensor ingestion fallita definitivamente")
+
+    expected = _expected_part_keys(ingestion.expected_raw_parts)
+    if not expected:
+        ingestion.raw_status = TripIngestion.PhaseStatus.COMPLETED
+        ingestion.save(update_fields=["raw_status", "updated_at"])
+        return 202, CompleteOut(
+            ingestion_id=ingestion.id,
+            core_status=ingestion.core_status,
+            raw_status=ingestion.raw_status,
+        )
+
+    confirmed = _confirmed_parts(ingestion)
+    missing = [pk for pk in expected if pk not in confirmed]
+    if missing:
+        readable = ", ".join(f"{kind}#{seq}" for kind, seq in missing)
+        raise HttpError(409, f"parti raw mancanti: {readable}")
+
+    ingestion.raw_status = TripIngestion.PhaseStatus.RECEIVED
+    ingestion.save(update_fields=["raw_status", "updated_at"])
+
+    # HAR finale e' predisposto ma non attivo: per ora la raw phase si ferma a RECEIVED.
+    return 202, CompleteOut(
+        ingestion_id=ingestion.id,
+        core_status=ingestion.core_status,
+        raw_status=ingestion.raw_status,
+    )
 
 
 @router.get(
@@ -251,27 +438,23 @@ def complete_ingestion(request, ingestion_id: int, payload: CompleteIn):
 def ingestion_status(request, ingestion_id: int):
     ingestion = _get_owned_ingestion(request, ingestion_id)
 
-    confirmed = {
-        (kind, seq)
-        for kind, seq in ingestion.parts.filter(received_at__isnull=False).values_list(
-            "kind", "sequence"
-        )
-    }
-    expected = _expected_part_keys(ingestion)
-    received_parts = [
-        {"kind": kind, "sequence": seq} for kind, seq in expected if (kind, seq) in confirmed
-    ]
-    missing_parts = [
-        {"kind": kind, "sequence": seq} for kind, seq in expected if (kind, seq) not in confirmed
-    ]
-    progress = round(100 * len(received_parts) / len(expected)) if expected else 0
+    received_core_parts, missing_core_parts, core_progress = _phase_part_state(
+        ingestion, "core"
+    )
+    received_raw_parts, missing_raw_parts, raw_progress = _phase_part_state(
+        ingestion, "raw"
+    )
 
     return IngestionStatusOut(
         ingestion_id=ingestion.id,
-        status=ingestion.status,
-        received_parts=received_parts,
-        missing_parts=missing_parts,
+        core_status=ingestion.core_status,
+        raw_status=ingestion.raw_status,
+        received_core_parts=received_core_parts,
+        missing_core_parts=missing_core_parts,
+        received_raw_parts=received_raw_parts,
+        missing_raw_parts=missing_raw_parts,
         trip_id=ingestion.trip_id,
         error=ingestion.error_message or None,
-        progress=progress,
+        core_progress=core_progress,
+        raw_progress=raw_progress,
     )

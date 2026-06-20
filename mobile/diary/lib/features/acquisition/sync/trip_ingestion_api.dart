@@ -27,29 +27,40 @@ class PresignResult {
 }
 
 class IngestionStatus {
-  final String status;
-  final List<({String kind, int sequence})> missingParts;
+  final String coreStatus;
+  final String rawStatus;
+  final List<({String kind, int sequence})> missingCoreParts;
+  final List<({String kind, int sequence})> missingRawParts;
   final int? tripId;
 
   const IngestionStatus({
-    required this.status,
-    required this.missingParts,
+    required this.coreStatus,
+    required this.rawStatus,
+    required this.missingCoreParts,
+    required this.missingRawParts,
     this.tripId,
   });
 
-  bool get isProcessed => status == 'PROCESSED' || status == 'COMPLETED';
-  bool get isFailedFinal => status == 'FAILED_FINAL';
-  bool get isBackendProcessing {
-    return status == 'QUEUED' ||
-        status == 'PROCESSING' ||
-        status == 'FAILED_RETRYABLE';
+  bool get isCoreCompleted => coreStatus == 'COMPLETED';
+  bool get isCoreFailedFinal => coreStatus == 'FAILED_FINAL';
+  bool get isRawDone => rawStatus == 'RECEIVED' || rawStatus == 'COMPLETED';
+  bool get isRawFailedFinal => rawStatus == 'FAILED_FINAL';
+
+  bool get isCoreBackendProcessing {
+    return coreStatus == 'QUEUED' ||
+        coreStatus == 'PROCESSING' ||
+        coreStatus == 'FAILED_RETRYABLE';
   }
 
-  bool get canReceiveParts {
-    return status == 'CREATED' ||
-        status == 'RECEIVING' ||
-        status == 'READY_TO_PROCESS';
-  }
+  bool get canReceiveCoreParts =>
+      coreStatus == 'PENDING' ||
+      coreStatus == 'RECEIVING' ||
+      coreStatus == 'RECEIVED';
+
+  bool get canReceiveRawParts =>
+      rawStatus == 'PENDING' ||
+      rawStatus == 'RECEIVING' ||
+      rawStatus == 'RECEIVED';
 }
 
 /// Client REST dell'ingestione asincrona. Astratto per poter essere mockato
@@ -57,7 +68,8 @@ class IngestionStatus {
 abstract class TripIngestionApi {
   Future<int> createIngestion({
     required String clientSessionId,
-    required Map<String, int> expectedParts,
+    required Map<String, int> expectedCoreParts,
+    required Map<String, int> expectedRawParts,
     DateTime? startedAt,
     DateTime? endedAt,
     String deviceId,
@@ -85,7 +97,10 @@ abstract class TripIngestionApi {
     required String sha256,
   });
 
-  Future<void> completeIngestion(int ingestionId, {required int totalParts});
+  Future<void> completeCoreIngestion(int ingestionId,
+      {required int totalParts});
+
+  Future<void> completeRawIngestion(int ingestionId, {required int totalParts});
 
   Future<IngestionStatus> getStatus(int ingestionId);
 }
@@ -106,7 +121,8 @@ class TripIngestionHttpApi implements TripIngestionApi {
   @override
   Future<int> createIngestion({
     required String clientSessionId,
-    required Map<String, int> expectedParts,
+    required Map<String, int> expectedCoreParts,
+    required Map<String, int> expectedRawParts,
     DateTime? startedAt,
     DateTime? endedAt,
     String deviceId = '',
@@ -119,7 +135,8 @@ class TripIngestionHttpApi implements TripIngestionApi {
       'ended_at': endedAt?.toUtc().toIso8601String(),
       'device_id': deviceId,
       'device_platform': devicePlatform,
-      'expected_parts': expectedParts,
+      'expected_core_parts': expectedCoreParts,
+      'expected_raw_parts': expectedRawParts,
     });
     return data['ingestion_id'] as int;
   }
@@ -193,13 +210,25 @@ class TripIngestionHttpApi implements TripIngestionApi {
   }
 
   @override
-  Future<void> completeIngestion(
+  Future<void> completeCoreIngestion(
     int ingestionId, {
     required int totalParts,
   }) async {
     await _sendJson(
       'POST',
-      '$_base/$ingestionId/complete',
+      '$_base/$ingestionId/complete-core',
+      body: {'total_parts': totalParts},
+    );
+  }
+
+  @override
+  Future<void> completeRawIngestion(
+    int ingestionId, {
+    required int totalParts,
+  }) async {
+    await _sendJson(
+      'POST',
+      '$_base/$ingestionId/complete-raw',
       body: {'total_parts': totalParts},
     );
   }
@@ -207,15 +236,20 @@ class TripIngestionHttpApi implements TripIngestionApi {
   @override
   Future<IngestionStatus> getStatus(int ingestionId) async {
     final data = await _sendJson('GET', '$_base/$ingestionId');
-    final missing = (data['missing_parts'] as List<dynamic>? ?? [])
-        .map((m) => (
-              kind: (m as Map)['kind'] as String,
-              sequence: m['sequence'] as int,
-            ))
-        .toList();
+    List<({String kind, int sequence})> parseParts(String key) {
+      return (data[key] as List<dynamic>? ?? [])
+          .map((m) => (
+                kind: (m as Map)['kind'] as String,
+                sequence: m['sequence'] as int,
+              ))
+          .toList();
+    }
+
     return IngestionStatus(
-      status: data['status'] as String,
-      missingParts: missing,
+      coreStatus: data['core_status'] as String,
+      rawStatus: data['raw_status'] as String,
+      missingCoreParts: parseParts('missing_core_parts'),
+      missingRawParts: parseParts('missing_raw_parts'),
       tripId: data['trip_id'] as int?,
     );
   }

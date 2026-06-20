@@ -9,9 +9,12 @@ import 'package:flutter_test/flutter_test.dart';
 
 class FakeIngestionApi implements TripIngestionApi {
   bool failCreate = false;
-  bool completeCalled = false;
-  String statusBeforeComplete = 'CREATED';
-  String statusAfterComplete = 'PROCESSED';
+  bool coreCompleteCalled = false;
+  bool rawCompleteCalled = false;
+  String coreStatusBeforeComplete = 'PENDING';
+  String coreStatusAfterComplete = 'COMPLETED';
+  String rawStatusBeforeComplete = 'PENDING';
+  String rawStatusAfterComplete = 'RECEIVED';
   final List<String> confirmed = [];
   final List<String> uploaded = [];
   int _nextId = 100;
@@ -19,7 +22,8 @@ class FakeIngestionApi implements TripIngestionApi {
   @override
   Future<int> createIngestion({
     required String clientSessionId,
-    required Map<String, int> expectedParts,
+    required Map<String, int> expectedCoreParts,
+    required Map<String, int> expectedRawParts,
     DateTime? startedAt,
     DateTime? endedAt,
     String deviceId = '',
@@ -65,21 +69,39 @@ class FakeIngestionApi implements TripIngestionApi {
   }
 
   @override
-  Future<void> completeIngestion(int ingestionId,
-      {required int totalParts}) async {
-    completeCalled = true;
+  Future<void> completeCoreIngestion(
+    int ingestionId, {
+    required int totalParts,
+  }) async {
+    coreCompleteCalled = true;
+  }
+
+  @override
+  Future<void> completeRawIngestion(
+    int ingestionId, {
+    required int totalParts,
+  }) async {
+    rawCompleteCalled = true;
   }
 
   @override
   Future<IngestionStatus> getStatus(int ingestionId) async {
-    if (!completeCalled) {
+    if (!coreCompleteCalled) {
       return IngestionStatus(
-          status: statusBeforeComplete, missingParts: const []);
+        coreStatus: coreStatusBeforeComplete,
+        rawStatus: rawStatusBeforeComplete,
+        missingCoreParts: const [],
+        missingRawParts: const [],
+      );
     }
+    final rawStatus =
+        rawCompleteCalled ? rawStatusAfterComplete : rawStatusBeforeComplete;
     return IngestionStatus(
-      status: statusAfterComplete,
-      missingParts: const [],
-      tripId: 1,
+      coreStatus: coreStatusAfterComplete,
+      rawStatus: rawStatus,
+      missingCoreParts: const [],
+      missingRawParts: const [],
+      tripId: coreStatusAfterComplete == 'COMPLETED' ? 1 : null,
     );
   }
 }
@@ -161,10 +183,12 @@ void main() {
       'sensor_windows#1',
     });
     expect(api.uploaded, hasLength(3));
-    expect(api.completeCalled, isTrue);
+    expect(api.coreCompleteCalled, isTrue);
+    expect(api.rawCompleteCalled, isTrue);
 
     final job = await database.acquisitionDao.syncJobForSession(id);
-    expect(job!.status, syncJobCompleted);
+    expect(job!.coreStatus, syncJobCompleted);
+    expect(job.rawStatus, syncJobCompleted);
     expect(job.remoteIngestionId, isNotNull);
     // I blob temporanei sono stati ripuliti.
     expect(
@@ -182,7 +206,7 @@ void main() {
     await queue(api).kick();
 
     final job = await database.acquisitionDao.syncJobForSession(id);
-    expect(job!.status, syncJobFailedRetryable);
+    expect(job!.coreStatus, syncJobFailedRetryable);
     expect(job.attempts, 1);
     expect(job.nextRetryAt, isNotNull);
     expect(job.lastError, contains('boom'));
@@ -196,33 +220,55 @@ void main() {
   test('polls without reuploading when backend is already processing',
       () async {
     final id = await seedSessionWithData();
-    final api = FakeIngestionApi()..statusBeforeComplete = 'PROCESSING';
+    final api = FakeIngestionApi()..coreStatusBeforeComplete = 'PROCESSING';
 
     await queue(api).kick();
 
     expect(api.uploaded, isEmpty);
     expect(api.confirmed, isEmpty);
-    expect(api.completeCalled, isFalse);
+    expect(api.coreCompleteCalled, isFalse);
+    expect(api.rawCompleteCalled, isFalse);
 
     final job = await database.acquisitionDao.syncJobForSession(id);
-    expect(job!.status, syncJobWaitingProcessing);
+    expect(job!.coreStatus, syncJobWaitingProcessing);
     expect(job.nextRetryAt, isNotNull);
   });
 
   test('marks job failed final without completing when backend failed final',
       () async {
     final id = await seedSessionWithData();
-    final api = FakeIngestionApi()..statusBeforeComplete = 'FAILED_FINAL';
+    final api = FakeIngestionApi()..coreStatusBeforeComplete = 'FAILED_FINAL';
 
     await queue(api).kick();
 
     expect(api.uploaded, isEmpty);
     expect(api.confirmed, isEmpty);
-    expect(api.completeCalled, isFalse);
+    expect(api.coreCompleteCalled, isFalse);
+    expect(api.rawCompleteCalled, isFalse);
 
     final job = await database.acquisitionDao.syncJobForSession(id);
-    expect(job!.status, syncJobFailedFinal);
+    expect(job!.coreStatus, syncJobFailedFinal);
     expect(job.lastError, contains('backend fallita'));
+  });
+
+  test('does not retry raw when core is already failed final', () async {
+    final id = await seedSessionWithData();
+    final job = await database.acquisitionDao.syncJobForSession(id);
+    await database.acquisitionDao.updateSyncJob(
+      job!.id,
+      coreStatus: syncJobFailedFinal,
+    );
+    final api = FakeIngestionApi();
+
+    await queue(api).kick();
+
+    expect(api.uploaded, isEmpty);
+    expect(api.confirmed, isEmpty);
+    expect(api.coreCompleteCalled, isFalse);
+    expect(api.rawCompleteCalled, isFalse);
+    final unchanged = await database.acquisitionDao.syncJobForSession(id);
+    expect(unchanged!.coreStatus, syncJobFailedFinal);
+    expect(unchanged.rawStatus, syncJobPending);
   });
 
   test('no-op when not authenticated (no token)', () async {
@@ -233,7 +279,7 @@ void main() {
 
     expect(api.confirmed, isEmpty);
     final job = await database.acquisitionDao.syncJobForSession(id);
-    expect(job!.status, syncJobPending);
+    expect(job!.coreStatus, syncJobPending);
     expect(job.attempts, 0);
   });
 
@@ -249,9 +295,11 @@ void main() {
 
     await queue(api).kick();
 
-    expect(api.completeCalled, isFalse);
+    expect(api.coreCompleteCalled, isFalse);
+    expect(api.rawCompleteCalled, isFalse);
     expect(api.confirmed, isEmpty);
     final job = await dao.syncJobForSession('empty');
-    expect(job!.status, syncJobCompleted);
+    expect(job!.coreStatus, syncJobCompleted);
+    expect(job.rawStatus, syncJobCompleted);
   });
 }

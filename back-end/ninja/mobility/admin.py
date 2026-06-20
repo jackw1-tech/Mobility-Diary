@@ -68,13 +68,20 @@ class TripIngestionAdmin(admin.ModelAdmin):
         "id",
         "user",
         "client_session_id",
-        "status",
+        "core_status",
+        "raw_status",
         "trip",
         "device_id",
         "created_at",
         "updated_at",
     )
-    list_filter = ("status", "schema_version", "device_platform", "created_at")
+    list_filter = (
+        "core_status",
+        "raw_status",
+        "schema_version",
+        "device_platform",
+        "created_at",
+    )
     search_fields = (
         "id",
         "user__email",

@@ -11,6 +11,7 @@ enum AcquisitionSyncStatus {
 
 class AcquisitionSyncSnapshot {
   final AcquisitionSyncStatus status;
+  final AcquisitionSyncStatus rawStatus;
   final String? localSessionId;
   final int? remoteIngestionId;
   final int attempts;
@@ -20,6 +21,7 @@ class AcquisitionSyncSnapshot {
 
   const AcquisitionSyncSnapshot({
     required this.status,
+    this.rawStatus = AcquisitionSyncStatus.none,
     this.localSessionId,
     this.remoteIngestionId,
     this.attempts = 0,
@@ -30,6 +32,7 @@ class AcquisitionSyncSnapshot {
 
   const AcquisitionSyncSnapshot.none()
       : status = AcquisitionSyncStatus.none,
+        rawStatus = AcquisitionSyncStatus.none,
         localSessionId = null,
         remoteIngestionId = null,
         attempts = 0,
@@ -52,6 +55,14 @@ class AcquisitionSyncSnapshot {
 
   bool get isFailed {
     return status == AcquisitionSyncStatus.failedRetryable ||
-        status == AcquisitionSyncStatus.failedFinal;
+        status == AcquisitionSyncStatus.failedFinal ||
+        rawStatus == AcquisitionSyncStatus.failedRetryable ||
+        rawStatus == AcquisitionSyncStatus.failedFinal;
+  }
+
+  bool get isRawWorking {
+    return rawStatus == AcquisitionSyncStatus.packaging ||
+        rawStatus == AcquisitionSyncStatus.uploading ||
+        rawStatus == AcquisitionSyncStatus.waitingProcessing;
   }
 }

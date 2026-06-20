@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from ninja import Schema
+from pydantic import Field
 
 
 class IngestionCreateIn(Schema):
@@ -12,13 +13,16 @@ class IngestionCreateIn(Schema):
     device_id: str = ""
     app_version: str = ""
     device_platform: str = ""
-    # {"gps_points": 1, "state_transitions": 1, "sensor_windows": 6}
-    expected_parts: dict[str, int]
+    # {"gps_points": 1, "state_transitions": 1}
+    expected_core_parts: dict[str, int]
+    # {"sensor_windows": 6}
+    expected_raw_parts: dict[str, int] = Field(default_factory=dict)
 
 
 class IngestionCreateOut(Schema):
     ingestion_id: int
-    status: str
+    core_status: str
+    raw_status: str
     already_exists: bool
 
 
@@ -56,7 +60,8 @@ class CompleteIn(Schema):
 
 class CompleteOut(Schema):
     ingestion_id: int
-    status: str
+    core_status: str
+    raw_status: str
 
 
 class PartStateOut(Schema):
@@ -66,9 +71,13 @@ class PartStateOut(Schema):
 
 class IngestionStatusOut(Schema):
     ingestion_id: int
-    status: str
-    received_parts: list[PartStateOut]
-    missing_parts: list[PartStateOut]
+    core_status: str
+    raw_status: str
+    received_core_parts: list[PartStateOut]
+    missing_core_parts: list[PartStateOut]
+    received_raw_parts: list[PartStateOut]
+    missing_raw_parts: list[PartStateOut]
     trip_id: int | None
     error: str | None
-    progress: int
+    core_progress: int
+    raw_progress: int

@@ -66,77 +66,138 @@ class TripSyncQueueImpl implements TripSyncQueue {
 
   Future<void> _processJob(SyncJob job) async {
     try {
+      if (job.coreStatus == syncJobFailedFinal) return;
+
+      final coreAlreadyCompleted = job.coreStatus == syncJobCompleted;
       await _dao.updateSyncJob(
         job.id,
-        status: syncJobPackaging,
+        coreStatus: coreAlreadyCompleted ? null : syncJobPackaging,
+        rawStatus: coreAlreadyCompleted ? syncJobPackaging : null,
         lastError: const Value(null),
       );
 
       final package = await _builder.build(job.localSessionId);
       if (package.parts.isEmpty) {
         // Sessione senza dati da caricare: niente da fare.
-        await _dao.updateSyncJob(job.id, status: syncJobCompleted);
+        await _dao.updateSyncJob(
+          job.id,
+          coreStatus: syncJobCompleted,
+          rawStatus: syncJobCompleted,
+        );
+        await _deletePackageDirectory(package);
+        return;
+      }
+      if (package.coreParts.isEmpty) {
+        await _dao.updateSyncJob(
+          job.id,
+          coreStatus: syncJobFailedFinal,
+          rawStatus: syncJobFailedFinal,
+          lastError: const Value('nessuna parte core da sincronizzare'),
+        );
         return;
       }
 
       var ingestionId = job.remoteIngestionId;
       ingestionId ??= await _api.createIngestion(
         clientSessionId: job.localSessionId,
-        expectedParts: package.expectedParts,
+        expectedCoreParts: package.expectedCoreParts,
+        expectedRawParts: package.expectedRawParts,
         startedAt: package.startedAt,
         endedAt: package.endedAt,
       );
       await _dao.updateSyncJob(
         job.id,
-        status: syncJobUploading,
+        coreStatus: syncJobUploading,
         remoteIngestionId: Value(ingestionId),
       );
 
       var status = await _api.getStatus(ingestionId);
-      if (status.isProcessed) {
-        await _finalizeSuccess(job, package);
-        return;
-      }
-      if (status.isFailedFinal) {
+      if (status.isCoreFailedFinal) {
         await _dao.updateSyncJob(
           job.id,
-          status: syncJobFailedFinal,
-          lastError: const Value('elaborazione backend fallita'),
+          coreStatus: syncJobFailedFinal,
+          lastError: const Value('elaborazione core backend fallita'),
         );
         return;
       }
-      if (status.isBackendProcessing) {
-        await _waitForBackendProcessing(job);
+      if (status.isCoreBackendProcessing) {
+        await _waitForCoreProcessing(job);
         return;
       }
 
-      if (status.canReceiveParts) {
-        await _uploadMissingParts(ingestionId, package, status);
-        await _api.completeIngestion(
+      if (!status.isCoreCompleted && status.canReceiveCoreParts) {
+        await _uploadMissingParts(
           ingestionId,
-          totalParts: package.parts.length,
+          package.coreParts,
+          status.missingCoreParts,
+          uploadAll: status.coreStatus == 'PENDING',
         );
-        await _dao.updateSyncJob(job.id, status: syncJobWaitingProcessing);
+        await _api.completeCoreIngestion(
+          ingestionId,
+          totalParts: package.coreParts.length,
+        );
+        await _dao.updateSyncJob(job.id, coreStatus: syncJobWaitingProcessing);
         status = await _api.getStatus(ingestionId);
 
-        if (status.isProcessed) {
-          await _finalizeSuccess(job, package);
-          return;
-        }
-        if (status.isFailedFinal) {
+        if (status.isCoreCompleted) {
+          await _dao.updateSyncJob(job.id, coreStatus: syncJobCompleted);
+        } else if (status.isCoreFailedFinal) {
           await _dao.updateSyncJob(
             job.id,
-            status: syncJobFailedFinal,
-            lastError: const Value('elaborazione backend fallita'),
+            coreStatus: syncJobFailedFinal,
+            lastError: const Value('elaborazione core backend fallita'),
+          );
+          return;
+        } else {
+          await _waitForCoreProcessing(job);
+          return;
+        }
+      }
+
+      if (status.isCoreCompleted) {
+        await _dao.updateSyncJob(job.id, coreStatus: syncJobCompleted);
+        if (package.rawParts.isEmpty || status.isRawDone) {
+          await _finalizeAllDone(job, package);
+          return;
+        }
+        if (status.isRawFailedFinal) {
+          await _dao.updateSyncJob(
+            job.id,
+            rawStatus: syncJobFailedFinal,
+            lastError: const Value('raw sensor ingestion fallita'),
           );
           return;
         }
-        await _waitForBackendProcessing(job);
+        if (status.canReceiveRawParts) {
+          await _dao.updateSyncJob(job.id, rawStatus: syncJobUploading);
+          await _uploadMissingParts(
+            ingestionId,
+            package.rawParts,
+            status.missingRawParts,
+            uploadAll: status.rawStatus == 'PENDING',
+          );
+          await _api.completeRawIngestion(
+            ingestionId,
+            totalParts: package.rawParts.length,
+          );
+          status = await _api.getStatus(ingestionId);
+          if (status.isRawDone) {
+            await _finalizeAllDone(job, package);
+            return;
+          }
+        }
+
+        await _dao.updateSyncJob(
+          job.id,
+          rawStatus: syncJobFailedRetryable,
+          nextRetryAt: Value(DateTime.now().toUtc().add(_pollDelay)),
+          lastError: const Value('raw sensor ingestion non completata'),
+        );
         return;
       }
 
       throw IngestionApiException(
-          'stato ingestion non gestito: ${status.status}');
+          'stato ingestion non gestito: core=${status.coreStatus}, raw=${status.rawStatus}');
     } catch (error) {
       await _handleFailure(job, error);
     }
@@ -144,16 +205,13 @@ class TripSyncQueueImpl implements TripSyncQueue {
 
   Future<void> _uploadMissingParts(
     int ingestionId,
-    TripPackage package,
-    IngestionStatus status,
-  ) async {
-    // Alla prima creazione lo stato e' CREATED e nessuna parte risulta ancora
-    // ricevuta: carichiamo tutto. Su un retry, carichiamo solo le mancanti.
-    final uploadAll = status.status == 'CREATED';
-    final missing =
-        status.missingParts.map((m) => '${m.kind}#${m.sequence}').toSet();
+    List<TripPackagePart> parts,
+    List<({String kind, int sequence})> missingParts, {
+    required bool uploadAll,
+  }) async {
+    final missing = missingParts.map((m) => '${m.kind}#${m.sequence}').toSet();
 
-    for (final part in package.parts) {
+    for (final part in parts) {
       final key = '${part.kind}#${part.sequence}';
       if (!uploadAll && !missing.contains(key)) continue;
 
@@ -179,28 +237,39 @@ class TripSyncQueueImpl implements TripSyncQueue {
     }
   }
 
-  Future<void> _finalizeSuccess(SyncJob job, TripPackage package) async {
-    await _dao.updateSyncJob(job.id, status: syncJobCompleted);
+  Future<void> _finalizeAllDone(SyncJob job, TripPackage package) async {
+    await _dao.updateSyncJob(
+      job.id,
+      coreStatus: syncJobCompleted,
+      rawStatus: syncJobCompleted,
+    );
+    await _deletePackageDirectory(package);
+  }
+
+  Future<void> _deletePackageDirectory(TripPackage package) async {
     // Pulizia dei blob temporanei su disco.
     if (await package.directory.exists()) {
       await package.directory.delete(recursive: true);
     }
   }
 
-  Future<void> _waitForBackendProcessing(SyncJob job) {
+  Future<void> _waitForCoreProcessing(SyncJob job) {
     return _dao.updateSyncJob(
       job.id,
-      status: syncJobWaitingProcessing,
+      coreStatus: syncJobWaitingProcessing,
       nextRetryAt: Value(DateTime.now().toUtc().add(_pollDelay)),
     );
   }
 
   Future<void> _handleFailure(SyncJob job, Object error) async {
-    final attempts = job.attempts + 1;
+    final currentJob = await _dao.syncJobForSession(job.localSessionId) ?? job;
+    final coreCompleted = currentJob.coreStatus == syncJobCompleted;
+    final attempts = currentJob.attempts + 1;
     if (attempts >= _maxAttempts) {
       await _dao.updateSyncJob(
         job.id,
-        status: syncJobFailedFinal,
+        coreStatus: coreCompleted ? null : syncJobFailedFinal,
+        rawStatus: syncJobFailedFinal,
         attempts: attempts,
         lastError: Value(error.toString()),
       );
@@ -210,7 +279,8 @@ class TripSyncQueueImpl implements TripSyncQueue {
         attempts - 1 < _backoff.length ? attempts - 1 : _backoff.length - 1];
     await _dao.updateSyncJob(
       job.id,
-      status: syncJobFailedRetryable,
+      coreStatus: coreCompleted ? null : syncJobFailedRetryable,
+      rawStatus: coreCompleted ? syncJobFailedRetryable : null,
       attempts: attempts,
       nextRetryAt: Value(DateTime.now().toUtc().add(delay)),
       lastError: Value(error.toString()),

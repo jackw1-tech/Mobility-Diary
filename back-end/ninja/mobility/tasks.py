@@ -2,7 +2,8 @@ import gzip
 import json
 
 from celery import shared_task
-from django.contrib.gis.geos import Point
+from django.contrib.gis.db.models.functions import Length
+from django.contrib.gis.geos import LineString, Point
 from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -111,6 +112,42 @@ def _materialize_transitions(trip: Trip, ingestion: TripIngestion) -> int:
     return len(rows)
 
 
+def _distance_meters_from_postgis(trip: Trip) -> float:
+    row = (
+        Trip.objects.filter(pk=trip.pk)
+        .annotate(path_length=Length("path"))
+        .values("path_length")
+        .get()
+    )
+    distance = row["path_length"]
+    if distance is None:
+        return 0
+    return float(distance.m if hasattr(distance, "m") else distance)
+
+
+def _build_trip_path(trip: Trip) -> int:
+    """Deriva la LineString del viaggio dai GPS ordinati nel DB."""
+    coords = [
+        (point.x, point.y)
+        for point in GpsPoint.objects.filter(trip=trip)
+        .order_by("timestamp", "id")
+        .values_list("point", flat=True)
+    ]
+    if len(set(coords)) < 2:
+        trip.path = None
+        trip.distance_meters = 0
+        trip.save(update_fields=["path", "distance_meters", "updated_at"])
+        return len(coords)
+
+    trip.path = LineString(coords, srid=4326)
+    trip.distance_meters = None
+    trip.save(update_fields=["path", "distance_meters", "updated_at"])
+
+    trip.distance_meters = _distance_meters_from_postgis(trip)
+    trip.save(update_fields=["distance_meters", "updated_at"])
+    return len(coords)
+
+
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
 def process_trip_ingestion(self, ingestion_id: int) -> dict:
     """Materializza un Trip pulito da una TripIngestion completata.
@@ -120,20 +157,17 @@ def process_trip_ingestion(self, ingestion_id: int) -> dict:
     nello storage in attesa di HAR (REPORT D4/D8).
 
     CONGELATO (D9): HAR finale non viene invocato e i blob raw NON vengono mai
-    cancellati. Lo stato terminale attuale e' PROCESSED.
+    cancellati. Lo stato terminale della Core Ingestion e' COMPLETED.
     """
     ingestion = TripIngestion.objects.select_related("user").get(id=ingestion_id)
 
     # Idempotenza: se gia' materializzato, non rifare.
-    if ingestion.status in {
-        TripIngestion.Status.PROCESSED,
-        TripIngestion.Status.COMPLETED,
-    }:
-        return {"skipped": f"ingestion already {ingestion.status}"}
+    if ingestion.core_status == TripIngestion.PhaseStatus.COMPLETED:
+        return {"skipped": "core ingestion already completed"}
 
-    ingestion.status = TripIngestion.Status.PROCESSING
+    ingestion.core_status = TripIngestion.PhaseStatus.PROCESSING
     ingestion.started_processing_at = timezone.now()
-    ingestion.save(update_fields=["status", "started_processing_at", "updated_at"])
+    ingestion.save(update_fields=["core_status", "started_processing_at", "updated_at"])
 
     try:
         with transaction.atomic():
@@ -153,15 +187,16 @@ def process_trip_ingestion(self, ingestion_id: int) -> dict:
 
             gps_count = _materialize_gps(trip, ingestion)
             transition_count = _materialize_transitions(trip, ingestion)
+            path_point_count = _build_trip_path(trip)
 
             ingestion.trip = trip
-            ingestion.status = TripIngestion.Status.PROCESSED
+            ingestion.core_status = TripIngestion.PhaseStatus.COMPLETED
             ingestion.error_message = ""
             ingestion.completed_at = timezone.now()
             ingestion.save(
                 update_fields=[
                     "trip",
-                    "status",
+                    "core_status",
                     "error_message",
                     "completed_at",
                     "updated_at",
@@ -169,14 +204,16 @@ def process_trip_ingestion(self, ingestion_id: int) -> dict:
             )
     except Exception as exc:  # noqa: BLE001
         will_retry = self.request.retries < self.max_retries
-        ingestion.status = (
-            TripIngestion.Status.FAILED_RETRYABLE
+        ingestion.core_status = (
+            TripIngestion.PhaseStatus.FAILED_RETRYABLE
             if will_retry
-            else TripIngestion.Status.FAILED_FINAL
+            else TripIngestion.PhaseStatus.FAILED_FINAL
         )
         ingestion.error_message = str(exc)
         ingestion.failed_at = timezone.now()
-        ingestion.save(update_fields=["status", "error_message", "failed_at", "updated_at"])
+        ingestion.save(
+            update_fields=["core_status", "error_message", "failed_at", "updated_at"]
+        )
         if will_retry:
             raise self.retry(exc=exc)
         raise
@@ -186,6 +223,7 @@ def process_trip_ingestion(self, ingestion_id: int) -> dict:
     return {
         "trip_id": trip.id,
         "gps_points": gps_count,
+        "path_points": path_point_count,
         "state_transitions": transition_count,
     }
 

@@ -64,33 +64,37 @@ Backend:
   - MinIO/S3 configurato tramite S3_* env var
   - storage helper con presigned PUT, HEAD, GET e delete gated
   - TripIngestion e TripIngestionPart separati da Trip
-  - endpoint create / presign / confirm / complete / status
+  - una sola TripIngestion con due stati: core_status e raw_status
+  - endpoint create / presign / confirm / complete-core / complete-raw / status
   - presigned PUT diretto a object storage: Django non riceve i blob pesanti
   - confirm verifica size via HEAD e sha256 tramite metadata S3
-  - Celery process_trip_ingestion materializza Trip + GPS + transizioni
+  - complete-core accoda Celery e materializza Trip + GPS + transizioni
+  - complete-raw registra i raw come ricevuti, senza invocare HAR per ora
   - sensor window raw restano solo blob in object storage
   - HAR finale congelato: non invocato, cleanup raw disattivato
 
 Mobile:
   - SyncJob persistente in SQLite
+  - stesso SyncJob, ma con core_status e raw_status locali separati
   - STOP non bloccante: chiude la sessione locale, crea SyncJob, torna idle
   - packaging gzip su disco
-  - upload orchestrato con presign -> PUT -> confirm -> complete
+  - upload Core prima, poi complete-core, poi upload Raw e complete-raw
   - retry/backoff opportunistico
   - polling dello stato backend via SyncJob
-  - UI mostra lo stato sync: in coda / packaging / upload / analisi backend /
-    completato / errore retryable / errore finale
+  - UI principale segue il Core; il Raw e' dettaglio secondario
 ```
 
 Stato terminale attuale:
 
 ```text
-PROCESSED = Trip materializzato con GPS + transizioni.
-COMPLETED = futuro, quando HAR finale sara' operativo.
+core_status=COMPLETED = Trip materializzato con GPS + transizioni.
+raw_status=RECEIVED   = raw sensor evidence arrivata nello storage, HAR non eseguito.
+raw_status=COMPLETED  = non c'erano raw attesi oppure la fase raw e' chiusa.
 ```
 
-Quindi oggi un viaggio correttamente ingerito arriva a `PROCESSED`, non a
-`COMPLETED`.
+Quindi oggi un viaggio correttamente ingerito e' visibile nel diario quando il
+Core arriva a `COMPLETED`. Il Raw puo' completarsi dopo o restare assente:
+questo non impedisce la creazione del `Viaggio`.
 
 ---
 
@@ -168,11 +172,21 @@ MOBILE (stop non bloccante)
     sensor_windows_part_0002.json.gz   (chunk 5-20 MB)
     ...
 
-  POST /ingestion/trips               -> crea TripIngestion, ritorna ingestion_id   [worker libero]
-  POST /ingestion/{id}/parts/presign  -> presigned PUT URL per (kind, sequence)      [worker libero]
-  PUT  <presigned-url>                -> blob DIRETTO su object storage S3-compat.    [NESSUN worker]
-  POST /ingestion/{id}/parts/confirm  -> registra Part(sha256, size) via HEAD        [worker libero]
-  POST /ingestion/{id}/complete       -> verifica parti -> enqueue Celery -> 202
+  POST /api/ingestion/trips
+    -> crea TripIngestion, ritorna ingestion_id                       [worker libero]
+       expected_core_parts e expected_raw_parts restano separati
+  POST /api/ingestion/trips/{id}/parts/presign
+    -> presigned PUT URL per (kind, sequence)                         [worker libero]
+  PUT  <presigned-url>
+    -> blob DIRETTO su object storage S3-compat.                      [NESSUN worker]
+  POST /api/ingestion/trips/{id}/parts/confirm
+    -> registra Part(sha256, size) via HEAD                           [worker libero]
+  POST /api/ingestion/trips/{id}/complete-core
+    -> verifica parti Core -> enqueue Celery -> 202
+       da qui il Trip puo' essere materializzato
+  POST /api/ingestion/trips/{id}/complete-raw
+    -> verifica parti Raw -> raw_status=RECEIVED -> 202
+       per ora non accoda HAR perche' HAR finale e' congelato
 
 CELERY
   process_trip_ingestion:
@@ -198,6 +212,108 @@ OBJECT STORAGE (MinIO in dev/locale, Railway Buckets in deploy — D7)
              La cancellazione event-driven dopo HAR success e' predisposta
              ma disattivata finche' HAR non e' operativo.
 ```
+
+### Lettura Operativa Del Diagramma
+
+Il diagramma sopra va letto come una separazione netta tra tre piani:
+
+```text
+1. piano UX/mobile
+   decide quando il viaggio e' concluso per l'utente;
+
+2. piano upload/trasporto
+   consegna in modo affidabile byte grezzi e metadata;
+
+3. piano dominio/backend
+   trasforma un upload completo in dati di prodotto.
+```
+
+La chiusura del viaggio appartiene al piano UX/mobile: quando l'utente preme
+Stop, il viaggio locale e' finito. Il successo dell'upload appartiene invece al
+piano di trasporto: puo' arrivare secondi o minuti dopo, senza riaprire il
+tracking e senza bloccare la UI. La materializzazione del `Trip` appartiene al
+piano dominio/backend: avviene solo quando il backend ha prove sufficienti che
+l'upload dichiarato e' completo e consistente.
+
+Questa distinzione evita tre errori frequenti:
+
+```text
+- non confondere "viaggio concluso" con "viaggio sincronizzato";
+- non creare Trip parziali mentre l'upload e' ancora sporco;
+- non far passare byte pesanti dai web worker solo per comodita' di codice.
+```
+
+---
+
+## Invarianti Operative
+
+Queste regole devono restare vere anche quando cambiano UI, formato dei file o
+provider S3. Sono la parte piu' importante del contratto di sistema.
+
+```text
+I1. La sessione locale e' la sorgente primaria finche' il SyncJob non termina.
+    I dati raccolti durante il viaggio non dipendono dalla rete.
+
+I2. Esiste al massimo un SyncJob per local_session_id.
+    Un doppio Stop o un retry non devono duplicare il lavoro locale.
+
+I3. Esiste al massimo una TripIngestion per (user_id, client_session_id).
+    Il backend deve trattare la sessione mobile come chiave di idempotenza.
+
+I4. Esiste al massimo una parte per (ingestion_id, kind, sequence).
+    Se la parte e' gia' confermata, un checksum diverso e' conflitto.
+
+I5. Il checksum e la dimensione sono calcolati sui byte compressi finali.
+    Non sul JSON non compresso e non su una rappresentazione intermedia.
+
+I6. object_key e' deterministico rispetto a ingestion.raw_base_path, kind e
+    sequence. Un retry deve puntare allo stesso oggetto logico.
+
+I7. Il backend web non riceve mai i byte pesanti delle parti.
+    Riceve solo metadata, genera URL firmati e verifica via HEAD.
+
+I8. Postgres non contiene matrici HAR grezze nel nuovo flusso.
+    I raw vivono in object storage finche' HAR non sara' operativo.
+
+I9. Celery puo' essere ritentato senza duplicare GpsPoint o StateTransition.
+    I vincoli unique e ignore_conflicts sono parte del design, non un dettaglio.
+
+I10. Tutti i timestamp del contratto di sync sono UTC ISO-8601.
+     La timezone utente e' metadata, non va usata per ordinare eventi.
+
+I11. `core_status=COMPLETED` significa "Trip materializzato".
+     Non significa che il Raw sia stato caricato o che HAR finale sia avvenuto.
+
+I12. I blob raw non si cancellano a tempo finche' HAR finale e' congelato.
+     La retention illimitata e' una scelta temporanea esplicita.
+
+I13. `TripIngestion` resta unica: non esiste una ingestion Core e una ingestion
+     Raw separate. La separazione e' negli stati e negli expected parts.
+
+I14. Il Core richiede almeno una prova tra `gps_points` e `state_transitions`.
+     Se manca ogni parte Core, il backend non deve creare un `Viaggio`.
+
+I15. `complete-raw` non deve anticipare `complete-core`: il Raw arricchisce o
+     prepara l'HAR, ma non sostituisce la materializzazione del viaggio.
+```
+
+### Non Obiettivi Della Versione Corrente
+
+Alcune cose sembrano naturali ma sono volutamente fuori dallo scope corrente:
+
+```text
+- upload garantito con app killata dal sistema operativo;
+- upload in background OS con URLSession/WorkManager;
+- streaming live dei dati verso il backend;
+- produzione del diario finale HAR;
+- cancellazione automatica dei raw;
+- formato binario ottimizzato per sensor window;
+- multi-device merge di viaggi dello stesso utente.
+```
+
+Il punto non e' che queste cose siano sbagliate. Il punto e' che il nucleo
+attuale deve prima rendere robusto il passaggio: "sessione locale conclusa" ->
+"pacchetto grezzo completo" -> "Trip materializzato".
 
 ---
 
@@ -328,14 +444,43 @@ Body:
   "started_at": "2026-06-12T10:00:00Z",
   "ended_at": "2026-06-12T10:35:00Z",
   "timezone": "Europe/Rome",
-  "expected_parts": { "gps": 1, "transitions": 1, "sensor_windows": 6 }
+  "device_id": "local_device",
+  "app_version": "",
+  "device_platform": "",
+  "expected_core_parts": {
+    "gps_points": 1,
+    "state_transitions": 1
+  },
+  "expected_raw_parts": {
+    "sensor_windows": 6
+  }
 }
 ```
 
 Risposta (idempotente su `client_session_id`):
 
 ```json
-{ "ingestion_id": "server-ingestion-uuid", "status": "CREATED", "already_exists": false }
+{
+  "ingestion_id": 123,
+  "core_status": "PENDING",
+  "raw_status": "PENDING",
+  "already_exists": false
+}
+```
+
+Dettagli importanti:
+
+```text
+- `client_session_id` e' l'UUID della sessione SQLite mobile;
+- `expected_core_parts` accetta solo `gps_points` e `state_transitions`;
+- `expected_raw_parts` accetta solo `sensor_windows`;
+- se `expected_raw_parts` e' vuoto, il backend inizializza `raw_status=COMPLETED`;
+- se l'ingestion esiste gia', il backend ritorna lo stesso `ingestion_id`;
+- il client non deve assumere che `already_exists=false` al primo tentativo
+  osservato: una richiesta puo' essere arrivata al backend e la risposta puo'
+  essersi persa in rete;
+- `started_at` e `ended_at` sono metadata dichiarati dal client e devono essere
+  UTC; la timezone serve solo per ricostruzioni prodotto o debug.
 ```
 
 ### 2. Richiesta Presigned URL per una parte
@@ -367,6 +512,23 @@ Risposta:
 Il backend NON riceve il file. Restituisce solo l'URL firmato e gli header che
 il mobile deve mandare nel PUT.
 
+La richiesta e' leggera e puo' essere ripetuta. Se la parte non e' ancora
+confermata, il backend puo' aggiornare sha256, size e object_key dichiarati per
+gestire un re-packaging locale. Se invece `received_at` e' gia' valorizzato,
+il backend deve proteggere la parte: stesso checksum = idempotente, checksum
+diverso = conflitto.
+
+Guardrail attuale:
+
+```text
+- il kind deve essere noto;
+- la parte deve essere stata dichiarata negli expected parts della sua fase;
+- una parte Core non puo' essere caricata quando core_status e' gia' QUEUED,
+  PROCESSING, COMPLETED o FAILED_*;
+- una parte Raw non puo' essere caricata quando raw_status e' COMPLETED o
+  FAILED_*.
+```
+
 ### 3. Upload diretto (mobile -> object storage)
 
 ```text
@@ -377,6 +539,12 @@ body = blob gzip
 ```
 
 Nessun web worker coinvolto.
+
+Il presigned URL e' legato a metodo, bucket, object key, content type e metadata
+firmati. Il mobile deve quindi inviare esattamente gli header ricevuti da
+`presign`. In locale questo implica che `S3_PUBLIC_ENDPOINT_URL` deve essere
+raggiungibile dal telefono o simulatore; l'endpoint interno Docker
+(`http://minio:9000`) non basta se il client gira fuori dalla rete Docker.
 
 ### 4. Conferma parte
 
@@ -394,24 +562,66 @@ Il backend fa HEAD sull'oggetto, verifica `size` e `sha256` nei metadata S3, e r
 `TripIngestionPart`. Risposte: `RECEIVED`, `ALREADY_RECEIVED`, oppure
 `409 Conflict` se lo stesso `(kind, sequence)` arriva con sha256 diverso.
 
-### 5. Complete
+`confirm` non deve fidarsi del fatto che il mobile dica "ho caricato". La prova
+e' la HEAD sullo storage. Questo protegge da:
 
 ```text
-POST /api/ingestion/trips/{ingestion_id}/complete
+- PUT fallito dopo presign;
+- PUT parziale o tagliato dalla rete;
+- upload riuscito ma verso un object_key diverso;
+- metadata sha256 mancanti o non coerenti;
+- retry mobile che tenta di confermare una parte vecchia.
 ```
 
-Verifica che tutte le parti dichiarate in `expected_parts` siano confermate,
-porta l'ingestion a `QUEUED`, enqueue Celery, risponde `202 Accepted`.
-Da qui in poi il mobile non aspetta il processing.
+### 5. Complete Core
+
+```text
+POST /api/ingestion/trips/{ingestion_id}/complete-core
+```
+
+Verifica che tutte le parti dichiarate in `expected_core_parts` siano
+confermate, porta `core_status=QUEUED`, accoda Celery e risponde
+`202 Accepted`. Da qui in poi il mobile non aspetta in foreground il
+processing: salva `WAITING_PROCESSING` e riprende tramite polling/backoff.
+
+`complete-core` e' il confine tra "Core ancora caricabile" e "Core pronto per
+diventare Viaggio". Dopo `QUEUED`, il client non deve piu' caricare
+`gps_points` o `state_transitions` su quella ingestion. Se il client riceve un
+timeout dopo aver chiamato `complete-core`, deve fare `GET status`: se trova
+`core_status=QUEUED`, `PROCESSING` o `COMPLETED`, la complete Core e' gia'
+stata accettata.
+
+Il backend rifiuta `complete-core` quando:
+
+```text
+- non esiste nessuna parte Core attesa;
+- manca una parte Core dichiarata;
+- core_status e' FAILED_FINAL.
+```
+
+### 6. Complete Raw
+
+```text
+POST /api/ingestion/trips/{ingestion_id}/complete-raw
+```
+
+Verifica che tutte le parti dichiarate in `expected_raw_parts` siano confermate.
+Nel codice attuale, se tutto e' presente, imposta `raw_status=RECEIVED` e si
+ferma li'. Non accoda HAR finale e non cancella blob.
+
+`complete-raw` ha una precondizione forte: `core_status` deve essere
+`COMPLETED`. Il Raw arricchisce il viaggio e prepara HAR; non puo' sostituire
+il Core e non deve anticipare la creazione del `Viaggio`.
 
 Nota:
 
 ```text
-READY_TO_PROCESS esiste come stato di modello, ma nel flusso attuale il codice
-passa direttamente a QUEUED dopo la verifica delle parti.
+Raw RECEIVED non significa "HAR finito": significa solo "evidenza raw arrivata
+in object storage". Quando HAR sara' attivo, la fase Raw potra' usare QUEUED,
+PROCESSING e COMPLETED per il job HAR finale.
 ```
 
-### 6. Stato
+### 7. Stato
 
 ```text
 GET /api/ingestion/trips/{ingestion_id}
@@ -419,16 +629,73 @@ GET /api/ingestion/trips/{ingestion_id}
 
 ```json
 {
-  "ingestion_id": "server-ingestion-uuid",
-  "status": "PROCESSING",
-  "received_parts": ["gps_points.json.gz", "sensor_windows_part_0001.json.gz"],
-  "missing_parts": ["sensor_windows_part_0002.json.gz"],
+  "ingestion_id": 123,
+  "core_status": "PROCESSING",
+  "raw_status": "RECEIVING",
+  "received_core_parts": [
+    { "kind": "gps_points", "sequence": 1 }
+  ],
+  "missing_core_parts": [
+    { "kind": "state_transitions", "sequence": 1 }
+  ],
+  "received_raw_parts": [
+    { "kind": "sensor_windows", "sequence": 1 }
+  ],
+  "missing_raw_parts": [
+    { "kind": "sensor_windows", "sequence": 2 }
+  ],
   "trip_id": null,
-  "error": null
+  "error": null,
+  "core_progress": 50,
+  "raw_progress": 17
 }
 ```
 
-Il mobile usa `missing_parts` per ritentare solo cio' che manca.
+Il mobile usa `missing_core_parts` per ritentare solo il Core mancante, poi
+`missing_raw_parts` per caricare i raw dopo che il Core e' completato.
+
+### Semantica Idempotente Degli Endpoint
+
+```text
+POST /api/ingestion/trips
+  Chiave: (user_id, client_session_id).
+  Retry atteso: ritorna la stessa TripIngestion.
+  Errore finale: payload semanticamente incompatibile con ingestion esistente
+  (oggi non ancora validato in modo forte).
+
+POST /api/ingestion/trips/{ingestion_id}/parts/presign
+  Chiave: (ingestion_id, kind, sequence).
+  Retry atteso: ritorna un URL valido per lo stesso object_key logico.
+  Conflitto: parte non dichiarata, fase non ricevente, oppure parte gia'
+  confermata con checksum diverso.
+
+PUT <presigned-url>
+  Chiave: object_key.
+  Retry atteso: sovrascrive lo stesso oggetto prima della conferma.
+  Dopo conferma: il client non dovrebbe piu' sovrascrivere.
+
+POST /api/ingestion/trips/{ingestion_id}/parts/confirm
+  Chiave: (ingestion_id, kind, sequence, sha256).
+  Retry atteso: `ALREADY_RECEIVED` se gia' confermata.
+  Conflitto: sha dichiarato diverso o HEAD non coerente.
+
+POST /api/ingestion/trips/{ingestion_id}/complete-core
+  Chiave: ingestion_id.
+  Retry atteso: ritorna 202 se il Core e' gia' QUEUED, PROCESSING, COMPLETED
+  o FAILED_RETRYABLE.
+  Conflitto: parti Core mancanti, nessuna parte Core attesa, o FAILED_FINAL.
+
+POST /api/ingestion/trips/{ingestion_id}/complete-raw
+  Chiave: ingestion_id.
+  Retry atteso: ritorna 202 se il Raw e' gia' RECEIVED o COMPLETED.
+  Conflitto: Core non ancora COMPLETED, parti Raw mancanti, o FAILED_FINAL.
+
+GET /api/ingestion/trips/{ingestion_id}
+  Sempre safe: e' il modo canonico per riprendere dopo crash, timeout o app kill.
+```
+
+Il principio e': il client puo' perdere qualsiasi risposta HTTP e deve poter
+ricostruire lo stato con `GET status` senza duplicare dati di dominio.
 
 ---
 
@@ -442,8 +709,10 @@ TripIngestion
   user_id
   client_session_id        UNIQUE con user_id
   schema_version
-  status
-  expected_parts           (json: per kind, quante parti)
+  core_status              (PENDING/RECEIVING/RECEIVED/QUEUED/PROCESSING/...)
+  raw_status               (stesso vocabolario, semantica di fase diversa)
+  expected_core_parts      (json: gps_points/state_transitions -> count)
+  expected_raw_parts       (json: sensor_windows -> count)
   raw_base_path            (prefix object storage)
   manifest_sha256
   total_size_bytes
@@ -473,17 +742,90 @@ Vincoli: unique(ingestion_id, kind, sequence)
 
 ### Stati Ingestion
 
+`TripIngestion` non ha piu' uno stato aggregato unico. Ha due stati separati:
+
 ```text
-CREATED            ingestion creata, nessuna parte confermata
-RECEIVING          alcune parti confermate
-READY_TO_PROCESS   tutte le parti presenti e verificate
-QUEUED             job Celery in coda
-PROCESSING         Celery sta materializzando
-PROCESSED          Trip materializzato (GPS + transizioni). Stato finale PER ORA,
-                   in attesa di HAR.
-COMPLETED          (futuro) Trip + HAR completato. Solo quando HAR sara' attivo.
-FAILED_RETRYABLE   errore temporaneo
-FAILED_FINAL       errore definitivo (file corrotto, schema invalido)
+core_status  descrive la fase minima che crea il Viaggio.
+raw_status   descrive la fase sensori/raw, oggi solo upload, domani HAR finale.
+```
+
+Il vocabolario e' intenzionalmente uguale per entrambe le fasi:
+
+```text
+PENDING            fase dichiarata ma nessuna parte ancora in upload
+RECEIVING          almeno una parte e' stata presignata/caricata
+RECEIVED           tutte le parti della fase sono presenti nello storage
+QUEUED             job asincrono della fase accodato
+PROCESSING         worker asincrono della fase in esecuzione
+COMPLETED          fase terminata con successo
+FAILED_RETRYABLE   errore temporaneo, retry ammesso
+FAILED_FINAL       errore definitivo, serve intervento/nuova ingestion
+```
+
+Transizioni Core ammesse nel flusso corrente:
+
+```text
+PENDING -> RECEIVING
+  prima parte Core presignata.
+
+RECEIVING -> RECEIVING
+  altre parti Core vengono presignate o confermate.
+
+RECEIVING -> RECEIVED
+  tutte le parti Core dichiarate sono state confermate via HEAD.
+
+PENDING/RECEIVING/RECEIVED -> QUEUED
+  complete-core accettata dopo verifica di tutte le parti Core attese.
+
+QUEUED -> PROCESSING
+  worker Celery prende in carico la Core Ingestion.
+
+PROCESSING -> COMPLETED
+  Trip materializzato con successo.
+
+PROCESSING -> FAILED_RETRYABLE
+  errore temporaneo durante download blob Core, decompressione o scrittura DB.
+
+FAILED_RETRYABLE -> PROCESSING
+  retry Celery o nuovo tentativo operativo.
+
+PROCESSING/FAILED_RETRYABLE -> FAILED_FINAL
+  esauriti i retry o schema non recuperabile.
+```
+
+Transizioni Raw nel flusso corrente:
+
+```text
+PENDING -> RECEIVING
+  prima parte sensor_windows presignata.
+
+RECEIVING -> RECEIVED
+  tutte le parti Raw dichiarate sono state confermate.
+
+RECEIVED -> COMPLETED
+  futuro, quando HAR finale sara' eseguito con successo.
+
+PENDING -> COMPLETED
+  caso valido quando non esistono raw attesi.
+
+RECEIVED -> QUEUED -> PROCESSING -> COMPLETED
+  futuro, quando process_trip_har_final sara' sbloccato.
+```
+
+Transizioni da evitare:
+
+```text
+COMPLETED -> RECEIVING
+  significherebbe riaprire una fase gia' chiusa.
+
+FAILED_FINAL -> QUEUED
+  richiede un'operazione amministrativa esplicita, non un retry automatico.
+
+COMPLETED -> PROCESSING
+  avrebbe senso solo con un job HAR di ricalcolo versionato, non con il flusso base.
+
+raw_status -> RECEIVED quando core_status non e' COMPLETED
+  renderebbe il Raw una scorciatoia impropria per creare o validare il viaggio.
 ```
 
 ### Dominio (PostGIS) — invariato e leggero
@@ -492,6 +834,13 @@ FAILED_FINAL       errore definitivo (file corrotto, schema invalido)
 Trip, GpsPoint(geography), StateTransition, MobilitySegment, SignificantPlace, HarJob
 SensorWindow  -> SOLO metadata + object_key + label, MAI la matrice grezza
 ```
+
+Nota sul modello `SensorWindow`: il campo `matrix` esiste ancora per compatibilita'
+con il flusso legacy, ma nel percorso nuovo non deve essere popolato con la
+matrice raw. Il campo utile per l'evoluzione e' `object_key`, che permette di
+tenere in Postgres solo un riferimento al blob. La rimozione o deprecazione
+formale di `matrix` va fatta in una migrazione separata, quando gli endpoint
+legacy non saranno piu' usati dal mobile.
 
 ---
 
@@ -505,8 +854,9 @@ SyncJob
   id
   local_session_id
   remote_ingestion_id
-  status            (PENDING | PACKAGING | UPLOADING | WAITING_PROCESSING |
+  core_status       (PENDING | PACKAGING | UPLOADING | WAITING_PROCESSING |
                      COMPLETED | FAILED_RETRYABLE | FAILED_FINAL)
+  raw_status        (stesso vocabolario locale, ma fase secondaria)
   attempts
   next_retry_at
   last_error
@@ -551,13 +901,96 @@ FAILED_RETRYABLE     -> Sync in attesa / riprova
 FAILED_FINAL         -> Sync fallita
 ```
 
+Questa mappa vale per lo stato principale, cioe' `core_status`. `raw_status`
+e' disponibile come dettaglio secondario: puo' indicare che i sensori raw sono
+ancora in upload o hanno fallito, senza togliere dal diario un viaggio il cui
+Core e' gia' completato.
+
+Regola importante della coda: `raw_status` puo' rendere claimable un job solo
+quando `core_status=COMPLETED`. Se il Core e' `FAILED_FINAL`, il Raw pendente
+non deve "risvegliare" il job.
+
 Il pulsante Stop non dichiara piu' "sincronizzato con successo": dice che il
 viaggio e' salvato localmente e che la sincronizzazione prosegue in background.
 
-Quando il backend e' in `QUEUED`, `PROCESSING` o `FAILED_RETRYABLE`, il mobile
-non ricarica i blob e non richiama `complete`: resta in polling con
-`WAITING_PROCESSING`. Se il backend arriva a `FAILED_FINAL`, il job locale
-diventa `FAILED_FINAL`.
+Quando il backend Core e' in `QUEUED`, `PROCESSING` o `FAILED_RETRYABLE`, il
+mobile non ricarica i blob Core e non richiama `complete-core`: resta in polling
+con `core_status=WAITING_PROCESSING`. Se il backend Core arriva a
+`FAILED_FINAL`, il job locale diventa `core_status=FAILED_FINAL`.
+
+### Ciclo Di Vita Del SyncJob
+
+```text
+PENDING
+  Job creato allo Stop. Nessuna garanzia che la rete sia disponibile.
+
+PACKAGING
+  Il client legge SQLite, costruisce i JSON, comprime gzip, calcola sha256 e
+  size. Questa fase e' locale e puo' fallire per spazio disco o dati corrotti.
+
+UPLOADING
+  Esiste o viene creata una remote_ingestion_id. Il client carica solo le parti
+  mancanti secondo `GET status`. Prima carica le parti Core; dopo Core
+  completato carica le parti Raw.
+
+WAITING_PROCESSING
+  `complete-core` e' stata accettata. Il client non deve piu' fare PUT Core;
+  deve solo pollare lo stato backend finche' `core_status=COMPLETED`.
+
+COMPLETED
+  Il Core ha raggiunto `COMPLETED` e il Raw e' `RECEIVED` o `COMPLETED`.
+  I file temporanei locali del pacchetto possono essere eliminati.
+
+FAILED_RETRYABLE
+  Errore temporaneo. Il job resta claimable dopo `next_retry_at`.
+
+FAILED_FINAL
+  Il client ha esaurito i tentativi o il backend ha dichiarato fallimento finale.
+  Serve azione manuale o una futura policy di "reset job".
+```
+
+La coda deve essere rientrante: se `kick()` viene chiamato piu' volte mentre un
+processamento e' in corso, una sola esecuzione deve lavorare. Questa regola evita
+due upload concorrenti dello stesso job, due `complete` ravvicinate o due timer
+di polling che si pestano i piedi.
+
+### Regole Di Retry Mobile
+
+Il retry mobile deve distinguere tre classi di errore:
+
+```text
+Errore locale
+  Esempi: impossibile leggere SQLite, impossibile scrivere file temporaneo,
+  gzip fallito, JSON locale non valido.
+  Azione: FAILED_RETRYABLE fino a maxAttempts; poi FAILED_FINAL.
+
+Errore di rete / storage
+  Esempi: timeout presign, timeout PUT, 5xx storage, URL scaduto.
+  Azione: retry con backoff. Se il PUT puo' essere arrivato ma la risposta e'
+  persa, il prossimo giro deve interrogare `GET status` e poi rifare confirm o
+  upload solo se la parte risulta ancora mancante.
+
+Errore backend semantico
+  Esempi: 401 token non valido, 409 checksum diverso, 422 kind non valido,
+  FAILED_FINAL sullo status.
+  Azione: non bruciare tentativi per 401 prima del login; per conflitti reali,
+  fermare il job e mostrare errore.
+```
+
+Backoff consigliato operativo:
+
+```text
+tentativo 1: immediato
+tentativo 2: 10 s
+tentativo 3: 30 s
+tentativo 4: 2 min
+tentativo 5: 10 min
+oltre: FAILED_FINAL o policy manuale
+```
+
+In futuro si puo' aggiungere jitter casuale leggero (es. +/-20%) se molti client
+riprendono insieme dopo un outage, ma per il profilo da ~1000 utenti non e' il
+primo collo di bottiglia.
 
 ---
 
@@ -574,32 +1007,103 @@ interni a HAR. In futuro, se serve ridurre banda mobile, si valuta un formato
 binario compatto (float32 colonnare / MessagePack / Parquet) senza cambiare il
 resto dell'architettura.
 
+### Schema Logico Dei File
+
+`gps_points.json.gz`:
+
+```json
+{
+  "points": [
+    {
+      "timestamp": "2026-06-12T10:01:05.123Z",
+      "latitude": 45.4642,
+      "longitude": 9.19,
+      "speed_mps": 1.4,
+      "accuracy_meters": 8.0
+    }
+  ]
+}
+```
+
+`state_transitions.json.gz`:
+
+```json
+{
+  "transitions": [
+    {
+      "timestamp": "2026-06-12T10:02:00.000Z",
+      "from_state": "POTENTIAL_MOTION",
+      "to_state": "ACTIVE_TRACKING",
+      "reason": "gps_speed_confirmed",
+      "sigma": 0.42,
+      "speed_mps": 2.1
+    }
+  ]
+}
+```
+
+`sensor_windows_part_0001.json.gz`:
+
+```json
+{
+  "windows": [
+    {
+      "window_start": "2026-06-12T10:02:05.000Z",
+      "window_end": "2026-06-12T10:02:10.000Z",
+      "sample_rate_hz": 100,
+      "sample_count": 500,
+      "samples": [[0.0, 0.1, 9.7, 0.0, 0.0, 0.0, 12.0, 1.0, -4.0]]
+    }
+  ]
+}
+```
+
+Regole di validazione consigliate:
+
+```text
+- ogni file gzip deve decomprimersi in JSON valido;
+- i timestamp devono essere parseabili e in ordine non decrescente per file;
+- `gps_points` deve scartare righe senza latitude/longitude;
+- `sensor_windows` deve dichiarare sample_count coerente con samples.length;
+- sample_rate_hz deve essere positivo;
+- sequence parte da 1 ed e' continua per ogni kind;
+- una parte vuota non va generata: se un kind non ha dati, non entra negli
+  expected parts della sua fase.
+```
+
+Il formato JSON gzip resta accettabile per debugging e sviluppo. La ragione per
+cambiarlo in futuro non sara' l'API, ma CPU/banda: serializzare `500 x 9` float
+in JSON costa piu' della rappresentazione binaria float32, anche se gzip riduce
+molto il trasferimento.
+
 ---
 
 ## Cosa Fa Celery
 
 ```text
 process_trip_ingestion(ingestion_id):
-  1. carica TripIngestion, verifica parti presenti e checksum
-  2. status -> PROCESSING
+  1. carica TripIngestion, verifica che il Core non sia gia' COMPLETED
+  2. core_status -> PROCESSING
   3. legge blob gps + transitions
   4. BEGIN transaction.atomic():
        get_or_create(Trip by client_session_id)
        bulk_create(GpsPoint, ignore_conflicts)
        bulk_create(StateTransition, ignore_conflicts)
+       ingestion.trip = Trip
+       core_status -> COMPLETED
      COMMIT
-  5. (in futuro) enqueue process_trip_har — PER ORA NON invocato.
-     L'ingestion arriva fino a Trip materializzato; HAR resta in sospeso.
+  5. (in futuro) enqueue process_trip_har_final se raw_status=RECEIVED.
+     PER ORA NON invocato.
 
-process_trip_har(trip_id, ingestion_id):   [CONGELATO — predisposto, non attivo]
+process_trip_har_final(trip_id, ingestion_id):   [CONGELATO — predisposto, non attivo]
   1. legge i blob sensor_windows da object storage
   2. esegue HAR finale -> label / MobilitySegment
   3. scrive su PostGIS
   4. on SUCCESS:
        (in futuro) cancella i blob raw dell'ingestion
-       ingestion.status -> COMPLETED
+       raw_status -> COMPLETED
   5. on FAILURE:
-       salva error, status -> FAILED_RETRYABLE / FAILED_FINAL
+       salva error, raw_status -> FAILED_RETRYABLE / FAILED_FINAL
        NON cancella i blob (servono al retry)
 
 PER ORA: il task e' predisposto come stub/interfaccia ma non viene invocato,
@@ -608,6 +1112,45 @@ e in nessun caso cancella i blob raw.
 
 Le matrici grezze restano in object storage a tempo indeterminato finche' HAR
 non sara' operativo. A quel punto si attivera' la cancellazione post-HAR (D9).
+
+### Atomicita E Retry Del Worker
+
+`process_trip_ingestion` deve essere progettato come task almeno-once: Celery
+puo' eseguirlo due volte se il worker muore dopo aver scritto su DB ma prima di
+acknowledgare il task. Per questo:
+
+```text
+- Trip nasce con get_or_create(client_session_id);
+- GpsPoint usa unique(trip, timestamp);
+- StateTransition usa unique(trip, timestamp, to_state);
+- bulk_create usa ignore_conflicts;
+- core_status=COMPLETED fa da guardia per saltare rielaborazioni.
+```
+
+La transazione atomica deve contenere solo operazioni DB leggere. Il download da
+object storage e la decompressione possono avvenire prima o fuori dalla parte
+critica quando il formato diventera' piu' grande; oggi i blob letti dal worker
+sono GPS e transizioni, quindi il rischio e' contenuto. Le sensor window non
+vengono scaricate dal task corrente.
+
+Errori retryable tipici:
+
+```text
+- object storage temporaneamente non raggiungibile;
+- blob presente ma GET fallisce per timeout;
+- database temporaneamente saturo o lock timeout;
+- worker riavviato durante processing.
+```
+
+Errori finali tipici:
+
+```text
+- gzip corrotto in modo ripetibile;
+- JSON non parseabile;
+- schema mancante in modo non recuperabile;
+- timestamp non parseabile;
+- ingestion senza parti richieste ma marcata complete.
+```
 
 ---
 
@@ -641,6 +1184,451 @@ GRU/HAR finale:      correzione offline a fine viaggio (questo flusso)
 - limite dimensione per parte (es. 20 MB)
 - verifica sha256/size in confirm
 - max active ingestions per utente configurabile
+```
+
+Dettagli da non perdere:
+
+```text
+Bearer token
+  Ogni endpoint deve risolvere request.auth.user_id e filtrare sempre per user.
+  Non basta controllare l'id ingestion numerico.
+
+Presigned URL
+  Deve scadere in fretta (default 900s). Se scade, il client richiede un nuovo
+  presign per la stessa parte.
+
+Checksum
+  sha256 nei metadata S3 non e' una garanzia crittografica assoluta contro un
+  attaccante con credenziali valide, ma e' sufficiente per rilevare upload
+  parziali, retry sbagliati e mismatch applicativi.
+
+Limite dimensione
+  `INGESTION_MAX_PART_BYTES` protegge da parti eccessive. Va mantenuto coerente
+  con il budget mobile di chunking.
+
+Object key
+  Il client non sceglie liberamente object_key. Il backend lo deriva da ingestion
+  e parte. Questo evita scritture fuori dal prefisso assegnato.
+```
+
+---
+
+## Performance, Capacita E Colli Di Bottiglia
+
+Il design ottimizza prima la stabilita' del sistema, poi la latenza percepita.
+Le grandezze da osservare sono:
+
+```text
+Tempo locale:
+  Stop -> SyncJob creato
+  Stop -> packaging completato
+
+Tempo upload:
+  packaging completato -> tutte le parti confermate
+  tempo medio PUT per MB
+  numero parti ritentate
+
+Tempo backend:
+  complete-core accettata -> core_status QUEUED
+  core_status QUEUED -> PROCESSING
+  core_status PROCESSING -> COMPLETED
+  core_status COMPLETED -> raw_status RECEIVED/COMPLETED
+
+Volume:
+  byte totali gzip per viaggio
+  byte sensor_windows / byte totali
+  numero window per minuto di viaggio
+```
+
+Budget indicativi per il profilo attuale:
+
+```text
+Stop -> SyncJob creato:             < 200 ms
+Packaging viaggio breve:            < 2 s
+Packaging viaggio lungo:            puo' crescere con le window, da misurare
+Presign/confirm singola chiamata:    < 500 ms su rete buona
+Celery materializzazione leggera:    < 5 s per viaggi normali
+```
+
+Il punto piu' costoso oggi e' quasi sempre il payload HAR, per tre motivi:
+
+```text
+- molte righe: 500 campioni x 9 canali x finestra;
+- JSON verbose prima della compressione;
+- upload mobile sensibile a rete, batteria e radio.
+```
+
+Migliorie future ordinate per impatto sulla velocita':
+
+```text
+1. separare upload core (GPS/transitions) da upload raw HAR;
+2. upload parallelo controllato con concurrency 2-4;
+3. batch presign e batch confirm;
+4. upload streaming da file invece di readAsBytes;
+5. formato binario float32 per sensor windows;
+6. packaging incrementale durante la corsa.
+```
+
+Queste migliorie non cambiano l'invariante principale: i byte pesanti non
+devono attraversare Django e le matrici raw non devono entrare in Postgres.
+
+---
+
+## Osservabilita Minima
+
+Senza metriche questo sistema e' difficile da debuggare, perche' un viaggio puo'
+essere "salvato localmente" ma ancora non visibile nel dominio backend. Servono
+almeno log strutturati e contatori.
+
+Log mobile consigliati:
+
+```text
+sync.job.created
+  local_session_id, started_at, ended_at
+
+sync.package.created
+  local_session_id, parts_count, total_size_bytes, gps_count,
+  transition_count, sensor_window_count
+
+sync.part.upload.started / completed / failed
+  local_session_id, ingestion_id, kind, sequence, size_bytes, sha256_prefix
+
+sync.job.completed / failed
+  local_session_id, ingestion_id, attempts, last_error
+```
+
+Log backend consigliati:
+
+```text
+ingestion.created
+  user_id, ingestion_id, client_session_id, expected_core_parts,
+  expected_raw_parts
+
+ingestion.part.presigned
+  ingestion_id, phase, kind, sequence, size_bytes
+
+ingestion.part.confirmed
+  ingestion_id, phase, kind, sequence, size_bytes
+
+ingestion.core.completed
+  ingestion_id, trip_id, received_core_parts_count, total_size_bytes
+
+ingestion.raw.received
+  ingestion_id, received_raw_parts_count, total_size_bytes
+
+ingestion.processing.started / succeeded / failed
+  ingestion_id, trip_id, gps_points, transitions, duration_ms, error
+```
+
+Metriche minime:
+
+```text
+counter ingestion_created_total
+counter ingestion_part_confirmed_total{kind}
+counter ingestion_failed_total{reason}
+gauge   ingestion_in_progress{status}
+histogram ingestion_upload_bytes{kind}
+histogram ingestion_processing_duration_seconds
+histogram mobile_packaging_duration_seconds
+histogram mobile_upload_duration_seconds
+```
+
+Alert utili anche in un progetto piccolo:
+
+```text
+- molte ingestion ferme in RECEIVING da piu' di 24h;
+- molte ingestion in QUEUED con worker Celery attivo ma backlog crescente;
+- spike di FAILED_FINAL;
+- bucket object storage che cresce oltre soglia prevista;
+- percentuale alta di parti con retry.
+```
+
+---
+
+## Failure Mode E Recupero
+
+```text
+Caso: app chiusa subito dopo Stop
+  Stato: sessione chiusa in SQLite, SyncJob forse creato.
+  Recupero: all'avvio, resumeSync deve processare SyncJob pendenti.
+
+Caso: app chiusa durante packaging
+  Stato: SyncJob PACKAGING, file temporanei forse incompleti.
+  Recupero: nuovo packaging da SQLite; la directory temporanea puo' essere
+  cancellata e ricreata.
+
+Caso: risposta di POST /api/ingestion/trips persa
+  Stato: TripIngestion creata ma mobile non lo sa.
+  Recupero: nuovo POST /api/ingestion/trips con stesso client_session_id ritorna
+  stessa ingestion.
+
+Caso: PUT riuscito ma risposta persa
+  Stato: oggetto forse presente, parte non confermata.
+  Recupero: il client rifara' presign/PUT/confirm oppure confirm; backend usera'
+  HEAD per stabilire la verita'.
+
+Caso: confirm riuscita ma risposta persa
+  Stato: part.received_at valorizzato.
+  Recupero: nuovo confirm ritorna ALREADY_RECEIVED o status mostra parte ricevuta.
+
+Caso: complete-core riuscita ma risposta persa
+  Stato: core_status QUEUED o oltre.
+  Recupero: GET status; il mobile passa a core_status WAITING_PROCESSING.
+
+Caso: raw upload fallisce dopo Core completato
+  Stato: core_status COMPLETED, raw_status locale FAILED_RETRYABLE o FAILED_FINAL.
+  Recupero: il viaggio resta visibile; il retry successivo lavora solo sul Raw.
+
+Caso: worker Celery spento
+  Stato: core_status resta QUEUED.
+  Recupero: avviare worker; nessun re-upload necessario.
+
+Caso: worker fallisce su errore temporaneo
+  Stato: core_status FAILED_RETRYABLE e retry Celery.
+  Recupero: il mobile resta in WAITING_PROCESSING finche' backend non cambia stato.
+
+Caso: schema file non valido
+  Stato: core_status FAILED_FINAL.
+  Recupero: visibile in UI come errore finale; serve bugfix o reset amministrativo.
+
+Caso: token scaduto
+  Stato: SyncJob locale invariato.
+  Recupero: non bruciare retry prima del nuovo login; dopo login resumeSync riparte.
+```
+
+---
+
+## Checklist Di Verifica End-To-End
+
+Per dichiarare sano il flusso, non basta vedere la snackbar mobile. Va controllata
+la catena completa:
+
+```text
+1. Start tracking crea AcquisitionSession con UUID locale.
+2. Durante tracking vengono scritti GpsPoints, StateTransitions e SensorWindows.
+3. Stop valorizza endedAt e crea un SyncJob PENDING.
+4. resume/kick porta il job a PACKAGING.
+5. La directory temporanea contiene file .json.gz con sha256 e size coerenti.
+6. POST /api/ingestion/trips crea TripIngestion con expected_core_parts e
+   expected_raw_parts corretti.
+7. Le parti Core hanno presign, PUT e confirm.
+8. GET status mostra missing_core_parts vuoto.
+9. complete-core porta core_status a QUEUED.
+10. Celery porta core_status a PROCESSING e poi COMPLETED.
+11. Trip esiste, appartiene all'utente giusto e ha client_session_id corretto.
+12. GpsPoint e StateTransition sono presenti senza duplicati.
+13. Solo dopo Core COMPLETED, le parti Raw hanno presign, PUT e confirm.
+14. complete-raw porta raw_status a RECEIVED o COMPLETED.
+15. Le sensor window raw sono presenti nel bucket.
+16. SensorWindow.matrix non viene popolato dal nuovo flusso.
+17. Il SyncJob locale diventa COMPLETED quando Core e Raw sono chiusi.
+```
+
+Test negativi essenziali:
+
+```text
+- doppio Stop non duplica SyncJob;
+- doppio POST /api/ingestion/trips non duplica TripIngestion;
+- doppia confirm non duplica TripIngestionPart;
+- checksum diverso sulla stessa parte confermata produce 409;
+- complete-core con parte Core mancante produce 409;
+- complete-raw prima di Core COMPLETED produce 409;
+- presign di una parte non dichiarata produce 409;
+- worker rilanciato non duplica GPS/transizioni;
+- ingestion di un altro utente non e' accessibile con id numerico.
+```
+
+---
+
+## Diagramma Di Sequenza Completo
+
+Questo diagramma usa una sintassi compatibile con <https://sequencediagram.org>.
+Va copiato senza il blocco markdown e incollato nell'editor del sito.
+
+```text
+title Upload asincrono viaggio - Core Ingestion + Raw Sensor Ingestion
+
+participant Utente
+participant HomePage
+participant AcquisitionCubit
+participant AcquisitionRepository
+participant SensorRuntime
+participant SQLite
+participant TripSyncQueue
+participant AuthRepository
+participant TripPackageBuilder
+participant FileSystem
+participant TripIngestionHttpApi
+participant DjangoIngestionApi
+participant Postgres
+participant ObjectStorage
+participant CeleryBroker
+participant CeleryWorker
+participant HarWorkerFuture
+
+Utente->HomePage: Tap Stop
+HomePage->AcquisitionCubit: stopTracking()
+AcquisitionCubit->AcquisitionRepository: stopTracking()
+AcquisitionRepository->SensorRuntime: stop()
+SensorRuntime-->AcquisitionRepository: sensori fermati
+AcquisitionRepository->SQLite: endSession(sessionId, endedAt)
+SQLite-->AcquisitionRepository: sessione chiusa
+AcquisitionRepository->SQLite: createSyncJobIfAbsent(sessionId)
+SQLite-->AcquisitionRepository: SyncJob(PENDING)
+AcquisitionRepository-->AcquisitionCubit: ritorno immediato
+AcquisitionCubit-->HomePage: snapshot idle
+HomePage-->Utente: viaggio salvato, sync in background
+
+note over AcquisitionRepository,TripSyncQueue: Lo Stop non aspetta rete, packaging o backend.
+AcquisitionRepository->TripSyncQueue: kick() fire-and-forget
+
+TripSyncQueue->AuthRepository: accessToken
+alt token assente
+  AuthRepository-->TripSyncQueue: null
+  TripSyncQueue-->TripSyncQueue: esce senza bruciare retry
+else token disponibile
+  AuthRepository-->TripSyncQueue: Bearer token
+  TripSyncQueue->SQLite: claimableSyncJobs(now)
+  SQLite-->TripSyncQueue: lista SyncJob attivi
+
+  loop per ogni SyncJob pronto
+    TripSyncQueue->SQLite: updateSyncJob(core_status=PACKAGING, lastError=null)
+    TripSyncQueue->TripPackageBuilder: build(localSessionId)
+    TripPackageBuilder->SQLite: findSession + gps + transitions + sensor windows
+    SQLite-->TripPackageBuilder: dati locali del viaggio
+    TripPackageBuilder->FileSystem: write gps_points.json.gz
+    TripPackageBuilder->FileSystem: write state_transitions.json.gz
+    TripPackageBuilder->FileSystem: write sensor_windows_part_N.json.gz
+    FileSystem-->TripPackageBuilder: file gzip + sha256 + sizeBytes
+    TripPackageBuilder-->TripSyncQueue: TripPackage(coreParts, rawParts, expectedCoreParts, expectedRawParts)
+
+    alt pacchetto vuoto
+      TripSyncQueue->SQLite: updateSyncJob(core_status=COMPLETED, raw_status=COMPLETED)
+    else nessuna parte Core
+      TripSyncQueue->SQLite: updateSyncJob(core_status=FAILED_FINAL, lastError)
+    else pacchetto con parti
+      TripSyncQueue->TripIngestionHttpApi: createIngestion(clientSessionId, expectedCoreParts, expectedRawParts)
+      TripIngestionHttpApi->DjangoIngestionApi: POST /api/ingestion/trips
+      DjangoIngestionApi->Postgres: get_or_create TripIngestion(user, client_session_id)
+      Postgres-->DjangoIngestionApi: ingestion_id + core_status + raw_status
+      DjangoIngestionApi-->TripIngestionHttpApi: 200 ingestion_id + phase statuses
+      TripIngestionHttpApi-->TripSyncQueue: ingestionId
+      TripSyncQueue->SQLite: updateSyncJob(core_status=UPLOADING, remoteIngestionId)
+
+      TripSyncQueue->TripIngestionHttpApi: getStatus(ingestionId)
+      TripIngestionHttpApi->DjangoIngestionApi: GET /api/ingestion/trips/{ingestion_id}
+      DjangoIngestionApi->Postgres: load TripIngestion + confirmed parts
+      Postgres-->DjangoIngestionApi: core_status/raw_status + missing_core/raw
+      DjangoIngestionApi-->TripIngestionHttpApi: phase status payload
+      TripIngestionHttpApi-->TripSyncQueue: IngestionStatus
+
+      alt Core gia COMPLETED
+        TripSyncQueue->SQLite: updateSyncJob(core_status=COMPLETED)
+      else Core QUEUED, PROCESSING o FAILED_RETRYABLE
+        TripSyncQueue->SQLite: updateSyncJob(core_status=WAITING_PROCESSING, nextRetryAt)
+      else Core puo ricevere parti
+        loop per ogni parte Core mancante
+          TripSyncQueue->TripIngestionHttpApi: presignPart(kind, sequence, sha256, size)
+          TripIngestionHttpApi->DjangoIngestionApi: POST /api/ingestion/trips/{id}/parts/presign
+          DjangoIngestionApi->Postgres: verifica parte dichiarata in expected_core_parts
+          DjangoIngestionApi->Postgres: get_or_create TripIngestionPart
+          DjangoIngestionApi->ObjectStorage: generate presigned PUT URL
+          ObjectStorage-->DjangoIngestionApi: upload_url
+          DjangoIngestionApi-->TripIngestionHttpApi: object_key + upload_url + headers
+          TripIngestionHttpApi->FileSystem: read gzip bytes
+          FileSystem-->TripIngestionHttpApi: bytes
+          TripIngestionHttpApi->ObjectStorage: PUT upload_url (bytes + metadata sha256)
+          ObjectStorage-->TripIngestionHttpApi: 2xx
+          TripIngestionHttpApi->DjangoIngestionApi: POST /api/ingestion/trips/{id}/parts/confirm
+          DjangoIngestionApi->ObjectStorage: HEAD object_key
+          ObjectStorage-->DjangoIngestionApi: ContentLength + metadata sha256
+          DjangoIngestionApi->Postgres: set TripIngestionPart.received_at
+          DjangoIngestionApi->Postgres: se tutte le Core parts ricevute, core_status=RECEIVED
+          Postgres-->DjangoIngestionApi: part confirmed
+          DjangoIngestionApi-->TripIngestionHttpApi: RECEIVED or ALREADY_RECEIVED
+          TripIngestionHttpApi-->TripSyncQueue: parte confermata
+        end
+
+        TripSyncQueue->TripIngestionHttpApi: completeCoreIngestion(ingestionId, totalParts)
+        TripIngestionHttpApi->DjangoIngestionApi: POST /api/ingestion/trips/{id}/complete-core
+        DjangoIngestionApi->Postgres: verifica tutte le parti Core confermate
+        DjangoIngestionApi->Postgres: core_status=QUEUED, queued_at=now
+        DjangoIngestionApi->CeleryBroker: enqueue process_trip_ingestion(ingestion_id)
+        DjangoIngestionApi-->TripIngestionHttpApi: 202 core_status=QUEUED
+        TripIngestionHttpApi-->TripSyncQueue: complete-core accettata
+        TripSyncQueue->SQLite: updateSyncJob(core_status=WAITING_PROCESSING)
+      end
+    end
+  end
+end
+
+note over CeleryBroker,CeleryWorker: Da qui in poi il mobile non deve ricaricare blob Core.
+CeleryWorker->CeleryBroker: consume process_trip_ingestion(ingestion_id)
+CeleryWorker->Postgres: load TripIngestion + user + parts
+Postgres-->CeleryWorker: ingestion metadata
+CeleryWorker->Postgres: core_status=PROCESSING, started_processing_at=now
+CeleryWorker->ObjectStorage: GET gps_points.json.gz
+ObjectStorage-->CeleryWorker: gzip bytes
+CeleryWorker->ObjectStorage: GET state_transitions.json.gz
+ObjectStorage-->CeleryWorker: gzip bytes
+CeleryWorker->CeleryWorker: decompress + parse JSON
+CeleryWorker->Postgres: BEGIN transaction
+CeleryWorker->Postgres: get_or_create Trip(client_session_id)
+CeleryWorker->Postgres: bulk_create GpsPoint(ignore_conflicts)
+CeleryWorker->Postgres: bulk_create StateTransition(ignore_conflicts)
+CeleryWorker->Postgres: link ingestion.trip, core_status=COMPLETED
+CeleryWorker->Postgres: COMMIT
+Postgres-->CeleryWorker: trip materializzato
+
+note over ObjectStorage,CeleryWorker: Sensor windows restano blob raw. HAR finale e cleanup sono congelati.
+
+TripSyncQueue->TripIngestionHttpApi: getStatus(ingestionId) dopo nextRetryAt
+TripIngestionHttpApi->DjangoIngestionApi: GET /api/ingestion/trips/{ingestion_id}
+DjangoIngestionApi->Postgres: load phase statuses
+Postgres-->DjangoIngestionApi: core_status=COMPLETED + raw_status + trip_id
+DjangoIngestionApi-->TripIngestionHttpApi: status Core completed
+TripIngestionHttpApi-->TripSyncQueue: core completed
+TripSyncQueue->SQLite: updateSyncJob(core_status=COMPLETED)
+
+alt nessun Raw atteso o Raw gia RECEIVED/COMPLETED
+  TripSyncQueue->SQLite: updateSyncJob(raw_status=COMPLETED)
+  TripSyncQueue->FileSystem: delete temp package directory
+  HomePage-->Utente: UI mostra viaggio sincronizzato
+else Raw ancora da caricare
+  TripSyncQueue->SQLite: updateSyncJob(raw_status=UPLOADING)
+  loop per ogni parte Raw mancante
+    TripSyncQueue->TripIngestionHttpApi: presignPart(sensor_windows, sequence, sha256, size)
+    TripIngestionHttpApi->DjangoIngestionApi: POST /api/ingestion/trips/{id}/parts/presign
+    DjangoIngestionApi->Postgres: verifica parte dichiarata in expected_raw_parts
+    DjangoIngestionApi->ObjectStorage: generate presigned PUT URL
+    ObjectStorage-->DjangoIngestionApi: upload_url
+    DjangoIngestionApi-->TripIngestionHttpApi: object_key + upload_url + headers
+    TripIngestionHttpApi->FileSystem: read raw gzip bytes
+    FileSystem-->TripIngestionHttpApi: bytes
+    TripIngestionHttpApi->ObjectStorage: PUT upload_url (raw bytes + metadata sha256)
+    ObjectStorage-->TripIngestionHttpApi: 2xx
+    TripIngestionHttpApi->DjangoIngestionApi: POST /api/ingestion/trips/{id}/parts/confirm
+    DjangoIngestionApi->ObjectStorage: HEAD object_key
+    ObjectStorage-->DjangoIngestionApi: ContentLength + metadata sha256
+    DjangoIngestionApi->Postgres: set TripIngestionPart.received_at
+    DjangoIngestionApi->Postgres: se tutte le Raw parts ricevute, raw_status=RECEIVED
+    DjangoIngestionApi-->TripIngestionHttpApi: RECEIVED or ALREADY_RECEIVED
+    TripIngestionHttpApi-->TripSyncQueue: raw part confermata
+  end
+
+  TripSyncQueue->TripIngestionHttpApi: completeRawIngestion(ingestionId, totalParts)
+  TripIngestionHttpApi->DjangoIngestionApi: POST /api/ingestion/trips/{id}/complete-raw
+  DjangoIngestionApi->Postgres: verifica core_status=COMPLETED
+  DjangoIngestionApi->Postgres: verifica tutte le parti Raw confermate
+  DjangoIngestionApi->Postgres: raw_status=RECEIVED
+  DjangoIngestionApi-->TripIngestionHttpApi: 202 raw_status=RECEIVED
+  TripIngestionHttpApi-->TripSyncQueue: raw ricevuto
+  TripSyncQueue->SQLite: updateSyncJob(raw_status=COMPLETED)
+  TripSyncQueue->FileSystem: delete temp package directory
+  HomePage-->Utente: UI mostra viaggio sincronizzato
+end
+
+note over DjangoIngestionApi,HarWorkerFuture: Futuro HAR: raw_status RECEIVED -> QUEUED -> PROCESSING -> COMPLETED, poi cleanup raw.
 ```
 
 ---

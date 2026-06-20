@@ -42,9 +42,26 @@ class TripPackage {
   });
 
   /// Conteggio parti per kind, da dichiarare al backend in `create`.
-  Map<String, int> get expectedParts {
+  Map<String, int> get expectedCoreParts => _expectedParts(coreParts);
+
+  Map<String, int> get expectedRawParts => _expectedParts(rawParts);
+
+  List<TripPackagePart> get coreParts {
+    return parts
+        .where((part) =>
+            part.kind == 'gps_points' || part.kind == 'state_transitions')
+        .toList(growable: false);
+  }
+
+  List<TripPackagePart> get rawParts {
+    return parts
+        .where((part) => part.kind == 'sensor_windows')
+        .toList(growable: false);
+  }
+
+  Map<String, int> _expectedParts(List<TripPackagePart> sourceParts) {
     final counts = <String, int>{};
-    for (final part in parts) {
+    for (final part in sourceParts) {
       counts[part.kind] = (counts[part.kind] ?? 0) + 1;
     }
     return counts;

@@ -99,3 +99,11 @@ class DiaryOut(Schema):
     processed: bool
     segments: list[SegmentOut]
     places: list[PlaceOut]
+
+
+class TrackOut(Schema):
+    trip_id: int
+    point_count: int
+    distance_meters: float
+    geojson: dict[str, Any] | None
+    bbox: list[float] | None = None

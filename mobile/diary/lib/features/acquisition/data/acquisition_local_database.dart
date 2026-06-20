@@ -61,7 +61,10 @@ class SyncJobs extends Table {
   TextColumn get localSessionId =>
       text().references(AcquisitionSessions, #id)();
   IntColumn get remoteIngestionId => integer().nullable()();
-  TextColumn get status => text().withDefault(const Constant(syncJobPending))();
+  TextColumn get coreStatus =>
+      text().withDefault(const Constant(syncJobPending))();
+  TextColumn get rawStatus =>
+      text().withDefault(const Constant(syncJobPending))();
   IntColumn get attempts => integer().withDefault(const Constant(0))();
   DateTimeColumn get nextRetryAt => dateTime().nullable()();
   TextColumn get lastError => text().nullable()();
@@ -107,13 +110,19 @@ class AcquisitionLocalDatabase extends _$AcquisitionLocalDatabase {
       : super(executor ?? _openConnection());
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
         onUpgrade: (m, from, to) async {
           if (from < 2) {
             await m.createTable(syncJobs);
+          } else if (from < 3) {
+            await m.addColumn(syncJobs, syncJobs.coreStatus);
+            await m.addColumn(syncJobs, syncJobs.rawStatus);
+            await customStatement(
+              "UPDATE sync_jobs SET core_status = status, raw_status = '$syncJobPending'",
+            );
           }
         },
       );
@@ -365,7 +374,9 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
     final nowUtc = _asUtc(now);
     return (select(syncJobs)
           ..where((j) =>
-              j.status.isIn(syncJobActiveStatuses) &
+              (j.coreStatus.isIn(syncJobActiveStatuses) |
+                  (j.coreStatus.equals(syncJobCompleted) &
+                      j.rawStatus.isIn(syncJobActiveStatuses))) &
               (j.nextRetryAt.isNull() |
                   j.nextRetryAt.isSmallerOrEqualValue(nowUtc)))
           ..orderBy([(j) => OrderingTerm.asc(j.createdAt)]))
@@ -397,7 +408,8 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
 
   Future<void> updateSyncJob(
     int id, {
-    String? status,
+    String? coreStatus,
+    String? rawStatus,
     int? attempts,
     Value<int?> remoteIngestionId = const Value.absent(),
     Value<DateTime?> nextRetryAt = const Value.absent(),
@@ -405,7 +417,9 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
   }) async {
     await (update(syncJobs)..where((j) => j.id.equals(id))).write(
       SyncJobsCompanion(
-        status: status == null ? const Value.absent() : Value(status),
+        coreStatus:
+            coreStatus == null ? const Value.absent() : Value(coreStatus),
+        rawStatus: rawStatus == null ? const Value.absent() : Value(rawStatus),
         attempts: attempts == null ? const Value.absent() : Value(attempts),
         remoteIngestionId: remoteIngestionId,
         nextRetryAt: nextRetryAt.present

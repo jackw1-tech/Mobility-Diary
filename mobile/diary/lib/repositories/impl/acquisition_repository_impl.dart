@@ -226,7 +226,8 @@ class AcquisitionRepositoryImpl implements AcquisitionRepository {
 
     final shouldPoll =
         snapshot.status == AcquisitionSyncStatus.waitingProcessing ||
-            snapshot.status == AcquisitionSyncStatus.failedRetryable;
+            snapshot.status == AcquisitionSyncStatus.failedRetryable ||
+            snapshot.rawStatus == AcquisitionSyncStatus.failedRetryable;
     final nextRetryAt = snapshot.nextRetryAt;
     if (!shouldPoll || nextRetryAt == null) {
       return;
@@ -246,7 +247,8 @@ class AcquisitionRepositoryImpl implements AcquisitionRepository {
     }
 
     return AcquisitionSyncSnapshot(
-      status: _syncStatusFromWire(job.status),
+      status: _syncStatusFromWire(job.coreStatus),
+      rawStatus: _syncStatusFromWire(job.rawStatus),
       localSessionId: job.localSessionId,
       remoteIngestionId: job.remoteIngestionId,
       attempts: job.attempts,

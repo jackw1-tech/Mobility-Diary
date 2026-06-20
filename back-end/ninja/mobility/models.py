@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.contrib.gis.db import models
+from django.contrib.postgres.indexes import GistIndex
 
 
 class ActivityLabel(models.TextChoices):
@@ -29,10 +30,23 @@ class Trip(models.Model):
     )
     device_id = models.CharField(max_length=128)
     status = models.CharField(max_length=32, choices=Status.choices, default=Status.OPEN)
+    path = models.LineStringField(
+        geography=True,
+        srid=4326,
+        null=True,
+        blank=True,
+        spatial_index=False,
+    )
+    distance_meters = models.FloatField(null=True, blank=True)
     started_at = models.DateTimeField(auto_now_add=True)
     ended_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            GistIndex(fields=["path"]),
+        ]
 
     def __str__(self) -> str:
         return f"Trip {self.id} ({self.status})"
@@ -197,15 +211,12 @@ class TripIngestion(models.Model):
     contiene solo viaggi puliti (REPORT_STRATEGIA_INGESTION_ASINCRONA.md D6).
     """
 
-    class Status(models.TextChoices):
-        CREATED = "CREATED", "Created"
+    class PhaseStatus(models.TextChoices):
+        PENDING = "PENDING", "Pending"
         RECEIVING = "RECEIVING", "Receiving"
-        READY_TO_PROCESS = "READY_TO_PROCESS", "Ready to process"
+        RECEIVED = "RECEIVED", "Received"
         QUEUED = "QUEUED", "Queued"
         PROCESSING = "PROCESSING", "Processing"
-        # Stato terminale ATTUALE: Trip materializzato (GPS+transizioni), in attesa di HAR.
-        PROCESSED = "PROCESSED", "Processed"
-        # Futuro: solo quando HAR sara' operativo (D9 congelato).
         COMPLETED = "COMPLETED", "Completed"
         FAILED_RETRYABLE = "FAILED_RETRYABLE", "Failed (retryable)"
         FAILED_FINAL = "FAILED_FINAL", "Failed (final)"
@@ -219,11 +230,20 @@ class TripIngestion(models.Model):
     client_session_id = models.CharField(max_length=64)
     device_id = models.CharField(max_length=128, blank=True)
     schema_version = models.PositiveIntegerField(default=1)
-    status = models.CharField(
-        max_length=32, choices=Status.choices, default=Status.CREATED
+    core_status = models.CharField(
+        max_length=32,
+        choices=PhaseStatus.choices,
+        default=PhaseStatus.PENDING,
     )
-    # {"gps_points": 1, "state_transitions": 1, "sensor_windows": 6}
-    expected_parts = models.JSONField(default=dict)
+    raw_status = models.CharField(
+        max_length=32,
+        choices=PhaseStatus.choices,
+        default=PhaseStatus.PENDING,
+    )
+    # {"gps_points": 1, "state_transitions": 1}
+    expected_core_parts = models.JSONField(default=dict)
+    # {"sensor_windows": 6}
+    expected_raw_parts = models.JSONField(default=dict)
     # Prefisso degli oggetti raw nello storage, es. "ingestions/<id>/".
     raw_base_path = models.CharField(max_length=512, blank=True)
     manifest_sha256 = models.CharField(max_length=64, blank=True)
@@ -255,7 +275,8 @@ class TripIngestion(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=["user", "status"]),
+            models.Index(fields=["user", "core_status"]),
+            models.Index(fields=["user", "raw_status"]),
         ]
         constraints = [
             models.UniqueConstraint(
@@ -265,7 +286,10 @@ class TripIngestion(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"TripIngestion {self.id} ({self.status})"
+        return (
+            f"TripIngestion {self.id} "
+            f"(core={self.core_status}, raw={self.raw_status})"
+        )
 
 
 class TripIngestionPart(models.Model):
