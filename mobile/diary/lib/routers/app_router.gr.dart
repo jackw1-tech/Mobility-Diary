@@ -76,3 +76,54 @@ class HomeRoute extends PageRouteInfo<void> {
     },
   );
 }
+
+/// generated route for
+/// [TripMapPage]
+class TripMapRoute extends PageRouteInfo<TripMapRouteArgs> {
+  TripMapRoute({
+    required int tripId,
+    Key? key,
+    List<PageRouteInfo>? children,
+  }) : super(
+          TripMapRoute.name,
+          args: TripMapRouteArgs(tripId: tripId, key: key),
+          rawPathParams: {'id': tripId},
+          initialChildren: children,
+        );
+
+  static const String name = 'TripMapRoute';
+
+  static PageInfo page = PageInfo(
+    name,
+    builder: (data) {
+      final pathParams = data.inheritedPathParams;
+      final args = data.argsAs<TripMapRouteArgs>(
+        orElse: () => TripMapRouteArgs(tripId: pathParams.getInt('id')),
+      );
+      return TripMapPage(tripId: args.tripId, key: args.key);
+    },
+  );
+}
+
+class TripMapRouteArgs {
+  const TripMapRouteArgs({required this.tripId, this.key});
+
+  final int tripId;
+
+  final Key? key;
+
+  @override
+  String toString() {
+    return 'TripMapRouteArgs{tripId: $tripId, key: $key}';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! TripMapRouteArgs) return false;
+    return tripId == other.tripId && key == other.key;
+  }
+
+  @override
+  int get hashCode => tripId.hashCode ^ key.hashCode;
+}

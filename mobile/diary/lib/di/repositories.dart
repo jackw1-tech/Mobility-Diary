@@ -25,4 +25,12 @@ List<RepositoryProvider> buildRepositories({
         },
         dispose: (repository) => repository.dispose(),
       ),
+      RepositoryProvider<TripTrackService>(
+        create: (context) {
+          final auth = context.read<AuthRepository>();
+          return TripTrackHttpService(
+            tokenProvider: () async => auth.accessToken,
+          );
+        },
+      ),
     ];
