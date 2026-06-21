@@ -251,6 +251,7 @@ class AcquisitionRepositoryImpl implements AcquisitionRepository {
       rawStatus: _syncStatusFromWire(job.rawStatus),
       localSessionId: job.localSessionId,
       remoteIngestionId: job.remoteIngestionId,
+      remoteTripId: job.remoteTripId,
       attempts: job.attempts,
       nextRetryAt: job.nextRetryAt,
       lastError: job.lastError,

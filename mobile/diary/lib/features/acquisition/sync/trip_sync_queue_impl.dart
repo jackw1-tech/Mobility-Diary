@@ -155,7 +155,14 @@ class TripSyncQueueImpl implements TripSyncQueue {
       }
 
       if (status.isCoreCompleted) {
-        await _dao.updateSyncJob(job.id, coreStatus: syncJobCompleted);
+        // Persisto il trip_id materializzato dal backend: serve alla UI per
+        // aprire la mappa del viaggio. Non sovrascrivo se ancora assente.
+        await _dao.updateSyncJob(
+          job.id,
+          coreStatus: syncJobCompleted,
+          remoteTripId:
+              status.tripId != null ? Value(status.tripId) : const Value.absent(),
+        );
         if (package.rawParts.isEmpty || status.isRawDone) {
           await _finalizeAllDone(job, package);
           return;

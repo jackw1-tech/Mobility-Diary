@@ -80,11 +80,8 @@ class HomeRoute extends PageRouteInfo<void> {
 /// generated route for
 /// [TripMapPage]
 class TripMapRoute extends PageRouteInfo<TripMapRouteArgs> {
-  TripMapRoute({
-    required int tripId,
-    Key? key,
-    List<PageRouteInfo>? children,
-  }) : super(
+  TripMapRoute({required int tripId, Key? key, List<PageRouteInfo>? children})
+      : super(
           TripMapRoute.name,
           args: TripMapRouteArgs(tripId: tripId, key: key),
           rawPathParams: {'id': tripId},

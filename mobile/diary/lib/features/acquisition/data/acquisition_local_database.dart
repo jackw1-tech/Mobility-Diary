@@ -61,6 +61,8 @@ class SyncJobs extends Table {
   TextColumn get localSessionId =>
       text().references(AcquisitionSessions, #id)();
   IntColumn get remoteIngestionId => integer().nullable()();
+  // Trip di dominio materializzato dal backend (null finche' non PROCESSED).
+  IntColumn get remoteTripId => integer().nullable()();
   TextColumn get coreStatus =>
       text().withDefault(const Constant(syncJobPending))();
   TextColumn get rawStatus =>
@@ -110,19 +112,26 @@ class AcquisitionLocalDatabase extends _$AcquisitionLocalDatabase {
       : super(executor ?? _openConnection());
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
         onUpgrade: (m, from, to) async {
           if (from < 2) {
+            // Tabella creata da zero con lo schema corrente (gia' completo).
             await m.createTable(syncJobs);
-          } else if (from < 3) {
-            await m.addColumn(syncJobs, syncJobs.coreStatus);
-            await m.addColumn(syncJobs, syncJobs.rawStatus);
-            await customStatement(
-              "UPDATE sync_jobs SET core_status = status, raw_status = '$syncJobPending'",
-            );
+          } else {
+            // Tabella preesistente: aggiungo le colonne mancanti in modo incrementale.
+            if (from < 3) {
+              await m.addColumn(syncJobs, syncJobs.coreStatus);
+              await m.addColumn(syncJobs, syncJobs.rawStatus);
+              await customStatement(
+                "UPDATE sync_jobs SET core_status = status, raw_status = '$syncJobPending'",
+              );
+            }
+            if (from < 4) {
+              await m.addColumn(syncJobs, syncJobs.remoteTripId);
+            }
           }
         },
       );
@@ -412,6 +421,7 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
     String? rawStatus,
     int? attempts,
     Value<int?> remoteIngestionId = const Value.absent(),
+    Value<int?> remoteTripId = const Value.absent(),
     Value<DateTime?> nextRetryAt = const Value.absent(),
     Value<String?> lastError = const Value.absent(),
   }) async {
@@ -422,6 +432,7 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
         rawStatus: rawStatus == null ? const Value.absent() : Value(rawStatus),
         attempts: attempts == null ? const Value.absent() : Value(attempts),
         remoteIngestionId: remoteIngestionId,
+        remoteTripId: remoteTripId,
         nextRetryAt: nextRetryAt.present
             ? Value(
                 nextRetryAt.value == null ? null : _asUtc(nextRetryAt.value!))

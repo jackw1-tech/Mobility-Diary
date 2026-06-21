@@ -33,4 +33,12 @@ List<RepositoryProvider> buildRepositories({
           );
         },
       ),
+      RepositoryProvider<TripsService>(
+        create: (context) {
+          final auth = context.read<AuthRepository>();
+          return TripsHttpService(
+            tokenProvider: () async => auth.accessToken,
+          );
+        },
+      ),
     ];

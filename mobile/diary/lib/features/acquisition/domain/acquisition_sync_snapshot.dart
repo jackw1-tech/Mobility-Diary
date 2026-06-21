@@ -14,6 +14,7 @@ class AcquisitionSyncSnapshot {
   final AcquisitionSyncStatus rawStatus;
   final String? localSessionId;
   final int? remoteIngestionId;
+  final int? remoteTripId;
   final int attempts;
   final DateTime? nextRetryAt;
   final String? lastError;
@@ -24,6 +25,7 @@ class AcquisitionSyncSnapshot {
     this.rawStatus = AcquisitionSyncStatus.none,
     this.localSessionId,
     this.remoteIngestionId,
+    this.remoteTripId,
     this.attempts = 0,
     this.nextRetryAt,
     this.lastError,
@@ -35,12 +37,17 @@ class AcquisitionSyncSnapshot {
         rawStatus = AcquisitionSyncStatus.none,
         localSessionId = null,
         remoteIngestionId = null,
+        remoteTripId = null,
         attempts = 0,
         nextRetryAt = null,
         lastError = null,
         updatedAt = null;
 
   bool get hasJob => status != AcquisitionSyncStatus.none;
+
+  bool get isCoreCompleted => status == AcquisitionSyncStatus.completed;
+
+  bool get canOpenCoreMap => isCoreCompleted && remoteTripId != null;
 
   bool get isWorking {
     return status == AcquisitionSyncStatus.packaging ||

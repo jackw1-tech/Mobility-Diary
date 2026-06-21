@@ -2,7 +2,7 @@ import json
 
 from django.contrib.gis.db.models.functions import AsGeoJSON, Length
 from django.contrib.gis.geos import Point
-from django.db.models import Count
+from django.db.models import BooleanField, Case, Count, Value, When
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from ninja import Router
@@ -23,6 +23,7 @@ from .schemas import (
     StoredOut,
     TrackOut,
     TripCreateIn,
+    TripListItemOut,
     TripOut,
 )
 from .tasks import process_trip_har
@@ -155,6 +156,27 @@ def get_trip_diary(request, trip_id: int):
         processed=trip.status == Trip.Status.PROCESSED,
         segments=segments,
         places=list(place_by_id.values()),
+    )
+
+
+@router.get("/trips", response=list[TripListItemOut], auth=mobile_bearer_auth)
+def list_trips(request):
+    """Elenco dei viaggi dell'utente, dal piu' recente.
+
+    `has_track` e' calcolato a DB (path non null) senza caricare la geometria,
+    cosi' la UI sa se il pulsante "Vedi su mappa" puo' mostrare qualcosa.
+    """
+    return list(
+        Trip.objects.filter(user_id=request.auth.user_id)
+        .annotate(
+            has_track=Case(
+                When(path__isnull=False, then=Value(True)),
+                default=Value(False),
+                output_field=BooleanField(),
+            )
+        )
+        .order_by("-started_at")
+        .values("id", "started_at", "ended_at", "status", "distance_meters", "has_track")
     )
 
 

@@ -4,9 +4,11 @@ import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubi
 import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubit_state.dart';
 import 'package:diary/state_management/cubits/auth_cubit/auth_cubit.dart';
 import 'package:diary/state_management/cubits/auth_cubit/auth_cubit_state.dart';
+import 'package:diary/routers/app_router.dart';
 import 'package:diary/theme/Dimensions.dart';
 import 'package:diary/theme/color_palette.dart';
 import 'package:diary/ui/pages/auth_page.dart';
+import 'package:diary/ui/widgets/trips_drawer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -43,6 +45,7 @@ class _AuthenticatedHomePage extends StatelessWidget {
     return BlocBuilder<AcquisitionCubit, AcquisitionCubitState>(
       builder: (context, state) {
         return Scaffold(
+          drawer: const TripsDrawer(),
           appBar: AppBar(
             title: Text(userLabel == null ? 'Mobile Edge' : userLabel!),
             backgroundColor: ColorPalette.primary,
@@ -267,6 +270,14 @@ class _SyncStatusPanel extends StatelessWidget {
               onPressed: () => context.read<AcquisitionCubit>().resumeSync(),
               icon: const Icon(Icons.refresh),
               label: const Text('Riprova'),
+            ),
+          if (sync.canOpenCoreMap)
+            TextButton.icon(
+              onPressed: () => context.router.push(
+                TripMapRoute(tripId: sync.remoteTripId!),
+              ),
+              icon: const Icon(Icons.map),
+              label: const Text('Vedi su mappa'),
             ),
         ],
       ),

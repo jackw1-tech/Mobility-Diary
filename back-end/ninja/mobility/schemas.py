@@ -107,3 +107,13 @@ class TrackOut(Schema):
     distance_meters: float
     geojson: dict[str, Any] | None
     bbox: list[float] | None = None
+
+
+class TripListItemOut(Schema):
+    id: int
+    started_at: datetime
+    ended_at: datetime | None
+    status: str
+    distance_meters: float | None
+    # True se esiste una traiettoria disegnabile (path con >= 2 punti).
+    has_track: bool

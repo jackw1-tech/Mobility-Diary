@@ -1671,6 +1671,12 @@ class $SyncJobsTable extends SyncJobs with TableInfo<$SyncJobsTable, SyncJob> {
   late final GeneratedColumn<int> remoteIngestionId = GeneratedColumn<int>(
       'remote_ingestion_id', aliasedName, true,
       type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _remoteTripIdMeta =
+      const VerificationMeta('remoteTripId');
+  @override
+  late final GeneratedColumn<int> remoteTripId = GeneratedColumn<int>(
+      'remote_trip_id', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
   static const VerificationMeta _coreStatusMeta =
       const VerificationMeta('coreStatus');
   @override
@@ -1724,6 +1730,7 @@ class $SyncJobsTable extends SyncJobs with TableInfo<$SyncJobsTable, SyncJob> {
         id,
         localSessionId,
         remoteIngestionId,
+        remoteTripId,
         coreStatus,
         rawStatus,
         attempts,
@@ -1758,6 +1765,12 @@ class $SyncJobsTable extends SyncJobs with TableInfo<$SyncJobsTable, SyncJob> {
           _remoteIngestionIdMeta,
           remoteIngestionId.isAcceptableOrUnknown(
               data['remote_ingestion_id']!, _remoteIngestionIdMeta));
+    }
+    if (data.containsKey('remote_trip_id')) {
+      context.handle(
+          _remoteTripIdMeta,
+          remoteTripId.isAcceptableOrUnknown(
+              data['remote_trip_id']!, _remoteTripIdMeta));
     }
     if (data.containsKey('core_status')) {
       context.handle(
@@ -1814,6 +1827,8 @@ class $SyncJobsTable extends SyncJobs with TableInfo<$SyncJobsTable, SyncJob> {
           DriftSqlType.string, data['${effectivePrefix}local_session_id'])!,
       remoteIngestionId: attachedDatabase.typeMapping.read(
           DriftSqlType.int, data['${effectivePrefix}remote_ingestion_id']),
+      remoteTripId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}remote_trip_id']),
       coreStatus: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}core_status'])!,
       rawStatus: attachedDatabase.typeMapping
@@ -1841,6 +1856,7 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
   final int id;
   final String localSessionId;
   final int? remoteIngestionId;
+  final int? remoteTripId;
   final String coreStatus;
   final String rawStatus;
   final int attempts;
@@ -1852,6 +1868,7 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
       {required this.id,
       required this.localSessionId,
       this.remoteIngestionId,
+      this.remoteTripId,
       required this.coreStatus,
       required this.rawStatus,
       required this.attempts,
@@ -1866,6 +1883,9 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
     map['local_session_id'] = Variable<String>(localSessionId);
     if (!nullToAbsent || remoteIngestionId != null) {
       map['remote_ingestion_id'] = Variable<int>(remoteIngestionId);
+    }
+    if (!nullToAbsent || remoteTripId != null) {
+      map['remote_trip_id'] = Variable<int>(remoteTripId);
     }
     map['core_status'] = Variable<String>(coreStatus);
     map['raw_status'] = Variable<String>(rawStatus);
@@ -1888,6 +1908,9 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
       remoteIngestionId: remoteIngestionId == null && nullToAbsent
           ? const Value.absent()
           : Value(remoteIngestionId),
+      remoteTripId: remoteTripId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(remoteTripId),
       coreStatus: Value(coreStatus),
       rawStatus: Value(rawStatus),
       attempts: Value(attempts),
@@ -1909,6 +1932,7 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
       id: serializer.fromJson<int>(json['id']),
       localSessionId: serializer.fromJson<String>(json['localSessionId']),
       remoteIngestionId: serializer.fromJson<int?>(json['remoteIngestionId']),
+      remoteTripId: serializer.fromJson<int?>(json['remoteTripId']),
       coreStatus: serializer.fromJson<String>(json['coreStatus']),
       rawStatus: serializer.fromJson<String>(json['rawStatus']),
       attempts: serializer.fromJson<int>(json['attempts']),
@@ -1925,6 +1949,7 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
       'id': serializer.toJson<int>(id),
       'localSessionId': serializer.toJson<String>(localSessionId),
       'remoteIngestionId': serializer.toJson<int?>(remoteIngestionId),
+      'remoteTripId': serializer.toJson<int?>(remoteTripId),
       'coreStatus': serializer.toJson<String>(coreStatus),
       'rawStatus': serializer.toJson<String>(rawStatus),
       'attempts': serializer.toJson<int>(attempts),
@@ -1939,6 +1964,7 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
           {int? id,
           String? localSessionId,
           Value<int?> remoteIngestionId = const Value.absent(),
+          Value<int?> remoteTripId = const Value.absent(),
           String? coreStatus,
           String? rawStatus,
           int? attempts,
@@ -1952,6 +1978,8 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
         remoteIngestionId: remoteIngestionId.present
             ? remoteIngestionId.value
             : this.remoteIngestionId,
+        remoteTripId:
+            remoteTripId.present ? remoteTripId.value : this.remoteTripId,
         coreStatus: coreStatus ?? this.coreStatus,
         rawStatus: rawStatus ?? this.rawStatus,
         attempts: attempts ?? this.attempts,
@@ -1969,6 +1997,9 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
       remoteIngestionId: data.remoteIngestionId.present
           ? data.remoteIngestionId.value
           : this.remoteIngestionId,
+      remoteTripId: data.remoteTripId.present
+          ? data.remoteTripId.value
+          : this.remoteTripId,
       coreStatus:
           data.coreStatus.present ? data.coreStatus.value : this.coreStatus,
       rawStatus: data.rawStatus.present ? data.rawStatus.value : this.rawStatus,
@@ -1987,6 +2018,7 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
           ..write('id: $id, ')
           ..write('localSessionId: $localSessionId, ')
           ..write('remoteIngestionId: $remoteIngestionId, ')
+          ..write('remoteTripId: $remoteTripId, ')
           ..write('coreStatus: $coreStatus, ')
           ..write('rawStatus: $rawStatus, ')
           ..write('attempts: $attempts, ')
@@ -2003,6 +2035,7 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
       id,
       localSessionId,
       remoteIngestionId,
+      remoteTripId,
       coreStatus,
       rawStatus,
       attempts,
@@ -2017,6 +2050,7 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
           other.id == this.id &&
           other.localSessionId == this.localSessionId &&
           other.remoteIngestionId == this.remoteIngestionId &&
+          other.remoteTripId == this.remoteTripId &&
           other.coreStatus == this.coreStatus &&
           other.rawStatus == this.rawStatus &&
           other.attempts == this.attempts &&
@@ -2030,6 +2064,7 @@ class SyncJobsCompanion extends UpdateCompanion<SyncJob> {
   final Value<int> id;
   final Value<String> localSessionId;
   final Value<int?> remoteIngestionId;
+  final Value<int?> remoteTripId;
   final Value<String> coreStatus;
   final Value<String> rawStatus;
   final Value<int> attempts;
@@ -2041,6 +2076,7 @@ class SyncJobsCompanion extends UpdateCompanion<SyncJob> {
     this.id = const Value.absent(),
     this.localSessionId = const Value.absent(),
     this.remoteIngestionId = const Value.absent(),
+    this.remoteTripId = const Value.absent(),
     this.coreStatus = const Value.absent(),
     this.rawStatus = const Value.absent(),
     this.attempts = const Value.absent(),
@@ -2053,6 +2089,7 @@ class SyncJobsCompanion extends UpdateCompanion<SyncJob> {
     this.id = const Value.absent(),
     required String localSessionId,
     this.remoteIngestionId = const Value.absent(),
+    this.remoteTripId = const Value.absent(),
     this.coreStatus = const Value.absent(),
     this.rawStatus = const Value.absent(),
     this.attempts = const Value.absent(),
@@ -2067,6 +2104,7 @@ class SyncJobsCompanion extends UpdateCompanion<SyncJob> {
     Expression<int>? id,
     Expression<String>? localSessionId,
     Expression<int>? remoteIngestionId,
+    Expression<int>? remoteTripId,
     Expression<String>? coreStatus,
     Expression<String>? rawStatus,
     Expression<int>? attempts,
@@ -2079,6 +2117,7 @@ class SyncJobsCompanion extends UpdateCompanion<SyncJob> {
       if (id != null) 'id': id,
       if (localSessionId != null) 'local_session_id': localSessionId,
       if (remoteIngestionId != null) 'remote_ingestion_id': remoteIngestionId,
+      if (remoteTripId != null) 'remote_trip_id': remoteTripId,
       if (coreStatus != null) 'core_status': coreStatus,
       if (rawStatus != null) 'raw_status': rawStatus,
       if (attempts != null) 'attempts': attempts,
@@ -2093,6 +2132,7 @@ class SyncJobsCompanion extends UpdateCompanion<SyncJob> {
       {Value<int>? id,
       Value<String>? localSessionId,
       Value<int?>? remoteIngestionId,
+      Value<int?>? remoteTripId,
       Value<String>? coreStatus,
       Value<String>? rawStatus,
       Value<int>? attempts,
@@ -2104,6 +2144,7 @@ class SyncJobsCompanion extends UpdateCompanion<SyncJob> {
       id: id ?? this.id,
       localSessionId: localSessionId ?? this.localSessionId,
       remoteIngestionId: remoteIngestionId ?? this.remoteIngestionId,
+      remoteTripId: remoteTripId ?? this.remoteTripId,
       coreStatus: coreStatus ?? this.coreStatus,
       rawStatus: rawStatus ?? this.rawStatus,
       attempts: attempts ?? this.attempts,
@@ -2125,6 +2166,9 @@ class SyncJobsCompanion extends UpdateCompanion<SyncJob> {
     }
     if (remoteIngestionId.present) {
       map['remote_ingestion_id'] = Variable<int>(remoteIngestionId.value);
+    }
+    if (remoteTripId.present) {
+      map['remote_trip_id'] = Variable<int>(remoteTripId.value);
     }
     if (coreStatus.present) {
       map['core_status'] = Variable<String>(coreStatus.value);
@@ -2156,6 +2200,7 @@ class SyncJobsCompanion extends UpdateCompanion<SyncJob> {
           ..write('id: $id, ')
           ..write('localSessionId: $localSessionId, ')
           ..write('remoteIngestionId: $remoteIngestionId, ')
+          ..write('remoteTripId: $remoteTripId, ')
           ..write('coreStatus: $coreStatus, ')
           ..write('rawStatus: $rawStatus, ')
           ..write('attempts: $attempts, ')
@@ -3666,6 +3711,7 @@ typedef $$SyncJobsTableCreateCompanionBuilder = SyncJobsCompanion Function({
   Value<int> id,
   required String localSessionId,
   Value<int?> remoteIngestionId,
+  Value<int?> remoteTripId,
   Value<String> coreStatus,
   Value<String> rawStatus,
   Value<int> attempts,
@@ -3678,6 +3724,7 @@ typedef $$SyncJobsTableUpdateCompanionBuilder = SyncJobsCompanion Function({
   Value<int> id,
   Value<String> localSessionId,
   Value<int?> remoteIngestionId,
+  Value<int?> remoteTripId,
   Value<String> coreStatus,
   Value<String> rawStatus,
   Value<int> attempts,
@@ -3724,6 +3771,9 @@ class $$SyncJobsTableFilterComposer
   ColumnFilters<int> get remoteIngestionId => $composableBuilder(
       column: $table.remoteIngestionId,
       builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get remoteTripId => $composableBuilder(
+      column: $table.remoteTripId, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<String> get coreStatus => $composableBuilder(
       column: $table.coreStatus, builder: (column) => ColumnFilters(column));
@@ -3783,6 +3833,10 @@ class $$SyncJobsTableOrderingComposer
       column: $table.remoteIngestionId,
       builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<int> get remoteTripId => $composableBuilder(
+      column: $table.remoteTripId,
+      builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<String> get coreStatus => $composableBuilder(
       column: $table.coreStatus, builder: (column) => ColumnOrderings(column));
 
@@ -3840,6 +3894,9 @@ class $$SyncJobsTableAnnotationComposer
 
   GeneratedColumn<int> get remoteIngestionId => $composableBuilder(
       column: $table.remoteIngestionId, builder: (column) => column);
+
+  GeneratedColumn<int> get remoteTripId => $composableBuilder(
+      column: $table.remoteTripId, builder: (column) => column);
 
   GeneratedColumn<String> get coreStatus => $composableBuilder(
       column: $table.coreStatus, builder: (column) => column);
@@ -3911,6 +3968,7 @@ class $$SyncJobsTableTableManager extends RootTableManager<
             Value<int> id = const Value.absent(),
             Value<String> localSessionId = const Value.absent(),
             Value<int?> remoteIngestionId = const Value.absent(),
+            Value<int?> remoteTripId = const Value.absent(),
             Value<String> coreStatus = const Value.absent(),
             Value<String> rawStatus = const Value.absent(),
             Value<int> attempts = const Value.absent(),
@@ -3923,6 +3981,7 @@ class $$SyncJobsTableTableManager extends RootTableManager<
             id: id,
             localSessionId: localSessionId,
             remoteIngestionId: remoteIngestionId,
+            remoteTripId: remoteTripId,
             coreStatus: coreStatus,
             rawStatus: rawStatus,
             attempts: attempts,
@@ -3935,6 +3994,7 @@ class $$SyncJobsTableTableManager extends RootTableManager<
             Value<int> id = const Value.absent(),
             required String localSessionId,
             Value<int?> remoteIngestionId = const Value.absent(),
+            Value<int?> remoteTripId = const Value.absent(),
             Value<String> coreStatus = const Value.absent(),
             Value<String> rawStatus = const Value.absent(),
             Value<int> attempts = const Value.absent(),
@@ -3947,6 +4007,7 @@ class $$SyncJobsTableTableManager extends RootTableManager<
             id: id,
             localSessionId: localSessionId,
             remoteIngestionId: remoteIngestionId,
+            remoteTripId: remoteTripId,
             coreStatus: coreStatus,
             rawStatus: rawStatus,
             attempts: attempts,

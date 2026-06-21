@@ -1,5 +1,4 @@
 import 'package:auto_route/auto_route.dart';
-import 'package:diary/routers/app_router.dart';
 import 'package:flutter/material.dart';
 import 'package:diary/theme/color_palette.dart';
 import 'package:diary/theme/Dimensions.dart';
@@ -13,8 +12,6 @@ class ExampleDetailPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tripId = int.tryParse(id);
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Detail Page'),
@@ -94,18 +91,6 @@ class ExampleDetailPage extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 24),
-            if (tripId != null) ...[
-              Center(
-                child: FilledButton.icon(
-                  onPressed: () => context.router.push(
-                    TripMapRoute(tripId: tripId),
-                  ),
-                  icon: const Icon(Icons.map),
-                  label: const Text('Apri mappa'),
-                ),
-              ),
-              const SizedBox(height: 24),
-            ],
             Center(
               child: ElevatedButton.icon(
                 onPressed: () => context.router.pop(),

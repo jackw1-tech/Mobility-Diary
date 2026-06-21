@@ -4,6 +4,7 @@ import 'package:diary/state_management/cubits/trip_track_cubit/trip_track_cubit.
 import 'package:diary/state_management/cubits/trip_track_cubit/trip_track_cubit_state.dart';
 import 'package:diary/theme/color_palette.dart';
 import 'package:diary/theme/dimensions.dart';
+import 'package:diary/ui/widgets/basemap_config.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -122,7 +123,8 @@ class _TrackMapState extends State<_TrackMap> {
           ),
           children: [
             TileLayer(
-              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+              urlTemplate: BasemapConfig.urlTemplate,
+              subdomains: BasemapConfig.subdomains,
               userAgentPackageName: 'diary',
             ),
             PolylineLayer(

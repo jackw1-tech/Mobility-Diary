@@ -28,3 +28,9 @@ _Avoid_: Journey creation, sync completion
 **Viaggio Sincronizzato**:
 A Viaggio whose Core Ingestion has completed and can appear in the diary, regardless of whether raw sensor evidence has finished uploading.
 _Avoid_: Fully uploaded journey, HAR-complete journey
+
+**Traiettoria del Viaggio**:
+The map-ready route shape for a Viaggio, available only when Core Ingestion
+contains enough valid GPS evidence. A Viaggio can be synchronized without having
+an available trajectory.
+_Avoid_: Raw track, HAR route, sync completion
