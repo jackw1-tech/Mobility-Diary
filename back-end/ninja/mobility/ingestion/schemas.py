@@ -26,6 +26,50 @@ class IngestionCreateOut(Schema):
     already_exists: bool
 
 
+class InlineGpsPointIn(Schema):
+    timestamp: datetime
+    latitude: float
+    longitude: float
+    speed_mps: float = 0
+    accuracy_meters: float | None = None
+
+
+class InlineStateTransitionIn(Schema):
+    timestamp: datetime
+    from_state: str
+    to_state: str
+    reason: str = ""
+    sigma: float | None = None
+    speed_mps: float | None = None
+
+
+class InlineCoreIn(Schema):
+    client_session_id: str
+    core_payload_sha256: str
+    schema_version: int = 1
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+    timezone: str = ""
+    device_id: str = ""
+    app_version: str = ""
+    device_platform: str = ""
+    gps_points: list[InlineGpsPointIn] = Field(default_factory=list)
+    state_transitions: list[InlineStateTransitionIn] = Field(default_factory=list)
+    expected_raw_parts: dict[str, int] = Field(default_factory=dict)
+
+
+class InlineCoreOut(Schema):
+    ingestion_id: int
+    trip_id: int | None
+    core_status: str
+    raw_status: str
+    gps_points: int
+    state_transitions: int
+    path_points: int
+    distance_meters: float
+    map_available: bool
+
+
 class PartPresignIn(Schema):
     kind: str
     sequence: int = 1
@@ -73,11 +117,13 @@ class IngestionStatusOut(Schema):
     ingestion_id: int
     core_status: str
     raw_status: str
+    core_ingestion_mode: str
     received_core_parts: list[PartStateOut]
     missing_core_parts: list[PartStateOut]
     received_raw_parts: list[PartStateOut]
     missing_raw_parts: list[PartStateOut]
     trip_id: int | None
+    map_available: bool
     error: str | None
     core_progress: int
     raw_progress: int

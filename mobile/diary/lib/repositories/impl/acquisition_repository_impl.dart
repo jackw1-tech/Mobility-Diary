@@ -252,6 +252,7 @@ class AcquisitionRepositoryImpl implements AcquisitionRepository {
       localSessionId: job.localSessionId,
       remoteIngestionId: job.remoteIngestionId,
       remoteTripId: job.remoteTripId,
+      coreMapAvailable: job.coreMapAvailable,
       attempts: job.attempts,
       nextRetryAt: job.nextRetryAt,
       lastError: job.lastError,

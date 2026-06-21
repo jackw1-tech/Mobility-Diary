@@ -8,6 +8,7 @@ void main() {
         status: AcquisitionSyncStatus.completed,
         rawStatus: AcquisitionSyncStatus.pending,
         remoteTripId: 42,
+        coreMapAvailable: true,
       );
 
       const waitingCore = AcquisitionSyncSnapshot(
@@ -19,11 +20,19 @@ void main() {
       const missingTrip = AcquisitionSyncSnapshot(
         status: AcquisitionSyncStatus.completed,
         rawStatus: AcquisitionSyncStatus.pending,
+        coreMapAvailable: true,
+      );
+
+      const missingMapFlag = AcquisitionSyncSnapshot(
+        status: AcquisitionSyncStatus.completed,
+        rawStatus: AcquisitionSyncStatus.pending,
+        remoteTripId: 42,
       );
 
       expect(ready.canOpenCoreMap, isTrue);
       expect(waitingCore.canOpenCoreMap, isFalse);
       expect(missingTrip.canOpenCoreMap, isFalse);
+      expect(missingMapFlag.canOpenCoreMap, isFalse);
     });
   });
 }

@@ -32,6 +32,8 @@ class IngestionStatus {
   final List<({String kind, int sequence})> missingCoreParts;
   final List<({String kind, int sequence})> missingRawParts;
   final int? tripId;
+  final String coreIngestionMode;
+  final bool mapAvailable;
 
   const IngestionStatus({
     required this.coreStatus,
@@ -39,6 +41,8 @@ class IngestionStatus {
     required this.missingCoreParts,
     required this.missingRawParts,
     this.tripId,
+    this.coreIngestionMode = 'LEGACY_PARTS',
+    this.mapAvailable = false,
   });
 
   bool get isCoreCompleted => coreStatus == 'COMPLETED';
@@ -63,9 +67,52 @@ class IngestionStatus {
       rawStatus == 'RECEIVED';
 }
 
+class InlineCoreResult {
+  final int ingestionId;
+  final int? tripId;
+  final String coreStatus;
+  final String rawStatus;
+  final int gpsPoints;
+  final int stateTransitions;
+  final int pathPoints;
+  final double distanceMeters;
+  final bool mapAvailable;
+
+  const InlineCoreResult({
+    required this.ingestionId,
+    required this.tripId,
+    required this.coreStatus,
+    required this.rawStatus,
+    required this.gpsPoints,
+    required this.stateTransitions,
+    required this.pathPoints,
+    required this.distanceMeters,
+    required this.mapAvailable,
+  });
+
+  bool get isCoreCompleted => coreStatus == 'COMPLETED';
+  bool get isCoreFailedFinal => coreStatus == 'FAILED_FINAL';
+  bool get isCoreBackendProcessing {
+    return coreStatus == 'QUEUED' ||
+        coreStatus == 'PROCESSING' ||
+        coreStatus == 'FAILED_RETRYABLE';
+  }
+
+  bool get isRawDone => rawStatus == 'RECEIVED' || rawStatus == 'COMPLETED';
+  bool get isRawFailedFinal => rawStatus == 'FAILED_FINAL';
+  bool get canReceiveRawParts =>
+      rawStatus == 'PENDING' ||
+      rawStatus == 'RECEIVING' ||
+      rawStatus == 'RECEIVED';
+}
+
 /// Client REST dell'ingestione asincrona. Astratto per poter essere mockato
 /// nei test della coda di sync.
 abstract class TripIngestionApi {
+  Future<InlineCoreResult> postCoreInline({
+    required Map<String, dynamic> body,
+  });
+
   Future<int> createIngestion({
     required String clientSessionId,
     required Map<String, int> expectedCoreParts,
@@ -117,6 +164,24 @@ class TripIngestionHttpApi implements TripIngestionApi {
         _client = client ?? HttpClient();
 
   static const String _base = '/ingestion/trips';
+
+  @override
+  Future<InlineCoreResult> postCoreInline({
+    required Map<String, dynamic> body,
+  }) async {
+    final data = await _sendJson('POST', '$_base/core', body: body);
+    return InlineCoreResult(
+      ingestionId: data['ingestion_id'] as int,
+      tripId: data['trip_id'] as int?,
+      coreStatus: data['core_status'] as String,
+      rawStatus: data['raw_status'] as String,
+      gpsPoints: data['gps_points'] as int,
+      stateTransitions: data['state_transitions'] as int,
+      pathPoints: data['path_points'] as int,
+      distanceMeters: (data['distance_meters'] as num).toDouble(),
+      mapAvailable: data['map_available'] as bool? ?? false,
+    );
+  }
 
   @override
   Future<int> createIngestion({
@@ -251,6 +316,9 @@ class TripIngestionHttpApi implements TripIngestionApi {
       missingCoreParts: parseParts('missing_core_parts'),
       missingRawParts: parseParts('missing_raw_parts'),
       tripId: data['trip_id'] as int?,
+      coreIngestionMode:
+          data['core_ingestion_mode'] as String? ?? 'LEGACY_PARTS',
+      mapAvailable: data['map_available'] as bool? ?? false,
     );
   }
 

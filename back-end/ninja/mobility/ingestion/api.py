@@ -9,7 +9,11 @@ presign/PUT/confirm raw -> complete-raw.
 """
 from __future__ import annotations
 
+import hashlib
+import json
+
 from django.conf import settings
+from django.contrib.gis.geos import Point
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -18,11 +22,20 @@ from ninja.errors import HttpError
 
 from accounts.auth import mobile_bearer_auth
 
-from ..models import PartKind, TripIngestion, TripIngestionPart
+from ..models import (
+    GpsPoint,
+    PartKind,
+    StateTransition,
+    Trip,
+    TripIngestion,
+    TripIngestionPart,
+)
 from . import storage
 from .schemas import (
     CompleteIn,
     CompleteOut,
+    InlineCoreIn,
+    InlineCoreOut,
     IngestionCreateIn,
     IngestionCreateOut,
     IngestionStatusOut,
@@ -41,6 +54,16 @@ _RECEIVING_STATES = {
     TripIngestion.PhaseStatus.PENDING,
     TripIngestion.PhaseStatus.RECEIVING,
     TripIngestion.PhaseStatus.RECEIVED,
+}
+_INLINE_REPROCESS_STATES = {
+    TripIngestion.PhaseStatus.PENDING,
+    TripIngestion.PhaseStatus.RECEIVING,
+    TripIngestion.PhaseStatus.RECEIVED,
+    TripIngestion.PhaseStatus.FAILED_RETRYABLE,
+}
+_INLINE_PASSIVE_STATES = {
+    TripIngestion.PhaseStatus.QUEUED,
+    TripIngestion.PhaseStatus.PROCESSING,
 }
 
 
@@ -129,8 +152,132 @@ def _mark_phase_received_if_complete(ingestion: TripIngestion, phase: str) -> No
 
 def _get_owned_ingestion(request, ingestion_id: int) -> TripIngestion:
     return get_object_or_404(
-        TripIngestion, id=ingestion_id, user_id=request.auth.user_id
+        TripIngestion.objects.select_related("trip"),
+        id=ingestion_id,
+        user_id=request.auth.user_id,
     )
+
+
+def _map_available(ingestion: TripIngestion) -> bool:
+    trip = ingestion.trip
+    return bool(trip is not None and trip.path is not None)
+
+
+def _canonical_inline_payload(payload: InlineCoreIn) -> dict:
+    data = payload.model_dump(mode="json")
+    data.pop("core_payload_sha256", None)
+    return data
+
+
+def _stable_json_bytes(data: dict) -> bytes:
+    return json.dumps(
+        data,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+
+
+def _inline_payload_sha256(payload: InlineCoreIn) -> str:
+    return hashlib.sha256(
+        _stable_json_bytes(_canonical_inline_payload(payload))
+    ).hexdigest()
+
+
+def _materialized_counts(trip: Trip | None) -> tuple[int, int, int, float]:
+    if trip is None:
+        return 0, 0, 0, 0
+    gps_count = GpsPoint.objects.filter(trip=trip).count()
+    transition_count = StateTransition.objects.filter(trip=trip).count()
+    distance_meters = float(trip.distance_meters or 0)
+    return gps_count, transition_count, gps_count, distance_meters
+
+
+def _inline_core_response(ingestion: TripIngestion) -> InlineCoreOut:
+    gps_count, transition_count, path_points, distance_meters = _materialized_counts(
+        ingestion.trip
+    )
+    return InlineCoreOut(
+        ingestion_id=ingestion.id,
+        trip_id=ingestion.trip_id,
+        core_status=ingestion.core_status,
+        raw_status=ingestion.raw_status,
+        gps_points=gps_count,
+        state_transitions=transition_count,
+        path_points=path_points,
+        distance_meters=distance_meters,
+        map_available=_map_available(ingestion),
+    )
+
+
+def _get_or_create_inline_trip(ingestion: TripIngestion) -> Trip:
+    trip = (
+        Trip.objects.select_for_update()
+        .filter(client_session_id=ingestion.client_session_id)
+        .first()
+    )
+    if trip is not None and trip.user_id not in {None, ingestion.user_id}:
+        raise HttpError(409, "client_session_id gia' associato a un altro utente")
+    if trip is None:
+        return Trip.objects.create(
+            user_id=ingestion.user_id,
+            client_session_id=ingestion.client_session_id,
+            device_id=ingestion.device_id or "unknown",
+            status=Trip.Status.CLOSED,
+            ended_at=ingestion.ended_at or timezone.now(),
+        )
+
+    update_fields = ["updated_at"]
+    if trip.user_id is None:
+        trip.user_id = ingestion.user_id
+        update_fields.append("user")
+    if not trip.device_id and ingestion.device_id:
+        trip.device_id = ingestion.device_id
+        update_fields.append("device_id")
+    if trip.status == Trip.Status.OPEN:
+        trip.status = Trip.Status.CLOSED
+        update_fields.append("status")
+    if trip.ended_at is None:
+        trip.ended_at = ingestion.ended_at or timezone.now()
+        update_fields.append("ended_at")
+    trip.save(update_fields=update_fields)
+    return trip
+
+
+def _materialize_inline_core(trip: Trip, payload: InlineCoreIn) -> tuple[int, int, int]:
+    gps_rows = [
+        GpsPoint(
+            trip=trip,
+            timestamp=point.timestamp,
+            point=Point(point.longitude, point.latitude, srid=4326),
+            speed_mps=point.speed_mps,
+            accuracy_meters=point.accuracy_meters,
+        )
+        for point in payload.gps_points
+    ]
+    StateTransition.objects.bulk_create(
+        [
+            StateTransition(
+                trip=trip,
+                timestamp=transition.timestamp,
+                from_state=transition.from_state,
+                to_state=transition.to_state,
+                reason=transition.reason,
+                sigma=transition.sigma,
+                speed_mps=transition.speed_mps,
+            )
+            for transition in payload.state_transitions
+        ],
+        ignore_conflicts=True,
+    )
+    GpsPoint.objects.bulk_create(gps_rows, ignore_conflicts=True)
+
+    from ..tasks import _build_trip_path
+
+    path_points = _build_trip_path(trip)
+    gps_count = GpsPoint.objects.filter(trip=trip).count()
+    transition_count = StateTransition.objects.filter(trip=trip).count()
+    return gps_count, transition_count, path_points
 
 
 def _validate_kind(kind: str) -> None:
@@ -162,6 +309,127 @@ def _ensure_part_was_declared(
     expected_count = int(_expected_parts_for_phase(ingestion, phase).get(kind, 0) or 0)
     if sequence < 1 or sequence > expected_count:
         raise HttpError(409, f"parte non dichiarata nel manifest iniziale: {kind}#{sequence}")
+
+
+@router.post("/trips/core", response=InlineCoreOut, auth=mobile_bearer_auth)
+def create_core_inline(request, payload: InlineCoreIn):
+    body_size = len(request.body or b"")
+    if body_size > settings.INGESTION_INLINE_CORE_MAX_BYTES:
+        raise HttpError(413, "payload core inline troppo grande")
+    if not payload.gps_points and not payload.state_transitions:
+        raise HttpError(400, "core vuoto: GPS e state transitions assenti")
+
+    expected_raw_parts = _validate_expected_parts(
+        payload.expected_raw_parts,
+        _RAW_KINDS,
+        "raw",
+    )
+    actual_sha256 = _inline_payload_sha256(payload)
+    if payload.core_payload_sha256 != actual_sha256:
+        raise HttpError(400, "core_payload_sha256 non corrisponde al payload")
+
+    raw_status = (
+        TripIngestion.PhaseStatus.PENDING
+        if expected_raw_parts
+        else TripIngestion.PhaseStatus.COMPLETED
+    )
+
+    with transaction.atomic():
+        ingestion, _ = TripIngestion.objects.select_for_update().get_or_create(
+            user_id=request.auth.user_id,
+            client_session_id=payload.client_session_id,
+            defaults={
+                "device_id": payload.device_id,
+                "schema_version": payload.schema_version,
+                "expected_core_parts": {},
+                "expected_raw_parts": expected_raw_parts,
+                "raw_status": raw_status,
+                "core_ingestion_mode": TripIngestion.CoreIngestionMode.INLINE,
+                "core_payload_sha256": actual_sha256,
+                "core_payload_size_bytes": body_size,
+                "started_at": payload.started_at,
+                "ended_at": payload.ended_at,
+                "timezone": payload.timezone,
+                "app_version": payload.app_version,
+                "device_platform": payload.device_platform,
+            },
+        )
+        if (
+            ingestion.core_payload_sha256
+            and ingestion.core_payload_sha256 != actual_sha256
+        ):
+            raise HttpError(409, "client_session_id gia' usato con core diverso")
+        if not ingestion.raw_base_path:
+            ingestion.raw_base_path = f"ingestions/{ingestion.id}/"
+            ingestion.save(update_fields=["raw_base_path", "updated_at"])
+
+        if ingestion.core_status == TripIngestion.PhaseStatus.FAILED_FINAL:
+            raise HttpError(409, "core ingestion fallita definitivamente")
+        if ingestion.core_status == TripIngestion.PhaseStatus.COMPLETED:
+            return _inline_core_response(ingestion)
+        if ingestion.core_status in _INLINE_PASSIVE_STATES:
+            return _inline_core_response(ingestion)
+        if ingestion.core_status not in _INLINE_REPROCESS_STATES:
+            raise HttpError(409, f"stato core non gestibile: {ingestion.core_status}")
+
+        now = timezone.now()
+        ingestion.core_ingestion_mode = TripIngestion.CoreIngestionMode.INLINE
+        ingestion.core_payload_sha256 = actual_sha256
+        ingestion.core_payload_size_bytes = body_size
+        ingestion.expected_core_parts = {}
+        ingestion.expected_raw_parts = expected_raw_parts
+        ingestion.raw_status = raw_status
+        ingestion.device_id = payload.device_id
+        ingestion.schema_version = payload.schema_version
+        ingestion.started_at = payload.started_at
+        ingestion.ended_at = payload.ended_at
+        ingestion.timezone = payload.timezone
+        ingestion.app_version = payload.app_version
+        ingestion.device_platform = payload.device_platform
+        ingestion.core_status = TripIngestion.PhaseStatus.PROCESSING
+        ingestion.started_processing_at = now
+        ingestion.error_message = ""
+        ingestion.save(
+            update_fields=[
+                "core_ingestion_mode",
+                "core_payload_sha256",
+                "core_payload_size_bytes",
+                "expected_core_parts",
+                "expected_raw_parts",
+                "raw_status",
+                "device_id",
+                "schema_version",
+                "started_at",
+                "ended_at",
+                "timezone",
+                "app_version",
+                "device_platform",
+                "core_status",
+                "started_processing_at",
+                "error_message",
+                "updated_at",
+            ]
+        )
+
+        trip = _get_or_create_inline_trip(ingestion)
+        _materialize_inline_core(trip, payload)
+        trip.refresh_from_db(fields=["distance_meters", "path"])
+
+        ingestion.trip = trip
+        ingestion.core_status = TripIngestion.PhaseStatus.COMPLETED
+        ingestion.completed_at = now
+        ingestion.failed_at = None
+        ingestion.save(
+            update_fields=[
+                "trip",
+                "core_status",
+                "completed_at",
+                "failed_at",
+                "updated_at",
+            ]
+        )
+
+        return _inline_core_response(ingestion)
 
 
 @router.post("/trips", response=IngestionCreateOut, auth=mobile_bearer_auth)
@@ -449,11 +717,13 @@ def ingestion_status(request, ingestion_id: int):
         ingestion_id=ingestion.id,
         core_status=ingestion.core_status,
         raw_status=ingestion.raw_status,
+        core_ingestion_mode=ingestion.core_ingestion_mode,
         received_core_parts=received_core_parts,
         missing_core_parts=missing_core_parts,
         received_raw_parts=received_raw_parts,
         missing_raw_parts=missing_raw_parts,
         trip_id=ingestion.trip_id,
+        map_available=_map_available(ingestion),
         error=ingestion.error_message or None,
         core_progress=core_progress,
         raw_progress=raw_progress,

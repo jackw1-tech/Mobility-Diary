@@ -72,30 +72,57 @@ void main() {
     );
   }
 
-  test('builds gps, transitions and a sensor window part with valid blobs',
+  test('builds deterministic inline core and raw sensor window blobs',
       () async {
     await seedSession('s1');
     await seedWindows('s1', 1);
 
     final pkg = await builder().build('s1');
 
-    expect(pkg.expectedCoreParts, {'gps_points': 1, 'state_transitions': 1});
+    expect(pkg.expectedCoreParts, isEmpty);
     expect(pkg.expectedRawParts, {'sensor_windows': 1});
     expect(pkg.startedAt, DateTime.utc(2026, 6, 12, 10));
     expect(pkg.endedAt, DateTime.utc(2026, 6, 12, 10, 35));
+    expect(pkg.corePayload, isNotNull);
 
-    final gps = pkg.parts.firstWhere((p) => p.kind == 'gps_points');
-    final bytes = await gps.file.readAsBytes();
-    // Checksum e dimensione coerenti con il file scritto.
-    expect(gps.sizeBytes, bytes.length);
-    expect(gps.sha256, sha256.convert(bytes).toString());
-    // Il blob e' gzip + JSON valido col formato atteso dal backend.
-    final decoded =
-        jsonDecode(utf8.decode(gzip.decode(bytes))) as Map<String, dynamic>;
-    final points = decoded['points'] as List<dynamic>;
+    final coreBody = pkg.corePayload!.requestBody;
+    expect(coreBody['client_session_id'], 's1');
+    expect(coreBody['started_at'], '2026-06-12T10:00:00Z');
+    expect(coreBody['ended_at'], '2026-06-12T10:35:00Z');
+    expect(coreBody['expected_raw_parts'], {'sensor_windows': 1});
+    final points = coreBody['gps_points'] as List<dynamic>;
     expect(points, hasLength(1));
     expect((points.first as Map)['latitude'], 45.4642);
     expect((points.first as Map)['speed_mps'], 3.2);
+    final transitions = coreBody['state_transitions'] as List<dynamic>;
+    expect(transitions, hasLength(1));
+    expect((transitions.first as Map)['to_state'], 'POTENTIAL_MOTION');
+    expect(coreBody['core_payload_sha256'], pkg.corePayload!.sha256);
+    expect(
+        pkg.corePayload!.sizeBytes, utf8.encode(jsonEncode(coreBody)).length);
+
+    expect(pkg.parts.where((part) => part.kind == 'gps_points'), isEmpty);
+    expect(
+        pkg.parts.where((part) => part.kind == 'state_transitions'), isEmpty);
+
+    final sensor = pkg.parts.singleWhere((p) => p.kind == 'sensor_windows');
+    final bytes = await sensor.file.readAsBytes();
+    expect(sensor.sizeBytes, bytes.length);
+    expect(sensor.sha256, sha256.convert(bytes).toString());
+    final decoded =
+        jsonDecode(utf8.decode(gzip.decode(bytes))) as Map<String, dynamic>;
+    expect(decoded['windows'] as List<dynamic>, hasLength(1));
+  });
+
+  test('builds the same inline core hash for the same local evidence',
+      () async {
+    await seedSession('s-hash');
+
+    final first = await builder().build('s-hash');
+    final second = await builder().build('s-hash');
+
+    expect(first.corePayload!.canonicalJson, second.corePayload!.canonicalJson);
+    expect(first.corePayload!.sha256, second.corePayload!.sha256);
   });
 
   test('splits sensor windows into multiple parts when over budget', () async {
@@ -130,6 +157,7 @@ void main() {
 
     final pkg = await builder().build('s3');
 
+    expect(pkg.corePayload, isNull);
     expect(pkg.parts, isEmpty);
     expect(pkg.expectedCoreParts, isEmpty);
     expect(pkg.expectedRawParts, isEmpty);

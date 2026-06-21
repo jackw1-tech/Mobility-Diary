@@ -221,6 +221,10 @@ class TripIngestion(models.Model):
         FAILED_RETRYABLE = "FAILED_RETRYABLE", "Failed (retryable)"
         FAILED_FINAL = "FAILED_FINAL", "Failed (final)"
 
+    class CoreIngestionMode(models.TextChoices):
+        LEGACY_PARTS = "LEGACY_PARTS", "Legacy parts"
+        INLINE = "INLINE", "Inline"
+
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         related_name="trip_ingestions",
@@ -240,6 +244,11 @@ class TripIngestion(models.Model):
         choices=PhaseStatus.choices,
         default=PhaseStatus.PENDING,
     )
+    core_ingestion_mode = models.CharField(
+        max_length=32,
+        choices=CoreIngestionMode.choices,
+        default=CoreIngestionMode.LEGACY_PARTS,
+    )
     # {"gps_points": 1, "state_transitions": 1}
     expected_core_parts = models.JSONField(default=dict)
     # {"sensor_windows": 6}
@@ -247,6 +256,8 @@ class TripIngestion(models.Model):
     # Prefisso degli oggetti raw nello storage, es. "ingestions/<id>/".
     raw_base_path = models.CharField(max_length=512, blank=True)
     manifest_sha256 = models.CharField(max_length=64, blank=True)
+    core_payload_sha256 = models.CharField(max_length=64, blank=True)
+    core_payload_size_bytes = models.BigIntegerField(default=0)
     total_size_bytes = models.BigIntegerField(default=0)
 
     # Metadati del viaggio, dichiarati dal client.

@@ -174,6 +174,10 @@ S3_REGION = os.getenv("S3_REGION", "us-east-1")
 S3_PRESIGN_EXPIRES_SECONDS = int(os.getenv("S3_PRESIGN_EXPIRES_SECONDS", "900"))
 # Limite dimensione per singola parte caricata (byte). Default 25 MB.
 INGESTION_MAX_PART_BYTES = int(os.getenv("INGESTION_MAX_PART_BYTES", str(25 * 1024 * 1024)))
+# Limite del payload Core inline: il core deve restare piccolo e sincrono.
+INGESTION_INLINE_CORE_MAX_BYTES = int(
+    os.getenv("INGESTION_INLINE_CORE_MAX_BYTES", str(1 * 1024 * 1024))
+)
 
 # CONGELATO: la cancellazione dei blob raw dopo HAR e' predisposta ma disattivata
 # finche' HAR non e' operativo (vedi REPORT D9). NON attivare senza HAR validato.

@@ -1,7 +1,8 @@
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:crypto/crypto.dart';
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:diary/features/acquisition/data/acquisition_local_database.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -24,6 +25,35 @@ class TripPackagePart {
   });
 }
 
+class TripCorePayload {
+  final Map<String, dynamic> bodyWithoutHash;
+  final String sha256;
+
+  TripCorePayload._({
+    required this.bodyWithoutHash,
+    required this.sha256,
+  });
+
+  factory TripCorePayload(Map<String, dynamic> bodyWithoutHash) {
+    final stableBody =
+        _stableJsonValue(bodyWithoutHash) as Map<String, dynamic>;
+    final canonicalJson = jsonEncode(stableBody);
+    return TripCorePayload._(
+      bodyWithoutHash: stableBody,
+      sha256: crypto.sha256.convert(utf8.encode(canonicalJson)).toString(),
+    );
+  }
+
+  Map<String, dynamic> get requestBody => {
+        ...bodyWithoutHash,
+        'core_payload_sha256': sha256,
+      };
+
+  String get canonicalJson => jsonEncode(bodyWithoutHash);
+
+  int get sizeBytes => utf8.encode(jsonEncode(requestBody)).length;
+}
+
 /// Il pacchetto viaggio locale: metadati + parti compresse su disco
 /// (REPORT_STRATEGIA_INGESTION_ASINCRONA.md, "Creazione del Pacchetto Locale").
 class TripPackage {
@@ -31,6 +61,7 @@ class TripPackage {
   final DateTime? startedAt;
   final DateTime? endedAt;
   final Directory directory;
+  final TripCorePayload? corePayload;
   final List<TripPackagePart> parts;
 
   const TripPackage({
@@ -38,33 +69,21 @@ class TripPackage {
     required this.startedAt,
     required this.endedAt,
     required this.directory,
+    required this.corePayload,
     required this.parts,
   });
 
-  /// Conteggio parti per kind, da dichiarare al backend in `create`.
-  Map<String, int> get expectedCoreParts => _expectedParts(coreParts);
+  /// Il core inline non dichiara piu' parti presigned.
+  Map<String, int> get expectedCoreParts => const {};
 
   Map<String, int> get expectedRawParts => _expectedParts(rawParts);
 
-  List<TripPackagePart> get coreParts {
-    return parts
-        .where((part) =>
-            part.kind == 'gps_points' || part.kind == 'state_transitions')
-        .toList(growable: false);
-  }
+  List<TripPackagePart> get coreParts => const [];
 
   List<TripPackagePart> get rawParts {
     return parts
         .where((part) => part.kind == 'sensor_windows')
         .toList(growable: false);
-  }
-
-  Map<String, int> _expectedParts(List<TripPackagePart> sourceParts) {
-    final counts = <String, int>{};
-    for (final part in sourceParts) {
-      counts[part.kind] = (counts[part.kind] ?? 0) + 1;
-    }
-    return counts;
   }
 }
 
@@ -91,19 +110,32 @@ class TripPackageBuilder {
     final session = await _dao.findSession(localSessionId);
     final directory = await _packageDirectory(localSessionId);
 
+    final gpsPoints = await _buildInlineGpsPoints(localSessionId);
+    final transitions = await _buildInlineTransitions(localSessionId);
     final parts = <TripPackagePart>[];
-    final gpsPart = await _buildGpsPart(localSessionId, directory);
-    if (gpsPart != null) parts.add(gpsPart);
-    final transitionsPart =
-        await _buildTransitionsPart(localSessionId, directory);
-    if (transitionsPart != null) parts.add(transitionsPart);
     parts.addAll(await _buildSensorWindowParts(localSessionId, directory));
+    final corePayload = gpsPoints.isEmpty && transitions.isEmpty
+        ? null
+        : TripCorePayload({
+            'app_version': '',
+            'client_session_id': localSessionId,
+            'device_id': session?.deviceId ?? '',
+            'device_platform': '',
+            'ended_at': _utcIsoOrNull(session?.endedAt),
+            'expected_raw_parts': _expectedParts(parts),
+            'gps_points': gpsPoints,
+            'schema_version': 1,
+            'started_at': _utcIsoOrNull(session?.startedAt),
+            'state_transitions': transitions,
+            'timezone': '',
+          });
 
     return TripPackage(
       localSessionId: localSessionId,
       startedAt: session?.startedAt,
       endedAt: session?.endedAt,
       directory: directory,
+      corePayload: corePayload,
       parts: parts,
     );
   }
@@ -118,49 +150,37 @@ class TripPackageBuilder {
     return dir;
   }
 
-  Future<TripPackagePart?> _buildGpsPart(
+  Future<List<Map<String, dynamic>>> _buildInlineGpsPoints(
     String sessionId,
-    Directory directory,
   ) async {
     final points = await _dao.gpsPointsForSession(sessionId);
-    if (points.isEmpty) return null;
-
-    final json = jsonEncode({
-      'points': [
-        for (final point in points)
-          {
-            'timestamp': point.timestamp.toUtc().toIso8601String(),
-            'latitude': point.latitude,
-            'longitude': point.longitude,
-            'speed_mps': point.speedMps,
-            'accuracy_meters': point.accuracyMeters,
-          }
-      ],
-    });
-    return _writePart(directory, 'gps_points', 1, json);
+    return [
+      for (final point in points)
+        {
+          'accuracy_meters': point.accuracyMeters,
+          'latitude': point.latitude,
+          'longitude': point.longitude,
+          'speed_mps': point.speedMps,
+          'timestamp': _utcIso(point.timestamp),
+        }
+    ];
   }
 
-  Future<TripPackagePart?> _buildTransitionsPart(
+  Future<List<Map<String, dynamic>>> _buildInlineTransitions(
     String sessionId,
-    Directory directory,
   ) async {
     final transitions = await _dao.transitionsForSession(sessionId);
-    if (transitions.isEmpty) return null;
-
-    final json = jsonEncode({
-      'transitions': [
-        for (final t in transitions)
-          {
-            'timestamp': t.timestamp.toUtc().toIso8601String(),
-            'from_state': t.fromState,
-            'to_state': t.toState,
-            'reason': t.reason,
-            'sigma': t.sigma,
-            'speed_mps': t.speedMps,
-          }
-      ],
-    });
-    return _writePart(directory, 'state_transitions', 1, json);
+    return [
+      for (final t in transitions)
+        {
+          'from_state': t.fromState,
+          'reason': t.reason,
+          'sigma': t.sigma,
+          'speed_mps': t.speedMps,
+          'timestamp': _utcIso(t.timestamp),
+          'to_state': t.toState,
+        }
+    ];
   }
 
   Future<List<TripPackagePart>> _buildSensorWindowParts(
@@ -229,8 +249,46 @@ class TripPackageBuilder {
       kind: kind,
       sequence: sequence,
       file: file,
-      sha256: sha256.convert(gzipped).toString(),
+      sha256: crypto.sha256.convert(gzipped).toString(),
       sizeBytes: gzipped.length,
     );
   }
+}
+
+Map<String, int> _expectedParts(List<TripPackagePart> sourceParts) {
+  final counts = <String, int>{};
+  for (final part in sourceParts) {
+    counts[part.kind] = (counts[part.kind] ?? 0) + 1;
+  }
+  return counts;
+}
+
+Object? _stableJsonValue(Object? value) {
+  if (value is Map) {
+    final sorted = SplayTreeMap<String, dynamic>();
+    for (final entry in value.entries) {
+      sorted[entry.key as String] = _stableJsonValue(entry.value);
+    }
+    return sorted;
+  }
+  if (value is List) {
+    return [for (final item in value) _stableJsonValue(item)];
+  }
+  return value;
+}
+
+String? _utcIsoOrNull(DateTime? value) => value == null ? null : _utcIso(value);
+
+String _utcIso(DateTime value) {
+  final utc = value.toUtc();
+  final year = utc.year.toString().padLeft(4, '0');
+  final month = utc.month.toString().padLeft(2, '0');
+  final day = utc.day.toString().padLeft(2, '0');
+  final hour = utc.hour.toString().padLeft(2, '0');
+  final minute = utc.minute.toString().padLeft(2, '0');
+  final second = utc.second.toString().padLeft(2, '0');
+  final fractionMicros = utc.millisecond * 1000 + utc.microsecond;
+  final base = '$year-$month-${day}T$hour:$minute:$second';
+  if (fractionMicros == 0) return '${base}Z';
+  return '$base.${fractionMicros.toString().padLeft(6, '0')}Z';
 }

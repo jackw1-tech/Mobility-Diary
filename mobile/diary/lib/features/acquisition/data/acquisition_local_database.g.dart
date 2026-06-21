@@ -1677,6 +1677,30 @@ class $SyncJobsTable extends SyncJobs with TableInfo<$SyncJobsTable, SyncJob> {
   late final GeneratedColumn<int> remoteTripId = GeneratedColumn<int>(
       'remote_trip_id', aliasedName, true,
       type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _corePayloadSha256Meta =
+      const VerificationMeta('corePayloadSha256');
+  @override
+  late final GeneratedColumn<String> corePayloadSha256 =
+      GeneratedColumn<String>('core_payload_sha256', aliasedName, true,
+          type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _corePayloadSizeBytesMeta =
+      const VerificationMeta('corePayloadSizeBytes');
+  @override
+  late final GeneratedColumn<int> corePayloadSizeBytes = GeneratedColumn<int>(
+      'core_payload_size_bytes', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(0));
+  static const VerificationMeta _coreMapAvailableMeta =
+      const VerificationMeta('coreMapAvailable');
+  @override
+  late final GeneratedColumn<bool> coreMapAvailable = GeneratedColumn<bool>(
+      'core_map_available', aliasedName, false,
+      type: DriftSqlType.bool,
+      requiredDuringInsert: false,
+      defaultConstraints: GeneratedColumn.constraintIsAlways(
+          'CHECK ("core_map_available" IN (0, 1))'),
+      defaultValue: const Constant(false));
   static const VerificationMeta _coreStatusMeta =
       const VerificationMeta('coreStatus');
   @override
@@ -1731,6 +1755,9 @@ class $SyncJobsTable extends SyncJobs with TableInfo<$SyncJobsTable, SyncJob> {
         localSessionId,
         remoteIngestionId,
         remoteTripId,
+        corePayloadSha256,
+        corePayloadSizeBytes,
+        coreMapAvailable,
         coreStatus,
         rawStatus,
         attempts,
@@ -1771,6 +1798,24 @@ class $SyncJobsTable extends SyncJobs with TableInfo<$SyncJobsTable, SyncJob> {
           _remoteTripIdMeta,
           remoteTripId.isAcceptableOrUnknown(
               data['remote_trip_id']!, _remoteTripIdMeta));
+    }
+    if (data.containsKey('core_payload_sha256')) {
+      context.handle(
+          _corePayloadSha256Meta,
+          corePayloadSha256.isAcceptableOrUnknown(
+              data['core_payload_sha256']!, _corePayloadSha256Meta));
+    }
+    if (data.containsKey('core_payload_size_bytes')) {
+      context.handle(
+          _corePayloadSizeBytesMeta,
+          corePayloadSizeBytes.isAcceptableOrUnknown(
+              data['core_payload_size_bytes']!, _corePayloadSizeBytesMeta));
+    }
+    if (data.containsKey('core_map_available')) {
+      context.handle(
+          _coreMapAvailableMeta,
+          coreMapAvailable.isAcceptableOrUnknown(
+              data['core_map_available']!, _coreMapAvailableMeta));
     }
     if (data.containsKey('core_status')) {
       context.handle(
@@ -1829,6 +1874,12 @@ class $SyncJobsTable extends SyncJobs with TableInfo<$SyncJobsTable, SyncJob> {
           DriftSqlType.int, data['${effectivePrefix}remote_ingestion_id']),
       remoteTripId: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}remote_trip_id']),
+      corePayloadSha256: attachedDatabase.typeMapping.read(
+          DriftSqlType.string, data['${effectivePrefix}core_payload_sha256']),
+      corePayloadSizeBytes: attachedDatabase.typeMapping.read(
+          DriftSqlType.int, data['${effectivePrefix}core_payload_size_bytes'])!,
+      coreMapAvailable: attachedDatabase.typeMapping.read(
+          DriftSqlType.bool, data['${effectivePrefix}core_map_available'])!,
       coreStatus: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}core_status'])!,
       rawStatus: attachedDatabase.typeMapping
@@ -1857,6 +1908,9 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
   final String localSessionId;
   final int? remoteIngestionId;
   final int? remoteTripId;
+  final String? corePayloadSha256;
+  final int corePayloadSizeBytes;
+  final bool coreMapAvailable;
   final String coreStatus;
   final String rawStatus;
   final int attempts;
@@ -1869,6 +1923,9 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
       required this.localSessionId,
       this.remoteIngestionId,
       this.remoteTripId,
+      this.corePayloadSha256,
+      required this.corePayloadSizeBytes,
+      required this.coreMapAvailable,
       required this.coreStatus,
       required this.rawStatus,
       required this.attempts,
@@ -1887,6 +1944,11 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
     if (!nullToAbsent || remoteTripId != null) {
       map['remote_trip_id'] = Variable<int>(remoteTripId);
     }
+    if (!nullToAbsent || corePayloadSha256 != null) {
+      map['core_payload_sha256'] = Variable<String>(corePayloadSha256);
+    }
+    map['core_payload_size_bytes'] = Variable<int>(corePayloadSizeBytes);
+    map['core_map_available'] = Variable<bool>(coreMapAvailable);
     map['core_status'] = Variable<String>(coreStatus);
     map['raw_status'] = Variable<String>(rawStatus);
     map['attempts'] = Variable<int>(attempts);
@@ -1911,6 +1973,11 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
       remoteTripId: remoteTripId == null && nullToAbsent
           ? const Value.absent()
           : Value(remoteTripId),
+      corePayloadSha256: corePayloadSha256 == null && nullToAbsent
+          ? const Value.absent()
+          : Value(corePayloadSha256),
+      corePayloadSizeBytes: Value(corePayloadSizeBytes),
+      coreMapAvailable: Value(coreMapAvailable),
       coreStatus: Value(coreStatus),
       rawStatus: Value(rawStatus),
       attempts: Value(attempts),
@@ -1933,6 +2000,11 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
       localSessionId: serializer.fromJson<String>(json['localSessionId']),
       remoteIngestionId: serializer.fromJson<int?>(json['remoteIngestionId']),
       remoteTripId: serializer.fromJson<int?>(json['remoteTripId']),
+      corePayloadSha256:
+          serializer.fromJson<String?>(json['corePayloadSha256']),
+      corePayloadSizeBytes:
+          serializer.fromJson<int>(json['corePayloadSizeBytes']),
+      coreMapAvailable: serializer.fromJson<bool>(json['coreMapAvailable']),
       coreStatus: serializer.fromJson<String>(json['coreStatus']),
       rawStatus: serializer.fromJson<String>(json['rawStatus']),
       attempts: serializer.fromJson<int>(json['attempts']),
@@ -1950,6 +2022,9 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
       'localSessionId': serializer.toJson<String>(localSessionId),
       'remoteIngestionId': serializer.toJson<int?>(remoteIngestionId),
       'remoteTripId': serializer.toJson<int?>(remoteTripId),
+      'corePayloadSha256': serializer.toJson<String?>(corePayloadSha256),
+      'corePayloadSizeBytes': serializer.toJson<int>(corePayloadSizeBytes),
+      'coreMapAvailable': serializer.toJson<bool>(coreMapAvailable),
       'coreStatus': serializer.toJson<String>(coreStatus),
       'rawStatus': serializer.toJson<String>(rawStatus),
       'attempts': serializer.toJson<int>(attempts),
@@ -1965,6 +2040,9 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
           String? localSessionId,
           Value<int?> remoteIngestionId = const Value.absent(),
           Value<int?> remoteTripId = const Value.absent(),
+          Value<String?> corePayloadSha256 = const Value.absent(),
+          int? corePayloadSizeBytes,
+          bool? coreMapAvailable,
           String? coreStatus,
           String? rawStatus,
           int? attempts,
@@ -1980,6 +2058,11 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
             : this.remoteIngestionId,
         remoteTripId:
             remoteTripId.present ? remoteTripId.value : this.remoteTripId,
+        corePayloadSha256: corePayloadSha256.present
+            ? corePayloadSha256.value
+            : this.corePayloadSha256,
+        corePayloadSizeBytes: corePayloadSizeBytes ?? this.corePayloadSizeBytes,
+        coreMapAvailable: coreMapAvailable ?? this.coreMapAvailable,
         coreStatus: coreStatus ?? this.coreStatus,
         rawStatus: rawStatus ?? this.rawStatus,
         attempts: attempts ?? this.attempts,
@@ -2000,6 +2083,15 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
       remoteTripId: data.remoteTripId.present
           ? data.remoteTripId.value
           : this.remoteTripId,
+      corePayloadSha256: data.corePayloadSha256.present
+          ? data.corePayloadSha256.value
+          : this.corePayloadSha256,
+      corePayloadSizeBytes: data.corePayloadSizeBytes.present
+          ? data.corePayloadSizeBytes.value
+          : this.corePayloadSizeBytes,
+      coreMapAvailable: data.coreMapAvailable.present
+          ? data.coreMapAvailable.value
+          : this.coreMapAvailable,
       coreStatus:
           data.coreStatus.present ? data.coreStatus.value : this.coreStatus,
       rawStatus: data.rawStatus.present ? data.rawStatus.value : this.rawStatus,
@@ -2019,6 +2111,9 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
           ..write('localSessionId: $localSessionId, ')
           ..write('remoteIngestionId: $remoteIngestionId, ')
           ..write('remoteTripId: $remoteTripId, ')
+          ..write('corePayloadSha256: $corePayloadSha256, ')
+          ..write('corePayloadSizeBytes: $corePayloadSizeBytes, ')
+          ..write('coreMapAvailable: $coreMapAvailable, ')
           ..write('coreStatus: $coreStatus, ')
           ..write('rawStatus: $rawStatus, ')
           ..write('attempts: $attempts, ')
@@ -2036,6 +2131,9 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
       localSessionId,
       remoteIngestionId,
       remoteTripId,
+      corePayloadSha256,
+      corePayloadSizeBytes,
+      coreMapAvailable,
       coreStatus,
       rawStatus,
       attempts,
@@ -2051,6 +2149,9 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
           other.localSessionId == this.localSessionId &&
           other.remoteIngestionId == this.remoteIngestionId &&
           other.remoteTripId == this.remoteTripId &&
+          other.corePayloadSha256 == this.corePayloadSha256 &&
+          other.corePayloadSizeBytes == this.corePayloadSizeBytes &&
+          other.coreMapAvailable == this.coreMapAvailable &&
           other.coreStatus == this.coreStatus &&
           other.rawStatus == this.rawStatus &&
           other.attempts == this.attempts &&
@@ -2065,6 +2166,9 @@ class SyncJobsCompanion extends UpdateCompanion<SyncJob> {
   final Value<String> localSessionId;
   final Value<int?> remoteIngestionId;
   final Value<int?> remoteTripId;
+  final Value<String?> corePayloadSha256;
+  final Value<int> corePayloadSizeBytes;
+  final Value<bool> coreMapAvailable;
   final Value<String> coreStatus;
   final Value<String> rawStatus;
   final Value<int> attempts;
@@ -2077,6 +2181,9 @@ class SyncJobsCompanion extends UpdateCompanion<SyncJob> {
     this.localSessionId = const Value.absent(),
     this.remoteIngestionId = const Value.absent(),
     this.remoteTripId = const Value.absent(),
+    this.corePayloadSha256 = const Value.absent(),
+    this.corePayloadSizeBytes = const Value.absent(),
+    this.coreMapAvailable = const Value.absent(),
     this.coreStatus = const Value.absent(),
     this.rawStatus = const Value.absent(),
     this.attempts = const Value.absent(),
@@ -2090,6 +2197,9 @@ class SyncJobsCompanion extends UpdateCompanion<SyncJob> {
     required String localSessionId,
     this.remoteIngestionId = const Value.absent(),
     this.remoteTripId = const Value.absent(),
+    this.corePayloadSha256 = const Value.absent(),
+    this.corePayloadSizeBytes = const Value.absent(),
+    this.coreMapAvailable = const Value.absent(),
     this.coreStatus = const Value.absent(),
     this.rawStatus = const Value.absent(),
     this.attempts = const Value.absent(),
@@ -2105,6 +2215,9 @@ class SyncJobsCompanion extends UpdateCompanion<SyncJob> {
     Expression<String>? localSessionId,
     Expression<int>? remoteIngestionId,
     Expression<int>? remoteTripId,
+    Expression<String>? corePayloadSha256,
+    Expression<int>? corePayloadSizeBytes,
+    Expression<bool>? coreMapAvailable,
     Expression<String>? coreStatus,
     Expression<String>? rawStatus,
     Expression<int>? attempts,
@@ -2118,6 +2231,10 @@ class SyncJobsCompanion extends UpdateCompanion<SyncJob> {
       if (localSessionId != null) 'local_session_id': localSessionId,
       if (remoteIngestionId != null) 'remote_ingestion_id': remoteIngestionId,
       if (remoteTripId != null) 'remote_trip_id': remoteTripId,
+      if (corePayloadSha256 != null) 'core_payload_sha256': corePayloadSha256,
+      if (corePayloadSizeBytes != null)
+        'core_payload_size_bytes': corePayloadSizeBytes,
+      if (coreMapAvailable != null) 'core_map_available': coreMapAvailable,
       if (coreStatus != null) 'core_status': coreStatus,
       if (rawStatus != null) 'raw_status': rawStatus,
       if (attempts != null) 'attempts': attempts,
@@ -2133,6 +2250,9 @@ class SyncJobsCompanion extends UpdateCompanion<SyncJob> {
       Value<String>? localSessionId,
       Value<int?>? remoteIngestionId,
       Value<int?>? remoteTripId,
+      Value<String?>? corePayloadSha256,
+      Value<int>? corePayloadSizeBytes,
+      Value<bool>? coreMapAvailable,
       Value<String>? coreStatus,
       Value<String>? rawStatus,
       Value<int>? attempts,
@@ -2145,6 +2265,9 @@ class SyncJobsCompanion extends UpdateCompanion<SyncJob> {
       localSessionId: localSessionId ?? this.localSessionId,
       remoteIngestionId: remoteIngestionId ?? this.remoteIngestionId,
       remoteTripId: remoteTripId ?? this.remoteTripId,
+      corePayloadSha256: corePayloadSha256 ?? this.corePayloadSha256,
+      corePayloadSizeBytes: corePayloadSizeBytes ?? this.corePayloadSizeBytes,
+      coreMapAvailable: coreMapAvailable ?? this.coreMapAvailable,
       coreStatus: coreStatus ?? this.coreStatus,
       rawStatus: rawStatus ?? this.rawStatus,
       attempts: attempts ?? this.attempts,
@@ -2169,6 +2292,16 @@ class SyncJobsCompanion extends UpdateCompanion<SyncJob> {
     }
     if (remoteTripId.present) {
       map['remote_trip_id'] = Variable<int>(remoteTripId.value);
+    }
+    if (corePayloadSha256.present) {
+      map['core_payload_sha256'] = Variable<String>(corePayloadSha256.value);
+    }
+    if (corePayloadSizeBytes.present) {
+      map['core_payload_size_bytes'] =
+          Variable<int>(corePayloadSizeBytes.value);
+    }
+    if (coreMapAvailable.present) {
+      map['core_map_available'] = Variable<bool>(coreMapAvailable.value);
     }
     if (coreStatus.present) {
       map['core_status'] = Variable<String>(coreStatus.value);
@@ -2201,6 +2334,9 @@ class SyncJobsCompanion extends UpdateCompanion<SyncJob> {
           ..write('localSessionId: $localSessionId, ')
           ..write('remoteIngestionId: $remoteIngestionId, ')
           ..write('remoteTripId: $remoteTripId, ')
+          ..write('corePayloadSha256: $corePayloadSha256, ')
+          ..write('corePayloadSizeBytes: $corePayloadSizeBytes, ')
+          ..write('coreMapAvailable: $coreMapAvailable, ')
           ..write('coreStatus: $coreStatus, ')
           ..write('rawStatus: $rawStatus, ')
           ..write('attempts: $attempts, ')
@@ -3712,6 +3848,9 @@ typedef $$SyncJobsTableCreateCompanionBuilder = SyncJobsCompanion Function({
   required String localSessionId,
   Value<int?> remoteIngestionId,
   Value<int?> remoteTripId,
+  Value<String?> corePayloadSha256,
+  Value<int> corePayloadSizeBytes,
+  Value<bool> coreMapAvailable,
   Value<String> coreStatus,
   Value<String> rawStatus,
   Value<int> attempts,
@@ -3725,6 +3864,9 @@ typedef $$SyncJobsTableUpdateCompanionBuilder = SyncJobsCompanion Function({
   Value<String> localSessionId,
   Value<int?> remoteIngestionId,
   Value<int?> remoteTripId,
+  Value<String?> corePayloadSha256,
+  Value<int> corePayloadSizeBytes,
+  Value<bool> coreMapAvailable,
   Value<String> coreStatus,
   Value<String> rawStatus,
   Value<int> attempts,
@@ -3774,6 +3916,18 @@ class $$SyncJobsTableFilterComposer
 
   ColumnFilters<int> get remoteTripId => $composableBuilder(
       column: $table.remoteTripId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get corePayloadSha256 => $composableBuilder(
+      column: $table.corePayloadSha256,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get corePayloadSizeBytes => $composableBuilder(
+      column: $table.corePayloadSizeBytes,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<bool> get coreMapAvailable => $composableBuilder(
+      column: $table.coreMapAvailable,
+      builder: (column) => ColumnFilters(column));
 
   ColumnFilters<String> get coreStatus => $composableBuilder(
       column: $table.coreStatus, builder: (column) => ColumnFilters(column));
@@ -3837,6 +3991,18 @@ class $$SyncJobsTableOrderingComposer
       column: $table.remoteTripId,
       builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<String> get corePayloadSha256 => $composableBuilder(
+      column: $table.corePayloadSha256,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get corePayloadSizeBytes => $composableBuilder(
+      column: $table.corePayloadSizeBytes,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<bool> get coreMapAvailable => $composableBuilder(
+      column: $table.coreMapAvailable,
+      builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<String> get coreStatus => $composableBuilder(
       column: $table.coreStatus, builder: (column) => ColumnOrderings(column));
 
@@ -3897,6 +4063,15 @@ class $$SyncJobsTableAnnotationComposer
 
   GeneratedColumn<int> get remoteTripId => $composableBuilder(
       column: $table.remoteTripId, builder: (column) => column);
+
+  GeneratedColumn<String> get corePayloadSha256 => $composableBuilder(
+      column: $table.corePayloadSha256, builder: (column) => column);
+
+  GeneratedColumn<int> get corePayloadSizeBytes => $composableBuilder(
+      column: $table.corePayloadSizeBytes, builder: (column) => column);
+
+  GeneratedColumn<bool> get coreMapAvailable => $composableBuilder(
+      column: $table.coreMapAvailable, builder: (column) => column);
 
   GeneratedColumn<String> get coreStatus => $composableBuilder(
       column: $table.coreStatus, builder: (column) => column);
@@ -3969,6 +4144,9 @@ class $$SyncJobsTableTableManager extends RootTableManager<
             Value<String> localSessionId = const Value.absent(),
             Value<int?> remoteIngestionId = const Value.absent(),
             Value<int?> remoteTripId = const Value.absent(),
+            Value<String?> corePayloadSha256 = const Value.absent(),
+            Value<int> corePayloadSizeBytes = const Value.absent(),
+            Value<bool> coreMapAvailable = const Value.absent(),
             Value<String> coreStatus = const Value.absent(),
             Value<String> rawStatus = const Value.absent(),
             Value<int> attempts = const Value.absent(),
@@ -3982,6 +4160,9 @@ class $$SyncJobsTableTableManager extends RootTableManager<
             localSessionId: localSessionId,
             remoteIngestionId: remoteIngestionId,
             remoteTripId: remoteTripId,
+            corePayloadSha256: corePayloadSha256,
+            corePayloadSizeBytes: corePayloadSizeBytes,
+            coreMapAvailable: coreMapAvailable,
             coreStatus: coreStatus,
             rawStatus: rawStatus,
             attempts: attempts,
@@ -3995,6 +4176,9 @@ class $$SyncJobsTableTableManager extends RootTableManager<
             required String localSessionId,
             Value<int?> remoteIngestionId = const Value.absent(),
             Value<int?> remoteTripId = const Value.absent(),
+            Value<String?> corePayloadSha256 = const Value.absent(),
+            Value<int> corePayloadSizeBytes = const Value.absent(),
+            Value<bool> coreMapAvailable = const Value.absent(),
             Value<String> coreStatus = const Value.absent(),
             Value<String> rawStatus = const Value.absent(),
             Value<int> attempts = const Value.absent(),
@@ -4008,6 +4192,9 @@ class $$SyncJobsTableTableManager extends RootTableManager<
             localSessionId: localSessionId,
             remoteIngestionId: remoteIngestionId,
             remoteTripId: remoteTripId,
+            corePayloadSha256: corePayloadSha256,
+            corePayloadSizeBytes: corePayloadSizeBytes,
+            coreMapAvailable: coreMapAvailable,
             coreStatus: coreStatus,
             rawStatus: rawStatus,
             attempts: attempts,

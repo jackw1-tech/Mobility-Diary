@@ -61,8 +61,13 @@ class SyncJobs extends Table {
   TextColumn get localSessionId =>
       text().references(AcquisitionSessions, #id)();
   IntColumn get remoteIngestionId => integer().nullable()();
-  // Trip di dominio materializzato dal backend (null finche' non PROCESSED).
+  // Trip di dominio materializzato dal backend (null finche' il core non completa).
   IntColumn get remoteTripId => integer().nullable()();
+  TextColumn get corePayloadSha256 => text().nullable()();
+  IntColumn get corePayloadSizeBytes =>
+      integer().withDefault(const Constant(0))();
+  BoolColumn get coreMapAvailable =>
+      boolean().withDefault(const Constant(false))();
   TextColumn get coreStatus =>
       text().withDefault(const Constant(syncJobPending))();
   TextColumn get rawStatus =>
@@ -112,7 +117,7 @@ class AcquisitionLocalDatabase extends _$AcquisitionLocalDatabase {
       : super(executor ?? _openConnection());
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -131,6 +136,11 @@ class AcquisitionLocalDatabase extends _$AcquisitionLocalDatabase {
             }
             if (from < 4) {
               await m.addColumn(syncJobs, syncJobs.remoteTripId);
+            }
+            if (from < 5) {
+              await m.addColumn(syncJobs, syncJobs.corePayloadSha256);
+              await m.addColumn(syncJobs, syncJobs.corePayloadSizeBytes);
+              await m.addColumn(syncJobs, syncJobs.coreMapAvailable);
             }
           }
         },
@@ -422,6 +432,9 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
     int? attempts,
     Value<int?> remoteIngestionId = const Value.absent(),
     Value<int?> remoteTripId = const Value.absent(),
+    Value<String?> corePayloadSha256 = const Value.absent(),
+    int? corePayloadSizeBytes,
+    bool? coreMapAvailable,
     Value<DateTime?> nextRetryAt = const Value.absent(),
     Value<String?> lastError = const Value.absent(),
   }) async {
@@ -433,6 +446,13 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
         attempts: attempts == null ? const Value.absent() : Value(attempts),
         remoteIngestionId: remoteIngestionId,
         remoteTripId: remoteTripId,
+        corePayloadSha256: corePayloadSha256,
+        corePayloadSizeBytes: corePayloadSizeBytes == null
+            ? const Value.absent()
+            : Value(corePayloadSizeBytes),
+        coreMapAvailable: coreMapAvailable == null
+            ? const Value.absent()
+            : Value(coreMapAvailable),
         nextRetryAt: nextRetryAt.present
             ? Value(
                 nextRetryAt.value == null ? null : _asUtc(nextRetryAt.value!))

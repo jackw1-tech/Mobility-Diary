@@ -68,6 +68,7 @@ class TripIngestionAdmin(admin.ModelAdmin):
         "id",
         "user",
         "client_session_id",
+        "core_ingestion_mode",
         "core_status",
         "raw_status",
         "trip",
@@ -78,6 +79,7 @@ class TripIngestionAdmin(admin.ModelAdmin):
     list_filter = (
         "core_status",
         "raw_status",
+        "core_ingestion_mode",
         "schema_version",
         "device_platform",
         "created_at",
@@ -89,6 +91,7 @@ class TripIngestionAdmin(admin.ModelAdmin):
         "device_id",
         "raw_base_path",
         "manifest_sha256",
+        "core_payload_sha256",
         "error_message",
     )
     readonly_fields = (
