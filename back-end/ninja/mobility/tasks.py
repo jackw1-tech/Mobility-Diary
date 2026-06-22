@@ -21,6 +21,10 @@ from .models import (
 from .ml.pipeline import PipelineSensorWindow, run_pipeline
 
 
+class InvalidRawSensorPayload(ValueError):
+    """Il blob raw e leggibile dallo storage ma non rispetta il contratto HAR."""
+
+
 @shared_task(bind=True)
 def process_trip_har(self, job_id: int) -> dict:
     job = HarJob.objects.select_related("trip").get(id=job_id)
@@ -59,25 +63,35 @@ def process_trip_har(self, job_id: int) -> dict:
 def _load_json_gz(object_key: str) -> dict:
     """Scarica e decomprime un blob .json.gz dallo storage."""
     raw = storage.read_object(object_key)
-    return json.loads(gzip.decompress(raw).decode("utf-8"))
+    try:
+        return json.loads(gzip.decompress(raw).decode("utf-8"))
+    except (gzip.BadGzipFile, EOFError, UnicodeDecodeError) as exc:
+        raise InvalidRawSensorPayload("payload raw sensor gzip non valido") from exc
+    except json.JSONDecodeError as exc:
+        raise InvalidRawSensorPayload("payload raw sensor JSON non valido") from exc
 
 
 def _parse_required_datetime(value: Any, field: str):
     parsed = parse_datetime(str(value)) if value else None
     if parsed is None:
-        raise ValueError(f"timestamp raw non valido: {field}")
+        raise InvalidRawSensorPayload(f"timestamp raw non valido: {field}")
     return parsed
 
 
 def _window_matrix(raw_window: dict) -> list[list[float]]:
     matrix = raw_window.get("samples", raw_window.get("matrix"))
     if not isinstance(matrix, list) or not matrix:
-        raise ValueError("sensor window senza matrice samples/matrix")
+        raise InvalidRawSensorPayload("sensor window senza matrice samples/matrix")
     normalized: list[list[float]] = []
     for row in matrix:
         if not isinstance(row, list) or len(row) < 6:
-            raise ValueError("sensor window con riga matrice non valida")
-        normalized.append([float(value) for value in row])
+            raise InvalidRawSensorPayload("sensor window con riga matrice non valida")
+        try:
+            normalized.append([float(value) for value in row])
+        except (TypeError, ValueError) as exc:
+            raise InvalidRawSensorPayload(
+                "sensor window con valore matrice non numerico"
+            ) from exc
     return normalized
 
 
@@ -91,18 +105,32 @@ def _parse_sensor_window(raw_window: dict) -> PipelineSensorWindow:
         "window_end",
     )
     if end <= start:
-        raise ValueError("sensor window con intervallo temporale non valido")
+        raise InvalidRawSensorPayload(
+            "sensor window con intervallo temporale non valido"
+        )
 
-    sample_rate = int(raw_window.get("sample_rate_hz", raw_window.get("frequency_hz", 0)))
+    try:
+        sample_rate = int(
+            raw_window.get("sample_rate_hz", raw_window.get("frequency_hz", 0))
+        )
+    except (TypeError, ValueError) as exc:
+        raise InvalidRawSensorPayload(
+            "sensor window con sample_rate_hz non valido"
+        ) from exc
     if sample_rate <= 0:
-        raise ValueError("sensor window con sample_rate_hz non valido")
+        raise InvalidRawSensorPayload("sensor window con sample_rate_hz non valido")
 
     matrix = _window_matrix(raw_window)
-    sample_count = int(raw_window.get("sample_count", len(matrix)))
+    try:
+        sample_count = int(raw_window.get("sample_count", len(matrix)))
+    except (TypeError, ValueError) as exc:
+        raise InvalidRawSensorPayload(
+            "sensor window con sample_count non valido"
+        ) from exc
     if sample_count != len(matrix):
-        raise ValueError("sensor window con sample_count incoerente")
+        raise InvalidRawSensorPayload("sensor window con sample_count incoerente")
     if sample_count != 500:
-        raise ValueError("sensor window con sample_count diverso da 500")
+        raise InvalidRawSensorPayload("sensor window con sample_count diverso da 500")
 
     return PipelineSensorWindow(
         start_timestamp=start,
@@ -123,7 +151,7 @@ def _load_raw_sensor_windows(ingestion: TripIngestion) -> list[PipelineSensorWin
         payload = _load_json_gz(part.object_key)
         raw_windows = payload.get("windows") if isinstance(payload, dict) else payload
         if not isinstance(raw_windows, list):
-            raise ValueError("payload raw sensor senza lista windows")
+            raise InvalidRawSensorPayload("payload raw sensor senza lista windows")
         windows.extend(_parse_sensor_window(raw_window) for raw_window in raw_windows)
     return sorted(windows, key=lambda window: window.start_timestamp)
 
@@ -223,8 +251,9 @@ def process_trip_ingestion(self, ingestion_id: int) -> dict:
     transazione atomica. Le sensor window NON entrano in Postgres: restano blob
     nello storage in attesa di HAR (REPORT D4/D8).
 
-    CONGELATO (D9): HAR finale non viene invocato e i blob raw NON vengono mai
-    cancellati. Lo stato terminale della Core Ingestion e' COMPLETED.
+    La fase HAR finale e separata: dopo il completamento core, `complete-raw`
+    accoda `process_trip_har_final` quando tutte le sensor window sono arrivate.
+    I blob raw NON vengono cancellati in questa fase del progetto.
     """
     ingestion = TripIngestion.objects.select_related("user").get(id=ingestion_id)
 
@@ -285,8 +314,6 @@ def process_trip_ingestion(self, ingestion_id: int) -> dict:
             raise self.retry(exc=exc)
         raise
 
-    # CONGELATO: qui in futuro andra' `process_trip_har_final.delay(trip.id, ingestion.id)`.
-    # Per ora HAR non viene invocato e i blob raw restano nello storage.
     return {
         "trip_id": trip.id,
         "gps_points": gps_count,
@@ -350,6 +377,17 @@ def process_trip_har_final(self, job_id: int, ingestion_id: int) -> dict:
             job.result = result
             job.error = ""
             job.save(update_fields=["status", "result", "error", "updated_at"])
+    except InvalidRawSensorPayload as exc:
+        ingestion.raw_status = TripIngestion.PhaseStatus.FAILED_FINAL
+        ingestion.error_message = str(exc)
+        ingestion.failed_at = timezone.now()
+        ingestion.save(
+            update_fields=["raw_status", "error_message", "failed_at", "updated_at"]
+        )
+        job.status = HarJob.Status.FAILURE
+        job.error = str(exc)
+        job.save(update_fields=["status", "error", "updated_at"])
+        raise
     except Exception as exc:  # noqa: BLE001
         will_retry = self.request.retries < self.max_retries
         ingestion.raw_status = (

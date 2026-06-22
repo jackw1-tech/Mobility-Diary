@@ -1,10 +1,8 @@
 """Classificatore di attivita.
 
-PLACEHOLDER: finche il modello `.keras` (CNN 9ch + GRU) non e disponibile,
-`classify_windows` usa una semplice classificazione a bande di velocita GPS
-(il livello HAR "base" ammesso dalla traccia). Le matrici normalizzate vengono
-comunque calcolate a monte (preprocessing reale) e passate qui: il modello vero
-le usera al posto della velocita, senza cambiare il resto della pipeline.
+Quando le finestre raw sono disponibili, `classify_windows` invoca l'adapter
+Keras CNN+GRU. Se il modello non e disponibile e `HAR_MODEL_REQUIRED` e falso,
+usa una classificazione a bande di velocita GPS come fallback esplicito.
 
 `correct_idle_with_gps` e gia la fusione GPS definitiva: corregge le finestre
 IDLE circondate da velocita da veicolo (IDLE<->MOVING_VEHICLE), il difetto #1

@@ -180,6 +180,14 @@ class TripSyncQueueImpl implements TripSyncQueue {
             await _finalizeAllDone(job, package);
             return;
           }
+          if (status.isRawFailedFinal) {
+            await _dao.updateSyncJob(
+              job.id,
+              rawStatus: syncJobFailedFinal,
+              lastError: const Value('raw sensor ingestion fallita'),
+            );
+            return;
+          }
           if (status.isRawBackendProcessing) {
             await _deletePackageDirectory(package);
             await _waitForRawProcessing(job, remoteIngestionId: ingestionId);
@@ -194,6 +202,14 @@ class TripSyncQueueImpl implements TripSyncQueue {
           status = await _api.getStatus(ingestionId);
           if (status.isRawDone) {
             await _finalizeAllDone(job, package);
+            return;
+          }
+          if (status.isRawFailedFinal) {
+            await _dao.updateSyncJob(
+              job.id,
+              rawStatus: syncJobFailedFinal,
+              lastError: const Value('raw sensor ingestion fallita'),
+            );
             return;
           }
           if (status.isRawBackendProcessing) {

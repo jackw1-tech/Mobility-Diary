@@ -3,11 +3,11 @@
 Passi (a fine viaggio, nel worker Celery):
   1. normalizzazione reale delle finestre (grezzo -> pronto per il modello)
   2. velocita GPS per finestra (contesto temporale)
-  3. classificazione attivita (placeholder GPS; sostituibile con CNN+GRU)
+  3. classificazione attivita (CNN+GRU quando i raw sono disponibili; fallback GPS)
   4. fusione GPS per IDLE<->MOVING_VEHICLE
   5. segmentazione a 2 passate:
        passata 1: confini SOSTA/SPOSTAMENTO dalle transizioni FSM
-       passata 2: dentro gli SPOSTAMENTI, split a ogni cambio di label HAR
+       passata 2: dentro gli SPOSTAMENTI, smoothing e split dei cambi label HAR
   6. luoghi significativi (sosta >= soglia): centroide + raggio + dwell
   7. scrittura MobilitySegment + SignificantPlace, Trip.status = PROCESSED
 """
@@ -28,6 +28,7 @@ from .preprocessing import normalize_window
 
 STOP_STATE = "STATIONARY"
 SIGNIFICANT_DWELL_SECONDS = 5 * 60  # soglia "permanenza" (motivata in relazione)
+MIN_ISOLATED_LABEL_SECONDS = 60
 
 
 @dataclass(frozen=True)
@@ -145,6 +146,49 @@ def _build_stop(trip, start, end, gps) -> None:
     )
 
 
+def _label_runs(inside):
+    runs = []
+    current = []
+    for item in inside:
+        if current and item[1] != current[-1][1]:
+            runs.append(current)
+            current = []
+        current.append(item)
+    if current:
+        runs.append(current)
+    return runs
+
+
+def _run_duration_seconds(run) -> float:
+    return (run[-1][0].end_timestamp - run[0][0].start_timestamp).total_seconds()
+
+
+def _smooth_isolated_label_changes(inside):
+    """Fonde label brevissime isolate tra due blocchi con la stessa label."""
+    runs = _label_runs(inside)
+    if len(runs) < 3:
+        return inside
+
+    smoothed = list(inside)
+    cursor = 0
+    for idx, run in enumerate(runs):
+        run_length = len(run)
+        if 0 < idx < len(runs) - 1:
+            previous_label = runs[idx - 1][0][1]
+            current_label = run[0][1]
+            next_label = runs[idx + 1][0][1]
+            if (
+                previous_label == next_label
+                and current_label != previous_label
+                and _run_duration_seconds(run) < MIN_ISOLATED_LABEL_SECONDS
+            ):
+                for offset in range(run_length):
+                    window, _label = smoothed[cursor + offset]
+                    smoothed[cursor + offset] = (window, previous_label)
+        cursor += run_length
+    return smoothed
+
+
 def _build_move(trip, start, end, windows, labels, gps) -> None:
     inside = [
         (w, lbl)
@@ -167,7 +211,9 @@ def _build_move(trip, start, end, windows, labels, gps) -> None:
         )
         return
 
-    # Passata 2: split a ogni cambio di label.
+    inside = _smooth_isolated_label_changes(inside)
+
+    # Passata 2: split a ogni cambio di label rimasto dopo smoothing.
     group_start_idx = 0
     for i in range(1, len(inside) + 1):
         if i == len(inside) or inside[i][1] != inside[group_start_idx][1]:
@@ -201,8 +247,7 @@ def run_pipeline(
     gps = list(trip.gps_points.order_by("timestamp"))
     transitions = list(trip.state_transitions.order_by("timestamp"))
 
-    # 1. normalizzazione reale (grezzo -> pronto). Per ora il risultato non
-    #    alimenta ancora un modello: il classificatore e un placeholder.
+    # 1. normalizzazione reale (grezzo -> pronto per il modello/fallback).
     all_windows_have_matrix = all(w.matrix is not None for w in windows)
     _normalized = [
         normalize_window(w.matrix) for w in windows if w.matrix is not None

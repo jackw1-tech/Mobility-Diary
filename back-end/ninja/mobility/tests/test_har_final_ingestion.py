@@ -21,7 +21,7 @@ from mobility.models import (
     TripIngestion,
     TripIngestionPart,
 )
-from mobility.tasks import process_trip_har_final
+from mobility.tasks import InvalidRawSensorPayload, process_trip_har_final
 
 
 @pytest.fixture
@@ -156,6 +156,104 @@ def test_complete_raw_queues_har_final_after_all_raw_parts(
 
 
 @pytest.mark.django_db
+def test_complete_raw_rejects_when_core_is_not_completed(user):
+    ingestion = TripIngestion.objects.create(
+        user=user,
+        client_session_id="har-core-pending",
+        core_status=TripIngestion.PhaseStatus.PROCESSING,
+        raw_status=TripIngestion.PhaseStatus.RECEIVED,
+        expected_raw_parts={PartKind.SENSOR_WINDOWS: 1},
+    )
+
+    response = Client().post(
+        f"/api/ingestion/trips/{ingestion.id}/complete-raw",
+        data=stable_json({"manifest_sha256": "b" * 64, "total_parts": 1}).decode(
+            "utf-8"
+        ),
+        content_type="application/json",
+        **auth_headers(user),
+    )
+
+    assert response.status_code == 409
+    assert "core ingestion non ancora completata" in response.json()["detail"]
+
+
+@pytest.mark.django_db
+def test_complete_raw_rejects_when_raw_parts_are_missing(user):
+    trip = Trip.objects.create(
+        user=user,
+        client_session_id="har-missing-raw",
+        device_id="test-device",
+        status=Trip.Status.CLOSED,
+    )
+    ingestion = TripIngestion.objects.create(
+        user=user,
+        client_session_id="har-missing-raw",
+        core_status=TripIngestion.PhaseStatus.COMPLETED,
+        raw_status=TripIngestion.PhaseStatus.RECEIVED,
+        expected_raw_parts={PartKind.SENSOR_WINDOWS: 1},
+        trip=trip,
+    )
+
+    response = Client().post(
+        f"/api/ingestion/trips/{ingestion.id}/complete-raw",
+        data=stable_json({"manifest_sha256": "b" * 64, "total_parts": 1}).decode(
+            "utf-8"
+        ),
+        content_type="application/json",
+        **auth_headers(user),
+    )
+
+    assert response.status_code == 409
+    assert "parti raw mancanti" in response.json()["detail"]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "raw_status",
+    [
+        TripIngestion.PhaseStatus.QUEUED,
+        TripIngestion.PhaseStatus.PROCESSING,
+        TripIngestion.PhaseStatus.COMPLETED,
+        TripIngestion.PhaseStatus.FAILED_RETRYABLE,
+    ],
+)
+def test_complete_raw_is_idempotent_for_terminal_or_backend_owned_states(
+    user,
+    raw_status,
+):
+    trip = Trip.objects.create(
+        user=user,
+        client_session_id=f"har-idempotent-{raw_status}",
+        device_id="test-device",
+        status=Trip.Status.CLOSED,
+    )
+    ingestion = TripIngestion.objects.create(
+        user=user,
+        client_session_id=f"har-idempotent-{raw_status}",
+        core_status=TripIngestion.PhaseStatus.COMPLETED,
+        raw_status=raw_status,
+        expected_raw_parts={PartKind.SENSOR_WINDOWS: 1},
+        trip=trip,
+    )
+
+    response = Client().post(
+        f"/api/ingestion/trips/{ingestion.id}/complete-raw",
+        data=stable_json({"manifest_sha256": "b" * 64, "total_parts": 1}).decode(
+            "utf-8"
+        ),
+        content_type="application/json",
+        **auth_headers(user),
+    )
+
+    ingestion.refresh_from_db()
+    assert response.status_code == 202
+    assert response.json()["raw_status"] == raw_status
+    assert ingestion.raw_status == raw_status
+    assert not HarJob.objects.filter(trip=trip).exists()
+
+
+@pytest.mark.django_db
 def test_process_trip_har_final_reads_raw_and_regenerates_segments(
     user,
     monkeypatch,
@@ -218,7 +316,9 @@ def test_process_trip_har_final_reads_raw_and_regenerates_segments(
     )
     job = HarJob.objects.create(trip=trip, kind=HarJob.Kind.FINAL_TRIP)
     raw = gzip.compress(json.dumps(_sensor_part_payload(start)).encode("utf-8"))
+    deleted: list[str] = []
     monkeypatch.setattr(storage, "read_object", lambda object_key: raw)
+    monkeypatch.setattr(storage, "delete_objects", lambda keys: deleted.extend(keys))
     MobilitySegment.objects.create(
         trip=trip,
         kind=MobilitySegment.Kind.MOVE,
@@ -248,6 +348,7 @@ def test_process_trip_har_final_reads_raw_and_regenerates_segments(
     assert stop.path is None
     assert stop.place is not None
     assert stop.place.dwell_seconds == 300
+    assert deleted == []
 
 
 @pytest.mark.django_db
@@ -284,6 +385,36 @@ def test_process_trip_har_final_marks_storage_failure_retryable_without_cleanup(
 
 
 @pytest.mark.django_db
+def test_process_trip_har_final_marks_model_failure_final_after_retry_exhausted(
+    user,
+    monkeypatch,
+):
+    start = timezone.now()
+    _trip, ingestion, job = _create_har_ingestion(
+        user,
+        session_id="har-model-final",
+        start=start,
+    )
+    raw = gzip.compress(json.dumps(_sensor_part_payload(start)).encode("utf-8"))
+
+    def fail_pipeline(_trip, *, sensor_windows):
+        raise RuntimeError("modello HAR non caricabile")
+
+    monkeypatch.setattr(process_trip_har_final, "max_retries", 0)
+    monkeypatch.setattr(storage, "read_object", lambda object_key: raw)
+    monkeypatch.setattr("mobility.tasks.run_pipeline", fail_pipeline)
+
+    with pytest.raises(RuntimeError, match="modello HAR"):
+        process_trip_har_final.run(job.id, ingestion.id)
+
+    ingestion.refresh_from_db()
+    job.refresh_from_db()
+    assert ingestion.raw_status == TripIngestion.PhaseStatus.FAILED_FINAL
+    assert "modello HAR" in ingestion.error_message
+    assert job.status == HarJob.Status.FAILURE
+
+
+@pytest.mark.django_db
 def test_process_trip_har_final_marks_invalid_payload_final_without_cleanup(
     user,
     monkeypatch,
@@ -312,7 +443,7 @@ def test_process_trip_har_final_marks_invalid_payload_final_without_cleanup(
     monkeypatch.setattr(storage, "read_object", lambda object_key: raw)
     monkeypatch.setattr(storage, "delete_objects", lambda keys: deleted.extend(keys))
 
-    with pytest.raises(ValueError, match="sample_count diverso da 500"):
+    with pytest.raises(InvalidRawSensorPayload, match="sample_count diverso da 500"):
         process_trip_har_final.run(job.id, ingestion.id)
 
     ingestion.refresh_from_db()
@@ -322,3 +453,76 @@ def test_process_trip_har_final_marks_invalid_payload_final_without_cleanup(
     assert job.status == HarJob.Status.FAILURE
     assert "sample_count diverso da 500" in job.error
     assert deleted == []
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("raw", "match"),
+    [
+        (b"not-gzip", "gzip non valido"),
+        (gzip.compress(b"{"), "JSON non valido"),
+    ],
+)
+def test_process_trip_har_final_marks_unreadable_payload_final(
+    user,
+    monkeypatch,
+    raw,
+    match,
+):
+    start = timezone.now()
+    _trip, ingestion, job = _create_har_ingestion(
+        user,
+        session_id=f"har-unreadable-{match}",
+        start=start,
+    )
+
+    monkeypatch.setattr(storage, "read_object", lambda object_key: raw)
+
+    with pytest.raises(InvalidRawSensorPayload, match=match):
+        process_trip_har_final.run(job.id, ingestion.id)
+
+    ingestion.refresh_from_db()
+    job.refresh_from_db()
+    assert ingestion.raw_status == TripIngestion.PhaseStatus.FAILED_FINAL
+    assert match in ingestion.error_message
+    assert job.status == HarJob.Status.FAILURE
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("window_patch", "match"),
+    [
+        ({"window_start": None}, "timestamp raw non valido"),
+        ({"sample_rate_hz": 0}, "sample_rate_hz non valido"),
+        (
+            {"samples": [[0.0] * 5 for _ in range(500)]},
+            "riga matrice non valida",
+        ),
+    ],
+)
+def test_process_trip_har_final_marks_structurally_invalid_window_final(
+    user,
+    monkeypatch,
+    window_patch,
+    match,
+):
+    start = timezone.now()
+    _trip, ingestion, job = _create_har_ingestion(
+        user,
+        session_id=f"har-invalid-{match}",
+        start=start,
+    )
+    payload = _sensor_part_payload(start)
+    payload["windows"][0].update(window_patch)
+    raw = gzip.compress(json.dumps(payload).encode("utf-8"))
+
+    monkeypatch.setattr(storage, "read_object", lambda object_key: raw)
+
+    with pytest.raises(InvalidRawSensorPayload, match=match):
+        process_trip_har_final.run(job.id, ingestion.id)
+
+    ingestion.refresh_from_db()
+    job.refresh_from_db()
+    assert ingestion.raw_status == TripIngestion.PhaseStatus.FAILED_FINAL
+    assert match in ingestion.error_message
+    assert job.status == HarJob.Status.FAILURE

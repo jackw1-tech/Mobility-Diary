@@ -5,6 +5,9 @@
 > inferenza HAR nel worker Celery, e produzione del Diario della Mobilita.
 > Rispetta ADR 0003-0012.
 
+> Stato implementazione - 2026-06-22: completata e verificata con test backend,
+> test mobile e smoke test AI su Railway Celery-Worker.
+
 ## Problem Statement
 
 Il sistema sa gia sincronizzare il Core del Viaggio e caricare le finestre

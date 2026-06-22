@@ -50,7 +50,9 @@ class IngestionStatus {
   bool get isRawDone => rawStatus == 'COMPLETED';
   bool get isRawFailedFinal => rawStatus == 'FAILED_FINAL';
   bool get isRawBackendProcessing =>
-      rawStatus == 'QUEUED' || rawStatus == 'PROCESSING';
+      rawStatus == 'QUEUED' ||
+      rawStatus == 'PROCESSING' ||
+      rawStatus == 'FAILED_RETRYABLE';
   bool get canCompleteRaw => rawStatus == 'RECEIVED';
 
   bool get isCoreBackendProcessing {
@@ -102,7 +104,9 @@ class InlineCoreResult {
   bool get isRawDone => rawStatus == 'COMPLETED';
   bool get isRawFailedFinal => rawStatus == 'FAILED_FINAL';
   bool get isRawBackendProcessing =>
-      rawStatus == 'QUEUED' || rawStatus == 'PROCESSING';
+      rawStatus == 'QUEUED' ||
+      rawStatus == 'PROCESSING' ||
+      rawStatus == 'FAILED_RETRYABLE';
   bool get canCompleteRaw => rawStatus == 'RECEIVED';
   bool get canReceiveRawParts =>
       rawStatus == 'PENDING' || rawStatus == 'RECEIVING';

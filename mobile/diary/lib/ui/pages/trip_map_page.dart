@@ -80,10 +80,27 @@ class _TrackMap extends StatefulWidget {
 class _TrackMapState extends State<_TrackMap> {
   MapboxMap? _map;
   bool _styleReady = false;
+  bool _showSegments = true;
+  PolylineAnnotationManager? _lineManager;
+  CircleAnnotationManager? _circleManager;
+  final Map<String, TripTrackSegmentState> _segmentByAnnotationId = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _showSegments = widget.state.isSegmented;
+  }
 
   @override
   void didUpdateWidget(covariant _TrackMap oldWidget) {
     super.didUpdateWidget(oldWidget);
+    final justSegmented =
+        !oldWidget.state.isSegmented && widget.state.isSegmented;
+    if (justSegmented) {
+      // L'AI ha appena finito di segmentare il viaggio: passa alla vista
+      // segmentata anche se l'utente stava guardando la traccia intera.
+      _showSegments = true;
+    }
     if (oldWidget.state.points != widget.state.points ||
         oldWidget.state.segments != widget.state.segments) {
       _drawTrack();
@@ -107,20 +124,38 @@ class _TrackMapState extends State<_TrackMap> {
     final points = widget.state.points;
     if (points.isEmpty) return;
 
+    final oldLineManager = _lineManager;
+    final oldCircleManager = _circleManager;
+    _lineManager = null;
+    _circleManager = null;
+    _segmentByAnnotationId.clear();
+    if (oldLineManager != null) {
+      await map.annotations.removeAnnotationManager(oldLineManager);
+    }
+    if (oldCircleManager != null) {
+      await map.annotations.removeAnnotationManager(oldCircleManager);
+    }
+
     final lineManager = await map.annotations.createPolylineAnnotationManager();
-    if (widget.state.segments.isNotEmpty) {
+    _lineManager = lineManager;
+    if (_showSegments && widget.state.segments.isNotEmpty) {
       for (final segment in widget.state.segments) {
-        await _drawLine(
+        final annotation = await _drawLine(
           lineManager,
           segment.points,
           _activityColor(segment.activityLabel),
         );
+        if (annotation != null) {
+          _segmentByAnnotationId[annotation.id] = segment;
+        }
       }
+      lineManager.tapEvents(onTap: _onSegmentTapped);
     } else {
       await _drawLine(lineManager, points, ColorPalette.primary);
     }
 
     final circleManager = await map.annotations.createCircleAnnotationManager();
+    _circleManager = circleManager;
     await circleManager.create(
       CircleAnnotationOptions(
         geometry: Point(
@@ -158,13 +193,13 @@ class _TrackMapState extends State<_TrackMap> {
     await map.flyTo(bounds, MapAnimationOptions(duration: 600));
   }
 
-  Future<void> _drawLine(
+  Future<PolylineAnnotation?> _drawLine(
     PolylineAnnotationManager lineManager,
     List<LatLng> points,
     Color color,
   ) async {
-    if (points.length < 2) return;
-    await lineManager.create(
+    if (points.length < 2) return null;
+    return lineManager.create(
       PolylineAnnotationOptions(
         geometry: LineString(
           coordinates: [
@@ -191,6 +226,26 @@ class _TrackMapState extends State<_TrackMap> {
       default:
         return ColorPalette.primary;
     }
+  }
+
+  void _onSegmentTapped(PolylineAnnotation annotation) {
+    final segment = _segmentByAnnotationId[annotation.id];
+    if (segment == null) return;
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => _SegmentDetailsSheet(
+        color: _activityColor(segment.activityLabel),
+        activityLabel: activityLabelText(segment.activityLabel),
+        distanceMeters: segment.distanceMeters,
+      ),
+    );
+  }
+
+  void _toggleSegmented(bool showSegments) {
+    if (_showSegments == showSegments) return;
+    setState(() => _showSegments = showSegments);
+    _drawTrack();
   }
 
   @override
@@ -220,6 +275,15 @@ class _TrackMapState extends State<_TrackMap> {
             right: 0,
             child: LinearProgressIndicator(minHeight: 3),
           ),
+        if (widget.state.isSegmented)
+          Positioned(
+            top: Dimensions.paddingMedium,
+            right: Dimensions.paddingMedium,
+            child: _ViewModeToggle(
+              showSegments: _showSegments,
+              onChanged: _toggleSegmented,
+            ),
+          ),
         Positioned(
           left: Dimensions.paddingMedium,
           right: Dimensions.paddingMedium,
@@ -229,6 +293,119 @@ class _TrackMapState extends State<_TrackMap> {
       ],
     );
   }
+}
+
+class _ViewModeToggle extends StatelessWidget {
+  final bool showSegments;
+  final ValueChanged<bool> onChanged;
+
+  const _ViewModeToggle({
+    required this.showSegments,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: ColorPalette.surface,
+      elevation: Dimensions.cardElevation,
+      borderRadius: BorderRadius.circular(Dimensions.borderRadiusLarge),
+      child: Padding(
+        padding: const EdgeInsets.all(4),
+        child: SegmentedButton<bool>(
+          segments: const [
+            ButtonSegment(
+              value: false,
+              icon: Icon(Icons.timeline),
+              label: Text('Traccia'),
+            ),
+            ButtonSegment(
+              value: true,
+              icon: Icon(Icons.route),
+              label: Text('Segmenti'),
+            ),
+          ],
+          selected: {showSegments},
+          onSelectionChanged: (selection) => onChanged(selection.first),
+        ),
+      ),
+    );
+  }
+}
+
+class _SegmentDetailsSheet extends StatelessWidget {
+  final Color color;
+  final String activityLabel;
+  final double distanceMeters;
+
+  const _SegmentDetailsSheet({
+    required this.color,
+    required this.activityLabel,
+    required this.distanceMeters,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        Dimensions.paddingLarge,
+        Dimensions.paddingSmall,
+        Dimensions.paddingLarge,
+        Dimensions.paddingLarge,
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 14,
+            height: 14,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: Dimensions.paddingMedium),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  activityLabel,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                Text(
+                  formatDistance(distanceMeters),
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: ColorPalette.textSecondary,
+                      ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+String activityLabelText(String label) {
+  switch (label) {
+    case 'WALKING':
+      return 'A piedi';
+    case 'RUNNING':
+      return 'Corsa';
+    case 'BIKING':
+      return 'Bici';
+    case 'MOVING_VEHICLE':
+      return 'Veicolo';
+    default:
+      return label;
+  }
+}
+
+String formatDistance(double meters) {
+  if (meters >= 1000) {
+    return '${(meters / 1000).toStringAsFixed(2)} km';
+  }
+  return '${meters.round()} m';
 }
 
 class _DistanceOverlay extends StatelessWidget {
@@ -257,7 +434,7 @@ class _DistanceOverlay extends StatelessWidget {
             const Icon(Icons.route, color: ColorPalette.primary),
             const SizedBox(width: Dimensions.paddingSmall),
             Text(
-              _formatDistance(distanceMeters),
+              formatDistance(distanceMeters),
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
@@ -266,13 +443,6 @@ class _DistanceOverlay extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  String _formatDistance(double meters) {
-    if (meters >= 1000) {
-      return '${(meters / 1000).toStringAsFixed(2)} km';
-    }
-    return '${meters.round()} m';
   }
 }
 

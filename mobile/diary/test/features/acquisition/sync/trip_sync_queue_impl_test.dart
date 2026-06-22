@@ -373,6 +373,93 @@ void main() {
     expect(await database.acquisitionDao.countSensorWindowsForSession(id), 0);
   });
 
+  test('raw processing after upload waits for backend HAR completion',
+      () async {
+    final id = await seedSessionWithData();
+    final api = FakeIngestionApi()..rawStatusAfterComplete = 'PROCESSING';
+
+    await queue(
+      api,
+      backoff: const [Duration.zero],
+      pollDelay: Duration.zero,
+    ).kick();
+
+    final job = await database.acquisitionDao.syncJobForSession(id);
+    expect(api.rawCompleteCalled, isTrue);
+    expect(job!.coreStatus, syncJobCompleted);
+    expect(job.rawStatus, syncJobWaitingProcessing);
+    expect(job.nextRetryAt, isNotNull);
+    expect(await database.acquisitionDao.countSensorWindowsForSession(id), 1);
+  });
+
+  test('raw received completes without re-uploading already accepted parts',
+      () async {
+    final id = await seedSessionWithData();
+    final api = FakeIngestionApi()
+      ..rawStatusBeforeComplete = 'RECEIVED'
+      ..rawStatusAfterComplete = 'QUEUED';
+
+    await queue(
+      api,
+      backoff: const [Duration.zero],
+      pollDelay: Duration.zero,
+    ).kick();
+
+    final job = await database.acquisitionDao.syncJobForSession(id);
+    expect(api.presigned, isEmpty);
+    expect(api.uploaded, isEmpty);
+    expect(api.confirmed, isEmpty);
+    expect(api.rawCompleteCalled, isTrue);
+    expect(job!.coreStatus, syncJobCompleted);
+    expect(job.rawStatus, syncJobWaitingProcessing);
+    expect(await database.acquisitionDao.countSensorWindowsForSession(id), 1);
+  });
+
+  test('raw failed retryable keeps polling without re-uploading phone data',
+      () async {
+    final id = await seedSessionWithData();
+    final api = FakeIngestionApi()..rawStatusAfterComplete = 'FAILED_RETRYABLE';
+
+    await queue(
+      api,
+      backoff: const [Duration.zero],
+      pollDelay: Duration.zero,
+    ).kick();
+
+    var job = await database.acquisitionDao.syncJobForSession(id);
+    expect(api.rawCompleteCalled, isTrue);
+    expect(job!.coreStatus, syncJobCompleted);
+    expect(job.rawStatus, syncJobWaitingProcessing);
+    expect(await database.acquisitionDao.countSensorWindowsForSession(id), 1);
+
+    api.rawStatusAfterComplete = 'COMPLETED';
+    await queue(
+      api,
+      backoff: const [Duration.zero],
+      pollDelay: Duration.zero,
+    ).kick();
+
+    job = await database.acquisitionDao.syncJobForSession(id);
+    expect(api.coreInlineCallCount, 1);
+    expect(job!.rawStatus, syncJobCompleted);
+    expect(await database.acquisitionDao.countSensorWindowsForSession(id), 0);
+  });
+
+  test('raw failed final preserves synced trip but closes raw phase as failed',
+      () async {
+    final id = await seedSessionWithData();
+    final api = FakeIngestionApi()..rawStatusAfterComplete = 'FAILED_FINAL';
+
+    await queue(api).kick();
+
+    final job = await database.acquisitionDao.syncJobForSession(id);
+    expect(api.rawCompleteCalled, isTrue);
+    expect(job!.coreStatus, syncJobCompleted);
+    expect(job.rawStatus, syncJobFailedFinal);
+    expect(job.remoteTripId, 1);
+    expect(job.coreMapAvailable, isTrue);
+  });
+
   test('raw retry keeps core completed and does not repost inline core',
       () async {
     final id = await seedSessionWithData();
