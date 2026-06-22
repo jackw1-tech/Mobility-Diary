@@ -8,6 +8,7 @@ import 'package:diary/routers/app_router.dart';
 import 'package:diary/theme/Dimensions.dart';
 import 'package:diary/theme/color_palette.dart';
 import 'package:diary/ui/pages/auth_page.dart';
+import 'package:diary/ui/widgets/live_map.dart';
 import 'package:diary/ui/widgets/trips_drawer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -47,9 +48,8 @@ class _AuthenticatedHomePage extends StatelessWidget {
         return Scaffold(
           drawer: const TripsDrawer(),
           appBar: AppBar(
+            centerTitle: true,
             title: Text(userLabel == null ? 'Mobile Edge' : userLabel!),
-            backgroundColor: ColorPalette.primary,
-            foregroundColor: Colors.white,
             actions: [
               IconButton(
                 tooltip: 'Logout',
@@ -58,28 +58,45 @@ class _AuthenticatedHomePage extends StatelessWidget {
               ),
             ],
           ),
-          body: ColoredBox(
-            color: ColorPalette.background,
-            child: SafeArea(
-              child: ListView(
-                padding: const EdgeInsets.all(Dimensions.paddingMedium),
-                children: [
-                  _TrackingHeader(state: state),
-                  if (state.syncSnapshot.hasJob) ...[
-                    const SizedBox(height: Dimensions.paddingMedium),
-                    _SyncStatusPanel(state: state),
-                  ],
-                  const SizedBox(height: Dimensions.paddingMedium),
-                  _CoreMetrics(state: state),
-                  const SizedBox(height: Dimensions.paddingMedium),
-                  _SensorList(state: state),
-                  const SizedBox(height: Dimensions.paddingMedium),
-                  _LastTransition(state: state),
-                  const SizedBox(height: Dimensions.paddingMedium),
-                  _LiveMetricList(state: state),
-                ],
+          body: Stack(
+            children: [
+              const Positioned.fill(child: LiveMap()),
+              DraggableScrollableSheet(
+                initialChildSize: 0.30,
+                minChildSize: 0.12,
+                maxChildSize: 0.9,
+                builder: (context, scrollController) {
+                  return DecoratedBox(
+                    decoration: const BoxDecoration(
+                      color: ColorPalette.background,
+                      borderRadius: BorderRadius.vertical(
+                        top: Radius.circular(Dimensions.borderRadiusLarge),
+                      ),
+                      border: Border(
+                        top: BorderSide(color: ColorPalette.hairline),
+                      ),
+                    ),
+                    child: ListView(
+                      controller: scrollController,
+                      padding: const EdgeInsets.all(Dimensions.paddingMedium),
+                      children: [
+                        const _SheetHandle(),
+                        const SizedBox(height: Dimensions.paddingSmall),
+                        _TrackingHeader(state: state),
+                        if (state.syncSnapshot.hasJob) ...[
+                          const SizedBox(height: Dimensions.paddingMedium),
+                          _SyncStatusPanel(state: state),
+                        ],
+                        const SizedBox(height: Dimensions.paddingMedium),
+                        _CoreMetrics(state: state),
+                        const SizedBox(height: Dimensions.paddingMedium),
+                        _SensorList(state: state),
+                      ],
+                    ),
+                  );
+                },
               ),
-            ),
+            ],
           ),
         );
       },
@@ -200,6 +217,24 @@ class _TrackingHeader extends StatelessWidget {
         );
       }
     }
+  }
+}
+
+class _SheetHandle extends StatelessWidget {
+  const _SheetHandle();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Container(
+        width: 40,
+        height: 4,
+        decoration: BoxDecoration(
+          color: ColorPalette.textSecondary.withValues(alpha: 0.4),
+          borderRadius: BorderRadius.circular(2),
+        ),
+      ),
+    );
   }
 }
 
@@ -631,173 +666,6 @@ class _SensorRow extends StatelessWidget {
   }
 }
 
-class _LastTransition extends StatelessWidget {
-  final AcquisitionCubitState state;
-
-  const _LastTransition({required this.state});
-
-  @override
-  Widget build(BuildContext context) {
-    final transition = state.snapshot.lastTransition;
-
-    return _Panel(
-      child: Row(
-        children: [
-          const Icon(Icons.timeline, color: ColorPalette.primary),
-          const SizedBox(width: Dimensions.paddingSmall),
-          Expanded(
-            child: Text(
-              transition == null
-                  ? 'Nessuna transizione'
-                  : '${transition.from.wireName} -> ${transition.to.wireName}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _LiveMetricList extends StatelessWidget {
-  final AcquisitionCubitState state;
-
-  const _LiveMetricList({required this.state});
-
-  @override
-  Widget build(BuildContext context) {
-    final clusters = state.metricClusters;
-
-    return _Panel(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.monitor_heart, color: ColorPalette.primary),
-              const SizedBox(width: Dimensions.paddingSmall),
-              Expanded(
-                child: Text(
-                  'Valori live',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                ),
-              ),
-              Text(
-                '${clusters.length}',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: ColorPalette.textSecondary,
-                      fontWeight: FontWeight.w700,
-                    ),
-              ),
-            ],
-          ),
-          const SizedBox(height: Dimensions.paddingSmall),
-          if (clusters.isEmpty)
-            Text(
-              state.isTracking ? 'In attesa dei sensori' : 'Premi Start',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: ColorPalette.textSecondary,
-                  ),
-            )
-          else
-            SizedBox(
-              height: 220,
-              child: Scrollbar(
-                thumbVisibility: true,
-                child: ListView.separated(
-                  padding: EdgeInsets.zero,
-                  itemCount: clusters.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
-                  itemBuilder: (context, index) {
-                    return _MetricClusterRow(cluster: clusters[index]);
-                  },
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MetricClusterRow extends StatelessWidget {
-  final AcquisitionMetricCluster cluster;
-
-  const _MetricClusterRow({required this.cluster});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: Dimensions.paddingSmall),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 56,
-            child: Text(
-              _formatTime(cluster.startedAt),
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    color: ColorPalette.textSecondary,
-                    fontWeight: FontWeight.w700,
-                  ),
-            ),
-          ),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'sigma ${cluster.sigmaAverage.toStringAsFixed(2)}'
-                  ' (${cluster.sigmaMin.toStringAsFixed(2)}-'
-                  '${cluster.sigmaMax.toStringAsFixed(2)})',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  'vel ${cluster.speedKmhAverage.toStringAsFixed(1)} km/h'
-                  ' (${cluster.speedKmhMin.toStringAsFixed(1)}-'
-                  '${cluster.speedKmhMax.toStringAsFixed(1)})',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: ColorPalette.textSecondary,
-                      ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: Dimensions.paddingSmall),
-          Text(
-            'n=${cluster.sampleCount}',
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: ColorPalette.textSecondary,
-                  fontWeight: FontWeight.w700,
-                ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _formatTime(DateTime time) {
-    final localTime = time.toLocal();
-    return '${_twoDigits(localTime.hour)}:'
-        '${_twoDigits(localTime.minute)}:'
-        '${_twoDigits(localTime.second)}';
-  }
-
-  String _twoDigits(int value) {
-    return value.toString().padLeft(2, '0');
-  }
-}
-
 class _Panel extends StatelessWidget {
   final Widget child;
 
@@ -805,10 +673,12 @@ class _Panel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: ColorPalette.surface,
-      elevation: Dimensions.cardElevation,
-      borderRadius: BorderRadius.circular(Dimensions.borderRadiusMedium),
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: ColorPalette.surface,
+        borderRadius: BorderRadius.circular(Dimensions.borderRadiusLarge),
+        border: Border.all(color: ColorPalette.hairline),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(Dimensions.paddingMedium),
         child: child,

@@ -1,5 +1,6 @@
 import gzip
 import json
+from typing import Any
 
 from celery import shared_task
 from django.contrib.gis.db.models.functions import Length
@@ -17,7 +18,7 @@ from .models import (
     Trip,
     TripIngestion,
 )
-from .ml.pipeline import run_pipeline
+from .ml.pipeline import PipelineSensorWindow, run_pipeline
 
 
 @shared_task(bind=True)
@@ -59,6 +60,72 @@ def _load_json_gz(object_key: str) -> dict:
     """Scarica e decomprime un blob .json.gz dallo storage."""
     raw = storage.read_object(object_key)
     return json.loads(gzip.decompress(raw).decode("utf-8"))
+
+
+def _parse_required_datetime(value: Any, field: str):
+    parsed = parse_datetime(str(value)) if value else None
+    if parsed is None:
+        raise ValueError(f"timestamp raw non valido: {field}")
+    return parsed
+
+
+def _window_matrix(raw_window: dict) -> list[list[float]]:
+    matrix = raw_window.get("samples", raw_window.get("matrix"))
+    if not isinstance(matrix, list) or not matrix:
+        raise ValueError("sensor window senza matrice samples/matrix")
+    normalized: list[list[float]] = []
+    for row in matrix:
+        if not isinstance(row, list) or len(row) < 6:
+            raise ValueError("sensor window con riga matrice non valida")
+        normalized.append([float(value) for value in row])
+    return normalized
+
+
+def _parse_sensor_window(raw_window: dict) -> PipelineSensorWindow:
+    start = _parse_required_datetime(
+        raw_window.get("window_start", raw_window.get("start")),
+        "window_start",
+    )
+    end = _parse_required_datetime(
+        raw_window.get("window_end", raw_window.get("end")),
+        "window_end",
+    )
+    if end <= start:
+        raise ValueError("sensor window con intervallo temporale non valido")
+
+    sample_rate = int(raw_window.get("sample_rate_hz", raw_window.get("frequency_hz", 0)))
+    if sample_rate <= 0:
+        raise ValueError("sensor window con sample_rate_hz non valido")
+
+    matrix = _window_matrix(raw_window)
+    sample_count = int(raw_window.get("sample_count", len(matrix)))
+    if sample_count != len(matrix):
+        raise ValueError("sensor window con sample_count incoerente")
+    if sample_count != 500:
+        raise ValueError("sensor window con sample_count diverso da 500")
+
+    return PipelineSensorWindow(
+        start_timestamp=start,
+        end_timestamp=end,
+        sample_count=sample_count,
+        frequency_hz=sample_rate,
+        matrix=matrix,
+    )
+
+
+def _load_raw_sensor_windows(ingestion: TripIngestion) -> list[PipelineSensorWindow]:
+    parts = ingestion.parts.filter(
+        kind=PartKind.SENSOR_WINDOWS,
+        received_at__isnull=False,
+    ).order_by("sequence")
+    windows: list[PipelineSensorWindow] = []
+    for part in parts:
+        payload = _load_json_gz(part.object_key)
+        raw_windows = payload.get("windows") if isinstance(payload, dict) else payload
+        if not isinstance(raw_windows, list):
+            raise ValueError("payload raw sensor senza lista windows")
+        windows.extend(_parse_sensor_window(raw_window) for raw_window in raw_windows)
+    return sorted(windows, key=lambda window: window.start_timestamp)
 
 
 def _materialize_gps(trip: Trip, ingestion: TripIngestion) -> int:
@@ -228,14 +295,78 @@ def process_trip_ingestion(self, ingestion_id: int) -> dict:
     }
 
 
-@shared_task(bind=True)
-def process_trip_har_final(self, trip_id: int, ingestion_id: int) -> dict:
-    """[CONGELATO — predisposto ma non attivo]
+@shared_task(bind=True, max_retries=3, default_retry_delay=30)
+def process_trip_har_final(self, job_id: int, ingestion_id: int) -> dict:
+    """Elabora i raw sensori dal bucket e rigenera il Diario della Mobilita."""
+    job = HarJob.objects.select_related("trip").get(id=job_id)
+    ingestion = TripIngestion.objects.select_related("trip").get(id=ingestion_id)
 
-    In futuro: legge le sensor window blob dallo storage, esegue HAR finale,
-    scrive label/segmenti, e SOLO on-success cancella i blob raw (D9).
-    Finche' HAR non e' integrato questo task non viene mai accodato.
-    """
-    raise NotImplementedError(
-        "process_trip_har_final e' congelato: HAR finale non ancora integrato (REPORT D9)."
+    if ingestion.raw_status == TripIngestion.PhaseStatus.COMPLETED:
+        result = {"skipped": "raw sensor ingestion already completed"}
+        job.status = HarJob.Status.SUCCESS
+        job.result = result
+        job.error = ""
+        job.save(update_fields=["status", "result", "error", "updated_at"])
+        return result
+
+    trip = ingestion.trip or job.trip
+    if trip is None:
+        raise ValueError("Trip assente per HAR finale")
+
+    now = timezone.now()
+    ingestion.raw_status = TripIngestion.PhaseStatus.PROCESSING
+    ingestion.started_processing_at = now
+    ingestion.error_message = ""
+    ingestion.save(
+        update_fields=[
+            "raw_status",
+            "started_processing_at",
+            "error_message",
+            "updated_at",
+        ]
     )
+    job.status = HarJob.Status.STARTED
+    job.error = ""
+    job.save(update_fields=["status", "error", "updated_at"])
+
+    try:
+        sensor_windows = _load_raw_sensor_windows(ingestion)
+        with transaction.atomic():
+            result = run_pipeline(trip, sensor_windows=sensor_windows)
+            ingestion.raw_status = TripIngestion.PhaseStatus.COMPLETED
+            ingestion.error_message = ""
+            ingestion.completed_at = timezone.now()
+            ingestion.failed_at = None
+            ingestion.save(
+                update_fields=[
+                    "raw_status",
+                    "error_message",
+                    "completed_at",
+                    "failed_at",
+                    "updated_at",
+                ]
+            )
+            job.status = HarJob.Status.SUCCESS
+            job.result = result
+            job.error = ""
+            job.save(update_fields=["status", "result", "error", "updated_at"])
+    except Exception as exc:  # noqa: BLE001
+        will_retry = self.request.retries < self.max_retries
+        ingestion.raw_status = (
+            TripIngestion.PhaseStatus.FAILED_RETRYABLE
+            if will_retry
+            else TripIngestion.PhaseStatus.FAILED_FINAL
+        )
+        ingestion.error_message = str(exc)
+        ingestion.failed_at = timezone.now()
+        ingestion.save(
+            update_fields=["raw_status", "error_message", "failed_at", "updated_at"]
+        )
+        job.status = HarJob.Status.FAILURE
+        job.error = str(exc)
+        job.save(update_fields=["status", "error", "updated_at"])
+        if will_retry:
+            raise self.retry(exc=exc)
+        raise
+
+    return result

@@ -11,6 +11,12 @@ class AcquisitionSnapshot {
   final FsmTransition? lastTransition;
   final DateTime updatedAt;
 
+  /// Ultima posizione GPS nota durante la sessione corrente.
+  /// `null` finché non arriva il primo fix (o quando non si sta tracciando).
+  final double? latitude;
+  final double? longitude;
+  final double? accuracyMeters;
+
   const AcquisitionSnapshot({
     required this.isTracking,
     required this.trackingState,
@@ -19,6 +25,9 @@ class AcquisitionSnapshot {
     required this.latestSpeedMetersPerSecond,
     required this.lastTransition,
     required this.updatedAt,
+    this.latitude,
+    this.longitude,
+    this.accuracyMeters,
   });
 
   factory AcquisitionSnapshot.idle({DateTime? updatedAt}) {
@@ -36,4 +45,6 @@ class AcquisitionSnapshot {
   double get latestSpeedKilometersPerHour {
     return latestSpeedMetersPerSecond * 3.6;
   }
+
+  bool get hasPosition => latitude != null && longitude != null;
 }

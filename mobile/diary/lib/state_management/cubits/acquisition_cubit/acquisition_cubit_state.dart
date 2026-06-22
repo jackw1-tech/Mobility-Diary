@@ -1,4 +1,5 @@
 import 'package:diary/features/acquisition/domain/acquisition_domain.dart';
+import 'package:latlong2/latlong.dart';
 
 enum AcquisitionCubitStatus {
   idle,
@@ -11,11 +12,16 @@ class AcquisitionCubitState {
   final AcquisitionSyncSnapshot syncSnapshot;
   final List<AcquisitionMetricCluster> metricClusters;
 
+  /// Percorso accumulato durante la sessione di tracking corrente, in ordine
+  /// cronologico. Si svuota a ogni nuovo `startTracking`.
+  final List<LatLng> routePoints;
+
   const AcquisitionCubitState({
     required this.status,
     required this.snapshot,
     this.syncSnapshot = const AcquisitionSyncSnapshot.none(),
     this.metricClusters = const [],
+    this.routePoints = const [],
   });
 
   factory AcquisitionCubitState.initial() {
@@ -26,6 +32,7 @@ class AcquisitionCubitState {
     AcquisitionSnapshot snapshot, {
     AcquisitionSyncSnapshot syncSnapshot = const AcquisitionSyncSnapshot.none(),
     List<AcquisitionMetricCluster> metricClusters = const [],
+    List<LatLng> routePoints = const [],
   }) {
     return AcquisitionCubitState(
       status: snapshot.isTracking
@@ -34,6 +41,7 @@ class AcquisitionCubitState {
       snapshot: snapshot,
       syncSnapshot: syncSnapshot,
       metricClusters: metricClusters,
+      routePoints: routePoints,
     );
   }
 
@@ -42,16 +50,24 @@ class AcquisitionCubitState {
     AcquisitionSnapshot? snapshot,
     AcquisitionSyncSnapshot? syncSnapshot,
     List<AcquisitionMetricCluster>? metricClusters,
+    List<LatLng>? routePoints,
   }) {
     return AcquisitionCubitState(
       status: status ?? this.status,
       snapshot: snapshot ?? this.snapshot,
       syncSnapshot: syncSnapshot ?? this.syncSnapshot,
       metricClusters: metricClusters ?? this.metricClusters,
+      routePoints: routePoints ?? this.routePoints,
     );
   }
 
   bool get isTracking => status == AcquisitionCubitStatus.tracking;
+
+  /// Ultima posizione GPS nota (latest fix della sessione), se disponibile.
+  LatLng? get latestPosition {
+    if (!snapshot.hasPosition) return null;
+    return LatLng(snapshot.latitude!, snapshot.longitude!);
+  }
 
   TrackingState get trackingState => snapshot.trackingState;
 

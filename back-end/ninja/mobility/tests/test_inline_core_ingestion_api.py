@@ -8,6 +8,7 @@ from django.contrib.auth import get_user_model
 from django.test import Client
 
 from accounts.models import AccessToken
+from mobility.ingestion import storage
 from mobility.models import (
     GpsPoint,
     PartKind,
@@ -347,3 +348,134 @@ def test_inline_core_does_not_reuse_trip_owned_by_another_user(user, other_user)
         user=user,
         client_session_id="inline-cross-user",
     ).exists()
+
+
+@pytest.mark.django_db
+def test_legacy_parts_core_flow_still_receives_queues_and_reports_status(
+    user,
+    monkeypatch,
+    django_capture_on_commit_callbacks,
+):
+    delayed_ingestions: list[int] = []
+
+    def fake_presigned_put_url(
+        object_key: str,
+        *,
+        sha256: str,
+        content_type: str = "application/gzip",
+    ):
+        assert content_type == "application/gzip"
+        return f"http://storage.test/{object_key}?sha256={sha256}"
+
+    def fake_head_object(object_key: str):
+        return {"ContentLength": 10, "Metadata": {"sha256": "a" * 64}}
+
+    from mobility.tasks import process_trip_ingestion
+
+    monkeypatch.setattr(storage, "presigned_put_url", fake_presigned_put_url)
+    monkeypatch.setattr(storage, "head_object", fake_head_object)
+    monkeypatch.setattr(
+        process_trip_ingestion,
+        "delay",
+        lambda ingestion_id: delayed_ingestions.append(ingestion_id),
+    )
+
+    client = Client()
+    create_response = client.post(
+        "/api/ingestion/trips",
+        data=stable_json(
+            {
+                "client_session_id": "legacy-core-session",
+                "schema_version": 1,
+                "device_id": "legacy-device",
+                "expected_core_parts": {
+                    PartKind.GPS_POINTS: 1,
+                    PartKind.STATE_TRANSITIONS: 1,
+                },
+                "expected_raw_parts": {},
+            }
+        ).decode("utf-8"),
+        content_type="application/json",
+        **auth_headers(user),
+    )
+
+    assert create_response.status_code == 200, create_response.content
+    ingestion_id = create_response.json()["ingestion_id"]
+    ingestion = TripIngestion.objects.get(id=ingestion_id)
+    assert ingestion.core_ingestion_mode == TripIngestion.CoreIngestionMode.LEGACY_PARTS
+    assert ingestion.core_status == TripIngestion.PhaseStatus.PENDING
+    assert ingestion.raw_status == TripIngestion.PhaseStatus.COMPLETED
+
+    for kind in [PartKind.GPS_POINTS, PartKind.STATE_TRANSITIONS]:
+        presign_response = client.post(
+            f"/api/ingestion/trips/{ingestion_id}/parts/presign",
+            data=stable_json(
+                {
+                    "kind": kind,
+                    "sequence": 1,
+                    "sha256": "a" * 64,
+                    "size_bytes": 10,
+                }
+            ).decode("utf-8"),
+            content_type="application/json",
+            **auth_headers(user),
+        )
+
+        assert presign_response.status_code == 200, presign_response.content
+        assert presign_response.json()["upload_url"].startswith("http://storage.test/")
+        ingestion.refresh_from_db()
+        assert ingestion.core_status == TripIngestion.PhaseStatus.RECEIVING
+
+        confirm_response = client.post(
+            f"/api/ingestion/trips/{ingestion_id}/parts/confirm",
+            data=stable_json(
+                {
+                    "kind": kind,
+                    "sequence": 1,
+                    "sha256": "a" * 64,
+                }
+            ).decode("utf-8"),
+            content_type="application/json",
+            **auth_headers(user),
+        )
+
+        assert confirm_response.status_code == 200, confirm_response.content
+
+    ingestion.refresh_from_db()
+    assert ingestion.core_status == TripIngestion.PhaseStatus.RECEIVED
+
+    status_response = client.get(
+        f"/api/ingestion/trips/{ingestion_id}",
+        **auth_headers(user),
+    )
+
+    assert status_response.status_code == 200
+    status = status_response.json()
+    assert status["core_ingestion_mode"] == TripIngestion.CoreIngestionMode.LEGACY_PARTS
+    assert status["core_status"] == TripIngestion.PhaseStatus.RECEIVED
+    assert status["raw_status"] == TripIngestion.PhaseStatus.COMPLETED
+    assert status["map_available"] is False
+    assert status["core_progress"] == 100
+    assert status["missing_core_parts"] == []
+    assert {part["kind"] for part in status["received_core_parts"]} == {
+        PartKind.GPS_POINTS,
+        PartKind.STATE_TRANSITIONS,
+    }
+
+    with django_capture_on_commit_callbacks(execute=True) as callbacks:
+        complete_response = client.post(
+            f"/api/ingestion/trips/{ingestion_id}/complete-core",
+            data=stable_json({"manifest_sha256": "b" * 64, "total_parts": 2}).decode(
+                "utf-8"
+            ),
+            content_type="application/json",
+            **auth_headers(user),
+        )
+
+    assert complete_response.status_code == 202, complete_response.content
+    assert complete_response.json()["core_status"] == TripIngestion.PhaseStatus.QUEUED
+    ingestion.refresh_from_db()
+    assert ingestion.core_status == TripIngestion.PhaseStatus.QUEUED
+    assert ingestion.core_ingestion_mode == TripIngestion.CoreIngestionMode.LEGACY_PARTS
+    assert len(callbacks) == 1
+    assert delayed_ingestions == [ingestion_id]

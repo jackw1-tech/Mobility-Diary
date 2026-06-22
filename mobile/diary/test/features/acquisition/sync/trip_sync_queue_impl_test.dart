@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 class FakeIngestionApi implements TripIngestionApi {
   bool failCoreInline = false;
+  int createIngestionCallCount = 0;
   int coreInlineCallCount = 0;
   int rawUploadFailuresRemaining = 0;
   bool coreCompleteCalled = false;
@@ -16,7 +17,8 @@ class FakeIngestionApi implements TripIngestionApi {
   String inlineCoreStatus = 'COMPLETED';
   bool inlineMapAvailable = true;
   String rawStatusBeforeComplete = 'PENDING';
-  String rawStatusAfterComplete = 'RECEIVED';
+  String rawStatusAfterComplete = 'COMPLETED';
+  final List<String> presigned = [];
   final List<String> confirmed = [];
   final List<Map<String, dynamic>> inlineBodies = [];
   final List<String> uploaded = [];
@@ -61,6 +63,7 @@ class FakeIngestionApi implements TripIngestionApi {
     String deviceId = '',
     String devicePlatform = '',
   }) async {
+    createIngestionCallCount += 1;
     return _nextId++;
   }
 
@@ -72,6 +75,7 @@ class FakeIngestionApi implements TripIngestionApi {
     required String sha256,
     required int sizeBytes,
   }) async {
+    presigned.add('$kind#$sequence');
     return PresignResult(
       objectKey: '$kind-$sequence',
       uploadUrl: 'http://storage.local/$kind-$sequence',
@@ -192,6 +196,7 @@ void main() {
     FakeIngestionApi api, {
     String? token = 'tkn',
     List<Duration>? backoff,
+    Duration pollDelay = const Duration(seconds: 15),
   }) {
     return TripSyncQueueImpl(
       dao: database.acquisitionDao,
@@ -202,6 +207,7 @@ void main() {
       api: api,
       tokenProvider: () async => token,
       backoff: backoff,
+      pollDelay: pollDelay,
     );
   }
 
@@ -218,7 +224,9 @@ void main() {
     expect(api.inlineBodies.single['core_payload_sha256'], isNotEmpty);
     expect(api.inlineBodies.single['gps_points'], hasLength(1));
     expect(api.inlineBodies.single['state_transitions'], hasLength(1));
-    expect(api.confirmed.toSet(), {'sensor_windows#1'});
+    expect(api.createIngestionCallCount, 0);
+    expect(api.presigned, ['sensor_windows#1']);
+    expect(api.confirmed, ['sensor_windows#1']);
     expect(api.uploaded, hasLength(1));
     expect(api.coreCompleteCalled, isFalse);
     expect(api.rawCompleteCalled, isTrue);
@@ -237,6 +245,12 @@ void main() {
       await Directory('${tempDir.path}/trip_package_$id').exists(),
       isFalse,
     );
+    // La mole di dati grezzi locali e' stata ripulita dopo il sync completo...
+    expect(await database.acquisitionDao.countGpsPointsForSession(id), 0);
+    expect(await database.acquisitionDao.countSensorWindowsForSession(id), 0);
+    expect(await database.acquisitionDao.countTransitionsForSession(id), 0);
+    // ...ma la sessione e il sync job restano per lo stato mostrato in UI.
+    expect(await database.acquisitionDao.findSession(id), isNotNull);
   });
 
   test(
@@ -323,6 +337,40 @@ void main() {
     expect(job.rawStatus, syncJobCompleted);
     expect(job.remoteTripId, 1);
     expect(job.coreMapAvailable, isTrue);
+  });
+
+  test('raw queued after upload waits for backend HAR completion', () async {
+    final id = await seedSessionWithData();
+    final api = FakeIngestionApi()..rawStatusAfterComplete = 'QUEUED';
+
+    await queue(
+      api,
+      backoff: const [Duration.zero],
+      pollDelay: Duration.zero,
+    ).kick();
+
+    var job = await database.acquisitionDao.syncJobForSession(id);
+    expect(api.rawCompleteCalled, isTrue);
+    expect(job!.coreStatus, syncJobCompleted);
+    expect(job.rawStatus, syncJobWaitingProcessing);
+    expect(job.nextRetryAt, isNotNull);
+    expect(await database.acquisitionDao.countSensorWindowsForSession(id), 1);
+    expect(
+      await Directory('${tempDir.path}/trip_package_$id').exists(),
+      isFalse,
+    );
+
+    api.rawStatusAfterComplete = 'COMPLETED';
+    await queue(
+      api,
+      backoff: const [Duration.zero],
+      pollDelay: Duration.zero,
+    ).kick();
+
+    job = await database.acquisitionDao.syncJobForSession(id);
+    expect(job!.coreStatus, syncJobCompleted);
+    expect(job.rawStatus, syncJobCompleted);
+    expect(await database.acquisitionDao.countSensorWindowsForSession(id), 0);
   });
 
   test('raw retry keeps core completed and does not repost inline core',

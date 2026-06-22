@@ -2,7 +2,6 @@ import 'package:diary/state_management/cubits/auth_cubit/auth_cubit.dart';
 import 'package:diary/state_management/cubits/auth_cubit/auth_cubit_state.dart';
 import 'package:diary/theme/color_palette.dart';
 import 'package:diary/theme/dimensions.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -61,7 +60,7 @@ class _AuthPageState extends State<AuthPage> {
                     color: ColorPalette.surface,
                     elevation: Dimensions.cardElevation,
                     borderRadius: BorderRadius.circular(
-                      Dimensions.borderRadiusMedium,
+                      Dimensions.borderRadiusLarge,
                     ),
                     child: Padding(
                       padding: const EdgeInsets.all(Dimensions.paddingLarge),
@@ -195,23 +194,6 @@ class _AuthPageState extends State<AuthPage> {
                                 _isRegister ? 'Crea account' : 'Entra',
                               ),
                             ),
-                            const SizedBox(height: Dimensions.paddingMedium),
-                            OutlinedButton.icon(
-                              onPressed: state.isLoading
-                                  ? null
-                                  : () => context.read<AuthCubit>().loginAsGuest(),
-                              icon: const Icon(Icons.person_outline),
-                              label: const Text('Entra senza login (Ospite)'),
-                            ),
-                            if (kDebugMode) ...[
-                              const SizedBox(height: Dimensions.paddingSmall),
-                              TextButton.icon(
-                                onPressed: () =>
-                                    context.read<AuthCubit>().loginAsDev(),
-                                icon: const Icon(Icons.developer_mode),
-                                label: const Text('[DEV] Salta login'),
-                              ),
-                            ],
                           ],
                         ),
                       ),

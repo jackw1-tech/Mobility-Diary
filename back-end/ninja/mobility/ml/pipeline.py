@@ -16,9 +16,11 @@ from __future__ import annotations
 
 import math
 import statistics
+from collections import Counter
+from dataclasses import dataclass
 from datetime import datetime
 
-from django.contrib.gis.geos import Point
+from django.contrib.gis.geos import LineString, Point
 
 from ..models import ActivityLabel, MobilitySegment, SignificantPlace, Trip
 from .classifier import classify_windows, correct_idle_with_gps, _label_from_speed
@@ -26,6 +28,15 @@ from .preprocessing import normalize_window
 
 STOP_STATE = "STATIONARY"
 SIGNIFICANT_DWELL_SECONDS = 5 * 60  # soglia "permanenza" (motivata in relazione)
+
+
+@dataclass(frozen=True)
+class PipelineSensorWindow:
+    start_timestamp: datetime
+    end_timestamp: datetime
+    sample_count: int
+    frequency_hz: int
+    matrix: list[list[float]]
 
 
 def _haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -61,6 +72,13 @@ def _path_distance(points) -> float:
     for a, b in zip(points, points[1:]):
         total += _haversine(a.point.y, a.point.x, b.point.y, b.point.x)
     return total
+
+
+def _segment_path(points):
+    coords = [(p.point.x, p.point.y) for p in points]
+    if len(set(coords)) < 2:
+        return None
+    return LineString(coords, srid=4326)
 
 
 def _macro_spans(trip, transitions, gps, windows):
@@ -123,6 +141,7 @@ def _build_stop(trip, start, end, gps) -> None:
         end_timestamp=end,
         activity_label=ActivityLabel.IDLE,
         place=place,
+        path=None,
     )
 
 
@@ -143,6 +162,7 @@ def _build_move(trip, start, end, windows, labels, gps) -> None:
             start_timestamp=start,
             end_timestamp=end,
             activity_label=label,
+            path=_segment_path(points),
             distance_meters=_path_distance(points),
         )
         return
@@ -162,26 +182,45 @@ def _build_move(trip, start, end, windows, labels, gps) -> None:
                 start_timestamp=seg_start,
                 end_timestamp=seg_end,
                 activity_label=label,
+                path=_segment_path(points),
                 distance_meters=_path_distance(points),
             )
             group_start_idx = i
 
 
-def run_pipeline(trip: Trip) -> dict:
-    windows = list(trip.sensor_windows.order_by("start_timestamp"))
+def run_pipeline(
+    trip: Trip,
+    *,
+    sensor_windows: list[PipelineSensorWindow] | None = None,
+) -> dict:
+    windows = (
+        list(trip.sensor_windows.order_by("start_timestamp"))
+        if sensor_windows is None
+        else sorted(sensor_windows, key=lambda window: window.start_timestamp)
+    )
     gps = list(trip.gps_points.order_by("timestamp"))
     transitions = list(trip.state_transitions.order_by("timestamp"))
 
     # 1. normalizzazione reale (grezzo -> pronto). Per ora il risultato non
     #    alimenta ancora un modello: il classificatore e un placeholder.
+    all_windows_have_matrix = all(w.matrix is not None for w in windows)
     _normalized = [
         normalize_window(w.matrix) for w in windows if w.matrix is not None
     ]
 
     # 2-4. velocita per finestra, classificazione, fusione GPS.
     win_speed = [_window_speed(w, gps) for w in windows]
-    labels = classify_windows(_normalized, win_speed)
+    classification = classify_windows(
+        _normalized,
+        win_speed,
+        raw_windows=windows if all_windows_have_matrix else None,
+    )
+    labels = classification.labels
     labels = correct_idle_with_gps(labels, win_speed)
+    classifier_summary = {
+        **classification.summary,
+        "final_label_distribution": dict(Counter(labels)),
+    }
 
     # Riscrittura idempotente del diario.
     trip.segments.all().delete()
@@ -204,5 +243,5 @@ def run_pipeline(trip: Trip) -> dict:
         "transitions": len(transitions),
         "segments": trip.segments.count(),
         "significant_places": trip.significant_places.count(),
-        "classifier": "placeholder_gps_speed",
+        **classifier_summary,
     }

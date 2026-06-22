@@ -11,6 +11,11 @@
 >   - HAR finale non viene invocato finche' il modello non e' integrato;
 >   - i blob raw NON vengono MAI cancellati per ora (retention illimitata).
 > La cancellazione event-driven si attivera' solo quando HAR sara' operativo.
+>
+> AGGIORNAMENTO 2026-06-21: il Core Ingestion piccolo (GPS points e state
+> transitions) usa ora come percorso primario `POST /api/ingestion/trips/core`.
+> Il flusso presigned/object-storage resta il percorso primario per i raw
+> pesanti e resta compatibile per il core legacy dei client vecchi.
 
 ## Obiettivo
 
@@ -65,10 +70,14 @@ Backend:
   - storage helper con presigned PUT, HEAD, GET e delete gated
   - TripIngestion e TripIngestionPart separati da Trip
   - una sola TripIngestion con due stati: core_status e raw_status
-  - endpoint create / presign / confirm / complete-core / complete-raw / status
-  - presigned PUT diretto a object storage: Django non riceve i blob pesanti
+  - core_ingestion_mode distingue INLINE da LEGACY_PARTS
+  - endpoint inline POST /api/ingestion/trips/core per GPS + transizioni piccoli
+  - endpoint legacy create / presign / confirm / complete-core ancora disponibili
+  - endpoint raw presign / confirm / complete-raw / status invariati
+  - presigned PUT diretto a object storage per i raw: Django non riceve blob pesanti
   - confirm verifica size via HEAD e sha256 tramite metadata S3
-  - complete-core accoda Celery e materializza Trip + GPS + transizioni
+  - inline core materializza Trip + GPS + transizioni + path nella request
+  - complete-core accoda Celery solo per il core legacy a parti
   - complete-raw registra i raw come ricevuti, senza invocare HAR per ora
   - sensor window raw restano solo blob in object storage
   - HAR finale congelato: non invocato, cleanup raw disattivato
@@ -77,10 +86,12 @@ Mobile:
   - SyncJob persistente in SQLite
   - stesso SyncJob, ma con core_status e raw_status locali separati
   - STOP non bloccante: chiude la sessione locale, crea SyncJob, torna idle
-  - packaging gzip su disco
-  - upload Core prima, poi complete-core, poi upload Raw e complete-raw
+  - packaging core inline JSON deterministico + hash SHA-256
+  - niente gzip GPS/state nel percorso nuovo
+  - packaging gzip su disco solo per sensor_windows raw
+  - POST core inline prima, poi upload Raw e complete-raw se esistono raw
   - retry/backoff opportunistico
-  - polling dello stato backend via SyncJob
+  - polling dello stato backend solo per stati legacy/processing o riprese raw
   - UI principale segue il Core; il Raw e' dettaglio secondario
 ```
 
@@ -127,8 +138,9 @@ Infra:
 ```
 
 Questa era la situazione di partenza prima degli step implementativi. Oggi il
-flusso nuovo convive ancora con alcuni endpoint legacy, ma il percorso
-principale di sync mobile usa `TripIngestion` + object storage.
+flusso nuovo convive ancora con endpoint legacy, ma il percorso principale del
+mobile separa meglio i mondi: Core piccolo inline su Django/PostGIS, Raw pesante
+su `TripIngestion` + object storage.
 
 ---
 
@@ -165,31 +177,40 @@ MOBILE (stop non bloccante)
   Coda SyncJob (DB locale) gestisce upload con retry/backoff,
   ripresa opportunistica all'apertura app + rete.
 
-  Packaging locale (file su disco, compressi):
-    gps_points.json.gz
-    state_transitions.json.gz
+  Packaging locale nuovo:
+    core inline JSON deterministico:
+      gps_points: [...]
+      state_transitions: [...]
+      core_payload_sha256: "<hash stabile del JSON core>"
     sensor_windows_part_0001.json.gz
     sensor_windows_part_0002.json.gz   (chunk 5-20 MB)
     ...
 
-  POST /api/ingestion/trips
-    -> crea TripIngestion, ritorna ingestion_id                       [worker libero]
+  POST /api/ingestion/trips/core
+    -> crea/recupera TripIngestion tramite client_session_id
+    -> valida core_payload_sha256 e limite 1 MB
+    -> materializza Trip + GPS + transizioni + LineString in transaction
+    -> core_status=COMPLETED, ritorna ingestion_id/trip_id/map_available
+       expected_core_parts={} e expected_raw_parts restano separati
+
+  LEGACY: POST /api/ingestion/trips
+    -> crea TripIngestion LEGACY_PARTS per client vecchi               [worker libero]
        expected_core_parts e expected_raw_parts restano separati
   POST /api/ingestion/trips/{id}/parts/presign
-    -> presigned PUT URL per (kind, sequence)                         [worker libero]
+    -> presigned PUT URL per raw, o per core solo nel path legacy      [worker libero]
   PUT  <presigned-url>
     -> blob DIRETTO su object storage S3-compat.                      [NESSUN worker]
   POST /api/ingestion/trips/{id}/parts/confirm
     -> registra Part(sha256, size) via HEAD                           [worker libero]
-  POST /api/ingestion/trips/{id}/complete-core
-    -> verifica parti Core -> enqueue Celery -> 202
-       da qui il Trip puo' essere materializzato
+  LEGACY: POST /api/ingestion/trips/{id}/complete-core
+    -> verifica parti Core legacy -> enqueue Celery -> 202
+       da qui il Trip legacy puo' essere materializzato
   POST /api/ingestion/trips/{id}/complete-raw
     -> verifica parti Raw -> raw_status=RECEIVED -> 202
        per ora non accoda HAR perche' HAR finale e' congelato
 
 CELERY
-  process_trip_ingestion:
+  process_trip_ingestion: [SOLO CORE LEGACY A PARTI]
     leggi blob GPS + transitions
     BEGIN tx (LEGGERA: niente matrici)
       materializza Trip + GpsPoint + StateTransition

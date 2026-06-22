@@ -182,3 +182,24 @@ INGESTION_INLINE_CORE_MAX_BYTES = int(
 # CONGELATO: la cancellazione dei blob raw dopo HAR e' predisposta ma disattivata
 # finche' HAR non e' operativo (vedi REPORT D9). NON attivare senza HAR validato.
 HAR_CLEANUP_ENABLED = env_bool("HAR_CLEANUP_ENABLED", False)
+
+
+def default_har_artifact_path(filename: str) -> str:
+    local_app_path = BASE_DIR / "manual_har" / filename
+    repo_root_path = BASE_DIR.parent.parent / "manual_har" / filename
+    if local_app_path.exists():
+        return str(local_app_path)
+    return str(repo_root_path)
+
+
+HAR_CNN_MODEL_PATH = os.getenv(
+    "HAR_CNN_MODEL_PATH",
+    default_har_artifact_path("shl_cnn1d_full_100pct_5class_best.keras"),
+)
+HAR_GRU_MODEL_PATH = os.getenv(
+    "HAR_GRU_MODEL_PATH",
+    default_har_artifact_path("shl_6ch_5class_gru_best.keras"),
+)
+HAR_MODEL_REQUIRED = env_bool("HAR_MODEL_REQUIRED", False)
+HAR_GRU_SEQUENCE_LENGTH = int(os.getenv("HAR_GRU_SEQUENCE_LENGTH", "32"))
+HAR_WINDOW_SAMPLE_COUNT = int(os.getenv("HAR_WINDOW_SAMPLE_COUNT", "500"))

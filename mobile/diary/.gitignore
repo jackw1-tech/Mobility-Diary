@@ -43,3 +43,6 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Token Mapbox (pubblico) per --dart-define-from-file: non committare.
+env/dart_defines.local.json

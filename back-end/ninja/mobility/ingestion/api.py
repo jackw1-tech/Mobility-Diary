@@ -24,6 +24,7 @@ from accounts.auth import mobile_bearer_auth
 
 from ..models import (
     GpsPoint,
+    HarJob,
     PartKind,
     StateTransition,
     Trip,
@@ -661,7 +662,8 @@ def complete_raw_ingestion(request, ingestion_id: int, payload: CompleteIn):
         raise HttpError(409, "core ingestion non ancora completata")
 
     if ingestion.raw_status in {
-        TripIngestion.PhaseStatus.RECEIVED,
+        TripIngestion.PhaseStatus.QUEUED,
+        TripIngestion.PhaseStatus.PROCESSING,
         TripIngestion.PhaseStatus.COMPLETED,
         TripIngestion.PhaseStatus.FAILED_RETRYABLE,
     }:
@@ -689,10 +691,44 @@ def complete_raw_ingestion(request, ingestion_id: int, payload: CompleteIn):
         readable = ", ".join(f"{kind}#{seq}" for kind, seq in missing)
         raise HttpError(409, f"parti raw mancanti: {readable}")
 
-    ingestion.raw_status = TripIngestion.PhaseStatus.RECEIVED
-    ingestion.save(update_fields=["raw_status", "updated_at"])
+    with transaction.atomic():
+        ingestion = TripIngestion.objects.select_for_update().get(id=ingestion.id)
+        if ingestion.trip_id is None:
+            raise HttpError(409, "trip non materializzato per HAR finale")
+        if ingestion.raw_status in {
+            TripIngestion.PhaseStatus.QUEUED,
+            TripIngestion.PhaseStatus.PROCESSING,
+            TripIngestion.PhaseStatus.COMPLETED,
+            TripIngestion.PhaseStatus.FAILED_RETRYABLE,
+        }:
+            return 202, CompleteOut(
+                ingestion_id=ingestion.id,
+                core_status=ingestion.core_status,
+                raw_status=ingestion.raw_status,
+            )
+        ingestion.manifest_sha256 = payload.manifest_sha256
+        ingestion.raw_status = TripIngestion.PhaseStatus.QUEUED
+        ingestion.queued_at = timezone.now()
+        ingestion.error_message = ""
+        ingestion.save(
+            update_fields=[
+                "manifest_sha256",
+                "raw_status",
+                "queued_at",
+                "error_message",
+                "updated_at",
+            ]
+        )
+        job = HarJob.objects.create(
+            trip_id=ingestion.trip_id,
+            kind=HarJob.Kind.FINAL_TRIP,
+        )
 
-    # HAR finale e' predisposto ma non attivo: per ora la raw phase si ferma a RECEIVED.
+        from ..tasks import process_trip_har_final
+
+        transaction.on_commit(
+            lambda: process_trip_har_final.delay(job.id, ingestion.id)
+        )
     return 202, CompleteOut(
         ingestion_id=ingestion.id,
         core_status=ingestion.core_status,

@@ -146,7 +146,7 @@ class TripSyncQueueImpl implements TripSyncQueue {
               ? Value(status.tripId)
               : const Value.absent(),
         );
-        if (package.rawParts.isEmpty || status.isRawDone) {
+        if (status.isRawDone) {
           await _finalizeAllDone(job, package);
           return;
         }
@@ -156,6 +156,11 @@ class TripSyncQueueImpl implements TripSyncQueue {
             rawStatus: syncJobFailedFinal,
             lastError: const Value('raw sensor ingestion fallita'),
           );
+          return;
+        }
+        if (status.isRawBackendProcessing) {
+          await _deletePackageDirectory(package);
+          await _waitForRawProcessing(job, remoteIngestionId: ingestionId);
           return;
         }
         if (status.canReceiveRawParts) {
@@ -173,6 +178,27 @@ class TripSyncQueueImpl implements TripSyncQueue {
           status = await _api.getStatus(ingestionId);
           if (status.isRawDone) {
             await _finalizeAllDone(job, package);
+            return;
+          }
+          if (status.isRawBackendProcessing) {
+            await _deletePackageDirectory(package);
+            await _waitForRawProcessing(job, remoteIngestionId: ingestionId);
+            return;
+          }
+        }
+        if (status.canCompleteRaw) {
+          await _api.completeRawIngestion(
+            ingestionId,
+            totalParts: package.rawParts.length,
+          );
+          status = await _api.getStatus(ingestionId);
+          if (status.isRawDone) {
+            await _finalizeAllDone(job, package);
+            return;
+          }
+          if (status.isRawBackendProcessing) {
+            await _deletePackageDirectory(package);
+            await _waitForRawProcessing(job, remoteIngestionId: ingestionId);
             return;
           }
         }
@@ -255,6 +281,9 @@ class TripSyncQueueImpl implements TripSyncQueue {
       rawStatus: syncJobCompleted,
     );
     await _deletePackageDirectory(package);
+    // Backend ha confermato core+raw COMPLETED: il telefono non e' piu'
+    // l'unica copia, i dati locali della sessione possono essere liberati.
+    await _dao.deleteSessionData(job.localSessionId);
   }
 
   Future<void> _deletePackageDirectory(TripPackage package) async {
@@ -268,6 +297,17 @@ class TripSyncQueueImpl implements TripSyncQueue {
     return _dao.updateSyncJob(
       job.id,
       coreStatus: syncJobWaitingProcessing,
+      remoteIngestionId: remoteIngestionId == null
+          ? const Value.absent()
+          : Value(remoteIngestionId),
+      nextRetryAt: Value(DateTime.now().toUtc().add(_pollDelay)),
+    );
+  }
+
+  Future<void> _waitForRawProcessing(SyncJob job, {int? remoteIngestionId}) {
+    return _dao.updateSyncJob(
+      job.id,
+      rawStatus: syncJobWaitingProcessing,
       remoteIngestionId: remoteIngestionId == null
           ? const Value.absent()
           : Value(remoteIngestionId),

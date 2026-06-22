@@ -362,6 +362,25 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
     return query.map((row) => row.read(count) ?? 0).getSingle();
   }
 
+  /// Cancella la mole di dati grezzi di una sessione (punti GPS, finestre
+  /// sensori, transizioni) una volta che il backend ha confermato core+raw
+  /// COMPLETED: da quel momento il telefono non e' piu' l'unica copia.
+  /// La riga di [AcquisitionSessions] e quella di [SyncJobs] restano (sono
+  /// poche righe, non la mole) perche' alimentano ancora lo stato di sync
+  /// mostrato in UI (mappa disponibile, remoteTripId dell'ultimo viaggio).
+  Future<void> deleteSessionData(String sessionId) {
+    return transaction(() async {
+      await (delete(stateTransitions)
+            ..where((t) => t.sessionId.equals(sessionId)))
+          .go();
+      await (delete(gpsPoints)..where((p) => p.sessionId.equals(sessionId)))
+          .go();
+      await (delete(sensorWindows)
+            ..where((w) => w.sessionId.equals(sessionId)))
+          .go();
+    });
+  }
+
   // --- SyncJob ---------------------------------------------------------- //
 
   /// Crea il SyncJob per la sessione se non esiste gia' (idempotente: un re-stop

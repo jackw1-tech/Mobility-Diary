@@ -7,6 +7,7 @@ services:
       - .env
     volumes:
       - ../ninja:/app
+      - ../../manual_har:/app/manual_har:ro
     ports:
       - "8000:8000"
     depends_on:
@@ -23,6 +24,7 @@ services:
       - .env
     volumes:
       - ../ninja:/app
+      - ../../manual_har:/app/manual_har:ro
     depends_on:
       db:
         condition: service_healthy
@@ -37,6 +39,7 @@ services:
       - .env
     volumes:
       - ../ninja:/app
+      - ../../manual_har:/app/manual_har:ro
     depends_on:
       db:
         condition: service_healthy

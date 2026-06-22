@@ -21,9 +21,33 @@ _Avoid_: X processing, basic sync, partial upload
 The later ingestion phase that carries raw sensor evidence used to enrich a Viaggio.
 _Avoid_: Y processing, HAR upload, sensor sync
 
+**Evidenza Sensoriale Grezza**:
+The sensor-window evidence collected during a Viaggio and used as input for activity recognition, before it becomes readable diary information.
+_Avoid_: Activity label, diary segment, model result
+
 **Arricchimento del Viaggio**:
 Additional semantic interpretation added after a Viaggio already exists.
 _Avoid_: Journey creation, sync completion
+
+**Diario della Mobilità**:
+The user-facing reconstruction of a day or mobility episode as readable time intervals, places, movements, activity labels, and statistics.
+_Avoid_: Raw trace, upload result, model output
+
+**Segmento di Mobilità**:
+A time-bounded entry in the mobility diary representing either a stop or a movement, enriched with an activity label when available.
+_Avoid_: GPS chunk, raw window, prediction row
+
+**Luogo Significativo**:
+A place inferred from a meaningful dwell interval and used to make the mobility diary readable without exposing every raw coordinate.
+_Avoid_: GPS point, POI, marker
+
+**Etichetta di Attività**:
+The recognized or estimated mobility mode assigned to a mobility segment, such as idle, walking, running, biking, or moving vehicle.
+_Avoid_: Classifier output, HAR string, transport type
+
+**Vista Privacy-Aware**:
+A shareable representation of the mobility diary where location detail is intentionally reduced, perturbed, or aggregated.
+_Avoid_: Export, anonymized copy, public trace
 
 **Viaggio Sincronizzato**:
 A Viaggio whose Core Ingestion has completed and can appear in the diary, regardless of whether raw sensor evidence has finished uploading.

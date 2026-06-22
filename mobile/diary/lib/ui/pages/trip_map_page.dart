@@ -4,11 +4,10 @@ import 'package:diary/state_management/cubits/trip_track_cubit/trip_track_cubit.
 import 'package:diary/state_management/cubits/trip_track_cubit/trip_track_cubit_state.dart';
 import 'package:diary/theme/color_palette.dart';
 import 'package:diary/theme/dimensions.dart';
-import 'package:diary/ui/widgets/basemap_config.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 
 @RoutePage()
 class TripMapPage extends StatelessWidget {
@@ -39,8 +38,6 @@ class _TripMapView extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Traiettoria'),
-        backgroundColor: ColorPalette.primary,
-        foregroundColor: Colors.white,
         actions: [
           IconButton(
             tooltip: 'Ricarica',
@@ -81,32 +78,119 @@ class _TrackMap extends StatefulWidget {
 }
 
 class _TrackMapState extends State<_TrackMap> {
-  final MapController _controller = MapController();
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _fitTrack());
-  }
+  MapboxMap? _map;
+  bool _styleReady = false;
 
   @override
   void didUpdateWidget(covariant _TrackMap oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.state.points != widget.state.points) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _fitTrack());
+    if (oldWidget.state.points != widget.state.points ||
+        oldWidget.state.segments != widget.state.segments) {
+      _drawTrack();
     }
   }
 
-  void _fitTrack() {
-    if (!mounted || widget.state.points.isEmpty) return;
-    final bounds = LatLngBounds.fromPoints(widget.state.points);
-    _controller.fitCamera(
-      CameraFit.bounds(
-        bounds: bounds,
-        padding: const EdgeInsets.all(40),
-        maxZoom: 17,
+  Future<void> _onMapCreated(MapboxMap map) async {
+    _map = map;
+    await map.scaleBar.updateSettings(ScaleBarSettings(enabled: false));
+    await map.compass.updateSettings(CompassSettings(enabled: false));
+  }
+
+  Future<void> _onStyleLoaded(StyleLoadedEventData _) async {
+    _styleReady = true;
+    await _drawTrack();
+  }
+
+  Future<void> _drawTrack() async {
+    final map = _map;
+    if (map == null || !_styleReady) return;
+    final points = widget.state.points;
+    if (points.isEmpty) return;
+
+    final lineManager = await map.annotations.createPolylineAnnotationManager();
+    if (widget.state.segments.isNotEmpty) {
+      for (final segment in widget.state.segments) {
+        await _drawLine(
+          lineManager,
+          segment.points,
+          _activityColor(segment.activityLabel),
+        );
+      }
+    } else {
+      await _drawLine(lineManager, points, ColorPalette.primary);
+    }
+
+    final circleManager = await map.annotations.createCircleAnnotationManager();
+    await circleManager.create(
+      CircleAnnotationOptions(
+        geometry: Point(
+          coordinates: Position(points.first.longitude, points.first.latitude),
+        ),
+        circleColor: ColorPalette.success.toARGB32(),
+        circleRadius: 7,
+        circleStrokeColor: Colors.white.toARGB32(),
+        circleStrokeWidth: 2,
       ),
     );
+    await circleManager.create(
+      CircleAnnotationOptions(
+        geometry: Point(
+          coordinates: Position(points.last.longitude, points.last.latitude),
+        ),
+        circleColor: ColorPalette.error.toARGB32(),
+        circleRadius: 7,
+        circleStrokeColor: Colors.white.toARGB32(),
+        circleStrokeWidth: 2,
+      ),
+    );
+
+    final currentCamera = await map.getCameraState();
+    final bounds = await map.cameraForCoordinatesPadding(
+      [
+        for (final p in points)
+          Point(coordinates: Position(p.longitude, p.latitude)),
+      ],
+      CameraOptions(bearing: currentCamera.bearing, pitch: currentCamera.pitch),
+      MbxEdgeInsets(top: 60, left: 40, bottom: 60, right: 40),
+      null,
+      null,
+    );
+    await map.flyTo(bounds, MapAnimationOptions(duration: 600));
+  }
+
+  Future<void> _drawLine(
+    PolylineAnnotationManager lineManager,
+    List<LatLng> points,
+    Color color,
+  ) async {
+    if (points.length < 2) return;
+    await lineManager.create(
+      PolylineAnnotationOptions(
+        geometry: LineString(
+          coordinates: [
+            for (final p in points) Position(p.longitude, p.latitude),
+          ],
+        ),
+        lineColor: color.toARGB32(),
+        lineWidth: 5.0,
+        lineJoin: LineJoin.ROUND,
+      ),
+    );
+  }
+
+  Color _activityColor(String label) {
+    switch (label) {
+      case 'WALKING':
+        return const Color(0xFF1F8A4C);
+      case 'RUNNING':
+        return const Color(0xFFE04F5F);
+      case 'BIKING':
+        return const Color(0xFF2563EB);
+      case 'MOVING_VEHICLE':
+        return const Color(0xFF6D5DF6);
+      default:
+        return ColorPalette.primary;
+    }
   }
 
   @override
@@ -115,35 +199,27 @@ class _TrackMapState extends State<_TrackMap> {
 
     return Stack(
       children: [
-        FlutterMap(
-          mapController: _controller,
-          options: MapOptions(
-            initialCenter: points.first,
-            initialZoom: 14,
+        MapWidget(
+          key: const ValueKey('trip-track-map'),
+          styleUri: MapboxStyles.MAPBOX_STREETS,
+          // ignore: deprecated_member_use
+          cameraOptions: CameraOptions(
+            center: Point(
+              coordinates:
+                  Position(points.first.longitude, points.first.latitude),
+            ),
+            zoom: 14,
           ),
-          children: [
-            TileLayer(
-              urlTemplate: BasemapConfig.urlTemplate,
-              subdomains: BasemapConfig.subdomains,
-              userAgentPackageName: 'diary',
-            ),
-            PolylineLayer(
-              polylines: [
-                Polyline(
-                  points: points,
-                  strokeWidth: 5,
-                  color: ColorPalette.primary,
-                ),
-              ],
-            ),
-            MarkerLayer(
-              markers: [
-                _marker(points.first, Icons.trip_origin, ColorPalette.success),
-                _marker(points.last, Icons.flag, ColorPalette.error),
-              ],
-            ),
-          ],
+          onMapCreated: _onMapCreated,
+          onStyleLoadedListener: _onStyleLoaded,
         ),
+        if (widget.state.enrichmentPending)
+          const Positioned(
+            left: 0,
+            top: 0,
+            right: 0,
+            child: LinearProgressIndicator(minHeight: 3),
+          ),
         Positioned(
           left: Dimensions.paddingMedium,
           right: Dimensions.paddingMedium,
@@ -151,15 +227,6 @@ class _TrackMapState extends State<_TrackMap> {
           child: _DistanceOverlay(distanceMeters: widget.state.distanceMeters),
         ),
       ],
-    );
-  }
-
-  Marker _marker(LatLng point, IconData icon, Color color) {
-    return Marker(
-      point: point,
-      width: 40,
-      height: 40,
-      child: Icon(icon, color: color, size: 30),
     );
   }
 }
@@ -174,11 +241,11 @@ class _DistanceOverlay extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(Dimensions.borderRadiusSmall),
+        borderRadius: BorderRadius.circular(Dimensions.borderRadiusLarge),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.12),
-            blurRadius: 12,
+            color: Colors.black.withValues(alpha: 0.16),
+            blurRadius: 16,
             offset: const Offset(0, 4),
           ),
         ],

@@ -2,14 +2,17 @@ from datetime import timedelta
 
 import pytest
 from django.contrib.auth import get_user_model
-from django.contrib.gis.geos import Point
+from django.contrib.gis.geos import LineString, Point
 from django.test import Client
 from django.utils import timezone
 
 from accounts.models import AccessToken
 from mobility.models import (
+    ActivityLabel,
     GpsPoint,
+    MobilitySegment,
     PartKind,
+    SignificantPlace,
     StateTransition,
     Trip,
     TripIngestion,
@@ -219,3 +222,76 @@ def test_track_endpoint_returns_empty_track_for_trip_without_path(user):
     assert payload["point_count"] == 1
     assert payload["distance_meters"] == 0
     assert payload["geojson"] is None
+
+
+@pytest.mark.django_db
+def test_diary_endpoint_returns_not_yet_enriched_state(user):
+    trip = create_trip(user)
+
+    response = Client().get(
+        f"/api/mobility/trips/{trip.id}/diary",
+        **auth_headers(user),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["trip_id"] == trip.id
+    assert payload["status"] == Trip.Status.CLOSED
+    assert payload["processed"] is False
+    assert payload["segments"] == []
+    assert payload["places"] == []
+
+
+@pytest.mark.django_db
+def test_diary_endpoint_returns_segment_geometry_and_stop_place(user, other_user):
+    trip = create_trip(user)
+    trip.status = Trip.Status.PROCESSED
+    trip.save(update_fields=["status", "updated_at"])
+    base = timezone.now()
+    place = SignificantPlace.objects.create(
+        trip=trip,
+        center=Point(9.20, 45.47, srid=4326),
+        radius_meters=45,
+        dwell_seconds=600,
+        label="universita",
+    )
+    MobilitySegment.objects.create(
+        trip=trip,
+        kind=MobilitySegment.Kind.MOVE,
+        start_timestamp=base,
+        end_timestamp=base + timedelta(minutes=10),
+        activity_label=ActivityLabel.BIKING,
+        path=LineString((9.10, 45.46), (9.20, 45.47), srid=4326),
+        distance_meters=1200,
+    )
+    MobilitySegment.objects.create(
+        trip=trip,
+        kind=MobilitySegment.Kind.STOP,
+        start_timestamp=base + timedelta(minutes=10),
+        end_timestamp=base + timedelta(minutes=20),
+        activity_label=ActivityLabel.IDLE,
+        place=place,
+    )
+
+    response = Client().get(
+        f"/api/mobility/trips/{trip.id}/diary",
+        **auth_headers(user),
+    )
+    other_response = Client().get(
+        f"/api/mobility/trips/{trip.id}/diary",
+        **auth_headers(other_user),
+    )
+
+    assert response.status_code == 200
+    assert other_response.status_code == 404
+    payload = response.json()
+    assert payload["processed"] is True
+    assert len(payload["segments"]) == 2
+    move, stop = payload["segments"]
+    assert move["kind"] == MobilitySegment.Kind.MOVE
+    assert move["activity_label"] == ActivityLabel.BIKING
+    assert move["path_geojson"]["type"] == "LineString"
+    assert move["path_geojson"]["coordinates"] == [[9.1, 45.46], [9.2, 45.47]]
+    assert stop["kind"] == MobilitySegment.Kind.STOP
+    assert stop["path_geojson"] is None
+    assert stop["place"]["label"] == "universita"

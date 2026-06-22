@@ -5,9 +5,17 @@ import 'package:diary/repositories/impl/auth_repository_impl.dart';
 import 'package:diary/routers/app_router.dart';
 import 'package:diary/routers/auth_guard.dart';
 import 'package:diary/theme/app_theme.dart';
+import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
+
+/// Token PUBBLICO Mapbox (pk....), passato a runtime con
+/// `--dart-define=MAPBOX_ACCESS_TOKEN=pk....`. NON committare il token nel codice.
+const String _mapboxAccessToken = String.fromEnvironment('MAPBOX_ACCESS_TOKEN');
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  if (_mapboxAccessToken.isNotEmpty) {
+    MapboxOptions.setAccessToken(_mapboxAccessToken);
+  }
   runApp(const DiaryApp());
 }
 

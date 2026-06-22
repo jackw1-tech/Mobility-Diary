@@ -167,6 +167,13 @@ class MobilitySegment(models.Model):
         null=True,
         blank=True,
     )
+    path = models.LineStringField(
+        geography=True,
+        srid=4326,
+        null=True,
+        blank=True,
+        spatial_index=False,
+    )
     distance_meters = models.FloatField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -174,6 +181,7 @@ class MobilitySegment(models.Model):
         ordering = ["start_timestamp"]
         indexes = [
             models.Index(fields=["trip", "start_timestamp"], name="mobility_seg_trip_id_idx"),
+            GistIndex(fields=["path"], name="mobility_seg_path_gist"),
         ]
 
 

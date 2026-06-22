@@ -1,6 +1,5 @@
 import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
-import 'package:diary/theme/color_palette.dart';
 import 'package:diary/theme/Dimensions.dart';
 
 @RoutePage()
@@ -15,8 +14,6 @@ class ExampleDetailPage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Detail Page'),
-        backgroundColor: ColorPalette.primary,
-        foregroundColor: Colors.white,
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(Dimensions.paddingMedium),
@@ -96,10 +93,6 @@ class ExampleDetailPage extends StatelessWidget {
                 onPressed: () => context.router.pop(),
                 icon: const Icon(Icons.arrow_back),
                 label: const Text('Go Back'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: ColorPalette.primary,
-                  foregroundColor: Colors.white,
-                ),
               ),
             ),
           ],

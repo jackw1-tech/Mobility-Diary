@@ -47,8 +47,11 @@ class IngestionStatus {
 
   bool get isCoreCompleted => coreStatus == 'COMPLETED';
   bool get isCoreFailedFinal => coreStatus == 'FAILED_FINAL';
-  bool get isRawDone => rawStatus == 'RECEIVED' || rawStatus == 'COMPLETED';
+  bool get isRawDone => rawStatus == 'COMPLETED';
   bool get isRawFailedFinal => rawStatus == 'FAILED_FINAL';
+  bool get isRawBackendProcessing =>
+      rawStatus == 'QUEUED' || rawStatus == 'PROCESSING';
+  bool get canCompleteRaw => rawStatus == 'RECEIVED';
 
   bool get isCoreBackendProcessing {
     return coreStatus == 'QUEUED' ||
@@ -62,9 +65,7 @@ class IngestionStatus {
       coreStatus == 'RECEIVED';
 
   bool get canReceiveRawParts =>
-      rawStatus == 'PENDING' ||
-      rawStatus == 'RECEIVING' ||
-      rawStatus == 'RECEIVED';
+      rawStatus == 'PENDING' || rawStatus == 'RECEIVING';
 }
 
 class InlineCoreResult {
@@ -98,12 +99,13 @@ class InlineCoreResult {
         coreStatus == 'FAILED_RETRYABLE';
   }
 
-  bool get isRawDone => rawStatus == 'RECEIVED' || rawStatus == 'COMPLETED';
+  bool get isRawDone => rawStatus == 'COMPLETED';
   bool get isRawFailedFinal => rawStatus == 'FAILED_FINAL';
+  bool get isRawBackendProcessing =>
+      rawStatus == 'QUEUED' || rawStatus == 'PROCESSING';
+  bool get canCompleteRaw => rawStatus == 'RECEIVED';
   bool get canReceiveRawParts =>
-      rawStatus == 'PENDING' ||
-      rawStatus == 'RECEIVING' ||
-      rawStatus == 'RECEIVED';
+      rawStatus == 'PENDING' || rawStatus == 'RECEIVING';
 }
 
 /// Client REST dell'ingestione asincrona. Astratto per poter essere mockato

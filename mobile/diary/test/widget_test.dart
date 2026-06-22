@@ -1,5 +1,6 @@
 import 'package:diary/features/auth/domain/auth_session.dart';
 import 'package:diary/features/auth/domain/auth_user.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:diary/main.dart';
@@ -12,10 +13,22 @@ void main() {
     await tester.pumpWidget(
       DiaryApp(authRepository: _AuthenticatedAuthRepository()),
     );
-    await tester.pumpAndSettle();
+    // La home monta la mappa live (platform view Mapbox) e uno spinner mentre
+    // risolve la posizione: pumpAndSettle non converge per via dell'animazione,
+    // quindi si pompano qualche frame in modo deterministico.
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
 
     expect(tester.takeException(), isNull);
     expect(find.byType(DiaryApp), findsOneWidget);
+
+    // Le metriche stanno nel bottom sheet trascinabile: vanno scrollate in vista
+    // perché la ListView è lazy e parte collassata.
+    await tester.scrollUntilVisible(
+      find.text('Sensori reali'),
+      300,
+      scrollable: find.byType(Scrollable).last,
+    );
     expect(find.text('Sensori reali'), findsOneWidget);
     expect(find.text('Eventi simulati'), findsNothing);
   });

@@ -90,6 +90,7 @@ class SegmentOut(Schema):
     end_timestamp: datetime
     activity_label: str
     distance_meters: float
+    path_geojson: dict[str, Any] | None = None
     place: PlaceOut | None = None
 
 

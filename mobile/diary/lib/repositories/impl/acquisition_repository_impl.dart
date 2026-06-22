@@ -27,6 +27,9 @@ class AcquisitionRepositoryImpl implements AcquisitionRepository {
   Timer? _potentialMotionTimeoutTimer;
   Timer? _syncRetryTimer;
   final Set<String> _persistedSensorWindowKeys = {};
+  double? _latestLatitude;
+  double? _latestLongitude;
+  double? _latestAccuracyMeters;
 
   AcquisitionRepositoryImpl({
     FsmConfig config = const FsmConfig(),
@@ -74,6 +77,9 @@ class AcquisitionRepositoryImpl implements AcquisitionRepository {
 
     _potentialMotionTimeoutTimer?.cancel();
     _persistedSensorWindowKeys.clear();
+    _latestLatitude = null;
+    _latestLongitude = null;
+    _latestAccuracyMeters = null;
     final now = DateTime.now().toUtc();
     final sessionId = _uuid.v4();
     _fsm = AcquisitionFsm(config: _config);
@@ -153,17 +159,21 @@ class AcquisitionRepositoryImpl implements AcquisitionRepository {
 
     if (event is GpsFixReceived &&
         event.latitude != null &&
-        event.longitude != null &&
-        sessionId != null &&
-        decision.samplingProfile.persistGpsPoints) {
-      await _dao.insertGpsPoint(
-        sessionId: sessionId,
-        latitude: event.latitude!,
-        longitude: event.longitude!,
-        timestamp: event.timestamp,
-        speedMps: event.speedMetersPerSecond,
-        accuracyMeters: event.accuracyMeters,
-      );
+        event.longitude != null) {
+      _latestLatitude = event.latitude;
+      _latestLongitude = event.longitude;
+      _latestAccuracyMeters = event.accuracyMeters;
+
+      if (sessionId != null && decision.samplingProfile.persistGpsPoints) {
+        await _dao.insertGpsPoint(
+          sessionId: sessionId,
+          latitude: event.latitude!,
+          longitude: event.longitude!,
+          timestamp: event.timestamp,
+          speedMps: event.speedMetersPerSecond,
+          accuracyMeters: event.accuracyMeters,
+        );
+      }
     }
 
     await _persistCompletedHarWindowsIfNeeded(decision);
@@ -177,6 +187,9 @@ class AcquisitionRepositoryImpl implements AcquisitionRepository {
         latestSpeedMetersPerSecond: _fsm.latestSpeedMetersPerSecond,
         lastTransition: decision.transition,
         updatedAt: event.timestamp,
+        latitude: _latestLatitude,
+        longitude: _latestLongitude,
+        accuracyMeters: _latestAccuracyMeters,
       ),
     );
     await _runtime?.configure(decision.samplingProfile);

@@ -57,6 +57,21 @@ compatibility for older clients. New product work should not build on presigned
 core parts, and the mobile app should use the inline core endpoint as its
 primary path. Presigned upload remains the primary path for raw sensor evidence.
 
+**State Boundary**
+
+`core_status` and `raw_status` remain phase states, while
+`core_ingestion_mode` identifies the core transport. In the primary inline path,
+Core Ingestion is expected to move from a claimable state to `PROCESSING` and
+then `COMPLETED` inside the same HTTP request. The legacy part path remains the
+owner of externally visible core `RECEIVING`, `RECEIVED`, `QUEUED`, and
+`PROCESSING` states. Raw Sensor Ingestion still uses `PENDING`, `RECEIVING`,
+`RECEIVED`, and `COMPLETED` independently from core, because raw upload remains
+presigned and may finish after the map is already available.
+
+The status API must therefore expose the four facts separately:
+`core_ingestion_mode`, `core_status`, `raw_status`, and `map_available`. Clients
+should not infer map readiness from legacy part progress or raw completion.
+
 The inline core payload has a hard maximum size of 1 MB, measured on the whole
 decoded JSON request body, including metadata and core evidence arrays. This
 keeps the endpoint clearly in the "small core evidence" category while leaving

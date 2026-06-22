@@ -48,3 +48,139 @@ class TripTrackDto {
     ];
   }
 }
+
+class TripDiaryDto {
+  final int tripId;
+  final String status;
+  final bool processed;
+  final List<TripDiarySegmentDto> segments;
+  final List<TripDiaryPlaceDto> places;
+
+  const TripDiaryDto({
+    required this.tripId,
+    required this.status,
+    required this.processed,
+    required this.segments,
+    required this.places,
+  });
+
+  factory TripDiaryDto.fromJson(Map<String, dynamic> json) {
+    return TripDiaryDto(
+      tripId: json['trip_id'] as int,
+      status: json['status'] as String? ?? '',
+      processed: json['processed'] as bool? ?? false,
+      segments: (json['segments'] as List<dynamic>? ?? const [])
+          .map((value) => TripDiarySegmentDto.fromJson(
+                Map<String, dynamic>.from(value as Map<dynamic, dynamic>),
+              ))
+          .toList(growable: false),
+      places: (json['places'] as List<dynamic>? ?? const [])
+          .map((value) => TripDiaryPlaceDto.fromJson(
+                Map<String, dynamic>.from(value as Map<dynamic, dynamic>),
+              ))
+          .toList(growable: false),
+    );
+  }
+
+  List<TripDiarySegmentDto> get drawableSegments {
+    return segments
+        .where(
+            (segment) => segment.kind == 'MOVE' && segment.points.length >= 2)
+        .toList(growable: false);
+  }
+
+  double get movementDistanceMeters {
+    return segments.fold<double>(
+      0,
+      (total, segment) => total + segment.distanceMeters,
+    );
+  }
+}
+
+class TripDiarySegmentDto {
+  final String kind;
+  final DateTime startTimestamp;
+  final DateTime endTimestamp;
+  final String activityLabel;
+  final double distanceMeters;
+  final Map<String, dynamic>? pathGeojson;
+  final TripDiaryPlaceDto? place;
+
+  const TripDiarySegmentDto({
+    required this.kind,
+    required this.startTimestamp,
+    required this.endTimestamp,
+    required this.activityLabel,
+    required this.distanceMeters,
+    required this.pathGeojson,
+    this.place,
+  });
+
+  factory TripDiarySegmentDto.fromJson(Map<String, dynamic> json) {
+    return TripDiarySegmentDto(
+      kind: json['kind'] as String? ?? '',
+      startTimestamp: DateTime.parse(json['start_timestamp'] as String),
+      endTimestamp: DateTime.parse(json['end_timestamp'] as String),
+      activityLabel: json['activity_label'] as String? ?? '',
+      distanceMeters: (json['distance_meters'] as num? ?? 0).toDouble(),
+      pathGeojson: json['path_geojson'] == null
+          ? null
+          : Map<String, dynamic>.from(
+              json['path_geojson'] as Map<dynamic, dynamic>,
+            ),
+      place: json['place'] == null
+          ? null
+          : TripDiaryPlaceDto.fromJson(
+              Map<String, dynamic>.from(json['place'] as Map<dynamic, dynamic>),
+            ),
+    );
+  }
+
+  List<LatLng> get points {
+    final geometry = pathGeojson;
+    if (geometry == null || geometry['type'] != 'LineString') {
+      return const [];
+    }
+
+    final coordinates = geometry['coordinates'];
+    if (coordinates is! List) return const [];
+
+    return [
+      for (final coordinate in coordinates)
+        if (coordinate is List && coordinate.length >= 2)
+          LatLng(
+            (coordinate[1] as num).toDouble(),
+            (coordinate[0] as num).toDouble(),
+          ),
+    ];
+  }
+}
+
+class TripDiaryPlaceDto {
+  final int id;
+  final double latitude;
+  final double longitude;
+  final double radiusMeters;
+  final int dwellSeconds;
+  final String label;
+
+  const TripDiaryPlaceDto({
+    required this.id,
+    required this.latitude,
+    required this.longitude,
+    required this.radiusMeters,
+    required this.dwellSeconds,
+    required this.label,
+  });
+
+  factory TripDiaryPlaceDto.fromJson(Map<String, dynamic> json) {
+    return TripDiaryPlaceDto(
+      id: json['id'] as int,
+      latitude: (json['lat'] as num).toDouble(),
+      longitude: (json['lon'] as num).toDouble(),
+      radiusMeters: (json['radius_meters'] as num? ?? 0).toDouble(),
+      dwellSeconds: json['dwell_seconds'] as int? ?? 0,
+      label: json['label'] as String? ?? '',
+    );
+  }
+}

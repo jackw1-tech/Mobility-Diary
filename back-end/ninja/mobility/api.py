@@ -146,6 +146,7 @@ def get_trip_diary(request, trip_id: int):
             end_timestamp=seg.end_timestamp,
             activity_label=seg.activity_label,
             distance_meters=seg.distance_meters,
+            path_geojson=json.loads(seg.path.geojson) if seg.path is not None else None,
             place=place_by_id.get(seg.place_id),
         )
         for seg in trip.segments.all()

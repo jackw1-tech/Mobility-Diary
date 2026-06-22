@@ -7,6 +7,7 @@ import 'package:diary/other/contants/api_contants.dart';
 
 abstract class TripTrackService {
   Future<TripTrackDto> fetchTrack(int tripId);
+  Future<TripDiaryDto> fetchDiary(int tripId);
 }
 
 class TripTrackHttpService implements TripTrackService {
@@ -26,6 +27,15 @@ class TripTrackHttpService implements TripTrackService {
       '/mobility/trips/$tripId/track',
     );
     return TripTrackDto.fromJson(data);
+  }
+
+  @override
+  Future<TripDiaryDto> fetchDiary(int tripId) async {
+    final data = await _sendJson(
+      'GET',
+      '/mobility/trips/$tripId/diary',
+    );
+    return TripDiaryDto.fromJson(data);
   }
 
   Future<Map<String, dynamic>> _sendJson(String method, String path) async {
