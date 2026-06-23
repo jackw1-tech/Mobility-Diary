@@ -3,7 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:diary/routers/auth_guard.dart';
 import 'package:diary/ui/pages/detail_page.dart';
 import 'package:diary/ui/pages/home_page.dart';
-import 'package:diary/ui/pages/trip_map_page.dart';
+import 'package:diary/ui/pages/profile_page.dart';
+import 'package:diary/ui/pages/trip_detail_page.dart';
 
 part 'app_router.gr.dart';
 
@@ -25,8 +26,13 @@ class AppRouter extends RootStackRouter {
           guards: [authGuard],
         ),
         AutoRoute(
-          path: '/trips/:id/map',
-          page: TripMapRoute.page,
+          path: '/trips/:id',
+          page: TripDetailRoute.page,
+          guards: [authGuard],
+        ),
+        AutoRoute(
+          path: '/profile',
+          page: ProfileRoute.page,
           guards: [authGuard],
         ),
       ];

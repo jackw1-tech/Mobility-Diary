@@ -6,26 +6,30 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 class TripTrackCubit extends Cubit<TripTrackCubitState> {
   final TripTrackService _service;
-  final Duration _pollDelay;
-  final int _maxPendingPolls;
-  Timer? _pendingPollTimer;
-  int _pendingPolls = 0;
+  StreamSubscription<String>? _diaryEventSubscription;
+  int? _tripId;
 
-  TripTrackCubit(
-    this._service, {
-    Duration pollDelay = const Duration(seconds: 15),
-    int maxPendingPolls = 20,
-  })  : _pollDelay = pollDelay,
-        _maxPendingPolls = maxPendingPolls,
-        super(const TripTrackCubitState.initial());
+  TripTrackCubit(this._service) : super(const TripTrackCubitState.initial());
 
   Future<void> load(int tripId) async {
-    _pendingPollTimer?.cancel();
-    _pendingPolls = 0;
-    await _load(tripId, showLoading: true);
+    _tripId = tripId;
+    await _diaryEventSubscription?.cancel();
+    _diaryEventSubscription = null;
+    await _load(tripId, showLoading: true, watchPendingDiary: true);
   }
 
-  Future<void> _load(int tripId, {required bool showLoading}) async {
+  Future<void> reload() async {
+    final tripId = _tripId;
+    if (tripId == null) return;
+    await load(tripId);
+  }
+
+  Future<void> _load(
+    int tripId, {
+    required bool showLoading,
+    required bool watchPendingDiary,
+  }) async {
+    final previousState = state;
     if (showLoading) {
       emit(const TripTrackCubitState(status: TripTrackStatus.loading));
     }
@@ -49,6 +53,7 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
             status: TripTrackStatus.loaded,
             points: points,
             segments: segments,
+            diarySegments: diary.segments,
             distanceMeters: diary.movementDistanceMeters,
           ),
         );
@@ -61,11 +66,15 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
         emit(
           TripTrackCubitState(
             status: TripTrackStatus.empty,
+            diarySegments: diary.processed ? diary.segments : const [],
             distanceMeters: track.distanceMeters,
             enrichmentPending: !diary.processed,
           ),
         );
-        _schedulePendingPoll(tripId, pending: !diary.processed);
+        _watchPendingDiaryIfNeeded(
+          tripId,
+          pending: !diary.processed && watchPendingDiary,
+        );
         return;
       }
 
@@ -73,34 +82,57 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
         TripTrackCubitState(
           status: TripTrackStatus.loaded,
           points: points,
+          diarySegments: diary.processed ? diary.segments : const [],
           distanceMeters: track.distanceMeters,
           enrichmentPending: !diary.processed,
         ),
       );
-      _schedulePendingPoll(tripId, pending: !diary.processed);
+      _watchPendingDiaryIfNeeded(
+        tripId,
+        pending: !diary.processed && watchPendingDiary,
+      );
     } catch (error) {
       emit(
         TripTrackCubitState(
           status: TripTrackStatus.error,
+          points: previousState.points,
+          segments: previousState.segments,
+          diarySegments: previousState.diarySegments,
+          distanceMeters: previousState.distanceMeters,
+          enrichmentPending: previousState.enrichmentPending,
           error: error.toString(),
         ),
       );
     }
   }
 
-  void _schedulePendingPoll(int tripId, {required bool pending}) {
-    _pendingPollTimer?.cancel();
-    if (!pending || _pendingPolls >= _maxPendingPolls) return;
-    _pendingPolls += 1;
-    _pendingPollTimer = Timer(_pollDelay, () {
-      if (isClosed) return;
-      _load(tripId, showLoading: false);
-    });
+  void _watchPendingDiaryIfNeeded(int tripId, {required bool pending}) {
+    if (!pending) {
+      unawaited(_diaryEventSubscription?.cancel());
+      _diaryEventSubscription = null;
+      return;
+    }
+    if (_diaryEventSubscription != null) return;
+
+    _diaryEventSubscription = _service.watchDiaryEvents(tripId).listen(
+      (event) {
+        if (event != 'diary_enriched') return;
+        unawaited(_refreshAfterDiaryEvent(tripId));
+      },
+      onError: (_) {},
+    );
+  }
+
+  Future<void> _refreshAfterDiaryEvent(int tripId) async {
+    await _diaryEventSubscription?.cancel();
+    _diaryEventSubscription = null;
+    if (isClosed) return;
+    await _load(tripId, showLoading: false, watchPendingDiary: false);
   }
 
   @override
-  Future<void> close() {
-    _pendingPollTimer?.cancel();
+  Future<void> close() async {
+    await _diaryEventSubscription?.cancel();
     return super.close();
   }
 }

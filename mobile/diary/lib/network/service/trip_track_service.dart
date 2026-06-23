@@ -8,6 +8,7 @@ import 'package:diary/other/contants/api_contants.dart';
 abstract class TripTrackService {
   Future<TripTrackDto> fetchTrack(int tripId);
   Future<TripDiaryDto> fetchDiary(int tripId);
+  Stream<String> watchDiaryEvents(int tripId);
 }
 
 class TripTrackHttpService implements TripTrackService {
@@ -36,6 +37,42 @@ class TripTrackHttpService implements TripTrackService {
       '/mobility/trips/$tripId/diary',
     );
     return TripDiaryDto.fromJson(data);
+  }
+
+  @override
+  Stream<String> watchDiaryEvents(int tripId) async* {
+    final token = await _tokenProvider();
+    if (token == null || token.isEmpty) {
+      throw const IngestionApiException('Sessione non disponibile');
+    }
+
+    final request = await _client.openUrl(
+      'GET',
+      _uri('/mobility/trips/$tripId/events'),
+    );
+    request.headers.set(HttpHeaders.acceptHeader, 'text/event-stream');
+    request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+    request.contentLength = 0;
+
+    final response = await request.close().timeout(const Duration(seconds: 30));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      final responseBody = await response.transform(utf8.decoder).join();
+      final decoded = _tryDecode(responseBody);
+      final detail = decoded is Map ? decoded['detail'] : null;
+      throw IngestionApiException(
+        detail is String ? detail : 'Stream eventi viaggio non disponibile',
+        statusCode: response.statusCode,
+      );
+    }
+
+    final lines =
+        response.transform(utf8.decoder).transform(const LineSplitter());
+
+    await for (final line in lines) {
+      if (line.startsWith('event:')) {
+        yield line.substring('event:'.length).trim();
+      }
+    }
   }
 
   Future<Map<String, dynamic>> _sendJson(String method, String path) async {

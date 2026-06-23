@@ -41,4 +41,12 @@ List<RepositoryProvider> buildRepositories({
           );
         },
       ),
+      RepositoryProvider<PrivacySettingsService>(
+        create: (context) {
+          final auth = context.read<AuthRepository>();
+          return PrivacySettingsHttpService(
+            tokenProvider: () async => auth.accessToken,
+          );
+        },
+      ),
     ];

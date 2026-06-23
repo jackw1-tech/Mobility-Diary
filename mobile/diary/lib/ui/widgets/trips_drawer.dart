@@ -10,7 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 /// Drawer laterale con tutti i viaggi dell'utente e, per ognuno, il pulsante
-/// "Vedi su mappa". La lista arriva dall'endpoint backend GET /mobility/trips.
+/// "Dettaglio". La lista arriva dall'endpoint backend GET /mobility/trips.
 class TripsDrawer extends StatelessWidget {
   const TripsDrawer({super.key});
 
@@ -51,6 +51,15 @@ class _TripsDrawerBody extends StatelessWidget {
               ),
             ],
           ),
+        ),
+        const Divider(height: 1),
+        ListTile(
+          leading: const Icon(Icons.person_outline),
+          title: const Text('Profilo'),
+          onTap: () {
+            Scaffold.of(context).closeDrawer();
+            context.router.push(const ProfileRoute());
+          },
         ),
         const Divider(height: 1),
         Expanded(
@@ -101,11 +110,11 @@ class _TripTile extends StatelessWidget {
         onPressed: trip.hasTrack
             ? () {
                 Scaffold.of(context).closeDrawer();
-                context.router.push(TripMapRoute(tripId: trip.id));
+                context.router.push(TripDetailRoute(tripId: trip.id));
               }
             : null,
-        icon: const Icon(Icons.map),
-        label: const Text('Vedi su mappa'),
+        icon: const Icon(Icons.route),
+        label: const Text('Dettaglio'),
       ),
     );
   }

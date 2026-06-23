@@ -35,3 +35,11 @@ class LoginOut(Schema):
 
 class MessageOut(Schema):
     detail: str
+
+
+class PrivacySettingsIn(Schema):
+    privacy_level: str
+
+
+class PrivacySettingsOut(Schema):
+    privacy_level: str

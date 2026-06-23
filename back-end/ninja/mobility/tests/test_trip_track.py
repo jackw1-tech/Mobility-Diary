@@ -7,6 +7,7 @@ from django.test import Client
 from django.utils import timezone
 
 from accounts.models import AccessToken
+from mobility import api as mobility_api
 from mobility.models import (
     ActivityLabel,
     GpsPoint,
@@ -295,3 +296,55 @@ def test_diary_endpoint_returns_segment_geometry_and_stop_place(user, other_user
     assert stop["kind"] == MobilitySegment.Kind.STOP
     assert stop["path_geojson"] is None
     assert stop["place"]["label"] == "universita"
+
+
+@pytest.mark.django_db
+def test_trip_events_emits_diary_enriched_for_processed_trip(user):
+    trip = create_trip(user)
+    trip.status = Trip.Status.PROCESSED
+    trip.save(update_fields=["status", "updated_at"])
+
+    response = Client().get(
+        f"/api/mobility/trips/{trip.id}/events",
+        **auth_headers(user),
+    )
+
+    assert response.status_code == 200
+    assert response["Content-Type"].startswith("text/event-stream")
+    body = b"".join(response.streaming_content).decode("utf-8")
+    assert "event: diary_enriched" in body
+    assert f'"trip_id":{trip.id}' in body
+
+
+@pytest.mark.django_db
+def test_trip_events_returns_404_for_other_user(user, other_user):
+    trip = create_trip(user)
+
+    response = Client().get(
+        f"/api/mobility/trips/{trip.id}/events",
+        **auth_headers(other_user),
+    )
+
+    assert response.status_code == 404
+
+
+def test_trip_event_stream_emits_when_diary_becomes_processed(monkeypatch):
+    calls = iter([False, True])
+    monkeypatch.setattr(
+        mobility_api,
+        "_is_trip_diary_processed",
+        lambda trip_id, user_id: next(calls),
+    )
+    monkeypatch.setattr(mobility_api.time, "sleep", lambda seconds: None)
+
+    stream = mobility_api._trip_diary_event_stream(
+        7,
+        11,
+        poll_seconds=0,
+        max_seconds=10,
+    )
+
+    assert next(stream) == ": waiting\n\n"
+    assert next(stream) == 'event: diary_enriched\ndata: {"trip_id":7}\n\n'
+    with pytest.raises(StopIteration):
+        next(stream)

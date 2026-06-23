@@ -33,9 +33,20 @@ _Avoid_: Journey creation, sync completion
 The user-facing reconstruction of a day or mobility episode as readable time intervals, places, movements, activity labels, and statistics.
 _Avoid_: Raw trace, upload result, model output
 
+**Dettaglio Viaggio**:
+The mobile screen for one Viaggio where the user can inspect its map,
+mobility-segment timeline, and trip statistics.
+_Avoid_: Map page, trip debug page, sync result
+
 **Segmento di Mobilità**:
 A time-bounded entry in the mobility diary representing either a stop or a movement, enriched with an activity label when available.
 _Avoid_: GPS chunk, raw window, prediction row
+
+**Timeline del Viaggio**:
+The ordered mobile presentation of the Segmenti di Mobilita for one Viaggio,
+showing time interval, duration, activity label, movement distance, and stop
+place information when available.
+_Avoid_: Raw event list, sensor timeline, backend status log
 
 **Luogo Significativo**:
 A place inferred from a meaningful dwell interval and used to make the mobility diary readable without exposing every raw coordinate.
@@ -49,6 +60,18 @@ _Avoid_: Classifier output, HAR string, transport type
 A shareable representation of the mobility diary where location detail is intentionally reduced, perturbed, or aggregated.
 _Avoid_: Export, anonymized copy, public trace
 
+**Preferenza Privacy**:
+The user's current global choice for how precise or reduced their mobility data
+should appear in privacy-aware views, such as precise, approximate, or
+aggregated. The preference can change over time and is stored independently
+from individual Viaggi.
+_Avoid_: Privacy export, trip privacy snapshot, raw-data deletion
+
+**Livello Privacy**:
+One of the supported values for the Preferenza Privacy: precise, approximate,
+or aggregated.
+_Avoid_: Privacy score, privacy mode, visibility
+
 **Viaggio Sincronizzato**:
 A Viaggio whose Core Ingestion has completed and can appear in the diary, regardless of whether raw sensor evidence has finished uploading.
 _Avoid_: Fully uploaded journey, HAR-complete journey
@@ -58,3 +81,9 @@ The map-ready route shape for a Viaggio, available only when Core Ingestion
 contains enough valid GPS evidence. A Viaggio can be synchronized without having
 an available trajectory.
 _Avoid_: Raw track, HAR route, sync completion
+
+**Statistiche del Viaggio**:
+Aggregated user-facing measures derived from the Segmenti di Mobilita of one
+Viaggio, such as time by activity, stopped time, movement time, distance, and
+visited significant places.
+_Avoid_: Stored metrics, classifier report, backend analytics

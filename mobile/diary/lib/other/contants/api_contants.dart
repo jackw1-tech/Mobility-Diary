@@ -10,6 +10,7 @@ class ApiConstants {
   static const String registerPath = '/auth/register';
   static const String mePath = '/auth/me';
   static const String logoutPath = '/auth/logout';
+  static const String privacySettingsPath = '/privacy/settings';
 
   static const String mobilityTripsPath = '/trips/';
 }

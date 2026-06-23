@@ -62,3 +62,23 @@ class AccessToken(models.Model):
     def revoke(self) -> None:
         self.revoked_at = timezone.now()
         self.save(update_fields=["revoked_at"])
+
+
+class UserPrivacySettings(models.Model):
+    class Level(models.TextChoices):
+        PRECISE = "precise", "Precise"
+        APPROXIMATE = "approximate", "Approximate"
+        AGGREGATED = "aggregated", "Aggregated"
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        related_name="privacy_settings",
+        on_delete=models.CASCADE,
+    )
+    level = models.CharField(
+        max_length=16,
+        choices=Level.choices,
+        default=Level.PRECISE,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)

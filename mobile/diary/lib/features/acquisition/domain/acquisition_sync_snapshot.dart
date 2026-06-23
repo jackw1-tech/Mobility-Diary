@@ -50,8 +50,12 @@ class AcquisitionSyncSnapshot {
 
   bool get isCoreCompleted => status == AcquisitionSyncStatus.completed;
 
-  bool get canOpenCoreMap =>
-      isCoreCompleted && remoteTripId != null && coreMapAvailable;
+  bool get canOpenCoreDetail => isCoreCompleted && remoteTripId != null;
+
+  bool shouldOpenCoreDetailAfter(AcquisitionSyncSnapshot previous) {
+    return canOpenCoreDetail &&
+        (!previous.isCoreCompleted || previous.remoteTripId != remoteTripId);
+  }
 
   bool get isWorking {
     return status == AcquisitionSyncStatus.packaging ||

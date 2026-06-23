@@ -1,69 +1,35 @@
-import 'package:auto_route/auto_route.dart';
-import 'package:diary/network/service/trip_track_service.dart';
 import 'package:diary/state_management/cubits/trip_track_cubit/trip_track_cubit.dart';
 import 'package:diary/state_management/cubits/trip_track_cubit/trip_track_cubit_state.dart';
 import 'package:diary/theme/color_palette.dart';
 import 'package:diary/theme/dimensions.dart';
+import 'package:diary/ui/pages/trip_diary_presenter.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 
-@RoutePage()
 class TripMapPage extends StatelessWidget {
-  final int tripId;
-
-  const TripMapPage({
-    @PathParam('id') required this.tripId,
-    Key? key,
-  }) : super(key: key);
+  const TripMapPage({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider(
-      create: (context) =>
-          TripTrackCubit(context.read<TripTrackService>())..load(tripId),
-      child: _TripMapView(tripId: tripId),
-    );
-  }
-}
-
-class _TripMapView extends StatelessWidget {
-  final int tripId;
-
-  const _TripMapView({required this.tripId});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Traiettoria'),
-        actions: [
-          IconButton(
-            tooltip: 'Ricarica',
-            onPressed: () => context.read<TripTrackCubit>().load(tripId),
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
-      ),
-      body: BlocBuilder<TripTrackCubit, TripTrackCubitState>(
-        builder: (context, state) {
-          switch (state.status) {
-            case TripTrackStatus.initial:
-            case TripTrackStatus.loading:
-              return const Center(child: CircularProgressIndicator());
-            case TripTrackStatus.loaded:
-              return _TrackMap(state: state);
-            case TripTrackStatus.empty:
-              return const _EmptyTrack();
-            case TripTrackStatus.error:
-              return _TrackError(
-                message: state.error ?? 'Errore sconosciuto',
-                onRetry: () => context.read<TripTrackCubit>().load(tripId),
-              );
-          }
-        },
-      ),
+    return BlocBuilder<TripTrackCubit, TripTrackCubitState>(
+      builder: (context, state) {
+        switch (state.status) {
+          case TripTrackStatus.initial:
+          case TripTrackStatus.loading:
+            return const Center(child: CircularProgressIndicator());
+          case TripTrackStatus.loaded:
+            return _TrackMap(state: state);
+          case TripTrackStatus.empty:
+            return const _EmptyTrack();
+          case TripTrackStatus.error:
+            return _TrackError(
+              message: state.error ?? 'Errore sconosciuto',
+              onRetry: () => context.read<TripTrackCubit>().reload(),
+            );
+        }
+      },
     );
   }
 }
@@ -268,16 +234,10 @@ class _TrackMapState extends State<_TrackMap> {
           onMapCreated: _onMapCreated,
           onStyleLoadedListener: _onStyleLoaded,
         ),
-        if (widget.state.enrichmentPending)
-          const Positioned(
-            left: 0,
-            top: 0,
-            right: 0,
-            child: LinearProgressIndicator(minHeight: 3),
-          ),
+        if (widget.state.enrichmentPending) const _EnrichmentPendingBanner(),
         if (widget.state.isSegmented)
           Positioned(
-            top: Dimensions.paddingMedium,
+            top: widget.state.enrichmentPending ? 76 : Dimensions.paddingMedium,
             right: Dimensions.paddingMedium,
             child: _ViewModeToggle(
               showSegments: _showSegments,
@@ -291,6 +251,54 @@ class _TrackMapState extends State<_TrackMap> {
           child: _DistanceOverlay(distanceMeters: widget.state.distanceMeters),
         ),
       ],
+    );
+  }
+}
+
+class _EnrichmentPendingBanner extends StatelessWidget {
+  const _EnrichmentPendingBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      left: Dimensions.paddingMedium,
+      top: Dimensions.paddingMedium,
+      right: Dimensions.paddingMedium,
+      child: Material(
+        color: ColorPalette.surface,
+        elevation: Dimensions.cardElevation,
+        borderRadius: BorderRadius.circular(Dimensions.borderRadiusMedium),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(Dimensions.borderRadiusMedium),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const LinearProgressIndicator(minHeight: 3),
+              Padding(
+                padding: const EdgeInsets.all(Dimensions.paddingSmall),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.auto_awesome,
+                      color: ColorPalette.info,
+                      size: 18,
+                    ),
+                    const SizedBox(width: Dimensions.paddingSmall),
+                    Expanded(
+                      child: Text(
+                        'Analisi diario in corso',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -384,28 +392,6 @@ class _SegmentDetailsSheet extends StatelessWidget {
       ),
     );
   }
-}
-
-String activityLabelText(String label) {
-  switch (label) {
-    case 'WALKING':
-      return 'A piedi';
-    case 'RUNNING':
-      return 'Corsa';
-    case 'BIKING':
-      return 'Bici';
-    case 'MOVING_VEHICLE':
-      return 'Veicolo';
-    default:
-      return label;
-  }
-}
-
-String formatDistance(double meters) {
-  if (meters >= 1000) {
-    return '${(meters / 1000).toStringAsFixed(2)} km';
-  }
-  return '${meters.round()} m';
 }
 
 class _DistanceOverlay extends StatelessWidget {

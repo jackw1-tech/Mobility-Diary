@@ -120,6 +120,7 @@ def test_inline_core_happy_path_materializes_trip_and_path(user):
     data = response.json()
     assert data["core_status"] == TripIngestion.PhaseStatus.COMPLETED
     assert data["raw_status"] == TripIngestion.PhaseStatus.PENDING
+    assert data["trip_id"] is not None
     assert data["gps_points"] == 2
     assert data["state_transitions"] == 1
     assert data["path_points"] == 2
@@ -293,6 +294,24 @@ def test_inline_core_returns_current_state_for_legacy_processing(user, core_stat
     ingestion.refresh_from_db()
     assert ingestion.core_ingestion_mode == TripIngestion.CoreIngestionMode.LEGACY_PARTS
     assert ingestion.trip_id is None
+
+
+@pytest.mark.django_db
+def test_inline_core_completed_without_trip_is_explicit_conflict(user):
+    TripIngestion.objects.create(
+        user=user,
+        client_session_id="inline-completed-without-trip",
+        core_status=TripIngestion.PhaseStatus.COMPLETED,
+        raw_status=TripIngestion.PhaseStatus.PENDING,
+    )
+    payload = add_hash(
+        base_payload(client_session_id="inline-completed-without-trip")
+    )
+
+    response = post_inline(Client(), user, payload)
+
+    assert response.status_code == 409
+    assert "trip" in response.json()["detail"]
 
 
 @pytest.mark.django_db

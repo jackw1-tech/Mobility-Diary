@@ -195,6 +195,11 @@ def _materialized_counts(trip: Trip | None) -> tuple[int, int, int, float]:
 
 
 def _inline_core_response(ingestion: TripIngestion) -> InlineCoreOut:
+    if (
+        ingestion.core_status == TripIngestion.PhaseStatus.COMPLETED
+        and ingestion.trip_id is None
+    ):
+        raise HttpError(409, "core completato senza trip materializzato")
     gps_count, transition_count, path_points, distance_meters = _materialized_counts(
         ingestion.trip
     )

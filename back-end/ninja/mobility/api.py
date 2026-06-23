@@ -1,7 +1,9 @@
 import json
+import time
 
 from django.contrib.gis.db.models.functions import AsGeoJSON, Length
 from django.contrib.gis.geos import Point
+from django.http import StreamingHttpResponse
 from django.db.models import BooleanField, Case, Count, Value, When
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -29,6 +31,9 @@ from .schemas import (
 from .tasks import process_trip_har
 
 router = Router(tags=["mobility"])
+
+_TRIP_EVENT_POLL_SECONDS = 2
+_TRIP_EVENT_MAX_SECONDS = 300
 
 
 @router.get("/health", response=HealthOut)
@@ -158,6 +163,53 @@ def get_trip_diary(request, trip_id: int):
         segments=segments,
         places=list(place_by_id.values()),
     )
+
+
+def _sse_event(event: str, data: dict) -> str:
+    payload = json.dumps(data, separators=(",", ":"))
+    return f"event: {event}\ndata: {payload}\n\n"
+
+
+def _is_trip_diary_processed(trip_id: int, user_id: int) -> bool:
+    return Trip.objects.filter(
+        id=trip_id,
+        user_id=user_id,
+        status=Trip.Status.PROCESSED,
+    ).exists()
+
+
+def _trip_diary_event_stream(
+    trip_id: int,
+    user_id: int,
+    *,
+    poll_seconds: int = _TRIP_EVENT_POLL_SECONDS,
+    max_seconds: int = _TRIP_EVENT_MAX_SECONDS,
+):
+    deadline = time.monotonic() + max_seconds
+
+    while True:
+        if _is_trip_diary_processed(trip_id, user_id):
+            yield _sse_event("diary_enriched", {"trip_id": trip_id})
+            return
+
+        if time.monotonic() >= deadline:
+            yield ": timeout\n\n"
+            return
+
+        yield ": waiting\n\n"
+        time.sleep(poll_seconds)
+
+
+@router.get("/trips/{trip_id}/events", auth=mobile_bearer_auth)
+def trip_events(request, trip_id: int):
+    get_object_or_404(Trip, id=trip_id, user_id=request.auth.user_id)
+    response = StreamingHttpResponse(
+        _trip_diary_event_stream(trip_id, request.auth.user_id),
+        content_type="text/event-stream",
+    )
+    response["Cache-Control"] = "no-cache"
+    response["X-Accel-Buffering"] = "no"
+    return response
 
 
 @router.get("/trips", response=list[TripListItemOut], auth=mobile_bearer_auth)

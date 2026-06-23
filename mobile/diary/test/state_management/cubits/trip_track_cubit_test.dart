@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:diary/network/dto/trip_track_dto.dart';
 import 'package:diary/network/service/trip_track_service.dart';
 import 'package:diary/state_management/cubits/trip_track_cubit/trip_track_cubit.dart';
@@ -11,6 +13,8 @@ class FakeTripTrackService implements TripTrackService {
   Object? error;
   int trackCalls = 0;
   int diaryCalls = 0;
+  int eventStreamCalls = 0;
+  final StreamController<String> events = StreamController<String>.broadcast();
 
   @override
   Future<TripTrackDto> fetchTrack(int tripId) async {
@@ -37,6 +41,16 @@ class FakeTripTrackService implements TripTrackService {
           'places': [],
         });
   }
+
+  @override
+  Stream<String> watchDiaryEvents(int tripId) {
+    eventStreamCalls += 1;
+    final failure = error;
+    if (failure != null) return Stream<String>.error(failure);
+    return events.stream;
+  }
+
+  Future<void> close() => events.close();
 }
 
 void main() {
@@ -55,6 +69,7 @@ void main() {
             ],
           },
         });
+      addTearDown(service.close);
       final cubit = TripTrackCubit(service);
       addTearDown(cubit.close);
 
@@ -67,6 +82,7 @@ void main() {
       expect(cubit.state.enrichmentPending, isTrue);
       expect(service.diaryCalls, 1);
       expect(service.trackCalls, 1);
+      expect(service.eventStreamCalls, 1);
     });
 
     test('emits segmented track when diary has enriched movement geometry',
@@ -110,6 +126,7 @@ void main() {
           ],
           'places': [],
         });
+      addTearDown(service.close);
       final cubit = TripTrackCubit(service);
       addTearDown(cubit.close);
 
@@ -118,16 +135,69 @@ void main() {
       expect(cubit.state.status, TripTrackStatus.loaded);
       expect(cubit.state.isSegmented, isTrue);
       expect(cubit.state.segments, hasLength(2));
+      expect(cubit.state.diarySegments, hasLength(2));
       expect(cubit.state.segments.first.activityLabel, 'BIKING');
       expect(cubit.state.points, hasLength(4));
       expect(cubit.state.distanceMeters, 850);
       expect(cubit.state.enrichmentPending, isFalse);
       expect(service.diaryCalls, 1);
       expect(service.trackCalls, 0);
+      expect(service.eventStreamCalls, 0);
     });
 
-    test('polls pending diary and switches from base track to segments',
+    test('keeps processed diary segments when the map falls back to base track',
         () async {
+      final service = FakeTripTrackService()
+        ..diary = TripDiaryDto.fromJson({
+          'trip_id': 1,
+          'status': 'PROCESSED',
+          'processed': true,
+          'segments': [
+            {
+              'kind': 'STOP',
+              'start_timestamp': '2026-06-12T10:00:00Z',
+              'end_timestamp': '2026-06-12T10:10:00Z',
+              'activity_label': 'IDLE',
+              'distance_meters': 0,
+              'path_geojson': null,
+              'place': {
+                'id': 7,
+                'lat': 45.47,
+                'lon': 9.20,
+                'radius_meters': 30,
+                'dwell_seconds': 600,
+                'label': 'Casa',
+              },
+            },
+          ],
+          'places': [],
+        })
+        ..result = TripTrackDto.fromJson({
+          'trip_id': 1,
+          'point_count': 2,
+          'distance_meters': 120,
+          'geojson': {
+            'type': 'LineString',
+            'coordinates': [
+              [9.10, 45.46],
+              [9.20, 45.47],
+            ],
+          },
+        });
+      addTearDown(service.close);
+      final cubit = TripTrackCubit(service);
+      addTearDown(cubit.close);
+
+      await cubit.load(1);
+
+      expect(cubit.state.status, TripTrackStatus.loaded);
+      expect(cubit.state.points, hasLength(2));
+      expect(cubit.state.segments, isEmpty);
+      expect(cubit.state.diarySegments.single.kind, 'STOP');
+      expect(cubit.state.enrichmentPending, isFalse);
+    });
+
+    test('refetches pending diary after diary enriched event', () async {
       final pendingDiary = TripDiaryDto.fromJson({
         'trip_id': 1,
         'status': 'CLOSED',
@@ -172,11 +242,8 @@ void main() {
           },
         });
       service.diaryResults.addAll([pendingDiary, enrichedDiary]);
-      final cubit = TripTrackCubit(
-        service,
-        pollDelay: Duration.zero,
-        maxPendingPolls: 1,
-      );
+      final cubit = TripTrackCubit(service);
+      addTearDown(service.close);
       addTearDown(cubit.close);
 
       await cubit.load(1);
@@ -184,7 +251,9 @@ void main() {
       expect(cubit.state.isSegmented, isFalse);
       expect(cubit.state.enrichmentPending, isTrue);
       expect(service.trackCalls, 1);
+      expect(service.eventStreamCalls, 1);
 
+      service.events.add('diary_enriched');
       await Future<void>.delayed(Duration.zero);
       await Future<void>.delayed(Duration.zero);
 
@@ -194,6 +263,7 @@ void main() {
       expect(cubit.state.enrichmentPending, isFalse);
       expect(service.diaryCalls, 2);
       expect(service.trackCalls, 1);
+      expect(service.eventStreamCalls, 1);
     });
 
     test('emits empty when service returns no GeoJSON', () async {
@@ -204,6 +274,7 @@ void main() {
           'distance_meters': 0,
           'geojson': null,
         });
+      addTearDown(service.close);
       final cubit = TripTrackCubit(service);
       addTearDown(cubit.close);
 
@@ -212,10 +283,67 @@ void main() {
       expect(cubit.state.status, TripTrackStatus.empty);
       expect(cubit.state.points, isEmpty);
       expect(cubit.state.distanceMeters, 0);
+      expect(service.eventStreamCalls, 1);
+    });
+
+    test('manual retry keeps the last base track when the network fails',
+        () async {
+      final service = FakeTripTrackService()
+        ..result = TripTrackDto.fromJson({
+          'trip_id': 1,
+          'point_count': 2,
+          'distance_meters': 900,
+          'geojson': {
+            'type': 'LineString',
+            'coordinates': [
+              [9.10, 45.46],
+              [9.20, 45.47],
+            ],
+          },
+        });
+      addTearDown(service.close);
+      final cubit = TripTrackCubit(service);
+      addTearDown(cubit.close);
+
+      await cubit.load(1);
+      service.error = Exception('offline');
+      await cubit.reload();
+
+      expect(cubit.state.status, TripTrackStatus.error);
+      expect(cubit.state.error, contains('offline'));
+      expect(cubit.state.points, hasLength(2));
+      expect(cubit.state.distanceMeters, 900);
+      expect(cubit.state.enrichmentPending, isTrue);
+    });
+
+    test('closes the diary event stream when disposed', () async {
+      final service = FakeTripTrackService()
+        ..result = TripTrackDto.fromJson({
+          'trip_id': 1,
+          'point_count': 2,
+          'distance_meters': 900,
+          'geojson': {
+            'type': 'LineString',
+            'coordinates': [
+              [9.10, 45.46],
+              [9.20, 45.47],
+            ],
+          },
+        });
+      addTearDown(service.close);
+      final cubit = TripTrackCubit(service);
+
+      await cubit.load(1);
+      expect(service.events.hasListener, isTrue);
+
+      await cubit.close();
+
+      expect(service.events.hasListener, isFalse);
     });
 
     test('emits error when service fails', () async {
       final service = FakeTripTrackService()..error = Exception('boom');
+      addTearDown(service.close);
       final cubit = TripTrackCubit(service);
       addTearDown(cubit.close);
 

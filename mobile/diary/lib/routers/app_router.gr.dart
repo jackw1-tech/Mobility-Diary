@@ -78,32 +78,51 @@ class HomeRoute extends PageRouteInfo<void> {
 }
 
 /// generated route for
-/// [TripMapPage]
-class TripMapRoute extends PageRouteInfo<TripMapRouteArgs> {
-  TripMapRoute({required int tripId, Key? key, List<PageRouteInfo>? children})
-      : super(
-          TripMapRoute.name,
-          args: TripMapRouteArgs(tripId: tripId, key: key),
+/// [ProfilePage]
+class ProfileRoute extends PageRouteInfo<void> {
+  const ProfileRoute({List<PageRouteInfo>? children})
+      : super(ProfileRoute.name, initialChildren: children);
+
+  static const String name = 'ProfileRoute';
+
+  static PageInfo page = PageInfo(
+    name,
+    builder: (data) {
+      return const ProfilePage();
+    },
+  );
+}
+
+/// generated route for
+/// [TripDetailPage]
+class TripDetailRoute extends PageRouteInfo<TripDetailRouteArgs> {
+  TripDetailRoute({
+    required int tripId,
+    Key? key,
+    List<PageRouteInfo>? children,
+  }) : super(
+          TripDetailRoute.name,
+          args: TripDetailRouteArgs(tripId: tripId, key: key),
           rawPathParams: {'id': tripId},
           initialChildren: children,
         );
 
-  static const String name = 'TripMapRoute';
+  static const String name = 'TripDetailRoute';
 
   static PageInfo page = PageInfo(
     name,
     builder: (data) {
       final pathParams = data.inheritedPathParams;
-      final args = data.argsAs<TripMapRouteArgs>(
-        orElse: () => TripMapRouteArgs(tripId: pathParams.getInt('id')),
+      final args = data.argsAs<TripDetailRouteArgs>(
+        orElse: () => TripDetailRouteArgs(tripId: pathParams.getInt('id')),
       );
-      return TripMapPage(tripId: args.tripId, key: args.key);
+      return TripDetailPage(tripId: args.tripId, key: args.key);
     },
   );
 }
 
-class TripMapRouteArgs {
-  const TripMapRouteArgs({required this.tripId, this.key});
+class TripDetailRouteArgs {
+  const TripDetailRouteArgs({required this.tripId, this.key});
 
   final int tripId;
 
@@ -111,13 +130,13 @@ class TripMapRouteArgs {
 
   @override
   String toString() {
-    return 'TripMapRouteArgs{tripId: $tripId, key: $key}';
+    return 'TripDetailRouteArgs{tripId: $tripId, key: $key}';
   }
 
   @override
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
-    if (other is! TripMapRouteArgs) return false;
+    if (other is! TripDetailRouteArgs) return false;
     return tripId == other.tripId && key == other.key;
   }
 

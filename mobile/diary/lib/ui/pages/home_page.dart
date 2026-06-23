@@ -43,7 +43,17 @@ class _AuthenticatedHomePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder<AcquisitionCubit, AcquisitionCubitState>(
+    return BlocConsumer<AcquisitionCubit, AcquisitionCubitState>(
+      listenWhen: (previous, current) {
+        return current.syncSnapshot.shouldOpenCoreDetailAfter(
+          previous.syncSnapshot,
+        );
+      },
+      listener: (context, state) {
+        final tripId = state.syncSnapshot.remoteTripId;
+        if (tripId == null) return;
+        context.router.push(TripDetailRoute(tripId: tripId));
+      },
       builder: (context, state) {
         return Scaffold(
           drawer: const TripsDrawer(),
@@ -306,13 +316,13 @@ class _SyncStatusPanel extends StatelessWidget {
               icon: const Icon(Icons.refresh),
               label: const Text('Riprova'),
             ),
-          if (sync.canOpenCoreMap)
+          if (sync.canOpenCoreDetail)
             TextButton.icon(
               onPressed: () => context.router.push(
-                TripMapRoute(tripId: sync.remoteTripId!),
+                TripDetailRoute(tripId: sync.remoteTripId!),
               ),
-              icon: const Icon(Icons.map),
-              label: const Text('Vedi su mappa'),
+              icon: const Icon(Icons.route),
+              label: const Text('Dettaglio'),
             ),
         ],
       ),
