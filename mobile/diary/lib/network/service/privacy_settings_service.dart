@@ -3,11 +3,12 @@ import 'dart:io';
 
 import 'package:diary/features/acquisition/sync/trip_ingestion_api.dart';
 import 'package:diary/features/privacy/domain/privacy_level.dart';
+import 'package:diary/features/privacy/domain/privacy_settings.dart';
 import 'package:diary/other/contants/api_contants.dart';
 
 abstract class PrivacySettingsService {
-  Future<PrivacyLevel> fetch();
-  Future<PrivacyLevel> update(PrivacyLevel level);
+  Future<PrivacySettings> fetch();
+  Future<PrivacySettings> update(PrivacyLevel level);
 }
 
 class PrivacySettingsHttpService implements PrivacySettingsService {
@@ -21,20 +22,25 @@ class PrivacySettingsHttpService implements PrivacySettingsService {
         _client = client ?? HttpClient();
 
   @override
-  Future<PrivacyLevel> fetch() async {
+  Future<PrivacySettings> fetch() async {
     final data = await _sendJson('GET', ApiConstants.privacySettingsPath);
-    return PrivacyLevel.fromWire(data['privacy_level'] as String? ?? '');
+    return _fromJson(data);
   }
 
   @override
-  Future<PrivacyLevel> update(PrivacyLevel level) async {
+  Future<PrivacySettings> update(PrivacyLevel level) async {
     final data = await _sendJson(
       'PUT',
       ApiConstants.privacySettingsPath,
       body: {'privacy_level': level.wireName},
     );
-    return PrivacyLevel.fromWire(data['privacy_level'] as String? ?? '');
+    return _fromJson(data);
   }
+
+  PrivacySettings _fromJson(Map<String, dynamic> data) => (
+        level: PrivacyLevel.fromWire(data['privacy_level'] as String? ?? ''),
+        isFirstLogin: data['is_first_login'] as bool? ?? false,
+      );
 
   Future<Map<String, dynamic>> _sendJson(
     String method,

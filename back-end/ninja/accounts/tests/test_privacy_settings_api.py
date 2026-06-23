@@ -35,7 +35,7 @@ def test_privacy_settings_default_to_precise(user):
     response = Client().get("/api/privacy/settings", **auth_headers(user))
 
     assert response.status_code == 200
-    assert response.json() == {"privacy_level": "precise"}
+    assert response.json() == {"privacy_level": "precise", "is_first_login": True}
     assert user.privacy_settings.level == UserPrivacySettings.Level.PRECISE
 
 
@@ -50,8 +50,23 @@ def test_privacy_settings_update_allowed_levels(user, level):
     )
 
     assert response.status_code == 200
-    assert response.json() == {"privacy_level": level}
+    assert response.json() == {"privacy_level": level, "is_first_login": False}
     assert user.privacy_settings.level == level
+
+
+@pytest.mark.django_db
+def test_privacy_settings_update_clears_first_login_flag(user):
+    assert UserPrivacySettings.objects.get(user=user).is_first_login is True
+
+    Client().put(
+        "/api/privacy/settings",
+        data=json.dumps({"privacy_level": "approximate"}),
+        content_type="application/json",
+        **auth_headers(user),
+    )
+
+    user.privacy_settings.refresh_from_db()
+    assert user.privacy_settings.is_first_login is False
 
 
 @pytest.mark.django_db
@@ -80,6 +95,6 @@ def test_privacy_settings_are_isolated_per_user(user, other_user):
     response = client.get("/api/privacy/settings", **auth_headers(other_user))
 
     assert response.status_code == 200
-    assert response.json() == {"privacy_level": "precise"}
+    assert response.json() == {"privacy_level": "precise", "is_first_login": True}
     assert user.privacy_settings.level == "aggregated"
     assert other_user.privacy_settings.level == "precise"

@@ -1,14 +1,17 @@
 import 'package:auto_route/auto_route.dart';
 import 'package:diary/features/acquisition/domain/acquisition_domain.dart';
+import 'package:diary/network/service/privacy_settings_service.dart';
 import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubit.dart';
 import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubit_state.dart';
 import 'package:diary/state_management/cubits/auth_cubit/auth_cubit.dart';
 import 'package:diary/state_management/cubits/auth_cubit/auth_cubit_state.dart';
+import 'package:diary/state_management/cubits/privacy_settings_cubit/privacy_settings_cubit.dart';
 import 'package:diary/routers/app_router.dart';
 import 'package:diary/theme/Dimensions.dart';
 import 'package:diary/theme/color_palette.dart';
 import 'package:diary/ui/pages/auth_page.dart';
 import 'package:diary/ui/widgets/live_map.dart';
+import 'package:diary/ui/widgets/privacy_onboarding_dialog.dart';
 import 'package:diary/ui/widgets/trips_drawer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -30,7 +33,12 @@ class HomePage extends StatelessWidget {
           return const AuthPage();
         }
 
-        return _AuthenticatedHomePage(userLabel: authState.user?.displayName);
+        return BlocProvider<PrivacySettingsCubit>(
+          create: (context) => PrivacySettingsCubit(
+            context.read<PrivacySettingsService>(),
+          )..load(),
+          child: _AuthenticatedHomePage(userLabel: authState.user?.displayName),
+        );
       },
     );
   }
@@ -43,73 +51,78 @@ class _AuthenticatedHomePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BlocConsumer<AcquisitionCubit, AcquisitionCubitState>(
-      listenWhen: (previous, current) {
-        return current.syncSnapshot.shouldOpenCoreDetailAfter(
-          previous.syncSnapshot,
-        );
-      },
-      listener: (context, state) {
-        final tripId = state.syncSnapshot.remoteTripId;
-        if (tripId == null) return;
-        context.router.push(TripDetailRoute(tripId: tripId));
-      },
-      builder: (context, state) {
-        return Scaffold(
-          drawer: const TripsDrawer(),
-          appBar: AppBar(
-            centerTitle: true,
-            title: Text(userLabel == null ? 'Mobile Edge' : userLabel!),
-            actions: [
-              IconButton(
-                tooltip: 'Logout',
-                onPressed: () => context.read<AuthCubit>().logout(),
-                icon: const Icon(Icons.logout),
-              ),
-            ],
-          ),
-          body: Stack(
-            children: [
-              const Positioned.fill(child: LiveMap()),
-              DraggableScrollableSheet(
-                initialChildSize: 0.30,
-                minChildSize: 0.12,
-                maxChildSize: 0.9,
-                builder: (context, scrollController) {
-                  return DecoratedBox(
-                    decoration: const BoxDecoration(
-                      color: ColorPalette.background,
-                      borderRadius: BorderRadius.vertical(
-                        top: Radius.circular(Dimensions.borderRadiusLarge),
+    return BlocListener<PrivacySettingsCubit, PrivacySettingsState>(
+      listenWhen: (previous, current) => current.needsPrivacyOnboarding,
+      listener: (context, state) => showPrivacyOnboardingDialog(context),
+      child: BlocConsumer<AcquisitionCubit, AcquisitionCubitState>(
+        listenWhen: (previous, current) {
+          return current.syncSnapshot.shouldOpenCoreDetailAfter(
+            previous.syncSnapshot,
+          );
+        },
+        listener: (context, state) {
+          final tripId = state.syncSnapshot.remoteTripId;
+          if (tripId == null) return;
+          context.router.push(TripDetailRoute(tripId: tripId));
+        },
+        builder: (context, state) {
+          return Scaffold(
+            drawer: const TripsDrawer(),
+            appBar: AppBar(
+              centerTitle: true,
+              title: Text(userLabel == null ? 'Mobile Edge' : userLabel!),
+              actions: [
+                IconButton(
+                  tooltip: 'Logout',
+                  onPressed: () => context.read<AuthCubit>().logout(),
+                  icon: const Icon(Icons.logout),
+                ),
+              ],
+            ),
+            body: Stack(
+              children: [
+                const Positioned.fill(child: LiveMap()),
+                DraggableScrollableSheet(
+                  initialChildSize: 0.30,
+                  minChildSize: 0.12,
+                  maxChildSize: 0.9,
+                  builder: (context, scrollController) {
+                    return DecoratedBox(
+                      decoration: const BoxDecoration(
+                        color: ColorPalette.background,
+                        borderRadius: BorderRadius.vertical(
+                          top: Radius.circular(Dimensions.borderRadiusLarge),
+                        ),
+                        border: Border(
+                          top: BorderSide(color: ColorPalette.hairline),
+                        ),
                       ),
-                      border: Border(
-                        top: BorderSide(color: ColorPalette.hairline),
-                      ),
-                    ),
-                    child: ListView(
-                      controller: scrollController,
-                      padding: const EdgeInsets.all(Dimensions.paddingMedium),
-                      children: [
-                        const _SheetHandle(),
-                        const SizedBox(height: Dimensions.paddingSmall),
-                        _TrackingHeader(state: state),
-                        if (state.syncSnapshot.hasJob) ...[
+                      child: ListView(
+                        controller: scrollController,
+                        padding:
+                            const EdgeInsets.all(Dimensions.paddingMedium),
+                        children: [
+                          const _SheetHandle(),
+                          const SizedBox(height: Dimensions.paddingSmall),
+                          _TrackingHeader(state: state),
+                          if (state.syncSnapshot.hasJob) ...[
+                            const SizedBox(height: Dimensions.paddingMedium),
+                            _SyncStatusPanel(state: state),
+                          ],
                           const SizedBox(height: Dimensions.paddingMedium),
-                          _SyncStatusPanel(state: state),
+                          _CoreMetrics(state: state),
+                          const SizedBox(height: Dimensions.paddingMedium),
+                          _SensorList(state: state),
                         ],
-                        const SizedBox(height: Dimensions.paddingMedium),
-                        _CoreMetrics(state: state),
-                        const SizedBox(height: Dimensions.paddingMedium),
-                        _SensorList(state: state),
-                      ],
-                    ),
-                  );
-                },
-              ),
-            ],
-          ),
-        );
-      },
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          );
+        },
+      ),
     );
   }
 }

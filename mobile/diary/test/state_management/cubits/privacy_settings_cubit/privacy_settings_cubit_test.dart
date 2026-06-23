@@ -1,10 +1,12 @@
 import 'package:diary/features/privacy/domain/privacy_level.dart';
+import 'package:diary/features/privacy/domain/privacy_settings.dart';
 import 'package:diary/network/service/privacy_settings_service.dart';
 import 'package:diary/state_management/cubits/privacy_settings_cubit/privacy_settings_cubit.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class FakePrivacySettingsService implements PrivacySettingsService {
   PrivacyLevel fetched = PrivacyLevel.precise;
+  bool fetchedIsFirstLogin = false;
   PrivacyLevel? saved;
   Object? fetchError;
   Object? saveError;
@@ -12,20 +14,20 @@ class FakePrivacySettingsService implements PrivacySettingsService {
   int saveCalls = 0;
 
   @override
-  Future<PrivacyLevel> fetch() async {
+  Future<PrivacySettings> fetch() async {
     fetchCalls += 1;
     final error = fetchError;
     if (error != null) throw error;
-    return fetched;
+    return (level: fetched, isFirstLogin: fetchedIsFirstLogin);
   }
 
   @override
-  Future<PrivacyLevel> update(PrivacyLevel level) async {
+  Future<PrivacySettings> update(PrivacyLevel level) async {
     saveCalls += 1;
     final error = saveError;
     if (error != null) throw error;
     saved = level;
-    return level;
+    return (level: level, isFirstLogin: false);
   }
 }
 
@@ -103,6 +105,84 @@ void main() {
       expect(cubit.state.status, PrivacySettingsStatus.error);
       expect(cubit.state.error, contains('server'));
       expect(cubit.state.level, PrivacyLevel.precise);
+    });
+
+    test('surfaces isFirstLogin from the backend after loading', () async {
+      final service = FakePrivacySettingsService()
+        ..fetchedIsFirstLogin = true;
+      final cubit = PrivacySettingsCubit(service);
+      addTearDown(cubit.close);
+
+      await cubit.load();
+
+      expect(cubit.state.isFirstLogin, isTrue);
+      expect(cubit.state.needsPrivacyOnboarding, isTrue);
+    });
+
+    test('saving on first login clears the flag even with the default level',
+        () async {
+      final service = FakePrivacySettingsService()
+        ..fetchedIsFirstLogin = true;
+      final cubit = PrivacySettingsCubit(service);
+      addTearDown(cubit.close);
+
+      await cubit.load();
+      expect(cubit.state.needsPrivacyOnboarding, isTrue);
+
+      // User confirms the already-selected default level (precise):
+      // the save must not be skipped as a no-op, otherwise the
+      // onboarding flag would never clear.
+      await cubit.save(PrivacyLevel.precise);
+
+      expect(service.saveCalls, 1);
+      expect(cubit.state.isFirstLogin, isFalse);
+      expect(cubit.state.needsPrivacyOnboarding, isFalse);
+    });
+
+    test('does not skip saving the same level while onboarding is pending',
+        () async {
+      final service = FakePrivacySettingsService()
+        ..fetchedIsFirstLogin = true
+        ..fetched = PrivacyLevel.approximate;
+      final cubit = PrivacySettingsCubit(service);
+      addTearDown(cubit.close);
+
+      await cubit.load();
+
+      await cubit.save(PrivacyLevel.approximate);
+
+      expect(service.saveCalls, 1);
+      expect(service.saved, PrivacyLevel.approximate);
+    });
+
+    test('keeps isFirstLogin unchanged when a later save fails', () async {
+      final service = FakePrivacySettingsService()
+        ..fetchedIsFirstLogin = true;
+      final cubit = PrivacySettingsCubit(service);
+      addTearDown(cubit.close);
+
+      await cubit.load();
+
+      service.saveError = Exception('offline');
+      await cubit.save(PrivacyLevel.approximate);
+
+      expect(cubit.state.status, PrivacySettingsStatus.error);
+      expect(cubit.state.isFirstLogin, isTrue);
+      expect(cubit.state.needsPrivacyOnboarding, isFalse);
+    });
+
+    test('skips redundant saves once onboarding is already complete',
+        () async {
+      final service = FakePrivacySettingsService()
+        ..fetchedIsFirstLogin = false
+        ..fetched = PrivacyLevel.approximate;
+      final cubit = PrivacySettingsCubit(service);
+      addTearDown(cubit.close);
+
+      await cubit.load();
+      await cubit.save(PrivacyLevel.approximate);
+
+      expect(service.saveCalls, 0);
     });
   });
 }

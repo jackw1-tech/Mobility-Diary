@@ -43,3 +43,4 @@ class PrivacySettingsIn(Schema):
 
 class PrivacySettingsOut(Schema):
     privacy_level: str
+    is_first_login: bool

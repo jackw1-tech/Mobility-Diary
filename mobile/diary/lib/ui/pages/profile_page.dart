@@ -103,7 +103,7 @@ class _PrivacySection extends StatelessWidget {
                       .map(
                         (level) => ButtonSegment(
                           value: level,
-                          icon: Icon(_iconFor(level)),
+                          icon: Icon(level.icon),
                           label: FittedBox(
                             fit: BoxFit.scaleDown,
                             child: Text(level.label),
@@ -135,17 +135,6 @@ class _PrivacySection extends StatelessWidget {
         ),
       ],
     );
-  }
-
-  IconData _iconFor(PrivacyLevel level) {
-    switch (level) {
-      case PrivacyLevel.precise:
-        return Icons.my_location;
-      case PrivacyLevel.approximate:
-        return Icons.location_searching;
-      case PrivacyLevel.aggregated:
-        return Icons.bar_chart;
-    }
   }
 }
 

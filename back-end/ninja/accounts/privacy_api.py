@@ -9,7 +9,10 @@ router = Router(tags=["privacy"])
 
 
 def _payload(settings: UserPrivacySettings) -> dict:
-    return {"privacy_level": settings.level}
+    return {
+        "privacy_level": settings.level,
+        "is_first_login": settings.is_first_login,
+    }
 
 
 @router.get("/settings", response=PrivacySettingsOut, auth=mobile_bearer_auth)
@@ -28,6 +31,6 @@ def update_privacy_settings(request, payload: PrivacySettingsIn):
 
     settings, _ = UserPrivacySettings.objects.update_or_create(
         user=request.auth.user,
-        defaults={"level": payload.privacy_level},
+        defaults={"level": payload.privacy_level, "is_first_login": False},
     )
     return _payload(settings)

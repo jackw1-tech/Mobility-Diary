@@ -18,8 +18,12 @@ class PrivacySettingsCubit extends Cubit<PrivacySettingsState> {
       ),
     );
     try {
-      final level = await _service.fetch();
-      emit(state.copyWith(status: PrivacySettingsStatus.ready, level: level));
+      final settings = await _service.fetch();
+      emit(state.copyWith(
+        status: PrivacySettingsStatus.ready,
+        level: settings.level,
+        isFirstLogin: settings.isFirstLogin,
+      ));
     } catch (error) {
       emit(state.copyWith(
         status: PrivacySettingsStatus.error,
@@ -29,9 +33,12 @@ class PrivacySettingsCubit extends Cubit<PrivacySettingsState> {
   }
 
   Future<void> save(PrivacyLevel level) async {
-    if (level == state.level && state.status == PrivacySettingsStatus.ready) {
-      return;
-    }
+    // While onboarding (isFirstLogin) we must save even the unchanged default,
+    // otherwise the backend flag never clears and the dialog keeps reopening.
+    final isNoOp = !state.isFirstLogin &&
+        level == state.level &&
+        state.status == PrivacySettingsStatus.ready;
+    if (isNoOp) return;
 
     final previousLevel = state.level;
     emit(state.copyWith(
@@ -41,7 +48,11 @@ class PrivacySettingsCubit extends Cubit<PrivacySettingsState> {
     ));
     try {
       final saved = await _service.update(level);
-      emit(state.copyWith(status: PrivacySettingsStatus.ready, level: saved));
+      emit(state.copyWith(
+        status: PrivacySettingsStatus.ready,
+        level: saved.level,
+        isFirstLogin: saved.isFirstLogin,
+      ));
     } catch (error) {
       emit(state.copyWith(
         status: PrivacySettingsStatus.error,
