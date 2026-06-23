@@ -7,7 +7,7 @@ from django.utils import timezone
 from ninja import Router
 
 from .auth import mobile_bearer_auth
-from .models import AccessToken
+from .models import AccessToken, UserPrivacySettings
 from .schemas import LoginIn, LoginOut, MessageOut, RegisterIn, UserOut
 from .session_cache import cache_access_token, delete_cached_auth_context, user_payload
 
@@ -74,6 +74,7 @@ def register_user(request, payload: RegisterIn):
                 first_name=payload.first_name.strip(),
                 last_name=payload.last_name.strip(),
             )
+            UserPrivacySettings.objects.create(user=user)
     except IntegrityError:
         return 409, {"detail": "Email gia registrata"}
 

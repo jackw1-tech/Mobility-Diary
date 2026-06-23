@@ -1,3 +1,5 @@
+import traceback
+
 from ninja import Router
 from ninja.errors import HttpError
 
@@ -17,10 +19,16 @@ def _payload(settings: UserPrivacySettings) -> dict:
 
 @router.get("/settings", response=PrivacySettingsOut, auth=mobile_bearer_auth)
 def get_privacy_settings(request):
-    settings, _ = UserPrivacySettings.objects.get_or_create(
-        user=request.auth.user,
-    )
-    return _payload(settings)
+    # TEMPORARY debug instrumentation: surface the real traceback in the
+    # response body instead of a bare 500, to find the root cause of the
+    # production crash. Remove once diagnosed.
+    try:
+        settings, _ = UserPrivacySettings.objects.get_or_create(
+            user=request.auth.user,
+        )
+        return _payload(settings)
+    except Exception:
+        raise HttpError(500, traceback.format_exc())
 
 
 @router.put("/settings", response=PrivacySettingsOut, auth=mobile_bearer_auth)
