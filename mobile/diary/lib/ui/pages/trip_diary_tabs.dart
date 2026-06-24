@@ -90,6 +90,13 @@ Widget? _stateMessage(TripTrackCubitState state, {required String pending}) {
       return _message(Icons.error_outline, state.error ?? 'Errore');
     case TripTrackStatus.empty:
     case TripTrackStatus.loaded:
+      if (state.enrichmentFailed) {
+        return _message(
+          Icons.error_outline,
+          state.enrichmentErrorMessage ??
+              'Diario non disponibile per questo viaggio.',
+        );
+      }
       return state.enrichmentPending
           ? _message(Icons.auto_awesome, pending)
           : null;

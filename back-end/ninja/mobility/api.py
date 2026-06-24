@@ -1,11 +1,10 @@
 import asyncio
 import json
-import time
 
 from django.contrib.gis.db.models.functions import AsGeoJSON, Length
 from django.contrib.gis.geos import Point
-from django.http import StreamingHttpResponse
 from django.db.models import BooleanField, Case, Count, Value, When
+from django.http import StreamingHttpResponse
 from django.shortcuts import aget_object_or_404, get_object_or_404
 from django.utils import timezone
 from ninja import Router
@@ -13,7 +12,16 @@ from ninja.errors import HttpError
 
 from accounts.auth import mobile_bearer_auth
 
-from .models import GpsPoint, HarJob, SensorWindow, StateTransition, Trip
+from .diary_events import (
+    DIARY_ENRICHMENT_FAILED_REASON,
+    DIARY_STATUS_ENRICHED,
+    DIARY_STATUS_EVENT,
+    DIARY_STATUS_FAILED,
+    create_async_redis_client,
+    diary_status_channel,
+    diary_status_payload,
+)
+from .models import GpsPoint, HarJob, SensorWindow, StateTransition, Trip, TripIngestion
 from .schemas import (
     DiaryOut,
     GpsPointBatchIn,
@@ -33,7 +41,6 @@ from .tasks import process_trip_har
 
 router = Router(tags=["mobility"])
 
-_TRIP_EVENT_POLL_SECONDS = 2
 _TRIP_EVENT_MAX_SECONDS = 300
 
 
@@ -171,6 +178,10 @@ def _sse_event(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {payload}\n\n"
 
 
+def _sse_raw_event(event: str, data: str) -> str:
+    return f"event: {event}\ndata: {data}\n\n"
+
+
 async def _is_trip_diary_processed(trip_id: int, user_id: int) -> bool:
     return await Trip.objects.filter(
         id=trip_id,
@@ -179,26 +190,74 @@ async def _is_trip_diary_processed(trip_id: int, user_id: int) -> bool:
     ).aexists()
 
 
+async def _trip_diary_failure_reason(trip_id: int, user_id: int) -> str | None:
+    failed = await TripIngestion.objects.filter(
+        trip_id=trip_id,
+        user_id=user_id,
+        raw_status=TripIngestion.PhaseStatus.FAILED_FINAL,
+    ).aexists()
+    return DIARY_ENRICHMENT_FAILED_REASON if failed else None
+
+
+async def _trip_diary_status_payload(trip_id: int, user_id: int) -> dict | None:
+    if await _is_trip_diary_processed(trip_id, user_id):
+        return diary_status_payload(trip_id, DIARY_STATUS_ENRICHED)
+
+    failure_reason = await _trip_diary_failure_reason(trip_id, user_id)
+    if failure_reason is not None:
+        return diary_status_payload(
+            trip_id,
+            DIARY_STATUS_FAILED,
+            reason=failure_reason,
+        )
+    return None
+
+
+async def _next_diary_status_message(pubsub) -> str:
+    async for message in pubsub.listen():
+        if message.get("type") != "message":
+            continue
+        data = message.get("data")
+        if isinstance(data, bytes):
+            return data.decode("utf-8")
+        return str(data)
+    raise asyncio.CancelledError
+
+
 async def _trip_diary_event_stream(
     trip_id: int,
     user_id: int,
     *,
-    poll_seconds: int = _TRIP_EVENT_POLL_SECONDS,
     max_seconds: int = _TRIP_EVENT_MAX_SECONDS,
 ):
-    deadline = time.monotonic() + max_seconds
+    channel = diary_status_channel(trip_id)
+    redis_client = create_async_redis_client()
+    pubsub = redis_client.pubsub()
+    subscribed = False
+    try:
+        await pubsub.subscribe(channel)
+        subscribed = True
 
-    while True:
-        if await _is_trip_diary_processed(trip_id, user_id):
-            yield _sse_event("diary_enriched", {"trip_id": trip_id})
+        current_payload = await _trip_diary_status_payload(trip_id, user_id)
+        if current_payload is not None:
+            yield _sse_event(DIARY_STATUS_EVENT, current_payload)
             return
 
-        if time.monotonic() >= deadline:
+        try:
+            message = await asyncio.wait_for(
+                _next_diary_status_message(pubsub),
+                timeout=max_seconds,
+            )
+        except TimeoutError:
             yield ": timeout\n\n"
             return
 
-        yield ": waiting\n\n"
-        await asyncio.sleep(poll_seconds)
+        yield _sse_raw_event(DIARY_STATUS_EVENT, message)
+    finally:
+        if subscribed:
+            await pubsub.unsubscribe(channel)
+        await pubsub.aclose()
+        await redis_client.aclose()
 
 
 @router.get("/trips/{trip_id}/events", auth=mobile_bearer_auth)

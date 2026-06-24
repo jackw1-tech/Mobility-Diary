@@ -352,6 +352,74 @@ def test_process_trip_har_final_reads_raw_and_regenerates_segments(
 
 
 @pytest.mark.django_db
+def test_process_trip_har_final_publishes_enriched_after_commit(
+    user,
+    monkeypatch,
+    django_capture_on_commit_callbacks,
+):
+    start = timezone.now()
+    trip, ingestion, job = _create_har_ingestion(
+        user,
+        session_id="har-publish-success",
+        start=start,
+    )
+    raw = gzip.compress(json.dumps(_sensor_part_payload(start)).encode("utf-8"))
+    published = []
+
+    def fake_pipeline(trip, *, sensor_windows):
+        trip.status = Trip.Status.PROCESSED
+        trip.save(update_fields=["status", "updated_at"])
+        return {"segments": 0}
+
+    monkeypatch.setattr(storage, "read_object", lambda object_key: raw)
+    monkeypatch.setattr("mobility.tasks.run_pipeline", fake_pipeline)
+    monkeypatch.setattr(
+        "mobility.diary_events.publish_diary_status",
+        lambda *args, **kwargs: published.append((args, kwargs)),
+    )
+
+    with django_capture_on_commit_callbacks(execute=False) as callbacks:
+        process_trip_har_final.run(job.id, ingestion.id)
+
+    assert published == []
+    assert len(callbacks) == 1
+    callbacks[0]()
+    assert published == [((trip.id, "enriched"), {"reason": None})]
+
+
+@pytest.mark.django_db
+def test_process_trip_har_final_publishes_final_failure_after_commit(
+    user,
+    monkeypatch,
+    django_capture_on_commit_callbacks,
+):
+    start = timezone.now()
+    trip, ingestion, job = _create_har_ingestion(
+        user,
+        session_id="har-publish-failure",
+        start=start,
+    )
+    published = []
+
+    monkeypatch.setattr(storage, "read_object", lambda object_key: b"not-gzip")
+    monkeypatch.setattr(
+        "mobility.diary_events.publish_diary_status",
+        lambda *args, **kwargs: published.append((args, kwargs)),
+    )
+
+    with django_capture_on_commit_callbacks(execute=False) as callbacks:
+        with pytest.raises(InvalidRawSensorPayload):
+            process_trip_har_final.run(job.id, ingestion.id)
+
+    assert published == []
+    assert len(callbacks) == 1
+    callbacks[0]()
+    assert published == [
+        ((trip.id, "failed"), {"reason": "diary_enrichment_failed"})
+    ]
+
+
+@pytest.mark.django_db
 def test_process_trip_har_final_marks_storage_failure_retryable_without_cleanup(
     user,
     monkeypatch,

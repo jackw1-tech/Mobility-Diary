@@ -5,10 +5,95 @@ import 'package:diary/features/acquisition/sync/trip_ingestion_api.dart';
 import 'package:diary/network/dto/trip_track_dto.dart';
 import 'package:diary/other/contants/api_contants.dart';
 
+enum DiaryEventStatus { enriched, failed, unknown }
+
+class DiaryEvent {
+  final DiaryEventStatus status;
+  final int? tripId;
+  final String? reasonCode;
+
+  const DiaryEvent({
+    required this.status,
+    this.tripId,
+    this.reasonCode,
+  });
+
+  const DiaryEvent.unknown()
+      : status = DiaryEventStatus.unknown,
+        tripId = null,
+        reasonCode = null;
+
+  factory DiaryEvent.fromSse({String? event, String? data}) {
+    final decoded = event == 'diary_status' ? _tryDecodeMap(data) : null;
+    if (decoded == null) return const DiaryEvent.unknown();
+    return DiaryEvent(
+      status: switch (decoded['status']) {
+        'enriched' => DiaryEventStatus.enriched,
+        'failed' => DiaryEventStatus.failed,
+        _ => DiaryEventStatus.unknown,
+      },
+      tripId: _asInt(decoded['trip_id']),
+      reasonCode:
+          decoded['reason'] is String ? decoded['reason'] as String : null,
+    );
+  }
+}
+
+Map<String, dynamic>? _tryDecodeMap(String? body) {
+  if (body == null || body.isEmpty) return null;
+  try {
+    final decoded = jsonDecode(body);
+    if (decoded is Map<String, dynamic>) return decoded;
+    if (decoded is Map) return Map<String, dynamic>.from(decoded);
+  } on FormatException {
+    return null;
+  }
+  return null;
+}
+
+int? _asInt(Object? value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return null;
+}
+
+Stream<DiaryEvent> parseDiaryEvents(Stream<String> lines) async* {
+  String? event;
+  final dataLines = <String>[];
+
+  DiaryEvent? flush() {
+    if (event == null && dataLines.isEmpty) return null;
+    final parsed = DiaryEvent.fromSse(
+      event: event,
+      data: dataLines.join('\n'),
+    );
+    event = null;
+    dataLines.clear();
+    return parsed;
+  }
+
+  await for (final rawLine in lines) {
+    final line = rawLine.trimRight();
+    if (line.isEmpty) {
+      final parsed = flush();
+      if (parsed != null) yield parsed;
+    } else if (line.startsWith(':')) {
+      continue;
+    } else if (line.startsWith('event:')) {
+      event = line.substring('event:'.length).trimLeft();
+    } else if (line.startsWith('data:')) {
+      dataLines.add(line.substring('data:'.length).trimLeft());
+    }
+  }
+
+  final parsed = flush();
+  if (parsed != null) yield parsed;
+}
+
 abstract class TripTrackService {
   Future<TripTrackDto> fetchTrack(int tripId);
   Future<TripDiaryDto> fetchDiary(int tripId);
-  Stream<String> watchDiaryEvents(int tripId);
+  Stream<DiaryEvent> watchDiaryEvents(int tripId);
 }
 
 class TripTrackHttpService implements TripTrackService {
@@ -40,7 +125,7 @@ class TripTrackHttpService implements TripTrackService {
   }
 
   @override
-  Stream<String> watchDiaryEvents(int tripId) async* {
+  Stream<DiaryEvent> watchDiaryEvents(int tripId) async* {
     final token = await _tokenProvider();
     if (token == null || token.isEmpty) {
       throw const IngestionApiException('Sessione non disponibile');
@@ -57,8 +142,7 @@ class TripTrackHttpService implements TripTrackService {
     final response = await request.close().timeout(const Duration(seconds: 30));
     if (response.statusCode < 200 || response.statusCode >= 300) {
       final responseBody = await response.transform(utf8.decoder).join();
-      final decoded = _tryDecode(responseBody);
-      final detail = decoded is Map ? decoded['detail'] : null;
+      final detail = _tryDecodeMap(responseBody)?['detail'];
       throw IngestionApiException(
         detail is String ? detail : 'Stream eventi viaggio non disponibile',
         statusCode: response.statusCode,
@@ -68,11 +152,7 @@ class TripTrackHttpService implements TripTrackService {
     final lines =
         response.transform(utf8.decoder).transform(const LineSplitter());
 
-    await for (final line in lines) {
-      if (line.startsWith('event:')) {
-        yield line.substring('event:'.length).trim();
-      }
-    }
+    yield* parseDiaryEvents(lines);
   }
 
   Future<Map<String, dynamic>> _sendJson(String method, String path) async {
@@ -89,28 +169,17 @@ class TripTrackHttpService implements TripTrackService {
 
     final response = await request.close().timeout(const Duration(seconds: 30));
     final responseBody = await response.transform(utf8.decoder).join();
-    final decoded = _tryDecode(responseBody);
+    final decoded = _tryDecodeMap(responseBody);
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      final detail = decoded is Map ? decoded['detail'] : null;
+      final detail = decoded?['detail'];
       throw IngestionApiException(
         detail is String ? detail : 'Richiesta traiettoria fallita',
         statusCode: response.statusCode,
       );
     }
-    if (decoded is Map<String, dynamic>) return decoded;
-    if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    if (decoded != null) return decoded;
     throw const IngestionApiException('Risposta traiettoria non valida');
-  }
-
-  /// Decodifica JSON senza lanciare: un 405/500 puo' tornare testo o HTML.
-  dynamic _tryDecode(String body) {
-    if (body.isEmpty) return null;
-    try {
-      return jsonDecode(body);
-    } on FormatException {
-      return null;
-    }
   }
 
   Uri _uri(String path) {

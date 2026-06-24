@@ -6,13 +6,16 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 class TripTrackCubit extends Cubit<TripTrackCubitState> {
   final TripTrackService _service;
-  StreamSubscription<String>? _diaryEventSubscription;
+  StreamSubscription<DiaryEvent>? _diaryEventSubscription;
   int? _tripId;
+  bool _sawEnrichmentFailureThisSession = false;
+  String? _enrichmentFailureReasonCode;
 
   TripTrackCubit(this._service) : super(const TripTrackCubitState.initial());
 
   Future<void> load(int tripId) async {
     _tripId = tripId;
+    _clearEnrichmentFailure();
     await _diaryEventSubscription?.cancel();
     _diaryEventSubscription = null;
     await _load(tripId, showLoading: true, watchPendingDiary: true);
@@ -21,7 +24,11 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
   Future<void> reload() async {
     final tripId = _tripId;
     if (tripId == null) return;
-    await load(tripId);
+    await _load(
+      tripId,
+      showLoading: true,
+      watchPendingDiary: !_sawEnrichmentFailureThisSession,
+    );
   }
 
   Future<void> _load(
@@ -35,6 +42,13 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
     }
     try {
       final diary = await _service.fetchDiary(tripId);
+      if (diary.processed) _clearEnrichmentFailure();
+      final enrichmentFailed =
+          !diary.processed && _sawEnrichmentFailureThisSession;
+      final enrichmentPending = !diary.processed && !enrichmentFailed;
+      final enrichmentErrorMessage = enrichmentFailed
+          ? _enrichmentFailureMessage(_enrichmentFailureReasonCode)
+          : null;
       final drawableSegments = diary.drawableSegments;
       if (diary.processed && drawableSegments.isNotEmpty) {
         final segments = [
@@ -55,6 +69,8 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
             segments: segments,
             diarySegments: diary.segments,
             distanceMeters: diary.movementDistanceMeters,
+            enrichmentPending: false,
+            enrichmentFailed: false,
           ),
         );
         return;
@@ -62,34 +78,21 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
 
       final track = await _service.fetchTrack(tripId);
       final points = track.points;
-      if (points.isEmpty) {
-        emit(
-          TripTrackCubitState(
-            status: TripTrackStatus.empty,
-            diarySegments: diary.processed ? diary.segments : const [],
-            distanceMeters: track.distanceMeters,
-            enrichmentPending: !diary.processed,
-          ),
-        );
-        _watchPendingDiaryIfNeeded(
-          tripId,
-          pending: !diary.processed && watchPendingDiary,
-        );
-        return;
-      }
-
       emit(
         TripTrackCubitState(
-          status: TripTrackStatus.loaded,
+          status:
+              points.isEmpty ? TripTrackStatus.empty : TripTrackStatus.loaded,
           points: points,
           diarySegments: diary.processed ? diary.segments : const [],
           distanceMeters: track.distanceMeters,
-          enrichmentPending: !diary.processed,
+          enrichmentPending: enrichmentPending,
+          enrichmentFailed: enrichmentFailed,
+          enrichmentErrorMessage: enrichmentErrorMessage,
         ),
       );
       _watchPendingDiaryIfNeeded(
         tripId,
-        pending: !diary.processed && watchPendingDiary,
+        pending: enrichmentPending && watchPendingDiary,
       );
     } catch (error) {
       emit(
@@ -100,6 +103,8 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
           diarySegments: previousState.diarySegments,
           distanceMeters: previousState.distanceMeters,
           enrichmentPending: previousState.enrichmentPending,
+          enrichmentFailed: previousState.enrichmentFailed,
+          enrichmentErrorMessage: previousState.enrichmentErrorMessage,
           error: error.toString(),
         ),
       );
@@ -114,20 +119,70 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
     }
     if (_diaryEventSubscription != null) return;
 
-    _diaryEventSubscription = _service.watchDiaryEvents(tripId).listen(
+    late final StreamSubscription<DiaryEvent> subscription;
+    subscription = _service.watchDiaryEvents(tripId).listen(
       (event) {
-        if (event != 'diary_enriched') return;
-        unawaited(_refreshAfterDiaryEvent(tripId));
+        if (event.tripId != null && event.tripId != tripId) return;
+        if (event.status == DiaryEventStatus.enriched) {
+          unawaited(_refreshAfterDiaryEvent(tripId));
+        } else if (event.status == DiaryEventStatus.failed) {
+          _handleDiaryFailure(event.reasonCode);
+        }
       },
-      onError: (_) {},
+      // Lo stream si chiude da solo dopo `: timeout` (300s senza eventi) o un
+      // errore di rete: azzeriamo la subscription cosi' che un successivo
+      // reload()/re-watch non resti bloccato dalla guardia `!= null`.
+      onError: (_) => _clearDiaryEventSubscription(subscription),
+      onDone: () => _clearDiaryEventSubscription(subscription),
     );
+    _diaryEventSubscription = subscription;
+  }
+
+  void _clearDiaryEventSubscription(StreamSubscription<DiaryEvent> subscription) {
+    if (!identical(_diaryEventSubscription, subscription)) return;
+    _diaryEventSubscription = null;
   }
 
   Future<void> _refreshAfterDiaryEvent(int tripId) async {
     await _diaryEventSubscription?.cancel();
     _diaryEventSubscription = null;
+    _clearEnrichmentFailure();
     if (isClosed) return;
     await _load(tripId, showLoading: false, watchPendingDiary: false);
+  }
+
+  void _handleDiaryFailure(String? reasonCode) {
+    _sawEnrichmentFailureThisSession = true;
+    _enrichmentFailureReasonCode = reasonCode;
+    unawaited(_diaryEventSubscription?.cancel());
+    _diaryEventSubscription = null;
+    if (isClosed) return;
+    emit(
+      TripTrackCubitState(
+        status: state.status,
+        points: state.points,
+        segments: state.segments,
+        diarySegments: state.diarySegments,
+        distanceMeters: state.distanceMeters,
+        enrichmentPending: false,
+        enrichmentFailed: true,
+        enrichmentErrorMessage: _enrichmentFailureMessage(reasonCode),
+        error: state.error,
+      ),
+    );
+  }
+
+  String _enrichmentFailureMessage(String? reasonCode) {
+    return switch (reasonCode) {
+      'diary_enrichment_failed' =>
+        'Non siamo riusciti a elaborare il diario di questo viaggio.',
+      _ => 'Diario non disponibile per questo viaggio.',
+    };
+  }
+
+  void _clearEnrichmentFailure() {
+    _sawEnrichmentFailureThisSession = false;
+    _enrichmentFailureReasonCode = null;
   }
 
   @override

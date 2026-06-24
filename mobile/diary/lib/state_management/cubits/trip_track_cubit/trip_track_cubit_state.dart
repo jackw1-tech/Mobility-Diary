@@ -16,6 +16,8 @@ class TripTrackCubitState {
   final List<TripDiarySegmentDto> diarySegments;
   final double distanceMeters;
   final bool enrichmentPending;
+  final bool enrichmentFailed;
+  final String? enrichmentErrorMessage;
   final String? error;
 
   const TripTrackCubitState({
@@ -25,6 +27,8 @@ class TripTrackCubitState {
     this.diarySegments = const [],
     this.distanceMeters = 0,
     this.enrichmentPending = false,
+    this.enrichmentFailed = false,
+    this.enrichmentErrorMessage,
     this.error,
   });
 
@@ -35,6 +39,8 @@ class TripTrackCubitState {
         diarySegments = const [],
         distanceMeters = 0,
         enrichmentPending = false,
+        enrichmentFailed = false,
+        enrichmentErrorMessage = null,
         error = null;
 
   bool get isLoading => status == TripTrackStatus.loading;

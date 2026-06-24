@@ -1,3 +1,4 @@
+import asyncio
 from datetime import timedelta
 
 import pytest
@@ -311,11 +312,60 @@ def _read_streaming_body(response) -> str:
     return async_to_sync(_collect)().decode("utf-8")
 
 
+class _FakePubSub:
+    def __init__(self, messages=None):
+        self.messages = list(messages or [])
+        self.subscribed = []
+        self.unsubscribed = []
+        self.listen_called = False
+        self.closed = False
+
+    async def subscribe(self, channel):
+        self.subscribed.append(channel)
+
+    async def unsubscribe(self, channel):
+        self.unsubscribed.append(channel)
+
+    async def aclose(self):
+        self.closed = True
+
+    async def listen(self):
+        self.listen_called = True
+        yield {"type": "subscribe"}
+        for data in self.messages:
+            yield {"type": "message", "data": data}
+        while True:
+            await asyncio.sleep(3600)
+
+
+class _FakeRedis:
+    def __init__(self, pubsub):
+        self._pubsub = pubsub
+        self.closed = False
+
+    def pubsub(self):
+        return self._pubsub
+
+    async def aclose(self):
+        self.closed = True
+
+
+def _install_fake_diary_redis(monkeypatch, *, messages=None):
+    pubsub = _FakePubSub(messages)
+    client = _FakeRedis(pubsub)
+    monkeypatch.setattr(mobility_api, "create_async_redis_client", lambda: client)
+    return pubsub, client
+
+
 @pytest.mark.django_db
-def test_trip_events_emits_diary_enriched_for_processed_trip(user):
+def test_trip_events_emits_enriched_diary_status_for_processed_trip(
+    user,
+    monkeypatch,
+):
     trip = create_trip(user)
     trip.status = Trip.Status.PROCESSED
     trip.save(update_fields=["status", "updated_at"])
+    _install_fake_diary_redis(monkeypatch)
 
     response = Client().get(
         f"/api/mobility/trips/{trip.id}/events",
@@ -325,8 +375,36 @@ def test_trip_events_emits_diary_enriched_for_processed_trip(user):
     assert response.status_code == 200
     assert response["Content-Type"].startswith("text/event-stream")
     body = _read_streaming_body(response)
-    assert "event: diary_enriched" in body
+    assert "event: diary_status" in body
     assert f'"trip_id":{trip.id}' in body
+    assert '"status":"enriched"' in body
+
+
+@pytest.mark.django_db
+def test_trip_events_emits_failed_diary_status_for_final_ingestion_failure(
+    user,
+    monkeypatch,
+):
+    trip = create_trip(user)
+    TripIngestion.objects.create(
+        user=user,
+        trip=trip,
+        client_session_id="failed-raw",
+        raw_status=TripIngestion.PhaseStatus.FAILED_FINAL,
+    )
+    _install_fake_diary_redis(monkeypatch)
+
+    response = Client().get(
+        f"/api/mobility/trips/{trip.id}/events",
+        **auth_headers(user),
+    )
+
+    assert response.status_code == 200
+    body = _read_streaming_body(response)
+    assert "event: diary_status" in body
+    assert f'"trip_id":{trip.id}' in body
+    assert '"status":"failed"' in body
+    assert '"reason":"diary_enrichment_failed"' in body
 
 
 @pytest.mark.django_db
@@ -341,23 +419,41 @@ def test_trip_events_returns_404_for_other_user(user, other_user):
     assert response.status_code == 404
 
 
-def test_trip_event_stream_emits_when_diary_becomes_processed(monkeypatch):
-    calls = iter([False, True])
+@pytest.mark.django_db
+def test_trip_diary_failure_reason_ignores_retryable_ingestion(user):
+    trip = create_trip(user)
+    TripIngestion.objects.create(
+        user=user,
+        trip=trip,
+        client_session_id="retryable-raw",
+        raw_status=TripIngestion.PhaseStatus.FAILED_RETRYABLE,
+    )
 
-    async def fake_processed(trip_id, user_id):
-        return next(calls)
+    reason = async_to_sync(mobility_api._trip_diary_failure_reason)(
+        trip.id,
+        user.id,
+    )
 
-    async def fake_sleep(seconds):
-        return None
+    assert reason is None
 
-    monkeypatch.setattr(mobility_api, "_is_trip_diary_processed", fake_processed)
-    monkeypatch.setattr(mobility_api.asyncio, "sleep", fake_sleep)
+
+def test_trip_event_stream_emits_current_status_after_subscribe(monkeypatch):
+    pubsub, _client = _install_fake_diary_redis(monkeypatch)
+
+    async def fake_current_status(trip_id, user_id):
+        assert pubsub.subscribed == ["diary_status:7"]
+        return {"trip_id": trip_id, "status": "enriched"}
+
+    monkeypatch.setattr(
+        mobility_api,
+        "_trip_diary_status_payload",
+        fake_current_status,
+    )
 
     async def collect():
         stream = mobility_api._trip_diary_event_stream(
             7,
             11,
-            poll_seconds=0,
             max_seconds=10,
         )
         return [chunk async for chunk in stream]
@@ -365,6 +461,71 @@ def test_trip_event_stream_emits_when_diary_becomes_processed(monkeypatch):
     results = async_to_sync(collect)()
 
     assert results == [
-        ": waiting\n\n",
-        'event: diary_enriched\ndata: {"trip_id":7}\n\n',
+        'event: diary_status\ndata: {"trip_id":7,"status":"enriched"}\n\n',
     ]
+    assert pubsub.listen_called is False
+    assert pubsub.unsubscribed == ["diary_status:7"]
+
+
+def test_trip_event_stream_emits_published_diary_status(monkeypatch):
+    _install_fake_diary_redis(
+        monkeypatch,
+        messages=[
+            (
+                '{"trip_id":7,"status":"failed",'
+                '"reason":"diary_enrichment_failed"}'
+            ),
+        ],
+    )
+
+    async def fake_current_status(trip_id, user_id):
+        return None
+
+    monkeypatch.setattr(
+        mobility_api,
+        "_trip_diary_status_payload",
+        fake_current_status,
+    )
+
+    async def collect():
+        stream = mobility_api._trip_diary_event_stream(
+            7,
+            11,
+            max_seconds=10,
+        )
+        return [chunk async for chunk in stream]
+
+    results = async_to_sync(collect)()
+
+    assert results == [
+        (
+            'event: diary_status\n'
+            'data: {"trip_id":7,"status":"failed",'
+            '"reason":"diary_enrichment_failed"}\n\n'
+        ),
+    ]
+
+
+def test_trip_event_stream_times_out_without_diary_status(monkeypatch):
+    _install_fake_diary_redis(monkeypatch)
+
+    async def fake_current_status(trip_id, user_id):
+        return None
+
+    monkeypatch.setattr(
+        mobility_api,
+        "_trip_diary_status_payload",
+        fake_current_status,
+    )
+
+    async def collect():
+        stream = mobility_api._trip_diary_event_stream(
+            7,
+            11,
+            max_seconds=0.01,
+        )
+        return [chunk async for chunk in stream]
+
+    results = async_to_sync(collect)()
+
+    assert results == [": timeout\n\n"]

@@ -217,6 +217,8 @@ class _TrackMapState extends State<_TrackMap> {
   @override
   Widget build(BuildContext context) {
     final points = widget.state.points;
+    final hasEnrichmentBanner =
+        widget.state.enrichmentPending || widget.state.enrichmentFailed;
 
     return Stack(
       children: [
@@ -234,10 +236,23 @@ class _TrackMapState extends State<_TrackMap> {
           onMapCreated: _onMapCreated,
           onStyleLoadedListener: _onStyleLoaded,
         ),
-        if (widget.state.enrichmentPending) const _EnrichmentPendingBanner(),
+        if (widget.state.enrichmentPending)
+          const _EnrichmentBanner(
+            icon: Icons.auto_awesome,
+            color: ColorPalette.info,
+            message: 'Analisi diario in corso',
+            showProgress: true,
+          ),
+        if (widget.state.enrichmentFailed)
+          _EnrichmentBanner(
+            icon: Icons.error_outline,
+            color: ColorPalette.error,
+            message: widget.state.enrichmentErrorMessage ??
+                'Diario non disponibile per questo viaggio.',
+          ),
         if (widget.state.isSegmented)
           Positioned(
-            top: widget.state.enrichmentPending ? 76 : Dimensions.paddingMedium,
+            top: hasEnrichmentBanner ? 96 : Dimensions.paddingMedium,
             right: Dimensions.paddingMedium,
             child: _ViewModeToggle(
               showSegments: _showSegments,
@@ -255,8 +270,18 @@ class _TrackMapState extends State<_TrackMap> {
   }
 }
 
-class _EnrichmentPendingBanner extends StatelessWidget {
-  const _EnrichmentPendingBanner();
+class _EnrichmentBanner extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String message;
+  final bool showProgress;
+
+  const _EnrichmentBanner({
+    required this.icon,
+    required this.color,
+    required this.message,
+    this.showProgress = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -273,20 +298,16 @@ class _EnrichmentPendingBanner extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const LinearProgressIndicator(minHeight: 3),
+              if (showProgress) const LinearProgressIndicator(minHeight: 3),
               Padding(
                 padding: const EdgeInsets.all(Dimensions.paddingSmall),
                 child: Row(
                   children: [
-                    const Icon(
-                      Icons.auto_awesome,
-                      color: ColorPalette.info,
-                      size: 18,
-                    ),
+                    Icon(icon, color: color, size: 18),
                     const SizedBox(width: Dimensions.paddingSmall),
                     Expanded(
                       child: Text(
-                        'Analisi diario in corso',
+                        message,
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                               fontWeight: FontWeight.w700,
                             ),

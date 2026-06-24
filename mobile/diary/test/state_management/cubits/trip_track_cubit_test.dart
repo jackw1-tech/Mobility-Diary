@@ -14,7 +14,11 @@ class FakeTripTrackService implements TripTrackService {
   int trackCalls = 0;
   int diaryCalls = 0;
   int eventStreamCalls = 0;
-  final StreamController<String> events = StreamController<String>.broadcast();
+  final StreamController<DiaryEvent> events =
+      StreamController<DiaryEvent>.broadcast();
+  // Stream consumati in ordine per le singole chiamate a watchDiaryEvents;
+  // se vuoto, si ricade su `events.stream` (broadcast a vita lunga).
+  final List<Stream<DiaryEvent>> eventStreams = [];
 
   @override
   Future<TripTrackDto> fetchTrack(int tripId) async {
@@ -43,10 +47,11 @@ class FakeTripTrackService implements TripTrackService {
   }
 
   @override
-  Stream<String> watchDiaryEvents(int tripId) {
+  Stream<DiaryEvent> watchDiaryEvents(int tripId) {
     eventStreamCalls += 1;
     final failure = error;
-    if (failure != null) return Stream<String>.error(failure);
+    if (failure != null) return Stream<DiaryEvent>.error(failure);
+    if (eventStreams.isNotEmpty) return eventStreams.removeAt(0);
     return events.stream;
   }
 
@@ -253,7 +258,9 @@ void main() {
       expect(service.trackCalls, 1);
       expect(service.eventStreamCalls, 1);
 
-      service.events.add('diary_enriched');
+      service.events.add(
+        const DiaryEvent(status: DiaryEventStatus.enriched, tripId: 1),
+      );
       await Future<void>.delayed(Duration.zero);
       await Future<void>.delayed(Duration.zero);
 
@@ -264,6 +271,95 @@ void main() {
       expect(service.diaryCalls, 2);
       expect(service.trackCalls, 1);
       expect(service.eventStreamCalls, 1);
+    });
+
+    test('surfaces diary enrichment failure without replacing the base track',
+        () async {
+      final service = FakeTripTrackService()
+        ..result = TripTrackDto.fromJson({
+          'trip_id': 1,
+          'point_count': 2,
+          'distance_meters': 900,
+          'geojson': {
+            'type': 'LineString',
+            'coordinates': [
+              [9.10, 45.46],
+              [9.20, 45.47],
+            ],
+          },
+        });
+      final cubit = TripTrackCubit(service);
+      addTearDown(service.close);
+      addTearDown(cubit.close);
+
+      await cubit.load(1);
+      service.events.add(
+        const DiaryEvent(
+          status: DiaryEventStatus.failed,
+          tripId: 1,
+          reasonCode: 'diary_enrichment_failed',
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(cubit.state.status, TripTrackStatus.loaded);
+      expect(cubit.state.points, hasLength(2));
+      expect(cubit.state.enrichmentPending, isFalse);
+      expect(cubit.state.enrichmentFailed, isTrue);
+      expect(cubit.state.enrichmentErrorMessage, contains('diario'));
+      expect(service.events.hasListener, isFalse);
+      expect(service.diaryCalls, 1);
+      expect(service.trackCalls, 1);
+
+      await cubit.reload();
+
+      expect(cubit.state.status, TripTrackStatus.loaded);
+      expect(cubit.state.enrichmentFailed, isTrue);
+      expect(service.eventStreamCalls, 1);
+
+      await cubit.load(1);
+
+      expect(cubit.state.enrichmentPending, isTrue);
+      expect(cubit.state.enrichmentFailed, isFalse);
+      expect(service.eventStreamCalls, 2);
+      expect(service.events.hasListener, isTrue);
+    });
+
+    test('re-watches diary after the SSE stream ends on timeout', () async {
+      final service = FakeTripTrackService()
+        ..result = TripTrackDto.fromJson({
+          'trip_id': 1,
+          'point_count': 2,
+          'distance_meters': 900,
+          'geojson': {
+            'type': 'LineString',
+            'coordinates': [
+              [9.10, 45.46],
+              [9.20, 45.47],
+            ],
+          },
+        });
+      // Primo watch: lo stream si chiude subito senza eventi, come fa il
+      // backend dopo `: timeout` (300s senza arricchimento).
+      service.eventStreams.add(const Stream<DiaryEvent>.empty());
+      addTearDown(service.close);
+      final cubit = TripTrackCubit(service);
+      addTearDown(cubit.close);
+
+      await cubit.load(1);
+      // Lascia scattare l'onDone dello stream completato.
+      await Future<void>.delayed(Duration.zero);
+
+      expect(cubit.state.enrichmentPending, isTrue);
+      expect(service.eventStreamCalls, 1);
+
+      // Dopo il timeout, un refresh manuale deve riaprire la SSE: senza
+      // l'azzeramento su onDone la guardia `!= null` lo bloccherebbe.
+      await cubit.reload();
+
+      expect(service.eventStreamCalls, 2);
+      expect(service.events.hasListener, isTrue);
     });
 
     test('emits empty when service returns no GeoJSON', () async {

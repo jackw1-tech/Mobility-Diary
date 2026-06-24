@@ -9,6 +9,12 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
+from .diary_events import (
+    DIARY_ENRICHMENT_FAILED_REASON,
+    DIARY_STATUS_ENRICHED,
+    DIARY_STATUS_FAILED,
+    publish_diary_status_on_commit,
+)
 from .ingestion import storage
 from .models import (
     GpsPoint,
@@ -52,6 +58,7 @@ def process_trip_har(self, job_id: int) -> dict:
     job.status = HarJob.Status.SUCCESS
     job.result = result
     job.save(update_fields=["status", "result", "updated_at"])
+    publish_diary_status_on_commit(trip.id, DIARY_STATUS_ENRICHED)
     return result
 
 
@@ -377,6 +384,7 @@ def process_trip_har_final(self, job_id: int, ingestion_id: int) -> dict:
             job.result = result
             job.error = ""
             job.save(update_fields=["status", "result", "error", "updated_at"])
+            publish_diary_status_on_commit(trip.id, DIARY_STATUS_ENRICHED)
     except InvalidRawSensorPayload as exc:
         ingestion.raw_status = TripIngestion.PhaseStatus.FAILED_FINAL
         ingestion.error_message = str(exc)
@@ -387,6 +395,11 @@ def process_trip_har_final(self, job_id: int, ingestion_id: int) -> dict:
         job.status = HarJob.Status.FAILURE
         job.error = str(exc)
         job.save(update_fields=["status", "error", "updated_at"])
+        publish_diary_status_on_commit(
+            trip.id,
+            DIARY_STATUS_FAILED,
+            reason=DIARY_ENRICHMENT_FAILED_REASON,
+        )
         raise
     except Exception as exc:  # noqa: BLE001
         will_retry = self.request.retries < self.max_retries
@@ -403,6 +416,12 @@ def process_trip_har_final(self, job_id: int, ingestion_id: int) -> dict:
         job.status = HarJob.Status.FAILURE
         job.error = str(exc)
         job.save(update_fields=["status", "error", "updated_at"])
+        if not will_retry:
+            publish_diary_status_on_commit(
+                trip.id,
+                DIARY_STATUS_FAILED,
+                reason=DIARY_ENRICHMENT_FAILED_REASON,
+            )
         if will_retry:
             raise self.retry(exc=exc)
         raise
