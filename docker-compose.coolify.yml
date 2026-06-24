@@ -192,25 +192,21 @@ services:
       retries: 20
 
   pgbouncer:
-    image: pgbouncer/pgbouncer:latest
+    image: edoburu/pgbouncer:latest
     platform: linux/amd64
     restart: unless-stopped
     environment:
-      DATABASES_HOST: db
-      DATABASES_PORT: 5432
-      DATABASES_USER: ${POSTGRES_USER:-mobility}
-      DATABASES_PASSWORD: ${POSTGRES_PASSWORD}
-      DATABASES_DBNAME: ${POSTGRES_DB:-mobility}
-      DATABASES_CLIENT_SIDE_DBNAME: ${POSTGRES_DB:-mobility}
-      PGBOUNCER_LISTEN_PORT: 6432
-      PGBOUNCER_POOL_MODE: ${PGBOUNCER_POOL_MODE:-transaction}
-      PGBOUNCER_MAX_CLIENT_CONN: ${PGBOUNCER_MAX_CLIENT_CONN:-100}
-      PGBOUNCER_DEFAULT_POOL_SIZE: ${PGBOUNCER_DEFAULT_POOL_SIZE:-20}
-      PGBOUNCER_AUTH_TYPE: ${PGBOUNCER_AUTH_TYPE:-any}
-      PGBOUNCER_ADMIN_USERS: ${POSTGRES_USER:-mobility}
-      PGBOUNCER_RESOLV_CONF: /etc/pgbouncer/resolv.conf
-    volumes:
-      - ./back-end/infra/pgbouncer/resolv.conf:/etc/pgbouncer/resolv.conf:ro
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${POSTGRES_USER:-mobility}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB:-mobility}
+      LISTEN_PORT: 6432
+      POOL_MODE: ${PGBOUNCER_POOL_MODE:-transaction}
+      MAX_CLIENT_CONN: ${PGBOUNCER_MAX_CLIENT_CONN:-100}
+      DEFAULT_POOL_SIZE: ${PGBOUNCER_DEFAULT_POOL_SIZE:-20}
+      AUTH_TYPE: ${PGBOUNCER_AUTH_TYPE:-any}
+      ADMIN_USERS: ${POSTGRES_USER:-mobility}
     expose:
       - "6432"
     healthcheck:
