@@ -208,6 +208,9 @@ services:
       PGBOUNCER_DEFAULT_POOL_SIZE: ${PGBOUNCER_DEFAULT_POOL_SIZE:-20}
       PGBOUNCER_AUTH_TYPE: ${PGBOUNCER_AUTH_TYPE:-any}
       PGBOUNCER_ADMIN_USERS: ${POSTGRES_USER:-mobility}
+      PGBOUNCER_RESOLV_CONF: /etc/pgbouncer/resolv.conf
+    volumes:
+      - ./back-end/infra/pgbouncer/resolv.conf:/etc/pgbouncer/resolv.conf:ro
     expose:
       - "6432"
     healthcheck:
