@@ -100,8 +100,8 @@ Nel compose locale Django gira con Gunicorn + Uvicorn worker ASGI, non con il
 development server, cosi' SSE e richieste async vengono esercitati in modo piu'
 simile al deploy reale.
 Le migrazioni girano come servizio one-shot `migrate` prima di avviare `web`,
-`worker` e `beat`; l'applicazione usa PgBouncer (`pgbouncer:6432`) come pooler
-verso Postgres, mentre `migrate` parla direttamente con `db:5432`.
+`worker` e `beat`; tutti i servizi parlano direttamente con Postgres su
+`db:5432` (nessun connection pooler in mezzo).
 Railway resta un target di deploy separato: quando servono dati reali, il mobile
 o la piattaforma web devono puntare all'URL Railway tramite `API_BASE_URL` /
 `VITE_API_BASE_URL`, senza far usare ai container locali il database di
@@ -171,11 +171,11 @@ back-end/infra/docker-compose.coolify.yml
 Questo file e' pensato per Coolify o per una VPS gestita a mano:
 
 - espone solo `gateway` sulla porta interna `80`;
-- lascia `web`, `worker`, `beat`, `db`, `pgbouncer`, `redis` e `minio`
+- lascia `web`, `worker`, `beat`, `db`, `redis` e `minio`
   privati nella rete Docker;
 - non monta il codice sorgente come volume, quindi usa l'immagine buildata;
 - esegue `migrate` come servizio one-shot prima di avviare web/worker/beat;
-- usa PgBouncer per l'applicazione e Postgres diretto solo per le migrazioni.
+- tutti i servizi parlano direttamente con Postgres (`db:5432`), nessun pooler.
 
 Template env:
 

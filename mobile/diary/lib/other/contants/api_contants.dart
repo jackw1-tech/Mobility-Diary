@@ -4,8 +4,8 @@ class ApiConstants {
   static const String _localComposeApiUrl = 'http://localhost:8080/api';
   static const String _androidEmulatorComposeApiUrl =
       'http://10.0.2.2:8080/api';
-  static const String _railwayApiUrl =
-      'https://django-api-production-df02.up.railway.app/api';
+  static const String _productionApiUrl =
+      'https://mobilitydiary.giacomobianco.com/api';
 
   static String get baseApiUrl {
     if (const bool.hasEnvironment('API_BASE_URL')) {
@@ -16,7 +16,7 @@ class ApiConstants {
           ? _androidEmulatorComposeApiUrl
           : _localComposeApiUrl;
     }
-    return _railwayApiUrl;
+    return _productionApiUrl;
   }
 
   static const String loginPath = '/auth/login';
