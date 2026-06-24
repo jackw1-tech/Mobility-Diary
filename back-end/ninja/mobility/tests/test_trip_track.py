@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 import pytest
+from asgiref.sync import async_to_sync
 from django.contrib.auth import get_user_model
 from django.contrib.gis.geos import LineString, Point
 from django.test import Client
@@ -298,6 +299,18 @@ def test_diary_endpoint_returns_segment_geometry_and_stop_place(user, other_user
     assert stop["place"]["label"] == "universita"
 
 
+def _read_streaming_body(response) -> str:
+    """Consuma il body async di una StreamingHttpResponse da un test sincrono."""
+
+    async def _collect():
+        parts = []
+        async for part in response.streaming_content:
+            parts.append(part)
+        return b"".join(parts)
+
+    return async_to_sync(_collect)().decode("utf-8")
+
+
 @pytest.mark.django_db
 def test_trip_events_emits_diary_enriched_for_processed_trip(user):
     trip = create_trip(user)
@@ -311,7 +324,7 @@ def test_trip_events_emits_diary_enriched_for_processed_trip(user):
 
     assert response.status_code == 200
     assert response["Content-Type"].startswith("text/event-stream")
-    body = b"".join(response.streaming_content).decode("utf-8")
+    body = _read_streaming_body(response)
     assert "event: diary_enriched" in body
     assert f'"trip_id":{trip.id}' in body
 
@@ -330,21 +343,28 @@ def test_trip_events_returns_404_for_other_user(user, other_user):
 
 def test_trip_event_stream_emits_when_diary_becomes_processed(monkeypatch):
     calls = iter([False, True])
-    monkeypatch.setattr(
-        mobility_api,
-        "_is_trip_diary_processed",
-        lambda trip_id, user_id: next(calls),
-    )
-    monkeypatch.setattr(mobility_api.time, "sleep", lambda seconds: None)
 
-    stream = mobility_api._trip_diary_event_stream(
-        7,
-        11,
-        poll_seconds=0,
-        max_seconds=10,
-    )
+    async def fake_processed(trip_id, user_id):
+        return next(calls)
 
-    assert next(stream) == ": waiting\n\n"
-    assert next(stream) == 'event: diary_enriched\ndata: {"trip_id":7}\n\n'
-    with pytest.raises(StopIteration):
-        next(stream)
+    async def fake_sleep(seconds):
+        return None
+
+    monkeypatch.setattr(mobility_api, "_is_trip_diary_processed", fake_processed)
+    monkeypatch.setattr(mobility_api.asyncio, "sleep", fake_sleep)
+
+    async def collect():
+        stream = mobility_api._trip_diary_event_stream(
+            7,
+            11,
+            poll_seconds=0,
+            max_seconds=10,
+        )
+        return [chunk async for chunk in stream]
+
+    results = async_to_sync(collect)()
+
+    assert results == [
+        ": waiting\n\n",
+        'event: diary_enriched\ndata: {"trip_id":7}\n\n',
+    ]

@@ -25,12 +25,12 @@ void main() {
     // Le metriche stanno nel bottom sheet trascinabile: vanno scrollate in vista
     // perché la ListView è lazy e parte collassata.
     await tester.scrollUntilVisible(
-      find.text('Sensori reali'),
+      find.text('Sigma'),
       300,
       scrollable: find.byType(Scrollable).last,
     );
-    expect(find.text('Sensori reali'), findsOneWidget);
-    expect(find.text('Eventi simulati'), findsNothing);
+    expect(find.text('Sigma'), findsOneWidget);
+    expect(find.text('Sensori reali'), findsNothing);
   });
 }
 

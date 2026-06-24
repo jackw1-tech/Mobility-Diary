@@ -54,30 +54,13 @@ class _AuthenticatedHomePage extends StatelessWidget {
     return BlocListener<PrivacySettingsCubit, PrivacySettingsState>(
       listenWhen: (previous, current) => current.needsPrivacyOnboarding,
       listener: (context, state) => showPrivacyOnboardingDialog(context),
-      child: BlocConsumer<AcquisitionCubit, AcquisitionCubitState>(
-        listenWhen: (previous, current) {
-          return current.syncSnapshot.shouldOpenCoreDetailAfter(
-            previous.syncSnapshot,
-          );
-        },
-        listener: (context, state) {
-          final tripId = state.syncSnapshot.remoteTripId;
-          if (tripId == null) return;
-          context.router.push(TripDetailRoute(tripId: tripId));
-        },
+      child: BlocBuilder<AcquisitionCubit, AcquisitionCubitState>(
         builder: (context, state) {
           return Scaffold(
             drawer: const TripsDrawer(),
             appBar: AppBar(
               centerTitle: true,
               title: Text(userLabel == null ? 'Mobile Edge' : userLabel!),
-              actions: [
-                IconButton(
-                  tooltip: 'Logout',
-                  onPressed: () => context.read<AuthCubit>().logout(),
-                  icon: const Icon(Icons.logout),
-                ),
-              ],
             ),
             body: Stack(
               children: [
@@ -111,8 +94,6 @@ class _AuthenticatedHomePage extends StatelessWidget {
                           ],
                           const SizedBox(height: Dimensions.paddingMedium),
                           _CoreMetrics(state: state),
-                          const SizedBox(height: Dimensions.paddingMedium),
-                          _SensorList(state: state),
                         ],
                       ),
                     );
@@ -563,125 +544,6 @@ class _MetricTile extends StatelessWidget {
                 ),
               ],
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SensorList extends StatelessWidget {
-  final AcquisitionCubitState state;
-
-  const _SensorList({required this.state});
-
-  @override
-  Widget build(BuildContext context) {
-    final profile = state.samplingProfile;
-    final sensors = [
-      _SensorRowData(
-        icon: Icons.sensors,
-        label: 'Accelerometro',
-        value: '${profile.accelerometerHz} Hz',
-        isActive: state.isTracking && profile.accelerometerHz > 0,
-      ),
-      _SensorRowData(
-        icon: Icons.screen_rotation_alt,
-        label: 'Giroscopio',
-        value: '${profile.gyroscopeHz} Hz',
-        isActive: state.isTracking && profile.gyroscopeHz > 0,
-      ),
-      _SensorRowData(
-        icon: Icons.explore,
-        label: 'Magnetometro',
-        value: '${profile.magnetometerHz} Hz',
-        isActive: state.isTracking && profile.magnetometerHz > 0,
-      ),
-      _SensorRowData(
-        icon: Icons.gps_fixed,
-        label: 'GPS',
-        value: profile.gpsEnabled ? 'on' : 'off',
-        isActive: state.isTracking && profile.gpsEnabled,
-      ),
-      _SensorRowData(
-        icon: Icons.view_timeline,
-        label: 'Finestre HAR',
-        value: profile.harWindowEnabled ? 'RAM' : 'off',
-        isActive: state.isTracking && profile.harWindowEnabled,
-      ),
-      _SensorRowData(
-        icon: Icons.storage,
-        label: 'SQLite',
-        value: profile.persistGpsPoints || profile.persistSensorWindows
-            ? 'write'
-            : 'idle',
-        isActive: state.isTracking &&
-            (profile.persistGpsPoints || profile.persistSensorWindows),
-      ),
-    ];
-
-    return _Panel(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Sensori reali',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-          ),
-          const SizedBox(height: Dimensions.paddingSmall),
-          for (final sensor in sensors) _SensorRow(sensor: sensor),
-        ],
-      ),
-    );
-  }
-}
-
-class _SensorRowData {
-  final IconData icon;
-  final String label;
-  final String value;
-  final bool isActive;
-
-  const _SensorRowData({
-    required this.icon,
-    required this.label,
-    required this.value,
-    required this.isActive,
-  });
-}
-
-class _SensorRow extends StatelessWidget {
-  final _SensorRowData sensor;
-
-  const _SensorRow({required this.sensor});
-
-  @override
-  Widget build(BuildContext context) {
-    final color =
-        sensor.isActive ? ColorPalette.success : ColorPalette.textSecondary;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: Dimensions.paddingSmall),
-      child: Row(
-        children: [
-          Icon(sensor.icon, color: color),
-          const SizedBox(width: Dimensions.paddingSmall),
-          Expanded(
-            child: Text(
-              sensor.label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodyLarge,
-            ),
-          ),
-          Text(
-            sensor.value,
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: color,
-                ),
           ),
         ],
       ),

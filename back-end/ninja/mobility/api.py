@@ -1,3 +1,4 @@
+import asyncio
 import json
 import time
 
@@ -5,7 +6,7 @@ from django.contrib.gis.db.models.functions import AsGeoJSON, Length
 from django.contrib.gis.geos import Point
 from django.http import StreamingHttpResponse
 from django.db.models import BooleanField, Case, Count, Value, When
-from django.shortcuts import get_object_or_404
+from django.shortcuts import aget_object_or_404, get_object_or_404
 from django.utils import timezone
 from ninja import Router
 from ninja.errors import HttpError
@@ -170,15 +171,15 @@ def _sse_event(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {payload}\n\n"
 
 
-def _is_trip_diary_processed(trip_id: int, user_id: int) -> bool:
-    return Trip.objects.filter(
+async def _is_trip_diary_processed(trip_id: int, user_id: int) -> bool:
+    return await Trip.objects.filter(
         id=trip_id,
         user_id=user_id,
         status=Trip.Status.PROCESSED,
-    ).exists()
+    ).aexists()
 
 
-def _trip_diary_event_stream(
+async def _trip_diary_event_stream(
     trip_id: int,
     user_id: int,
     *,
@@ -188,7 +189,7 @@ def _trip_diary_event_stream(
     deadline = time.monotonic() + max_seconds
 
     while True:
-        if _is_trip_diary_processed(trip_id, user_id):
+        if await _is_trip_diary_processed(trip_id, user_id):
             yield _sse_event("diary_enriched", {"trip_id": trip_id})
             return
 
@@ -197,12 +198,12 @@ def _trip_diary_event_stream(
             return
 
         yield ": waiting\n\n"
-        time.sleep(poll_seconds)
+        await asyncio.sleep(poll_seconds)
 
 
 @router.get("/trips/{trip_id}/events", auth=mobile_bearer_auth)
-def trip_events(request, trip_id: int):
-    get_object_or_404(Trip, id=trip_id, user_id=request.auth.user_id)
+async def trip_events(request, trip_id: int):
+    await aget_object_or_404(Trip, id=trip_id, user_id=request.auth.user_id)
     response = StreamingHttpResponse(
         _trip_diary_event_stream(trip_id, request.auth.user_id),
         content_type="text/event-stream",

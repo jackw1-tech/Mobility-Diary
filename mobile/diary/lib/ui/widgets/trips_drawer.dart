@@ -45,21 +45,15 @@ class _TripsDrawerBody extends StatelessWidget {
               ),
               const Spacer(),
               IconButton(
-                tooltip: 'Aggiorna',
-                icon: const Icon(Icons.refresh),
-                onPressed: () => context.read<TripsListCubit>().load(),
+                tooltip: 'Profilo',
+                icon: const Icon(Icons.person_outline),
+                onPressed: () {
+                  Scaffold.of(context).closeDrawer();
+                  context.router.push(const ProfileRoute());
+                },
               ),
             ],
           ),
-        ),
-        const Divider(height: 1),
-        ListTile(
-          leading: const Icon(Icons.person_outline),
-          title: const Text('Profilo'),
-          onTap: () {
-            Scaffold.of(context).closeDrawer();
-            context.router.push(const ProfileRoute());
-          },
         ),
         const Divider(height: 1),
         Expanded(

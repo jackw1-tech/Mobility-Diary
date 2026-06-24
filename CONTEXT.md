@@ -38,6 +38,21 @@ The mobile screen for one Viaggio where the user can inspect its map,
 mobility-segment timeline, and trip statistics.
 _Avoid_: Map page, trip debug page, sync result
 
+**Piattaforma Web**:
+The browser-based surface for inspecting the Diario della Mobilita across one or
+more Viaggi through maps, timelines, filters, and personal statistics.
+_Avoid_: Sito, frontend generico, pannello admin
+
+**Operatore Web**:
+A trusted staff user allowed to access the Piattaforma Web and inspect mobility
+diary information for demonstration and analysis.
+_Avoid_: Utente mobile, partecipante, admin generico
+
+**Vista Staff Globale**:
+The web-dashboard view where an Operatore Web can inspect Viaggi across all
+users instead of only their own mobility diary.
+_Avoid_: Vista personale, diario utente, query mobile
+
 **Segmento di Mobilità**:
 A time-bounded entry in the mobility diary representing either a stop or a movement, enriched with an activity label when available.
 _Avoid_: GPS chunk, raw window, prediction row

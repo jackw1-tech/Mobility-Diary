@@ -52,11 +52,6 @@ class AcquisitionSyncSnapshot {
 
   bool get canOpenCoreDetail => isCoreCompleted && remoteTripId != null;
 
-  bool shouldOpenCoreDetailAfter(AcquisitionSyncSnapshot previous) {
-    return canOpenCoreDetail &&
-        (!previous.isCoreCompleted || previous.remoteTripId != remoteTripId);
-  }
-
   bool get isWorking {
     return status == AcquisitionSyncStatus.packaging ||
         status == AcquisitionSyncStatus.uploading ||
