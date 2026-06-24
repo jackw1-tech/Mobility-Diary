@@ -1,11 +1,10 @@
 services:
   gateway:
-    image: nginx:1.27-alpine
+    build:
+      context: ./back-end/infra/nginx
     restart: unless-stopped
     expose:
       - "80"
-    volumes:
-      - ./back-end/infra/nginx/conf.d:/etc/nginx/conf.d:ro
     depends_on:
       web:
         condition: service_healthy
