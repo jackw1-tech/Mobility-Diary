@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": false,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": false,
+    "outDir": ".tmp-tests",
+    "rootDir": "."
+  },
+  "include": ["src/utils/tripDashboard.ts"]
+}

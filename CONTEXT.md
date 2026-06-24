@@ -27,7 +27,7 @@ _Avoid_: Activity label, diary segment, model result
 
 **Arricchimento del Viaggio**:
 Additional semantic interpretation added after a Viaggio already exists.
-_Avoid_: Journey creation, sync completion
+_Avoid_: Journey creation, sync completion, processing, processed
 
 **Diario della Mobilità**:
 The user-facing reconstruction of a day or mobility episode as readable time intervals, places, movements, activity labels, and statistics.
@@ -52,6 +52,11 @@ _Avoid_: Utente mobile, partecipante, admin generico
 The web-dashboard view where an Operatore Web can inspect Viaggi across all
 users instead of only their own mobility diary.
 _Avoid_: Vista personale, diario utente, query mobile
+
+**Proprietario del Viaggio**:
+The user account whose mobile app recorded a Viaggio and whose identity may be
+shown minimally in the Vista Staff Globale for filtering and attribution.
+_Avoid_: Operatore Web, paziente, soggetto amministrato
 
 **Segmento di Mobilità**:
 A time-bounded entry in the mobility diary representing either a stop or a movement, enriched with an activity label when available.

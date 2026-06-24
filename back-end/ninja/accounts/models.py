@@ -83,3 +83,41 @@ class UserPrivacySettings(models.Model):
     is_first_login = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+
+class WebRefreshToken(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="web_refresh_tokens",
+        on_delete=models.CASCADE,
+    )
+    jti = models.CharField(max_length=64, unique=True)
+    expires_at = models.DateTimeField()
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    rotated_to_jti = models.CharField(max_length=64, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["user", "expires_at"]),
+            models.Index(fields=["jti"]),
+        ]
+
+    @property
+    def is_valid(self) -> bool:
+        return (
+            self.revoked_at is None
+            and self.expires_at > timezone.now()
+            and self.user.is_active
+            and (self.user.is_staff or self.user.is_superuser)
+        )
+
+    def revoke(self, *, rotated_to_jti: str = "") -> None:
+        update_fields = ["last_used_at", "revoked_at"]
+        self.last_used_at = timezone.now()
+        self.revoked_at = timezone.now()
+        if rotated_to_jti:
+            self.rotated_to_jti = rotated_to_jti
+            update_fields.append("rotated_to_jti")
+        self.save(update_fields=update_fields)
