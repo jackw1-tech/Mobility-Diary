@@ -36,7 +36,7 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-      pgbouncer:
+      db:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -63,7 +63,7 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-      pgbouncer:
+      db:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -81,7 +81,7 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-      pgbouncer:
+      db:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -134,36 +134,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
-
-  pgbouncer:
-    image: pgbouncer/pgbouncer:latest
-    platform: linux/amd64
-    restart: unless-stopped
-    env_file:
-      - .env
-    environment:
-      DATABASES_HOST: db
-      DATABASES_PORT: 5432
-      DATABASES_USER: ${POSTGRES_USER:-mobility}
-      DATABASES_PASSWORD: ${POSTGRES_PASSWORD:-mobility}
-      DATABASES_DBNAME: ${POSTGRES_DB:-mobility}
-      DATABASES_CLIENT_SIDE_DBNAME: ${POSTGRES_DB:-mobility}
-      PGBOUNCER_LISTEN_PORT: ${PGBOUNCER_PORT:-6432}
-      PGBOUNCER_POOL_MODE: ${PGBOUNCER_POOL_MODE:-transaction}
-      PGBOUNCER_MAX_CLIENT_CONN: ${PGBOUNCER_MAX_CLIENT_CONN:-100}
-      PGBOUNCER_DEFAULT_POOL_SIZE: ${PGBOUNCER_DEFAULT_POOL_SIZE:-20}
-      PGBOUNCER_AUTH_TYPE: ${PGBOUNCER_AUTH_TYPE:-any}
-      PGBOUNCER_ADMIN_USERS: ${POSTGRES_USER:-mobility}
-    expose:
-      - "6432"
-    healthcheck:
-      test: ["CMD-SHELL", "nc -z 127.0.0.1 ${PGBOUNCER_PORT:-6432}"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-    depends_on:
-      db:
-        condition: service_healthy
 
   # Object storage S3-compatibile per lo sviluppo locale (REPORT_STRATEGIA_INGESTION_ASINCRONA.md D7).
   # In deploy su Railway viene sostituito da Railway Buckets cambiando solo le env var S3_*.
