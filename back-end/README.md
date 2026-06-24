@@ -82,13 +82,66 @@ Da `back-end/infra/`:
 ```bash
 cp .env.example .env
 docker compose up -d --build
-docker compose exec web python manage.py migrate
 docker compose exec web python manage.py createsuperuser
+```
+
+Il compose locale espone Nginx come unico entrypoint applicativo:
+
+```text
+http://localhost:8080/api/docs
+http://localhost:8080/admin/
+```
+
+Il servizio Django resta raggiungibile solo dalla rete interna Docker come
+`web:8000`; anche PostgreSQL, Redis e MinIO restano privati nella rete Docker.
+I presigned upload locali passano da Nginx usando il path del bucket
+`/mobility-trips/...`, cosi' il mobile non deve raggiungere MinIO direttamente.
+Nel compose locale Django gira con Gunicorn + Uvicorn worker ASGI, non con il
+development server, cosi' SSE e richieste async vengono esercitati in modo piu'
+simile al deploy reale.
+Le migrazioni girano come servizio one-shot `migrate` prima di avviare `web`,
+`worker` e `beat`; l'applicazione usa PgBouncer (`pgbouncer:6432`) come pooler
+verso Postgres, mentre `migrate` parla direttamente con `db:5432`.
+Railway resta un target di deploy separato: quando servono dati reali, il mobile
+o la piattaforma web devono puntare all'URL Railway tramite `API_BASE_URL` /
+`VITE_API_BASE_URL`, senza far usare ai container locali il database di
+produzione.
+
+Per pubblicare la piattaforma web su Vercel prima della VPS:
+
+```text
+Root Directory: web
+Framework Preset: Vite
+Install Command: npm ci
+Build Command: npm run build
+Output Directory: dist
+Environment Variable:
+  VITE_API_BASE_URL=https://django-api-production-df02.up.railway.app/api
+```
+
+Sul backend Railway, aggiungi l'origine Vercel a:
+
+```text
+CORS_ALLOWED_ORIGINS=https://nome-progetto.vercel.app
+CSRF_TRUSTED_ORIGINS=https://nome-progetto.vercel.app
+```
+
+Il compose avvia due repliche del servizio `web` per esercitare il load
+balancing locale di Nginx e due repliche del servizio `worker` per consumare la
+coda Celery in parallelo. `beat` resta singolo: duplicarlo potrebbe accodare due
+volte gli stessi task schedulati.
+
+Se cambi il numero di repliche web a caldo, riavvia il gateway per forzare
+Nginx a risolvere di nuovo gli upstream:
+
+```bash
+docker compose restart gateway
 ```
 
 Log:
 
 ```bash
+docker compose logs -f gateway
 docker compose logs -f web
 docker compose logs -f worker
 docker compose logs -f redis
@@ -105,6 +158,55 @@ Stop cancellando anche il volume locale del DB:
 
 ```bash
 docker compose down -v
+```
+
+## Deploy VPS / Coolify
+
+Il deploy su VPS usa un compose separato da quello locale:
+
+```text
+back-end/infra/docker-compose.coolify.yml
+```
+
+Questo file e' pensato per Coolify o per una VPS gestita a mano:
+
+- espone solo `gateway` sulla porta interna `80`;
+- lascia `web`, `worker`, `beat`, `db`, `pgbouncer`, `redis` e `minio`
+  privati nella rete Docker;
+- non monta il codice sorgente come volume, quindi usa l'immagine buildata;
+- esegue `migrate` come servizio one-shot prima di avviare web/worker/beat;
+- usa PgBouncer per l'applicazione e Postgres diretto solo per le migrazioni.
+
+Template env:
+
+```bash
+cp infra/.env.coolify.example infra/.env.coolify
+```
+
+Valori da cambiare prima del deploy:
+
+```text
+DJANGO_SECRET_KEY
+DJANGO_ALLOWED_HOSTS=mobility.tuodominio.it
+CSRF_TRUSTED_ORIGINS=https://mobility.tuodominio.it
+POSTGRES_PASSWORD
+S3_PUBLIC_ENDPOINT_URL=https://mobility.tuodominio.it
+S3_ACCESS_KEY_ID
+S3_SECRET_ACCESS_KEY
+```
+
+In Coolify il dominio pubblico va collegato al servizio `gateway`, non al
+servizio `web`. Il mobile in release puo' puntare alla VPS passando:
+
+```bash
+flutter build ios --release \
+  --dart-define API_BASE_URL=https://mobility.tuodominio.it/api
+```
+
+Per una prova manuale su VPS, dalla cartella `back-end/infra/`:
+
+```bash
+docker compose --env-file .env.coolify -f docker-compose.coolify.yml up -d --build
 ```
 
 ## FastAPI Futuro

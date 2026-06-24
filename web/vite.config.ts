@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 
-const railwayApiTarget = 'https://django-api-production-df02.up.railway.app';
+const localComposeGateway = 'http://localhost:8080';
 
 export default defineConfig({
   plugins: [vue()],
@@ -9,7 +9,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: railwayApiTarget,
+        target: localComposeGateway,
         changeOrigin: true,
       },
     },

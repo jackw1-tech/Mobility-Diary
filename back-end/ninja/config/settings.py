@@ -61,8 +61,15 @@ CSRF_TRUSTED_ORIGINS = unique(
         + ([RAILWAY_PUBLIC_DOMAIN] if RAILWAY_PUBLIC_DOMAIN else [])
     ]
 )
+CORS_ALLOWED_ORIGINS = unique(
+    [
+        normalize_csrf_origin(origin)
+        for origin in env_list("CORS_ALLOWED_ORIGINS")
+    ]
+)
 
 INSTALLED_APPS = [
+    "corsheaders",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -76,6 +83,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -113,6 +121,10 @@ DATABASES = {
         "PASSWORD": os.getenv("POSTGRES_PASSWORD", os.getenv("PGPASSWORD", "mobility")),
         "HOST": os.getenv("POSTGRES_HOST", os.getenv("PGHOST", "localhost")),
         "PORT": os.getenv("POSTGRES_PORT", os.getenv("PGPORT", "5432")),
+        "DISABLE_SERVER_SIDE_CURSORS": env_bool(
+            "POSTGRES_DISABLE_SERVER_SIDE_CURSORS",
+            False,
+        ),
     }
 }
 

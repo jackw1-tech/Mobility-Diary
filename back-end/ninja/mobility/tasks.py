@@ -31,6 +31,22 @@ class InvalidRawSensorPayload(ValueError):
     """Il blob raw e leggibile dallo storage ma non rispetta il contratto HAR."""
 
 
+CORE_CLAIMABLE_STATUSES = {
+    TripIngestion.PhaseStatus.PENDING,
+    TripIngestion.PhaseStatus.RECEIVED,
+    TripIngestion.PhaseStatus.QUEUED,
+    TripIngestion.PhaseStatus.FAILED_RETRYABLE,
+}
+RAW_CLAIMABLE_STATUSES = {
+    TripIngestion.PhaseStatus.QUEUED,
+    TripIngestion.PhaseStatus.FAILED_RETRYABLE,
+}
+
+
+def _skip_result(phase: str, status: str) -> dict:
+    return {"skipped": f"{phase} ingestion is {status}"}
+
+
 @shared_task(bind=True)
 def process_trip_har(self, job_id: int) -> dict:
     job = HarJob.objects.select_related("trip").get(id=job_id)
@@ -262,15 +278,22 @@ def process_trip_ingestion(self, ingestion_id: int) -> dict:
     accoda `process_trip_har_final` quando tutte le sensor window sono arrivate.
     I blob raw NON vengono cancellati in questa fase del progetto.
     """
-    ingestion = TripIngestion.objects.select_related("user").get(id=ingestion_id)
+    with transaction.atomic():
+        ingestion = (
+            TripIngestion.objects.select_for_update()
+            .select_related("user")
+            .get(id=ingestion_id)
+        )
+        if ingestion.core_status == TripIngestion.PhaseStatus.COMPLETED:
+            return {"skipped": "core ingestion already completed"}
+        if ingestion.core_status not in CORE_CLAIMABLE_STATUSES:
+            return _skip_result("core", ingestion.core_status)
 
-    # Idempotenza: se gia' materializzato, non rifare.
-    if ingestion.core_status == TripIngestion.PhaseStatus.COMPLETED:
-        return {"skipped": "core ingestion already completed"}
-
-    ingestion.core_status = TripIngestion.PhaseStatus.PROCESSING
-    ingestion.started_processing_at = timezone.now()
-    ingestion.save(update_fields=["core_status", "started_processing_at", "updated_at"])
+        ingestion.core_status = TripIngestion.PhaseStatus.PROCESSING
+        ingestion.started_processing_at = timezone.now()
+        ingestion.save(
+            update_fields=["core_status", "started_processing_at", "updated_at"]
+        )
 
     try:
         with transaction.atomic():
@@ -332,36 +355,42 @@ def process_trip_ingestion(self, ingestion_id: int) -> dict:
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
 def process_trip_har_final(self, job_id: int, ingestion_id: int) -> dict:
     """Elabora i raw sensori dal bucket e rigenera il Diario della Mobilita."""
-    job = HarJob.objects.select_related("trip").get(id=job_id)
-    ingestion = TripIngestion.objects.select_related("trip").get(id=ingestion_id)
+    with transaction.atomic():
+        ingestion = (
+            TripIngestion.objects.select_for_update()
+            .get(id=ingestion_id)
+        )
+        job = HarJob.objects.select_for_update().select_related("trip").get(id=job_id)
 
-    if ingestion.raw_status == TripIngestion.PhaseStatus.COMPLETED:
-        result = {"skipped": "raw sensor ingestion already completed"}
-        job.status = HarJob.Status.SUCCESS
-        job.result = result
+        if ingestion.raw_status == TripIngestion.PhaseStatus.COMPLETED:
+            result = {"skipped": "raw sensor ingestion already completed"}
+            job.status = HarJob.Status.SUCCESS
+            job.result = result
+            job.error = ""
+            job.save(update_fields=["status", "result", "error", "updated_at"])
+            return result
+        if ingestion.raw_status not in RAW_CLAIMABLE_STATUSES:
+            return _skip_result("raw sensor", ingestion.raw_status)
+
+        trip = ingestion.trip or job.trip
+        if trip is None:
+            raise ValueError("Trip assente per HAR finale")
+
+        now = timezone.now()
+        ingestion.raw_status = TripIngestion.PhaseStatus.PROCESSING
+        ingestion.started_processing_at = now
+        ingestion.error_message = ""
+        ingestion.save(
+            update_fields=[
+                "raw_status",
+                "started_processing_at",
+                "error_message",
+                "updated_at",
+            ]
+        )
+        job.status = HarJob.Status.STARTED
         job.error = ""
-        job.save(update_fields=["status", "result", "error", "updated_at"])
-        return result
-
-    trip = ingestion.trip or job.trip
-    if trip is None:
-        raise ValueError("Trip assente per HAR finale")
-
-    now = timezone.now()
-    ingestion.raw_status = TripIngestion.PhaseStatus.PROCESSING
-    ingestion.started_processing_at = now
-    ingestion.error_message = ""
-    ingestion.save(
-        update_fields=[
-            "raw_status",
-            "started_processing_at",
-            "error_message",
-            "updated_at",
-        ]
-    )
-    job.status = HarJob.Status.STARTED
-    job.error = ""
-    job.save(update_fields=["status", "error", "updated_at"])
+        job.save(update_fields=["status", "error", "updated_at"])
 
     try:
         sensor_windows = _load_raw_sensor_windows(ingestion)
