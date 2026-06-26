@@ -49,4 +49,12 @@ List<RepositoryProvider> buildRepositories({
           );
         },
       ),
+      RepositoryProvider<TripPrivacyExportService>(
+        create: (context) {
+          final auth = context.read<AuthRepository>();
+          return TripPrivacyExportHttpService(
+            tokenProvider: () async => auth.accessToken,
+          );
+        },
+      ),
     ];

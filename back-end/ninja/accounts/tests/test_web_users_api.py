@@ -8,7 +8,9 @@ from django.test import Client
 from django.utils.dateparse import parse_datetime
 from django.utils import timezone
 
+from accounts.models import UserPrivacySettings
 from mobility.models import ActivityLabel, MobilitySegment, SignificantPlace, Trip
+from mobility.privacy import PRIVACY_AWARE_STOP_LABEL
 
 
 @pytest.fixture
@@ -315,6 +317,203 @@ def test_web_trip_dashboard_returns_track_and_diary_for_staff(staff_user):
     assert stop["path_geojson"] is None
     assert "place" not in stop
     assert "places" not in payload["diary"]
+
+
+@pytest.mark.django_db
+def test_web_trip_dashboard_returns_privacy_aware_geometry(staff_user):
+    base = timezone.now()
+    owner = create_user("privacy-dashboard-owner@example.com")
+    UserPrivacySettings.objects.create(
+        user=owner,
+        level=UserPrivacySettings.Level.APPROXIMATE,
+        is_first_login=False,
+    )
+    trip = make_trip(
+        owner,
+        status=Trip.Status.PROCESSED,
+        started_at=base,
+        ended_at=base + timedelta(minutes=30),
+        distance_meters=1200,
+        has_track=True,
+    )
+    MobilitySegment.objects.create(
+        trip=trip,
+        kind=MobilitySegment.Kind.MOVE,
+        start_timestamp=base,
+        end_timestamp=base + timedelta(minutes=12),
+        activity_label=ActivityLabel.WALKING,
+        path=LineString((9.10, 45.46), (9.20, 45.47), srid=4326),
+        distance_meters=900,
+    )
+
+    response = Client().get(
+        f"/api/web/users/{owner.id}/trips/{trip.id}",
+        **auth_headers(staff_user),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    privacy_aware = payload["privacy_aware"]
+    assert privacy_aware["level"] == UserPrivacySettings.Level.APPROXIMATE
+    assert privacy_aware["track"]["geojson"]["type"] == "LineString"
+    assert privacy_aware["track"]["geojson"] != payload["track"]["geojson"]
+    assert privacy_aware["track"]["geojson"]["coordinates"][0] != [9.1, 45.46]
+
+    private_move = payload["diary"]["segments"][0]
+    privacy_move = privacy_aware["diary"]["segments"][0]
+    assert privacy_move["kind"] == private_move["kind"]
+    assert privacy_move["start_timestamp"] == private_move["start_timestamp"]
+    assert privacy_move["end_timestamp"] == private_move["end_timestamp"]
+    assert privacy_move["activity_label"] == private_move["activity_label"]
+    assert privacy_move["path_geojson"]["type"] == "LineString"
+    assert privacy_move["path_geojson"] != private_move["path_geojson"]
+
+
+@pytest.mark.django_db
+def test_web_trip_dashboard_defaults_to_saved_level_with_metrics_and_masked_places(
+    staff_user,
+):
+    base = timezone.now()
+    owner = create_user("privacy-metrics-owner@example.com")
+    UserPrivacySettings.objects.create(
+        user=owner,
+        level=UserPrivacySettings.Level.APPROXIMATE,
+        is_first_login=False,
+    )
+    trip = make_trip(
+        owner,
+        status=Trip.Status.PROCESSED,
+        started_at=base,
+        ended_at=base + timedelta(minutes=30),
+        distance_meters=1200,
+        has_track=True,
+    )
+    SignificantPlace.objects.create(
+        trip=trip,
+        center=Point(9.20, 45.47, srid=4326),
+        radius_meters=35,
+        dwell_seconds=600,
+        label="casa",
+    )
+
+    response = Client().get(
+        f"/api/web/users/{owner.id}/trips/{trip.id}",
+        **auth_headers(staff_user),
+    )
+
+    assert response.status_code == 200
+    privacy = response.json()["privacy_aware"]
+    assert privacy["level"] == UserPrivacySettings.Level.APPROXIMATE
+    assert privacy["default_level"] == UserPrivacySettings.Level.APPROXIMATE
+
+    perturbation = privacy["metrics"]["privacy_perturbation"]
+    assert perturbation["sample_count"] == 2
+    assert perturbation["mean_meters"] > 0
+    assert perturbation["max_meters"] >= perturbation["mean_meters"]
+    quality = privacy["metrics"]["quality_of_service"]
+    assert quality["relative_distance_error"] >= 0
+    assert quality["private_distance_meters"] > 0
+
+    places = privacy["significant_places"]
+    assert len(places) == 1
+    assert places[0]["center_geojson"]["type"] == "Point"
+    assert places[0]["center_geojson"]["coordinates"] != [9.2, 45.47]
+    assert places[0]["label"] == PRIVACY_AWARE_STOP_LABEL
+    assert "casa" not in json.dumps(privacy)
+
+
+@pytest.mark.django_db
+def test_web_trip_dashboard_preview_level_does_not_change_saved_preference(staff_user):
+    base = timezone.now()
+    owner = create_user("privacy-preview-owner@example.com")
+    UserPrivacySettings.objects.create(
+        user=owner,
+        level=UserPrivacySettings.Level.PRECISE,
+        is_first_login=False,
+    )
+    trip = make_trip(
+        owner,
+        status=Trip.Status.PROCESSED,
+        started_at=base,
+        distance_meters=1200,
+        has_track=True,
+    )
+
+    response = Client().get(
+        f"/api/web/users/{owner.id}/trips/{trip.id}",
+        {"level": UserPrivacySettings.Level.AGGREGATED},
+        **auth_headers(staff_user),
+    )
+
+    assert response.status_code == 200
+    privacy = response.json()["privacy_aware"]
+    assert privacy["level"] == UserPrivacySettings.Level.AGGREGATED
+    assert privacy["default_level"] == UserPrivacySettings.Level.PRECISE
+    assert privacy["track"]["geojson"]["coordinates"][0] != [9.1, 45.46]
+
+    owner.refresh_from_db()
+    assert owner.privacy_settings.level == UserPrivacySettings.Level.PRECISE
+
+
+@pytest.mark.django_db
+def test_web_trip_dashboard_precise_preview_is_unprotected(staff_user):
+    base = timezone.now()
+    owner = create_user("privacy-precise-owner@example.com")
+    UserPrivacySettings.objects.create(
+        user=owner,
+        level=UserPrivacySettings.Level.AGGREGATED,
+        is_first_login=False,
+    )
+    trip = make_trip(
+        owner,
+        status=Trip.Status.PROCESSED,
+        started_at=base,
+        distance_meters=1200,
+        has_track=True,
+    )
+    SignificantPlace.objects.create(
+        trip=trip,
+        center=Point(9.20, 45.47, srid=4326),
+        radius_meters=35,
+        dwell_seconds=600,
+        label="casa",
+    )
+
+    response = Client().get(
+        f"/api/web/users/{owner.id}/trips/{trip.id}",
+        {"level": UserPrivacySettings.Level.PRECISE},
+        **auth_headers(staff_user),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    privacy = payload["privacy_aware"]
+    assert privacy["level"] == UserPrivacySettings.Level.PRECISE
+    assert privacy["track"]["geojson"] == payload["track"]["geojson"]
+    assert privacy["metrics"]["privacy_perturbation"]["max_meters"] == 0
+    assert privacy["metrics"]["quality_of_service"]["relative_distance_error"] == 0
+    place = privacy["significant_places"][0]
+    assert place["label"] == "casa"
+    assert place["center_geojson"]["coordinates"] == [9.2, 45.47]
+
+
+@pytest.mark.django_db
+def test_web_trip_dashboard_rejects_invalid_privacy_level(staff_user):
+    owner = create_user("privacy-invalid-owner@example.com")
+    trip = make_trip(
+        owner,
+        status=Trip.Status.PROCESSED,
+        started_at=timezone.now(),
+        has_track=True,
+    )
+
+    response = Client().get(
+        f"/api/web/users/{owner.id}/trips/{trip.id}",
+        {"level": "blurred"},
+        **auth_headers(staff_user),
+    )
+
+    assert response.status_code == 400
 
 
 @pytest.mark.django_db

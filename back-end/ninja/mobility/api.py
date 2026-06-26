@@ -11,6 +11,7 @@ from ninja import Router
 from ninja.errors import HttpError
 
 from accounts.auth import mobile_bearer_auth
+from accounts.models import UserPrivacySettings
 
 from .diary_events import (
     DIARY_ENRICHMENT_FAILED_REASON,
@@ -21,13 +22,29 @@ from .diary_events import (
     diary_status_channel,
     diary_status_payload,
 )
-from .models import GpsPoint, HarJob, SensorWindow, StateTransition, Trip, TripIngestion
+from .models import (
+    GpsPoint,
+    HarJob,
+    MobilitySegment,
+    SensorWindow,
+    StateTransition,
+    Trip,
+    TripIngestion,
+)
+from .privacy import (
+    PRIVACY_AWARE_STOP_LABEL,
+    cloak_linestring,
+    line_geojson,
+    privacy_cell_size_meters,
+)
 from .schemas import (
     DiaryOut,
     GpsPointBatchIn,
     HarJobOut,
     HealthOut,
     PlaceOut,
+    PrivacyExportOut,
+    PrivacyExportSegmentOut,
     SegmentOut,
     SensorWindowBatchIn,
     StateTransitionBatchIn,
@@ -170,6 +187,116 @@ def get_trip_diary(request, trip_id: int):
         processed=trip.status == Trip.Status.PROCESSED,
         segments=segments,
         places=list(place_by_id.values()),
+    )
+
+
+def _saved_privacy_level(user_id: int) -> str:
+    settings, _ = UserPrivacySettings.objects.get_or_create(user_id=user_id)
+    return settings.level
+
+
+def _export_segment_coordinates(segment, *, level: str) -> list[list[float]]:
+    """Privacy-aware coordinates for a MOVE; cloaked unless the level is precise.
+
+    A non-precise export never returns the original GPS readings, so the mobile
+    text can label them as approximated without leaking the private geometry.
+    """
+    if segment.path is None:
+        return []
+    if privacy_cell_size_meters(level) is None:
+        return [
+            [round(float(lon), 7), round(float(lat), 7)]
+            for lon, lat, *_ in segment.path.coords
+        ]
+    cloaked = line_geojson(cloak_linestring(segment.path, level=level))
+    return cloaked["coordinates"] if cloaked is not None else []
+
+
+def _export_segment(segment, *, level: str, place_label: str) -> PrivacyExportSegmentOut:
+    masked = privacy_cell_size_meters(level) is not None
+    if segment.kind == MobilitySegment.Kind.MOVE:
+        title = segment.activity_label.lower()
+    elif masked:
+        title = PRIVACY_AWARE_STOP_LABEL
+    else:
+        title = place_label or "sosta significativa"
+
+    coordinates = (
+        _export_segment_coordinates(segment, level=level)
+        if segment.kind == MobilitySegment.Kind.MOVE
+        else []
+    )
+    return PrivacyExportSegmentOut(
+        kind=segment.kind,
+        start_label=segment.start_timestamp.strftime("%H:%M"),
+        end_label=segment.end_timestamp.strftime("%H:%M"),
+        activity_label=segment.activity_label,
+        title=title,
+        point_count=len(coordinates),
+        coordinates=coordinates,
+    )
+
+
+def _export_text(trip: Trip, *, level: str, segments: list[PrivacyExportSegmentOut]) -> str:
+    cell_size = privacy_cell_size_meters(level)
+    approximated = cell_size is not None
+    lines = [f"Diario viaggio #{trip.id}", f"Privacy level: {level}"]
+    if approximated:
+        lines.append(f"Cell size: {cell_size} m")
+        lines.append("Coordinate approssimate: non sono letture GPS originali.")
+    else:
+        lines.append("Esportazione NON protetta: adatta solo a destinatari fidati.")
+    lines.append("")
+
+    for segment in segments:
+        lines.append(f"{segment.start_label}-{segment.end_label} {segment.title}")
+        if segment.kind != MobilitySegment.Kind.MOVE:
+            continue
+        if approximated:
+            lines.append(f"  Privacy-aware path: {segment.point_count} approximated points")
+        else:
+            lines.append(f"  Path: {segment.point_count} points")
+        if segment.coordinates:
+            rendered = " ".join(
+                f"[{lon}, {lat}]" for lon, lat in segment.coordinates
+            )
+            lines.append(f"    {rendered}")
+    return "\n".join(lines)
+
+
+@router.get(
+    "/trips/{trip_id}/privacy-export",
+    response=PrivacyExportOut,
+    auth=mobile_bearer_auth,
+)
+def get_trip_privacy_export(request, trip_id: int):
+    """Vista Privacy-Aware testuale per l'export mobile.
+
+    Usa la Preferenza Privacy salvata dall'utente; il diario mobile normale
+    resta privato e preciso. Per i livelli non-precise la geometria e' cloaked
+    e le soste usano una dicitura generica.
+    """
+    trip = get_object_or_404(Trip, id=trip_id, user_id=request.auth.user_id)
+    level = _saved_privacy_level(request.auth.user_id)
+    place_label_by_id = {
+        place.id: place.label for place in trip.significant_places.all()
+    }
+    segments = [
+        _export_segment(
+            segment,
+            level=level,
+            place_label=place_label_by_id.get(segment.place_id, ""),
+        )
+        for segment in trip.segments.all()
+    ]
+    return PrivacyExportOut(
+        trip_id=trip.id,
+        level=level,
+        protected=level != UserPrivacySettings.Level.PRECISE,
+        approximated_coordinates=privacy_cell_size_meters(level) is not None,
+        cell_size_meters=privacy_cell_size_meters(level),
+        text=_export_text(trip, level=level, segments=segments),
+        segments=segments,
     )
 
 

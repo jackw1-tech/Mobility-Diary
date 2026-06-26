@@ -44,6 +44,13 @@ export type LineStringGeoJson = {
   coordinates: [number, number][];
 };
 
+export type PointGeoJson = {
+  type: 'Point';
+  coordinates: [number, number];
+};
+
+export type PrivacyLevel = 'precise' | 'approximate' | 'aggregated';
+
 export type WebDiarySegment = {
   kind: 'MOVE' | 'STOP';
   start_timestamp: string;
@@ -53,21 +60,55 @@ export type WebDiarySegment = {
   path_geojson: LineStringGeoJson | null;
 };
 
+export type WebTrack = {
+  trip_id: number;
+  point_count: number;
+  distance_meters: number;
+  geojson: LineStringGeoJson | null;
+};
+
+export type WebDiary = {
+  trip_id: number;
+  status: string;
+  processed: boolean;
+  segments: WebDiarySegment[];
+};
+
+export type WebSignificantPlace = {
+  center_geojson: PointGeoJson | null;
+  label: string;
+  radius_meters: number;
+  dwell_seconds: number;
+};
+
+export type WebPrivacyMetrics = {
+  privacy_perturbation: {
+    mean_meters: number;
+    max_meters: number;
+    sample_count: number;
+  };
+  quality_of_service: {
+    relative_distance_error: number;
+    private_distance_meters: number;
+    privacy_aware_distance_meters: number;
+  };
+};
+
+export type WebPrivacyAware = {
+  level: PrivacyLevel;
+  default_level: PrivacyLevel;
+  track: WebTrack;
+  diary: WebDiary;
+  significant_places: WebSignificantPlace[];
+  metrics: WebPrivacyMetrics;
+};
+
 export type WebTripDashboard = {
   owner: WebUserSummary;
   trip: WebTripDetail;
-  track: {
-    trip_id: number;
-    point_count: number;
-    distance_meters: number;
-    geojson: LineStringGeoJson | null;
-  };
-  diary: {
-    trip_id: number;
-    status: string;
-    processed: boolean;
-    segments: WebDiarySegment[];
-  };
+  track: WebTrack;
+  diary: WebDiary;
+  privacy_aware: WebPrivacyAware;
 };
 
 export function fetchUsers(): Promise<WebUserSummary[]> {
@@ -89,6 +130,8 @@ export function fetchUserTrips(
 export function fetchTripDashboard(
   userId: string | number,
   tripId: string | number,
+  level?: PrivacyLevel,
 ): Promise<WebTripDashboard> {
-  return sendJson<WebTripDashboard>(`/web/users/${userId}/trips/${tripId}`);
+  const suffix = level ? `?level=${level}` : '';
+  return sendJson<WebTripDashboard>(`/web/users/${userId}/trips/${tripId}${suffix}`);
 }

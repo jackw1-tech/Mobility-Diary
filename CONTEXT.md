@@ -33,6 +33,11 @@ _Avoid_: Journey creation, sync completion, processing, processed
 The user-facing reconstruction of a day or mobility episode as readable time intervals, places, movements, activity labels, and statistics.
 _Avoid_: Raw trace, upload result, model output
 
+**Vista Privata del Diario**:
+The owner-facing representation of the mobility diary with the highest location
+detail available for personal inspection.
+_Avoid_: Shared view, staff export, privacy-aware view
+
 **Dettaglio Viaggio**:
 The mobile screen for one Viaggio where the user can inspect its map,
 mobility-segment timeline, and trip statistics.

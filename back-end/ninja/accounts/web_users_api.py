@@ -22,7 +22,16 @@ from ninja import Router, Schema
 from ninja.errors import HttpError
 
 from .web_auth import web_dashboard_auth
+from .models import UserPrivacySettings
 from mobility.models import MobilitySegment, Trip
+from mobility.privacy import (
+    PRIVACY_AWARE_STOP_LABEL,
+    cloak_linestring,
+    cloak_point,
+    line_geojson,
+    point_geojson,
+    privacy_metrics,
+)
 
 router = Router(tags=["web-users"])
 
@@ -80,11 +89,45 @@ class WebDiaryOut(Schema):
     segments: list[WebDiarySegmentOut]
 
 
+class WebSignificantPlaceOut(Schema):
+    center_geojson: dict[str, Any] | None
+    label: str
+    radius_meters: float
+    dwell_seconds: int
+
+
+class WebPrivacyPerturbationOut(Schema):
+    mean_meters: float
+    max_meters: float
+    sample_count: int
+
+
+class WebQualityOfServiceOut(Schema):
+    relative_distance_error: float
+    private_distance_meters: float
+    privacy_aware_distance_meters: float
+
+
+class WebPrivacyMetricsOut(Schema):
+    privacy_perturbation: WebPrivacyPerturbationOut
+    quality_of_service: WebQualityOfServiceOut
+
+
+class WebPrivacyAwareOut(Schema):
+    level: str
+    default_level: str
+    track: WebTrackOut
+    diary: WebDiaryOut
+    significant_places: list[WebSignificantPlaceOut]
+    metrics: WebPrivacyMetricsOut
+
+
 class WebTripDashboardOut(Schema):
     owner: WebUserSummaryOut
     trip: WebTripDetailOut
     track: WebTrackOut
     diary: WebDiaryOut
+    privacy_aware: WebPrivacyAwareOut
 
 
 def _web_users_queryset():
@@ -214,7 +257,26 @@ def _track_out(trip: Trip) -> WebTrackOut:
     )
 
 
-def _diary_out(trip: Trip) -> WebDiaryOut:
+def _privacy_track_out(trip: Trip, *, level: str) -> WebTrackOut:
+    cloaked_line = cloak_linestring(trip.path, level=level)
+    return WebTrackOut(
+        trip_id=trip.id,
+        point_count=cloaked_line.point_count if cloaked_line is not None else 0,
+        distance_meters=cloaked_line.distance_meters if cloaked_line is not None else 0,
+        geojson=line_geojson(cloaked_line),
+    )
+
+
+def _segment_path_geojson(segment: MobilitySegment, *, level: str | None) -> dict | None:
+    """Move path as GeoJSON; raw when `level` is None, cloaked otherwise."""
+    if segment.kind != MobilitySegment.Kind.MOVE or segment.path is None:
+        return None
+    if level is None:
+        return json.loads(segment.path.geojson)
+    return line_geojson(cloak_linestring(segment.path, level=level))
+
+
+def _diary_out(trip: Trip, *, level: str | None = None) -> WebDiaryOut:
     return WebDiaryOut(
         trip_id=trip.id,
         status=trip.status,
@@ -226,12 +288,76 @@ def _diary_out(trip: Trip) -> WebDiaryOut:
                 end_timestamp=segment.end_timestamp,
                 activity_label=segment.activity_label,
                 distance_meters=segment.distance_meters,
-                path_geojson=json.loads(segment.path.geojson)
-                if segment.kind == MobilitySegment.Kind.MOVE and segment.path is not None
-                else None,
+                path_geojson=_segment_path_geojson(segment, level=level),
             )
             for segment in trip.segments.all()
         ],
+    )
+
+
+def _saved_privacy_level(trip: Trip) -> str:
+    settings, _ = UserPrivacySettings.objects.get_or_create(user=trip.user)
+    return settings.level
+
+
+def _resolve_privacy_level(trip: Trip, requested: str | None) -> str:
+    """Pick the level for a privacy-aware view without touching the saved one.
+
+    No query param means "use the owner's saved Preferenza Privacy"; a preview
+    query param is honoured only after validation, so an Operatore Web can
+    compare levels without mutating the user's preference.
+    """
+    if requested is None:
+        return _saved_privacy_level(trip)
+    if requested not in UserPrivacySettings.Level.values:
+        raise HttpError(400, "Livello privacy non valido")
+    return requested
+
+
+def _privacy_significant_places_out(
+    trip: Trip,
+    *,
+    level: str,
+) -> list[WebSignificantPlaceOut]:
+    masked = level != UserPrivacySettings.Level.PRECISE
+    return [
+        WebSignificantPlaceOut(
+            center_geojson=point_geojson(cloak_point(place.center, level=level)),
+            label=PRIVACY_AWARE_STOP_LABEL if masked else place.label,
+            radius_meters=place.radius_meters,
+            dwell_seconds=place.dwell_seconds,
+        )
+        for place in trip.significant_places.all()
+    ]
+
+
+def _privacy_metrics_out(trip: Trip, *, level: str) -> WebPrivacyMetricsOut:
+    metrics = privacy_metrics(trip.path, level=level)
+    return WebPrivacyMetricsOut(
+        privacy_perturbation=WebPrivacyPerturbationOut(
+            mean_meters=metrics.perturbation_mean_meters,
+            max_meters=metrics.perturbation_max_meters,
+            sample_count=metrics.perturbation_sample_count,
+        ),
+        quality_of_service=WebQualityOfServiceOut(
+            relative_distance_error=metrics.relative_distance_error,
+            private_distance_meters=metrics.private_distance_meters,
+            privacy_aware_distance_meters=metrics.privacy_aware_distance_meters,
+        ),
+    )
+
+
+def _privacy_aware_out(trip: Trip, *, requested_level: str | None) -> WebPrivacyAwareOut:
+    default_level = _saved_privacy_level(trip)
+    level = _resolve_privacy_level(trip, requested_level)
+    precise = level == UserPrivacySettings.Level.PRECISE
+    return WebPrivacyAwareOut(
+        level=level,
+        default_level=default_level,
+        track=_track_out(trip) if precise else _privacy_track_out(trip, level=level),
+        diary=_diary_out(trip, level=None if precise else level),
+        significant_places=_privacy_significant_places_out(trip, level=level),
+        metrics=_privacy_metrics_out(trip, level=level),
     )
 
 
@@ -259,7 +385,12 @@ def list_web_user_trips(request, user_id: int):
     response=WebTripDashboardOut,
     auth=web_dashboard_auth,
 )
-def get_web_trip_dashboard(request, user_id: int, trip_id: int):
+def get_web_trip_dashboard(
+    request,
+    user_id: int,
+    trip_id: int,
+    level: str | None = None,
+):
     owner = _web_user_summary_values(_web_users_queryset().filter(id=user_id)).first()
     trip = Trip.objects.filter(id=trip_id, user_id=user_id).first()
     if owner is None or trip is None:
@@ -277,4 +408,5 @@ def get_web_trip_dashboard(request, user_id: int, trip_id: int):
         ),
         "track": _track_out(trip),
         "diary": _diary_out(trip),
+        "privacy_aware": _privacy_aware_out(trip, requested_level=level),
     }

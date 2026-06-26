@@ -118,3 +118,28 @@ class TripListItemOut(Schema):
     distance_meters: float | None
     # True se esiste una traiettoria disegnabile (path con >= 2 punti).
     has_track: bool
+
+
+class PrivacyExportSegmentOut(Schema):
+    kind: str
+    start_label: str
+    end_label: str
+    activity_label: str
+    # Titolo mostrabile: attivita' per i MOVE, etichetta reale solo se la vista
+    # e' `precise`, altrimenti una dicitura generica per le soste.
+    title: str
+    point_count: int
+    # Coordinate privacy-aware (cloaked) per i MOVE; vuota per le soste.
+    coordinates: list[list[float]]
+
+
+class PrivacyExportOut(Schema):
+    trip_id: int
+    level: str
+    # False solo per `precise`: l'export non protegge la geometria.
+    protected: bool
+    # True quando le coordinate sono celle cloaked e non letture GPS reali.
+    approximated_coordinates: bool
+    cell_size_meters: int | None
+    text: str
+    segments: list[PrivacyExportSegmentOut]

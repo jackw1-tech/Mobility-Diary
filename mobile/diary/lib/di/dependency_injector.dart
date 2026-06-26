@@ -3,6 +3,7 @@ import 'package:diary/features/acquisition/sync/trip_ingestion_api.dart';
 import 'package:diary/features/acquisition/sync/trip_package_builder.dart';
 import 'package:diary/features/acquisition/sync/trip_sync_queue_impl.dart';
 import 'package:diary/network/service/privacy_settings_service.dart';
+import 'package:diary/network/service/trip_privacy_export_service.dart';
 import 'package:diary/network/service/trip_track_service.dart';
 import 'package:diary/network/service/trips_service.dart';
 import 'package:diary/repositories/acquisition_repository.dart';

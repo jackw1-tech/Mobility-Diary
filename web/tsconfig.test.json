@@ -8,5 +8,5 @@
     "outDir": ".tmp-tests",
     "rootDir": "."
   },
-  "include": ["src/utils/tripDashboard.ts"]
+  "include": ["src/utils/tripDashboard.ts", "src/utils/privacyDashboard.ts"]
 }

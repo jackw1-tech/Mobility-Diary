@@ -15,6 +15,7 @@ import { ApiError } from '../services/apiClient';
 import {
   fetchTripDashboard,
   type LineStringGeoJson,
+  type PrivacyLevel,
   type WebTripDashboard,
 } from '../services/usersApi';
 import {
@@ -33,12 +34,20 @@ import {
   segmentSeconds,
   summarizeTrip,
 } from '../utils/tripDashboard';
+import {
+  isProtectedLevel,
+  privacyLevelLabel,
+  privacyLevelOptions,
+  privacyMetricCards,
+} from '../utils/privacyDashboard';
 
 const route = useRoute();
 const dashboard = ref<WebTripDashboard | null>(null);
 const loading = ref(false);
+const privacyLoading = ref(false);
 const error = ref('');
 const mapElement = ref<HTMLElement | null>(null);
+const visibleMapLayer = ref<'private' | 'privacy-aware' | 'both'>('both');
 const filters = reactive({
   activities: [] as string[],
   from: '',
@@ -86,6 +95,28 @@ const tripEndInput = computed(() => formatDateTimeInput(dashboard.value?.trip.en
 const hasVisibleMapGeometry = computed(() => Boolean(
   dashboard.value?.track.geojson || moveSegments.value.some((segment) => segment.path_geojson),
 ));
+const visiblePrivacySegments = computed(() => {
+  if (!dashboard.value) return [];
+  const visibleKeys = new Set(
+    visibleSegments.value.map((segment) => segmentKey(segment)),
+  );
+  return dashboard.value.privacy_aware.diary.segments.filter((segment) => (
+    segment.kind === 'MOVE' && visibleKeys.has(segmentKey(segment))
+  ));
+});
+const hasPrivateLayer = computed(() => (
+  visibleMapLayer.value === 'private' || visibleMapLayer.value === 'both'
+));
+const hasPrivacyAwareLayer = computed(() => (
+  visibleMapLayer.value === 'privacy-aware' || visibleMapLayer.value === 'both'
+));
+const privacyAware = computed(() => dashboard.value?.privacy_aware ?? null);
+const privacyPlaces = computed(() => privacyAware.value?.significant_places ?? []);
+const privacyMetricList = computed(() => (
+  privacyAware.value
+    ? privacyMetricCards(privacyAware.value.metrics, privacyAware.value.level)
+    : []
+));
 
 async function loadDashboard() {
   if (!userId.value || !tripId.value) return;
@@ -104,6 +135,24 @@ async function loadDashboard() {
   }
 }
 
+async function selectPrivacyLevel(level: PrivacyLevel) {
+  if (!dashboard.value || privacyLoading.value) return;
+  if (dashboard.value.privacy_aware.level === level) return;
+  privacyLoading.value = true;
+  try {
+    const response = await fetchTripDashboard(userId.value, tripId.value, level);
+    if (dashboard.value) {
+      // Swap only the privacy-aware view so the private comparison, local
+      // filters, and the owner's saved preference stay untouched.
+      dashboard.value.privacy_aware = response.privacy_aware;
+    }
+  } catch {
+    // Keep the previously rendered privacy-aware view on a failed preview.
+  } finally {
+    privacyLoading.value = false;
+  }
+}
+
 function renderMap() {
   destroyMap();
   if (!mapElement.value || !dashboard.value) return;
@@ -115,15 +164,39 @@ function renderMap() {
   }).addTo(map);
 
   const visiblePoints: LatLngTuple[] = [];
-  drawLine(dashboard.value.track.geojson, '#000000', 5, 0.65, visiblePoints);
-  for (const segment of moveSegments.value) {
+  if (hasPrivateLayer.value) {
+    drawLine(dashboard.value.track.geojson, '#000000', 5, 0.45, visiblePoints);
+    for (const segment of moveSegments.value) {
+      drawLine(
+        segment.path_geojson ?? null,
+        activityColor(segment.activity_label),
+        6,
+        0.85,
+        visiblePoints,
+      );
+    }
+  }
+
+  if (hasPrivacyAwareLayer.value) {
     drawLine(
-      segment.path_geojson ?? null,
-      activityColor(segment.activity_label),
-      6,
+      dashboard.value.privacy_aware.track.geojson,
+      '#0f766e',
+      4,
       0.9,
       visiblePoints,
+      '8 8',
     );
+    for (const segment of visiblePrivacySegments.value) {
+      drawLine(
+        segment.path_geojson ?? null,
+        '#0f766e',
+        5,
+        0.75,
+        visiblePoints,
+        '8 8',
+      );
+    }
+    drawPrivacyPlaces(visiblePoints);
   }
 
   if (visiblePoints.length > 0) {
@@ -139,11 +212,34 @@ function drawLine(
   weight: number,
   opacity: number,
   visiblePoints: LatLngTuple[],
+  dashArray?: string,
 ) {
   if (!geojson?.coordinates.length || !leafletMap) return;
   const points = geojson.coordinates.map(([lon, lat]) => [lat, lon] as LatLngTuple);
   visiblePoints.push(...points);
-  L.polyline(points, { color, opacity, weight }).addTo(leafletMap);
+  L.polyline(points, { color, dashArray, opacity, weight }).addTo(leafletMap);
+}
+
+function drawPrivacyPlaces(visiblePoints: LatLngTuple[]) {
+  if (!leafletMap || !dashboard.value) return;
+  for (const place of dashboard.value.privacy_aware.significant_places) {
+    const coordinates = place.center_geojson?.coordinates;
+    if (!coordinates) continue;
+    const [lon, lat] = coordinates;
+    const position: LatLngTuple = [lat, lon];
+    visiblePoints.push(position);
+    // The label is already masked server-side for non-precise levels, so the
+    // tooltip never leaks a sensitive place name.
+    L.circleMarker(position, {
+      color: '#0f766e',
+      fillColor: '#0f766e',
+      fillOpacity: 0.65,
+      radius: 7,
+      weight: 2,
+    })
+      .bindTooltip(place.label || 'Sosta significativa')
+      .addTo(leafletMap);
+  }
 }
 
 function destroyMap() {
@@ -157,9 +253,17 @@ function clearLocalFilters() {
   filters.to = '';
 }
 
+function segmentKey(segment: { start_timestamp: string; end_timestamp: string; kind: string }) {
+  return `${segment.start_timestamp}-${segment.end_timestamp}-${segment.kind}`;
+}
+
 watch([userId, tripId], loadDashboard, { immediate: true });
 watch(dashboard, clearLocalFilters);
-watch([dashboard, moveSegments], () => nextTick(renderMap), { flush: 'post' });
+watch(
+  [dashboard, moveSegments, visiblePrivacySegments, visibleMapLayer],
+  () => nextTick(renderMap),
+  { flush: 'post' },
+);
 onBeforeUnmount(destroyMap);
 </script>
 
@@ -265,6 +369,34 @@ onBeforeUnmount(destroyMap);
       </form>
 
       <section class="map-panel" aria-label="Mappa del viaggio">
+        <div class="map-toolbar" aria-label="Layer mappa">
+          <button
+            type="button"
+            :class="{ active: visibleMapLayer === 'private' }"
+            @click="visibleMapLayer = 'private'"
+          >
+            Privata
+          </button>
+          <button
+            type="button"
+            :class="{ active: visibleMapLayer === 'privacy-aware' }"
+            @click="visibleMapLayer = 'privacy-aware'"
+          >
+            Privacy-aware
+          </button>
+          <button
+            type="button"
+            :class="{ active: visibleMapLayer === 'both' }"
+            @click="visibleMapLayer = 'both'"
+          >
+            Entrambe
+          </button>
+        </div>
+        <div class="map-legend">
+          <span><i class="legend-line private-line"></i>Privata</span>
+          <span><i class="legend-line privacy-line"></i>Privacy-aware</span>
+          <strong>{{ dashboard.privacy_aware.level }}</strong>
+        </div>
         <div ref="mapElement" class="trip-map"></div>
         <div v-if="!hasVisibleMapGeometry" class="map-empty">
           Traccia non disponibile
@@ -294,6 +426,71 @@ onBeforeUnmount(destroyMap);
           </div>
         </div>
       </aside>
+
+      <section class="privacy-panel" aria-labelledby="privacy-title">
+        <div class="section-heading compact-heading">
+          <div>
+            <p class="eyebrow">Confronto privacy</p>
+            <h2 id="privacy-title">
+              Vista {{ privacyLevelLabel(dashboard.privacy_aware.level) }}
+            </h2>
+          </div>
+          <span
+            v-if="!isProtectedLevel(dashboard.privacy_aware.level)"
+            class="privacy-flag privacy-flag-warning"
+          >
+            Non protetto
+          </span>
+          <span v-else class="privacy-flag privacy-flag-safe">Protetto</span>
+        </div>
+
+        <div
+          class="privacy-level-controls"
+          role="group"
+          aria-label="Anteprima livello privacy"
+        >
+          <button
+            v-for="option in privacyLevelOptions"
+            :key="option.value"
+            type="button"
+            :class="{ active: dashboard.privacy_aware.level === option.value }"
+            :disabled="privacyLoading"
+            @click="selectPrivacyLevel(option.value)"
+          >
+            <strong>{{ option.label }}</strong>
+            <small>{{ option.cellLabel }}</small>
+            <span
+              v-if="option.value === dashboard.privacy_aware.default_level"
+              class="privacy-default-chip"
+            >
+              Preferenza utente
+            </span>
+          </button>
+        </div>
+
+        <div class="privacy-metrics" aria-label="Metriche privacy">
+          <div
+            v-for="card in privacyMetricList"
+            :key="card.key"
+            class="privacy-metric"
+          >
+            <span>{{ card.label }}</span>
+            <strong>{{ card.value }}</strong>
+            <small>{{ card.hint }}</small>
+          </div>
+        </div>
+
+        <div v-if="privacyPlaces.length > 0" class="privacy-places">
+          <p class="eyebrow">Luoghi significativi privacy-aware</p>
+          <ul>
+            <li v-for="(place, index) in privacyPlaces" :key="index">
+              <span class="activity-dot privacy-place-dot"></span>
+              <span>{{ place.label }}</span>
+              <small>{{ formatDuration(place.dwell_seconds) }}</small>
+            </li>
+          </ul>
+        </div>
+      </section>
 
       <section class="timeline-panel" aria-labelledby="timeline-title">
         <div class="section-heading compact-heading">
