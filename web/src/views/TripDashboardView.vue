@@ -31,6 +31,7 @@ import {
   activityFilterOptions,
   activityLabel,
   filterSegments,
+  presentableSegments,
   segmentSeconds,
   summarizeTrip,
 } from '../utils/tripDashboard';
@@ -100,7 +101,7 @@ const visiblePrivacySegments = computed(() => {
   const visibleKeys = new Set(
     visibleSegments.value.map((segment) => segmentKey(segment)),
   );
-  return dashboard.value.privacy_aware.diary.segments.filter((segment) => (
+  return presentableSegments(dashboard.value.privacy_aware.diary.segments).filter((segment) => (
     segment.kind === 'MOVE' && visibleKeys.has(segmentKey(segment))
   ));
 });
@@ -231,9 +232,9 @@ function drawPrivacyPlaces(visiblePoints: LatLngTuple[]) {
     // The label is already masked server-side for non-precise levels, so the
     // tooltip never leaks a sensitive place name.
     L.circleMarker(position, {
-      color: '#0f766e',
-      fillColor: '#0f766e',
-      fillOpacity: 0.65,
+      color: '#111111',
+      fillColor: '#111111',
+      fillOpacity: 0.78,
       radius: 7,
       weight: 2,
     })

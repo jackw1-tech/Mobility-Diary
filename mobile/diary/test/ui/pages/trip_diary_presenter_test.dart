@@ -35,7 +35,7 @@ void main() {
       expect(stats.moving, const Duration(minutes: 30));
       expect(stats.stopped, const Duration(minutes: 15));
       expect(stats.distanceMeters, 3700);
-      expect(stats.places, 1);
+      expect(stats.stopCount, 1);
       expect(stats.activities.map((a) => a.label), ['BIKING', 'WALKING']);
     });
 
@@ -83,7 +83,7 @@ void main() {
       expect(stats.moving, const Duration(minutes: 32));
       expect(stats.stopped, const Duration(minutes: 13));
       expect(stats.distanceMeters, 3700);
-      expect(stats.places, 1);
+      expect(stats.stopCount, 1);
       expect(stats.activities.map((a) => a.label), ['BIKING', 'WALKING']);
     });
   });
@@ -137,6 +137,51 @@ void main() {
         segments.single.endTimestamp,
         start.add(const Duration(minutes: 10)),
       );
+    });
+
+    test('collapses nearby stop spans separated by a short gap', () {
+      final start = DateTime.parse('2026-06-12T10:00:00Z');
+      final segments = presentableDiarySegments([
+        _segment(
+          kind: 'STOP',
+          activity: 'IDLE',
+          start: start,
+          end: start.add(const Duration(minutes: 8)),
+        ),
+        _segment(
+          kind: 'STOP',
+          activity: 'IDLE',
+          start: start.add(const Duration(minutes: 9)),
+          end: start.add(const Duration(minutes: 17)),
+        ),
+        _segment(
+          kind: 'STOP',
+          activity: 'IDLE',
+          start: start.add(const Duration(minutes: 18)),
+          end: start.add(const Duration(minutes: 32)),
+        ),
+      ]);
+
+      expect(segments, hasLength(1));
+      expect(segments.single.kind, 'STOP');
+      expect(segments.single.startTimestamp, start);
+      expect(
+        segments.single.endTimestamp,
+        start.add(const Duration(minutes: 32)),
+      );
+    });
+
+    test('renders stop summary with explicit count label', () {
+      final stats = TripStats.fromSegments([
+        _segment(
+          kind: 'STOP',
+          activity: 'IDLE',
+          start: DateTime.parse('2026-06-12T10:00:00Z'),
+          end: DateTime.parse('2026-06-12T10:15:00Z'),
+        ),
+      ]);
+
+      expect(stopSummaryText(stats), '1 sosta · 15 min');
     });
   });
 }

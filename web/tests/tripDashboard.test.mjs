@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   activityFilterOptions,
   filterSegments,
+  presentableSegments,
   summarizeTrip,
 } from '../.tmp-tests/src/utils/tripDashboard.js';
 
@@ -52,6 +53,38 @@ test('summarizeTrip can summarize the currently visible subset', () => {
   assert.equal(stats.stoppedSeconds, 0);
   assert.equal(stats.movementDistanceMeters, 1500);
   assert.deepEqual(stats.activitySplit.map((item) => item.label), ['Bici']);
+});
+
+test('presentableSegments collapses idle plus stop plus idle into one stop', () => {
+  const projected = presentableSegments([
+    segment('MOVE', 'IDLE', '2026-06-24T08:10:00.000Z', '2026-06-24T08:12:00.000Z', 20),
+    segment('STOP', 'IDLE', '2026-06-24T08:12:00.000Z', '2026-06-24T08:20:00.000Z', 0),
+    segment('MOVE', 'IDLE', '2026-06-24T08:20:00.000Z', '2026-06-24T08:23:00.000Z', 15),
+  ]);
+
+  assert.equal(projected.length, 1);
+  assert.equal(projected[0].kind, 'STOP');
+  assert.equal(projected[0].activity_label, 'IDLE');
+  assert.equal(projected[0].distance_meters, 0);
+  assert.equal(projected[0].path_geojson, null);
+  assert.equal(projected[0].start_timestamp, '2026-06-24T08:10:00.000Z');
+  assert.equal(projected[0].end_timestamp, '2026-06-24T08:23:00.000Z');
+});
+
+test('summarizeTrip treats idle plus stop plus idle as one stop', () => {
+  const stats = summarizeTrip(trip, [
+    segment('MOVE', 'WALKING', '2026-06-24T08:00:00.000Z', '2026-06-24T08:10:00.000Z', 500),
+    segment('MOVE', 'IDLE', '2026-06-24T08:10:00.000Z', '2026-06-24T08:12:00.000Z', 20),
+    segment('STOP', 'IDLE', '2026-06-24T08:12:00.000Z', '2026-06-24T08:20:00.000Z', 0),
+    segment('MOVE', 'IDLE', '2026-06-24T08:20:00.000Z', '2026-06-24T08:23:00.000Z', 15),
+    segment('MOVE', 'BIKING', '2026-06-24T08:23:00.000Z', '2026-06-24T09:00:00.000Z', 1500),
+  ]);
+
+  assert.equal(stats.totalDurationSeconds, 3600);
+  assert.equal(stats.movementSeconds, 2820);
+  assert.equal(stats.stoppedSeconds, 780);
+  assert.equal(stats.movementDistanceMeters, 2000);
+  assert.deepEqual(stats.activitySplit.map((item) => item.label), ['Bici', 'Camminata']);
 });
 
 function segment(kind, activity_label, start_timestamp, end_timestamp, distance_meters) {

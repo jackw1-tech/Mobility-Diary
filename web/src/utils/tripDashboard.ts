@@ -51,6 +51,10 @@ export type ActivityFilterOption = {
   color: string;
 };
 
+export function isStopLikeSegment(segment: DashboardSegment): boolean {
+  return segment.kind === 'STOP' || segment.activity_label === 'IDLE';
+}
+
 export function activityLabel(value: string): string {
   return activityMeta[value]?.label ?? value;
 }
@@ -63,11 +67,55 @@ export function segmentSeconds(segment: DashboardSegment): number {
   return secondsBetween(segment.start_timestamp, segment.end_timestamp);
 }
 
+export function presentableSegments(
+  segments: DashboardSegment[],
+): DashboardSegment[] {
+  const ordered = [...segments].sort((left, right) => (
+    Date.parse(left.start_timestamp) - Date.parse(right.start_timestamp)
+  ));
+  const projected: DashboardSegment[] = [];
+  let pendingStop: DashboardSegment | null = null;
+
+  for (const segment of ordered) {
+    if (isStopLikeSegment(segment)) {
+      const stopProjection = asStopSegment(segment);
+      if (pendingStop == null) {
+        pendingStop = stopProjection;
+        continue;
+      }
+      if (Date.parse(stopProjection.start_timestamp) <= Date.parse(pendingStop.end_timestamp)) {
+        pendingStop = {
+          ...pendingStop,
+          end_timestamp: Date.parse(stopProjection.end_timestamp) > Date.parse(pendingStop.end_timestamp)
+            ? stopProjection.end_timestamp
+            : pendingStop.end_timestamp,
+        };
+        continue;
+      }
+      projected.push(pendingStop);
+      pendingStop = stopProjection;
+      continue;
+    }
+
+    if (pendingStop != null) {
+      projected.push(pendingStop);
+      pendingStop = null;
+    }
+    projected.push(segment);
+  }
+
+  if (pendingStop != null) {
+    projected.push(pendingStop);
+  }
+
+  return projected;
+}
+
 export function activityFilterOptions(
   segments: DashboardSegment[],
 ): ActivityFilterOption[] {
   const options = new Map<string, ActivityFilterOption>();
-  for (const segment of segments) {
+  for (const segment of presentableSegments(segments)) {
     options.set(segment.activity_label, {
       value: segment.activity_label,
       label: activityLabel(segment.activity_label),
@@ -81,11 +129,12 @@ export function filterSegments(
   segments: DashboardSegment[],
   filters: SegmentFilters,
 ): DashboardSegment[] {
+  const presentable = presentableSegments(segments);
   const activities = new Set(filters.activities ?? []);
   const from = filterTimestamp(filters.from);
   const to = filterTimestamp(filters.to);
 
-  return segments.filter((segment) => {
+  return presentable.filter((segment) => {
     const startsAt = Date.parse(segment.start_timestamp);
     const endsAt = Date.parse(segment.end_timestamp);
     return (
@@ -101,8 +150,9 @@ export function summarizeTrip(
   segments: DashboardSegment[],
   options: { durationMode?: 'trip' | 'segments' } = {},
 ): TripStats {
+  const presentable = presentableSegments(segments);
   const split = new Map<string, ActivitySplit>();
-  const segmentDuration = segments.reduce(
+  const segmentDuration = presentable.reduce(
     (total, segment) => total + segmentSeconds(segment),
     0,
   );
@@ -116,9 +166,9 @@ export function summarizeTrip(
     activitySplit: [],
   };
 
-  for (const segment of segments) {
+  for (const segment of presentable) {
     const seconds = segmentSeconds(segment);
-    if (segment.kind === 'STOP') {
+    if (isStopLikeSegment(segment)) {
       stats.stoppedSeconds += seconds;
       continue;
     }
@@ -135,7 +185,9 @@ export function summarizeTrip(
     split.set(segment.activity_label, current);
   }
 
-  stats.activitySplit = [...split.values()];
+  stats.activitySplit = [...split.values()].sort((left, right) => (
+    right.seconds - left.seconds
+  ));
   return stats;
 }
 
@@ -147,4 +199,14 @@ function filterTimestamp(value?: string): number | null {
   if (!value) return null;
   const timestamp = Date.parse(value);
   return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function asStopSegment(segment: DashboardSegment): DashboardSegment {
+  return {
+    ...segment,
+    kind: 'STOP',
+    activity_label: 'IDLE',
+    distance_meters: 0,
+    path_geojson: null,
+  };
 }

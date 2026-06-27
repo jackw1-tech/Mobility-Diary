@@ -1,11 +1,13 @@
 import 'package:diary/network/dto/trip_track_dto.dart';
 
+const _stopMergeGapTolerance = Duration(minutes: 2);
+
 class TripStats {
   final Duration duration;
   final Duration moving;
   final Duration stopped;
   final double distanceMeters;
-  final int places;
+  final int stopCount;
   final List<({String label, Duration duration})> activities;
 
   const TripStats(
@@ -13,7 +15,7 @@ class TripStats {
     this.moving,
     this.stopped,
     this.distanceMeters,
-    this.places,
+    this.stopCount,
     this.activities,
   );
 
@@ -31,10 +33,10 @@ class TripStats {
     }
 
     final activitySeconds = <String, int>{};
-    final placeIds = <int>{};
     var movingSeconds = 0;
     var stoppedSeconds = 0;
     var distance = 0.0;
+    var stopCount = 0;
 
     for (final segment in presentable) {
       final seconds = segmentDuration(segment).inSeconds;
@@ -48,8 +50,7 @@ class TripStats {
         );
       } else {
         stoppedSeconds += seconds;
-        final place = segment.place;
-        if (place != null) placeIds.add(place.id);
+        stopCount += 1;
       }
     }
 
@@ -65,7 +66,7 @@ class TripStats {
       Duration(seconds: movingSeconds),
       Duration(seconds: stoppedSeconds),
       distance,
-      placeIds.length,
+      stopCount,
       activities,
     );
   }
@@ -102,7 +103,10 @@ List<TripDiarySegmentDto> presentableDiarySegments(
         pendingStop = stopProjection;
         continue;
       }
-      if (!stopProjection.startTimestamp.isAfter(pendingStop.endTimestamp)) {
+      final gap = stopProjection.startTimestamp.difference(
+        pendingStop.endTimestamp,
+      );
+      if (gap <= _stopMergeGapTolerance) {
         pendingStop = TripDiarySegmentDto(
           kind: 'STOP',
           startTimestamp: pendingStop.startTimestamp,
@@ -184,6 +188,11 @@ TripDiarySegmentDto _asStopSegment(TripDiarySegmentDto segment) {
     pathGeojson: null,
     place: segment.place,
   );
+}
+
+String stopSummaryText(TripStats stats) {
+  final noun = stats.stopCount == 1 ? 'sosta' : 'soste';
+  return '${stats.stopCount} $noun · ${formatDuration(stats.stopped)}';
 }
 
 TripDiaryPlaceDto? _mergePlace(

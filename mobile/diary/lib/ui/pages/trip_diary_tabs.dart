@@ -66,7 +66,7 @@ class TripStatsTab extends StatelessWidget {
                   context,
                   Icons.place,
                   'Soste',
-                  '${stats.places} · ${formatDuration(stats.stopped)}',
+                  stopSummaryText(stats),
                 ),
               ],
             ),

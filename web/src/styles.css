@@ -456,8 +456,9 @@ select:focus {
 }
 
 .map-panel {
+  grid-column: 1 / -1;
   position: relative;
-  min-height: 480px;
+  min-height: 620px;
   overflow: hidden;
 }
 
@@ -475,7 +476,7 @@ select:focus {
 
 .map-toolbar {
   top: var(--space-lg);
-  left: var(--space-lg);
+  right: var(--space-lg);
   padding: var(--space-xs);
   border-radius: var(--radius-pill);
 }
@@ -496,7 +497,7 @@ select:focus {
 }
 
 .map-legend {
-  right: var(--space-lg);
+  left: var(--space-lg);
   bottom: var(--space-lg);
   flex-wrap: wrap;
   max-width: calc(100% - 32px);
@@ -535,13 +536,13 @@ select:focus {
 }
 
 .trip-map {
-  min-height: 480px;
+  min-height: 620px;
   height: 100%;
 }
 
 .map-empty {
   position: absolute;
-  inset: auto var(--space-lg) var(--space-lg);
+  inset: auto var(--space-lg) var(--space-lg) auto;
   padding: var(--space-md) var(--space-lg);
   background: var(--color-canvas);
   border: 1px solid var(--color-hairline);
