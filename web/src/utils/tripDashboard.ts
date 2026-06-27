@@ -15,6 +15,11 @@ export type DashboardSegment = {
   activity_label: string;
   distance_meters: number;
   path_geojson?: DashboardLineString | null;
+  place?: {
+    center_geojson?: { type: 'Point'; coordinates: [number, number] } | null;
+    label: string;
+    radius_meters: number;
+  } | null;
 };
 
 const activityMeta: Record<string, { label: string; color: string }> = {
@@ -35,6 +40,7 @@ export type TripStats = {
   totalDurationSeconds: number;
   movementSeconds: number;
   stoppedSeconds: number;
+  stopCount: number;
   movementDistanceMeters: number;
   activitySplit: ActivitySplit[];
 };
@@ -51,8 +57,8 @@ export type ActivityFilterOption = {
   color: string;
 };
 
-export function isStopLikeSegment(segment: DashboardSegment): boolean {
-  return segment.kind === 'STOP' || segment.activity_label === 'IDLE';
+export function isStopSegment(segment: DashboardSegment): boolean {
+  return segment.kind === 'STOP';
 }
 
 export function activityLabel(value: string): string {
@@ -67,55 +73,19 @@ export function segmentSeconds(segment: DashboardSegment): number {
   return secondsBetween(segment.start_timestamp, segment.end_timestamp);
 }
 
-export function presentableSegments(
+export function orderedSegments(
   segments: DashboardSegment[],
 ): DashboardSegment[] {
-  const ordered = [...segments].sort((left, right) => (
+  return [...segments].sort((left, right) => (
     Date.parse(left.start_timestamp) - Date.parse(right.start_timestamp)
   ));
-  const projected: DashboardSegment[] = [];
-  let pendingStop: DashboardSegment | null = null;
-
-  for (const segment of ordered) {
-    if (isStopLikeSegment(segment)) {
-      const stopProjection = asStopSegment(segment);
-      if (pendingStop == null) {
-        pendingStop = stopProjection;
-        continue;
-      }
-      if (Date.parse(stopProjection.start_timestamp) <= Date.parse(pendingStop.end_timestamp)) {
-        pendingStop = {
-          ...pendingStop,
-          end_timestamp: Date.parse(stopProjection.end_timestamp) > Date.parse(pendingStop.end_timestamp)
-            ? stopProjection.end_timestamp
-            : pendingStop.end_timestamp,
-        };
-        continue;
-      }
-      projected.push(pendingStop);
-      pendingStop = stopProjection;
-      continue;
-    }
-
-    if (pendingStop != null) {
-      projected.push(pendingStop);
-      pendingStop = null;
-    }
-    projected.push(segment);
-  }
-
-  if (pendingStop != null) {
-    projected.push(pendingStop);
-  }
-
-  return projected;
 }
 
 export function activityFilterOptions(
   segments: DashboardSegment[],
 ): ActivityFilterOption[] {
   const options = new Map<string, ActivityFilterOption>();
-  for (const segment of presentableSegments(segments)) {
+  for (const segment of orderedSegments(segments)) {
     options.set(segment.activity_label, {
       value: segment.activity_label,
       label: activityLabel(segment.activity_label),
@@ -129,12 +99,11 @@ export function filterSegments(
   segments: DashboardSegment[],
   filters: SegmentFilters,
 ): DashboardSegment[] {
-  const presentable = presentableSegments(segments);
   const activities = new Set(filters.activities ?? []);
   const from = filterTimestamp(filters.from);
   const to = filterTimestamp(filters.to);
 
-  return presentable.filter((segment) => {
+  return orderedSegments(segments).filter((segment) => {
     const startsAt = Date.parse(segment.start_timestamp);
     const endsAt = Date.parse(segment.end_timestamp);
     return (
@@ -150,9 +119,9 @@ export function summarizeTrip(
   segments: DashboardSegment[],
   options: { durationMode?: 'trip' | 'segments' } = {},
 ): TripStats {
-  const presentable = presentableSegments(segments);
+  const ordered = orderedSegments(segments);
   const split = new Map<string, ActivitySplit>();
-  const segmentDuration = presentable.reduce(
+  const segmentDuration = ordered.reduce(
     (total, segment) => total + segmentSeconds(segment),
     0,
   );
@@ -162,14 +131,16 @@ export function summarizeTrip(
       : secondsBetween(trip.started_at, trip.ended_at ?? new Date().toISOString()),
     movementSeconds: 0,
     stoppedSeconds: 0,
+    stopCount: 0,
     movementDistanceMeters: 0,
     activitySplit: [],
   };
 
-  for (const segment of presentable) {
+  for (const segment of ordered) {
     const seconds = segmentSeconds(segment);
-    if (isStopLikeSegment(segment)) {
+    if (isStopSegment(segment)) {
       stats.stoppedSeconds += seconds;
+      stats.stopCount += 1;
       continue;
     }
 
@@ -191,6 +162,10 @@ export function summarizeTrip(
   return stats;
 }
 
+export function stopLabel(segment: DashboardSegment): string {
+  return segment.place?.label || 'Sosta rilevata';
+}
+
 function secondsBetween(start: string, end: string): number {
   return Math.max(0, (Date.parse(end) - Date.parse(start)) / 1000);
 }
@@ -199,14 +174,4 @@ function filterTimestamp(value?: string): number | null {
   if (!value) return null;
   const timestamp = Date.parse(value);
   return Number.isFinite(timestamp) ? timestamp : null;
-}
-
-function asStopSegment(segment: DashboardSegment): DashboardSegment {
-  return {
-    ...segment,
-    kind: 'STOP',
-    activity_label: 'IDLE',
-    distance_meters: 0,
-    path_geojson: null,
-  };
 }

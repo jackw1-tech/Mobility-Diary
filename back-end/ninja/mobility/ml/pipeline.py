@@ -22,14 +22,16 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from django.contrib.gis.geos import LineString
+from django.db import transaction
 
 from ..geo import haversine_meters
-from ..models import ActivityLabel, MobilitySegment, Trip
+from ..models import ActivityLabel, MobilitySegment, Trip, VirtualStopInterval
 from .classifier import classify_windows, correct_idle_with_gps, _label_from_speed
 from .preprocessing import normalize_window
 
 STOP_STATE = "STATIONARY"
 MIN_ISOLATED_LABEL_SECONDS = 60
+MIN_VIRTUAL_STOP_SECONDS = 120
 
 
 @dataclass(frozen=True)
@@ -39,6 +41,13 @@ class PipelineSensorWindow:
     sample_count: int
     frequency_hz: int
     matrix: list[list[float]]
+
+
+@dataclass(frozen=True)
+class LabelTimeRun:
+    start_timestamp: datetime
+    end_timestamp: datetime
+    label: str
 
 
 def _gps_in(gps, start: datetime, end: datetime):
@@ -131,6 +140,8 @@ def _label_runs(inside):
 
 
 def _run_duration_seconds(run) -> float:
+    if isinstance(run, LabelTimeRun):
+        return (run.end_timestamp - run.start_timestamp).total_seconds()
     return (run[-1][0].end_timestamp - run[0][0].start_timestamp).total_seconds()
 
 
@@ -160,6 +171,104 @@ def _smooth_isolated_label_changes(inside):
     return smoothed
 
 
+def _time_runs(inside) -> list[LabelTimeRun]:
+    return [
+        LabelTimeRun(
+            start_timestamp=run[0][0].start_timestamp,
+            end_timestamp=run[-1][0].end_timestamp,
+            label=run[0][1],
+        )
+        for run in _label_runs(inside)
+    ]
+
+
+def _merge_adjacent_runs(runs: list[LabelTimeRun]) -> list[LabelTimeRun]:
+    merged: list[LabelTimeRun] = []
+    for run in runs:
+        if (
+            merged
+            and merged[-1].label == run.label
+            and merged[-1].end_timestamp == run.start_timestamp
+        ):
+            merged[-1] = LabelTimeRun(
+                start_timestamp=merged[-1].start_timestamp,
+                end_timestamp=run.end_timestamp,
+                label=run.label,
+            )
+            continue
+        merged.append(run)
+    return merged
+
+
+def _target_label_for_short_idle(
+    runs: list[LabelTimeRun],
+    index: int,
+    resolved: list[LabelTimeRun],
+) -> str | None:
+    if resolved:
+        return resolved[-1].label
+    for following in runs[index + 1 :]:
+        if following.label != ActivityLabel.IDLE:
+            return following.label
+    return None
+
+
+def _split_move_and_virtual_runs(
+    runs: list[LabelTimeRun],
+) -> tuple[list[LabelTimeRun], list[LabelTimeRun]]:
+    move_runs: list[LabelTimeRun] = []
+    virtual_stop_runs: list[LabelTimeRun] = []
+
+    for index, run in enumerate(runs):
+        if run.label != ActivityLabel.IDLE:
+            move_runs.append(run)
+            continue
+
+        if _run_duration_seconds(run) >= MIN_VIRTUAL_STOP_SECONDS:
+            virtual_stop_runs.append(run)
+            continue
+
+        target_label = _target_label_for_short_idle(runs, index, move_runs)
+        if target_label is None:
+            continue
+        move_runs.append(
+            LabelTimeRun(
+                start_timestamp=run.start_timestamp,
+                end_timestamp=run.end_timestamp,
+                label=target_label,
+            )
+        )
+
+    return _merge_adjacent_runs(move_runs), virtual_stop_runs
+
+
+def _build_virtual_stop(trip, start, end) -> None:
+    VirtualStopInterval.objects.create(
+        trip=trip,
+        start_timestamp=start,
+        end_timestamp=end,
+    )
+
+
+def _fallback_move_label(points) -> str:
+    speeds = [p.speed_mps for p in points]
+    label = _label_from_speed(statistics.median(speeds) if speeds else None)
+    return label if label != ActivityLabel.IDLE else ActivityLabel.WALKING
+
+
+def _build_move_segment(trip, start, end, label, gps) -> None:
+    points = _gps_in(gps, start, end)
+    MobilitySegment.objects.create(
+        trip=trip,
+        kind=MobilitySegment.Kind.MOVE,
+        start_timestamp=start,
+        end_timestamp=end,
+        activity_label=label,
+        path=_segment_path(points),
+        distance_meters=_path_distance(points),
+    )
+
+
 def _build_move(trip, start, end, windows, labels, gps) -> None:
     inside = [
         (w, lbl)
@@ -169,40 +278,28 @@ def _build_move(trip, start, end, windows, labels, gps) -> None:
     if not inside:
         # Spostamento senza finestre inerziali: ripiego sulla velocita GPS.
         points = _gps_in(gps, start, end)
-        speeds = [p.speed_mps for p in points]
-        label = _label_from_speed(statistics.median(speeds) if speeds else None)
-        MobilitySegment.objects.create(
-            trip=trip,
-            kind=MobilitySegment.Kind.MOVE,
-            start_timestamp=start,
-            end_timestamp=end,
-            activity_label=label,
-            path=_segment_path(points),
-            distance_meters=_path_distance(points),
-        )
+        _build_move_segment(trip, start, end, _fallback_move_label(points), gps)
         return
 
     inside = _smooth_isolated_label_changes(inside)
+    move_runs, virtual_stop_runs = _split_move_and_virtual_runs(_time_runs(inside))
 
-    # Passata 2: split a ogni cambio di label rimasto dopo smoothing.
-    group_start_idx = 0
-    for i in range(1, len(inside) + 1):
-        if i == len(inside) or inside[i][1] != inside[group_start_idx][1]:
-            group = inside[group_start_idx:i]
-            seg_start = group[0][0].start_timestamp
-            seg_end = group[-1][0].end_timestamp
-            label = group[0][1]
-            points = _gps_in(gps, seg_start, seg_end)
-            MobilitySegment.objects.create(
-                trip=trip,
-                kind=MobilitySegment.Kind.MOVE,
-                start_timestamp=seg_start,
-                end_timestamp=seg_end,
-                activity_label=label,
-                path=_segment_path(points),
-                distance_meters=_path_distance(points),
-            )
-            group_start_idx = i
+    for run in virtual_stop_runs:
+        _build_virtual_stop(trip, run.start_timestamp, run.end_timestamp)
+
+    if not move_runs and not virtual_stop_runs:
+        points = _gps_in(gps, start, end)
+        _build_move_segment(trip, start, end, _fallback_move_label(points), gps)
+        return
+
+    for run in move_runs:
+        _build_move_segment(
+            trip,
+            run.start_timestamp,
+            run.end_timestamp,
+            run.label,
+            gps,
+        )
 
 
 def run_pipeline(
@@ -238,24 +335,27 @@ def run_pipeline(
         "final_label_distribution": dict(Counter(labels)),
     }
 
-    # Riscrittura idempotente del diario.
-    trip.segments.all().delete()
+    with transaction.atomic():
+        # Riscrittura idempotente del diario.
+        trip.segments.all().delete()
+        trip.virtual_stop_intervals.all().delete()
 
-    # 5-6. segmentazione + scrittura.
-    spans = _macro_spans(trip, transitions, gps, windows)
-    for start, end, kind in spans:
-        if kind == MobilitySegment.Kind.STOP:
-            _build_stop(trip, start, end)
-        else:
-            _build_move(trip, start, end, windows, labels, gps)
+        # 5-6. segmentazione + scrittura.
+        spans = _macro_spans(trip, transitions, gps, windows)
+        for start, end, kind in spans:
+            if kind == MobilitySegment.Kind.STOP:
+                _build_stop(trip, start, end)
+            else:
+                _build_move(trip, start, end, windows, labels, gps)
 
-    trip.status = Trip.Status.PROCESSED
-    trip.save(update_fields=["status", "updated_at"])
+        trip.status = Trip.Status.PROCESSED
+        trip.save(update_fields=["status", "updated_at"])
 
     return {
         "windows": len(windows),
         "gps_points": len(gps),
         "transitions": len(transitions),
         "segments": trip.segments.count(),
+        "virtual_stop_intervals": trip.virtual_stop_intervals.count(),
         **classifier_summary,
     }

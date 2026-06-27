@@ -77,7 +77,8 @@ void main() {
       );
     });
 
-    test('ingests FSM events and exposes transition snapshots', () async {
+    test('ingests FSM events and exposes movement transition snapshots',
+        () async {
       final database = AcquisitionLocalDatabase(NativeDatabase.memory());
       final repository = AcquisitionRepositoryImpl(
         database: database,
@@ -87,11 +88,11 @@ void main() {
       final now = DateTime.utc(2026, 1, 1);
 
       await repository.startTracking();
-      await _enterPotentialMotion(repository, now);
+      await _enterMovement(repository, now);
 
       expect(
         repository.currentSnapshot.trackingState,
-        TrackingState.potentialMotion,
+        TrackingState.movement,
       );
       expect(
         repository.currentSnapshot.lastTransition?.reason,
@@ -102,7 +103,7 @@ void main() {
           repository.currentSnapshot.samplingProfile.harWindowEnabled, isTrue);
       expect(
         repository.currentSnapshot.samplingProfile.persistSensorWindows,
-        isFalse,
+        isTrue,
       );
 
       final sessions = await database.acquisitionDao.allSessions();
@@ -110,11 +111,11 @@ void main() {
         sessions.single.id,
       );
       expect(transitions.single.fromState, 'STATIONARY');
-      expect(transitions.single.toState, 'POTENTIAL_MOTION');
+      expect(transitions.single.toState, 'MOVEMENT');
       expect(transitions.single.sigma, 1.2);
     });
 
-    test('stores GPS points when active tracking is confirmed', () async {
+    test('stores GPS points while movement tracking is active', () async {
       final database = AcquisitionLocalDatabase(NativeDatabase.memory());
       final repository = AcquisitionRepositoryImpl(
         database: database,
@@ -124,7 +125,7 @@ void main() {
       final now = DateTime.utc(2026, 1, 1);
 
       await repository.startTracking();
-      await _enterPotentialMotion(repository, now);
+      await _enterMovement(repository, now);
       await repository.ingestEvent(
         GpsFixReceived(
           timestamp: now.add(const Duration(seconds: 5)),
@@ -137,8 +138,7 @@ void main() {
 
       final sessions = await database.acquisitionDao.allSessions();
 
-      expect(repository.currentSnapshot.trackingState,
-          TrackingState.activeTracking);
+      expect(repository.currentSnapshot.trackingState, TrackingState.movement);
       expect(
         await database.acquisitionDao.countGpsPointsForSession(
           sessions.single.id,
@@ -147,8 +147,7 @@ void main() {
       );
     });
 
-    test('persists buffered HAR windows when active tracking is confirmed',
-        () async {
+    test('persists buffered HAR windows when movement starts', () async {
       final database = AcquisitionLocalDatabase(NativeDatabase.memory());
       final runtime = _FakeAcquisitionSensorRuntime();
       final repository = AcquisitionRepositoryImpl(
@@ -159,7 +158,15 @@ void main() {
       final now = DateTime.utc(2026, 1, 1);
 
       await repository.startTracking();
-      await _enterPotentialMotion(repository, now);
+      for (var index = 0; index < 3; index += 1) {
+        await repository.ingestEvent(
+          MotionWindowEvaluated(
+            timestamp: now.add(Duration(seconds: index * 2)),
+            sigma: 1.2,
+            sampleCount: 20,
+          ),
+        );
+      }
       await runtime.completeWindow(_harWindow(startedAt: now));
 
       final sessions = await database.acquisitionDao.allSessions();
@@ -171,12 +178,10 @@ void main() {
       );
 
       await repository.ingestEvent(
-        GpsFixReceived(
-          timestamp: now.add(const Duration(seconds: 15)),
-          latitude: 44.49491,
-          longitude: 11.34261,
-          speedMetersPerSecond: 0.9,
-          accuracyMeters: 12,
+        MotionWindowEvaluated(
+          timestamp: now.add(const Duration(seconds: 6)),
+          sigma: 1.2,
+          sampleCount: 20,
         ),
       );
 
@@ -192,7 +197,8 @@ void main() {
       expect(matrix.first as List<dynamic>, hasLength(9));
     });
 
-    test('persists new HAR windows while active tracking is running', () async {
+    test('persists new HAR windows while movement tracking is running',
+        () async {
       final database = AcquisitionLocalDatabase(NativeDatabase.memory());
       final runtime = _FakeAcquisitionSensorRuntime();
       final repository = AcquisitionRepositoryImpl(
@@ -203,16 +209,7 @@ void main() {
       final now = DateTime.utc(2026, 1, 1);
 
       await repository.startTracking();
-      await _enterPotentialMotion(repository, now);
-      await repository.ingestEvent(
-        GpsFixReceived(
-          timestamp: now.add(const Duration(seconds: 15)),
-          latitude: 44.49491,
-          longitude: 11.34261,
-          speedMetersPerSecond: 0.9,
-          accuracyMeters: 12,
-        ),
-      );
+      await _enterMovement(repository, now);
       await runtime.completeWindow(
         _harWindow(startedAt: now.add(const Duration(seconds: 20))),
       );
@@ -300,7 +297,7 @@ void main() {
   });
 }
 
-Future<void> _enterPotentialMotion(
+Future<void> _enterMovement(
   AcquisitionRepositoryImpl repository,
   DateTime timestamp,
 ) async {

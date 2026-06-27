@@ -42,7 +42,7 @@ void main() {
     await dao.insertTransition(
       sessionId: id,
       fromState: 'STATIONARY',
-      toState: 'POTENTIAL_MOTION',
+      toState: 'MOVEMENT',
       reason: 'movement_sigma_above_threshold',
       timestamp: DateTime.utc(2026, 6, 12, 10, 1, 10),
       sigma: 1.2,
@@ -96,7 +96,7 @@ void main() {
     expect((points.first as Map)['speed_mps'], 3.2);
     final transitions = coreBody['state_transitions'] as List<dynamic>;
     expect(transitions, hasLength(1));
-    expect((transitions.first as Map)['to_state'], 'POTENTIAL_MOTION');
+    expect((transitions.first as Map)['to_state'], 'MOVEMENT');
     expect(coreBody['core_payload_sha256'], pkg.corePayload!.sha256);
     expect(
         pkg.corePayload!.sizeBytes, utf8.encode(jsonEncode(coreBody)).length);

@@ -5,11 +5,18 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.gis.geos import LineString, Point
 from django.test import Client
-from django.utils.dateparse import parse_datetime
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 from accounts.models import UserPrivacySettings
-from mobility.models import ActivityLabel, MobilitySegment, SignificantPlace, Trip
+from mobility.models import (
+    ActivityLabel,
+    GpsPoint,
+    HabitualPlace,
+    MobilitySegment,
+    Trip,
+    VirtualStopInterval,
+)
 from mobility.privacy import PRIVACY_AWARE_STOP_LABEL
 
 
@@ -77,6 +84,28 @@ def make_trip(
     return trip
 
 
+def _confirmed_place(user, lon, lat, **kwargs):
+    return HabitualPlace.objects.create(
+        user=user,
+        center=Point(lon, lat, srid=4326),
+        state=HabitualPlace.State.CONFIRMED,
+        **kwargs,
+    )
+
+
+def _add_gps(trip, timestamp, lon, lat, *, speed=0.0):
+    GpsPoint.objects.create(
+        trip=trip,
+        timestamp=timestamp,
+        point=Point(lon, lat, srid=4326),
+        speed_mps=speed,
+    )
+
+
+def _api_timestamp(value):
+    return value.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
 @pytest.mark.django_db
 def test_web_users_returns_non_staff_users_with_trip_summary(staff_user):
     now = timezone.now()
@@ -125,7 +154,9 @@ def test_web_users_returns_non_staff_users_with_trip_summary(staff_user):
     assert active_payload["is_active"] is True
     assert active_payload["trip_count"] == 2
     assert active_payload["processed_trip_count"] == 1
-    assert parse_datetime(active_payload["latest_trip_started_at"]) == now
+    assert parse_datetime(active_payload["latest_trip_started_at"]) == now.replace(
+        microsecond=(now.microsecond // 1000) * 1000
+    )
     assert active_payload["total_distance_meters"] == 1500
 
     inactive_payload = users_by_email["inactive-owner@example.com"]
@@ -271,13 +302,7 @@ def test_web_trip_dashboard_returns_track_and_diary_for_staff(staff_user):
         distance_meters=1200,
         has_track=True,
     )
-    place = SignificantPlace.objects.create(
-        trip=trip,
-        center=Point(9.20, 45.47, srid=4326),
-        radius_meters=35,
-        dwell_seconds=600,
-        label="casa",
-    )
+    _confirmed_place(owner, 9.2003, 45.4703, radius_meters=35, category="casa")
     MobilitySegment.objects.create(
         trip=trip,
         kind=MobilitySegment.Kind.MOVE,
@@ -293,8 +318,9 @@ def test_web_trip_dashboard_returns_track_and_diary_for_staff(staff_user):
         start_timestamp=base + timedelta(minutes=12),
         end_timestamp=base + timedelta(minutes=22),
         activity_label=ActivityLabel.IDLE,
-        place=place,
     )
+    _add_gps(trip, base + timedelta(minutes=14), 9.2000, 45.4700)
+    _add_gps(trip, base + timedelta(minutes=18), 9.2001, 45.4701)
 
     response = Client().get(
         f"/api/web/users/{owner.id}/trips/{trip.id}",
@@ -315,8 +341,10 @@ def test_web_trip_dashboard_returns_track_and_diary_for_staff(staff_user):
     assert move["path_geojson"]["type"] == "LineString"
     assert stop["kind"] == MobilitySegment.Kind.STOP
     assert stop["path_geojson"] is None
-    assert "place" not in stop
-    assert "places" not in payload["diary"]
+    assert stop["place"]["label"] == "casa"
+    assert stop["place"]["center_geojson"]["coordinates"] == pytest.approx(
+        [9.20005, 45.47005]
+    )
 
 
 @pytest.mark.django_db
@@ -414,6 +442,78 @@ def test_web_trip_dashboard_merges_consecutive_stop_and_idle_move(staff_user):
 
 
 @pytest.mark.django_db
+def test_web_trip_dashboard_merges_adjacent_real_and_virtual_stop(staff_user):
+    base = timezone.now()
+    owner = create_user("dashboard-real-virtual-stop@example.com")
+    trip = make_trip(
+        owner,
+        status=Trip.Status.PROCESSED,
+        started_at=base,
+        ended_at=base + timedelta(minutes=20),
+        distance_meters=1100,
+        has_track=True,
+    )
+    _confirmed_place(owner, 9.2003, 45.4703, radius_meters=35, category="casa")
+    MobilitySegment.objects.create(
+        trip=trip,
+        kind=MobilitySegment.Kind.MOVE,
+        start_timestamp=base,
+        end_timestamp=base + timedelta(minutes=5),
+        activity_label=ActivityLabel.BIKING,
+        path=LineString((9.10, 45.46), (9.15, 45.47), srid=4326),
+        distance_meters=600,
+    )
+    MobilitySegment.objects.create(
+        trip=trip,
+        kind=MobilitySegment.Kind.STOP,
+        start_timestamp=base + timedelta(minutes=5),
+        end_timestamp=base + timedelta(minutes=10),
+        activity_label=ActivityLabel.IDLE,
+    )
+    MobilitySegment.objects.create(
+        trip=trip,
+        kind=MobilitySegment.Kind.MOVE,
+        start_timestamp=base + timedelta(minutes=15),
+        end_timestamp=base + timedelta(minutes=20),
+        activity_label=ActivityLabel.WALKING,
+        path=LineString((9.15, 45.47), (9.20, 45.48), srid=4326),
+        distance_meters=500,
+    )
+    VirtualStopInterval.objects.create(
+        trip=trip,
+        start_timestamp=base + timedelta(minutes=10),
+        end_timestamp=base + timedelta(minutes=15),
+    )
+    _add_gps(trip, base + timedelta(minutes=7), 9.2000, 45.4700)
+    _add_gps(trip, base + timedelta(minutes=12), 9.2001, 45.4701)
+
+    response = Client().get(
+        f"/api/web/users/{owner.id}/trips/{trip.id}",
+        **auth_headers(staff_user),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [
+        (segment["kind"], segment["activity_label"])
+        for segment in payload["diary"]["segments"]
+    ] == [
+        (MobilitySegment.Kind.MOVE, ActivityLabel.BIKING),
+        (MobilitySegment.Kind.STOP, ActivityLabel.IDLE),
+        (MobilitySegment.Kind.MOVE, ActivityLabel.WALKING),
+    ]
+    stop = payload["diary"]["segments"][1]
+    assert stop["start_timestamp"] == _api_timestamp(base + timedelta(minutes=5))
+    assert stop["end_timestamp"] == _api_timestamp(base + timedelta(minutes=15))
+    assert stop["place"]["label"] == "casa"
+    assert not any(
+        segment["kind"] == MobilitySegment.Kind.MOVE
+        and segment["activity_label"] == ActivityLabel.IDLE
+        for segment in payload["diary"]["segments"]
+    )
+
+
+@pytest.mark.django_db
 def test_web_trip_dashboard_defaults_to_saved_level_with_metrics_and_masked_places(
     staff_user,
 ):
@@ -432,13 +532,16 @@ def test_web_trip_dashboard_defaults_to_saved_level_with_metrics_and_masked_plac
         distance_meters=1200,
         has_track=True,
     )
-    SignificantPlace.objects.create(
+    MobilitySegment.objects.create(
         trip=trip,
-        center=Point(9.20, 45.47, srid=4326),
-        radius_meters=35,
-        dwell_seconds=600,
-        label="casa",
+        kind=MobilitySegment.Kind.STOP,
+        start_timestamp=base + timedelta(minutes=10),
+        end_timestamp=base + timedelta(minutes=20),
+        activity_label=ActivityLabel.IDLE,
     )
+    _confirmed_place(owner, 9.2003, 45.4703, radius_meters=35, category="casa")
+    _add_gps(trip, base + timedelta(minutes=12), 9.2000, 45.4700)
+    _add_gps(trip, base + timedelta(minutes=16), 9.2001, 45.4701)
 
     response = Client().get(
         f"/api/web/users/{owner.id}/trips/{trip.id}",
@@ -463,7 +566,48 @@ def test_web_trip_dashboard_defaults_to_saved_level_with_metrics_and_masked_plac
     assert places[0]["center_geojson"]["type"] == "Point"
     assert places[0]["center_geojson"]["coordinates"] != [9.2, 45.47]
     assert places[0]["label"] == PRIVACY_AWARE_STOP_LABEL
+    stop = privacy["diary"]["segments"][0]
+    assert stop["place"]["label"] == PRIVACY_AWARE_STOP_LABEL
+    assert stop["place"]["center_geojson"]["coordinates"] != [9.2, 45.47]
     assert "casa" not in json.dumps(privacy)
+
+
+@pytest.mark.django_db
+def test_web_trip_dashboard_returns_generic_visible_stop_without_confirmed_place(
+    staff_user,
+):
+    base = timezone.now()
+    owner = create_user("generic-stop-owner@example.com")
+    trip = make_trip(
+        owner,
+        status=Trip.Status.PROCESSED,
+        started_at=base,
+        ended_at=base + timedelta(minutes=20),
+        distance_meters=400,
+        has_track=True,
+    )
+    MobilitySegment.objects.create(
+        trip=trip,
+        kind=MobilitySegment.Kind.STOP,
+        start_timestamp=base + timedelta(minutes=5),
+        end_timestamp=base + timedelta(minutes=15),
+        activity_label=ActivityLabel.IDLE,
+    )
+    _add_gps(trip, base + timedelta(minutes=7), 9.2050, 45.4750)
+    _add_gps(trip, base + timedelta(minutes=11), 9.2052, 45.4752)
+
+    response = Client().get(
+        f"/api/web/users/{owner.id}/trips/{trip.id}",
+        **auth_headers(staff_user),
+    )
+
+    assert response.status_code == 200
+    stop = response.json()["diary"]["segments"][0]
+    assert stop["kind"] == MobilitySegment.Kind.STOP
+    assert stop["place"]["label"] == "Sosta rilevata"
+    assert stop["place"]["center_geojson"]["coordinates"] == pytest.approx(
+        [9.2051, 45.4751]
+    )
 
 
 @pytest.mark.django_db
@@ -515,13 +659,16 @@ def test_web_trip_dashboard_precise_preview_is_unprotected(staff_user):
         distance_meters=1200,
         has_track=True,
     )
-    SignificantPlace.objects.create(
+    MobilitySegment.objects.create(
         trip=trip,
-        center=Point(9.20, 45.47, srid=4326),
-        radius_meters=35,
-        dwell_seconds=600,
-        label="casa",
+        kind=MobilitySegment.Kind.STOP,
+        start_timestamp=base + timedelta(minutes=10),
+        end_timestamp=base + timedelta(minutes=20),
+        activity_label=ActivityLabel.IDLE,
     )
+    _confirmed_place(owner, 9.2003, 45.4703, radius_meters=35, category="casa")
+    _add_gps(trip, base + timedelta(minutes=12), 9.2000, 45.4700)
+    _add_gps(trip, base + timedelta(minutes=16), 9.2001, 45.4701)
 
     response = Client().get(
         f"/api/web/users/{owner.id}/trips/{trip.id}",
@@ -538,7 +685,12 @@ def test_web_trip_dashboard_precise_preview_is_unprotected(staff_user):
     assert privacy["metrics"]["quality_of_service"]["relative_distance_error"] == 0
     place = privacy["significant_places"][0]
     assert place["label"] == "casa"
-    assert place["center_geojson"]["coordinates"] == [9.2, 45.47]
+    assert place["center_geojson"]["coordinates"] == [9.2003, 45.4703]
+    stop = privacy["diary"]["segments"][0]
+    assert stop["place"]["label"] == "casa"
+    assert stop["place"]["center_geojson"]["coordinates"] == pytest.approx(
+        [9.20005, 45.47005]
+    )
 
 
 @pytest.mark.django_db

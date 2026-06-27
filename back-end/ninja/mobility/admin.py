@@ -1,16 +1,17 @@
 from django.contrib import admin
 
 from .models import (
+    CandidateVisit,
     GpsPoint,
     HabitualPlace,
     HarJob,
     MobilitySegment,
     SensorWindow,
-    SignificantPlace,
     StateTransition,
     Trip,
     TripIngestion,
     TripIngestionPart,
+    VirtualStopInterval,
 )
 
 
@@ -39,27 +40,41 @@ class SensorWindowAdmin(admin.ModelAdmin):
     list_filter = ("start_timestamp", "frequency_hz", "is_synced")
 
 
-@admin.register(SignificantPlace)
-class SignificantPlaceAdmin(admin.ModelAdmin):
-    list_display = ("id", "trip", "latitude", "longitude", "radius_meters", "dwell_seconds", "label")
-
-
 @admin.register(HabitualPlace)
 class HabitualPlaceAdmin(admin.ModelAdmin):
     list_display = ("id", "user", "state", "category", "custom_name", "visit_count", "distinct_days")
     list_filter = ("state", "category")
+    search_fields = ("id", "user__email", "custom_name")
+
+
+@admin.register(CandidateVisit)
+class CandidateVisitAdmin(admin.ModelAdmin):
+    list_display = ("id", "user", "place", "started_at", "ended_at", "point_count")
+    list_filter = ("started_at", "ended_at")
+    search_fields = ("id", "user__email", "place__custom_name")
+    raw_id_fields = ("user", "place")
 
 
 @admin.register(MobilitySegment)
 class MobilitySegmentAdmin(admin.ModelAdmin):
     list_display = ("id", "trip", "kind", "activity_label", "start_timestamp", "end_timestamp", "distance_meters")
     list_filter = ("kind", "activity_label")
+    raw_id_fields = ("trip",)
+
+
+@admin.register(VirtualStopInterval)
+class VirtualStopIntervalAdmin(admin.ModelAdmin):
+    list_display = ("id", "trip", "start_timestamp", "end_timestamp", "created_at")
+    list_filter = ("start_timestamp", "end_timestamp", "created_at")
+    search_fields = ("id", "trip__client_session_id", "trip__user__email")
+    raw_id_fields = ("trip",)
 
 
 @admin.register(HarJob)
 class HarJobAdmin(admin.ModelAdmin):
     list_display = ("id", "trip", "kind", "status", "created_at", "updated_at")
     list_filter = ("kind", "status", "created_at")
+    raw_id_fields = ("trip",)
 
 
 class TripIngestionPartInline(admin.TabularInline):

@@ -16,7 +16,7 @@ class TripDiaryTab extends StatelessWidget {
       builder: (context, state) {
         final message = _stateMessage(state, pending: 'Diario in analisi');
         if (message != null) return message;
-        final segments = presentableDiarySegments(state.diarySegments);
+        final segments = state.diarySegments;
         if (segments.isEmpty) {
           return _message(Icons.timeline, 'Nessun segmento');
         }
@@ -103,7 +103,7 @@ Widget? _stateMessage(TripTrackCubitState state, {required String pending}) {
 }
 
 Widget _segmentTile(TripDiarySegmentDto segment) {
-  final isMove = !isStopLikeSegment(segment);
+  final isMove = !isStopSegment(segment);
   final details = [
     formatTimeRange(segment),
     formatDuration(segmentDuration(segment)),

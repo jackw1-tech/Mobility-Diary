@@ -1,6 +1,6 @@
 # Materialize HAR idle runs and virtual stop intervals
 
-Status: ready-for-agent
+Status: ready-for-human
 
 ## Parent
 
@@ -45,3 +45,17 @@ Implementation detail that should be treated as part of the contract:
 ## Blocked by
 
 - [Simplify the acquisition FSM to movement and stationary](01-simplify-the-acquisition-fsm-to-movement-and-stationary.md)
+
+## Comments
+
+- Added `VirtualStopInterval` as trip-scoped derived stop evidence with migration `0014_virtualstopinterval`.
+- Final HAR enrichment now groups consecutive HAR labels into time runs, absorbs short `IDLE` runs into neighboring non-idle activity, and materializes long `IDLE` runs as `VirtualStopInterval` rows instead of fake `MobilitySegment` or `StateTransition` rows.
+- Structural diary persistence remains unchanged at the model boundary: only real `MOVE` and real `STOP` segments are stored in `MobilitySegment`; virtual stops are stored separately for later read-time projection.
+- Simplification pass applied after implementation: extracted one `_build_move_segment` helper to remove duplicated `MOVE` persistence code paths, while keeping the new run-processing logic isolated inside `mobility/ml/pipeline.py`.
+- Verification:
+  - `python3 -m py_compile mobility/ml/pipeline.py mobility/tests/test_har_final_ingestion.py mobility/tests/test_pipeline_segmentation.py mobility/models.py`
+  - `../.venv/bin/pytest --reuse-db mobility/tests/test_pipeline_segmentation.py -q`
+  - `../.venv/bin/pytest --reuse-db mobility/tests/test_har_final_ingestion.py::test_process_trip_har_final_materializes_virtual_stop_intervals -q`
+- Residual known failure, pre-existing and not introduced by this slice:
+  - `../.venv/bin/pytest --reuse-db mobility/tests/test_har_final_ingestion.py::test_process_trip_har_final_reads_raw_and_regenerates_segments -q`
+  - still fails on the historical `BIKING` vs `WALKING` expectation mismatch.

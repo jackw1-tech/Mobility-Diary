@@ -172,7 +172,7 @@ void main() {
     await dao.insertTransition(
       sessionId: id,
       fromState: 'STATIONARY',
-      toState: 'POTENTIAL_MOTION',
+      toState: 'MOVEMENT',
       reason: 'x',
       timestamp: DateTime.utc(2026, 6, 12, 10, 1),
       sigma: 1.2,

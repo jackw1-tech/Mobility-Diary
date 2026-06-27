@@ -1,7 +1,6 @@
 enum TrackingState {
   stationary,
-  potentialMotion,
-  activeTracking,
+  movement,
 }
 
 extension TrackingStateLabel on TrackingState {
@@ -9,10 +8,8 @@ extension TrackingStateLabel on TrackingState {
     switch (this) {
       case TrackingState.stationary:
         return 'STATIONARY';
-      case TrackingState.potentialMotion:
-        return 'POTENTIAL_MOTION';
-      case TrackingState.activeTracking:
-        return 'ACTIVE_TRACKING';
+      case TrackingState.movement:
+        return 'MOVEMENT';
     }
   }
 }

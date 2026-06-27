@@ -1,6 +1,6 @@
 # Align diary and export APIs to the backend stop projection
 
-Status: ready-for-agent
+Status: ready-for-human
 
 ## Parent
 
@@ -39,3 +39,26 @@ Implementation detail that should be treated as part of the contract:
 ## Blocked by
 
 - [Serve a unified backend diary projection with real and virtual stops](03-serve-a-unified-backend-diary-projection-with-real-and-virtual-stops.md)
+
+## Comments
+
+- The mobile diary API was already reading from the projected visible timeline after issue 03; this slice moved the privacy/export surface onto the same semantics.
+- `get_trip_privacy_export` now builds export segments from the projected timeline instead of iterating raw `trip.segments`.
+- Stop titles are now decided after stop merging:
+  - non-precise export keeps the generic privacy wording;
+  - precise export keeps one place label only when the merged visible stop maps to exactly one distinct persisted real-stop label;
+  - otherwise the precise export falls back to neutral `Sosta rilevata`, which also covers pure virtual stops.
+- This means the export payload no longer leaks the internal distinction between `Real Stop` and `Virtual Stop`: clients receive one already-resolved visible stop list.
+- Existing privacy behavior still works because masking happens after projection, not before.
+- Existing stop label behavior still works for precise export on real labeled stops, even when a touching/overlapping virtual stop extends the visible stop block.
+- Simplification pass applied after implementation:
+  - kept the merge logic centralized in `project_diary_segments`;
+  - added only a thin export-only helper to resolve the final stop title from overlapping persisted real stops, instead of duplicating projection logic.
+- Added backend tests for:
+  - parity between `/trips/{id}/diary` and `/trips/{id}/privacy-export` on a trip containing a virtual stop;
+  - preserving one labeled visible stop after real-stop + virtual-stop merge.
+- Verification:
+  - `python3 -m py_compile mobility/api.py mobility/tests/test_privacy_export.py`
+  - `../.venv/bin/pytest --reuse-db mobility/tests/test_privacy_export.py -q`
+  - `../.venv/bin/pytest --reuse-db mobility/tests/test_trip_track.py -q`
+  - `../.venv/bin/pytest --reuse-db accounts/tests/test_web_users_api.py -q -k "trip_dashboard"`

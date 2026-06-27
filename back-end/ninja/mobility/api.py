@@ -33,7 +33,12 @@ from .models import (
     Trip,
     TripIngestion,
 )
-from .significant_places import match_confirmed_place, place_label
+from .significant_places import (
+    place_label,
+    stop_like_source_intervals,
+    visible_stop_place,
+    visible_stop_summary,
+)
 from .privacy import (
     PRIVACY_AWARE_STOP_LABEL,
     cloak_linestring,
@@ -65,6 +70,7 @@ from .tasks import process_trip_har
 router = Router(tags=["mobility"])
 
 _TRIP_EVENT_MAX_SECONDS = 300
+NEUTRAL_VISIBLE_STOP_TITLE = "Sosta rilevata"
 
 
 @router.get("/health", response=HealthOut)
@@ -169,27 +175,24 @@ def _place_out(place) -> PlaceOut:
     )
 
 
-def _stop_centroid(segment, gps) -> tuple[float, float] | None:
-    """Posizione media di una sosta dai GpsPoint nel suo intervallo (o None)."""
-    points = [
-        g
-        for g in gps
-        if segment.start_timestamp <= g.timestamp <= segment.end_timestamp
-    ]
-    if not points:
-        return None
-    lat = sum(g.point.y for g in points) / len(points)
-    lon = sum(g.point.x for g in points) / len(points)
-    return lat, lon
+def _visible_stop_place_out(summary) -> PlaceOut:
+    place = summary.matched_place
+    return PlaceOut(
+        id=0 if place is None else place.id,
+        lat=summary.lat,
+        lon=summary.lon,
+        label=NEUTRAL_VISIBLE_STOP_TITLE if place is None else place_label(place),
+        category="" if place is None else place.category,
+    )
 
 
 @router.get("/trips/{trip_id}/diary", response=DiaryOut, auth=mobile_bearer_auth)
 def get_trip_diary(request, trip_id: int):
-    """Diario con overlay read-time dei Luoghi Confermati sulle sole soste (ADR 0024).
+    """Diario read-time delle soste visibili, con overlay dei Luoghi Confermati.
 
     I MobilitySegment persistiti non vengono riscritti: la sosta prende a tempo
-    di lettura il Luogo Confermato piu' vicino, derivando la propria posizione
-    dai GpsPoint dell'intervallo.
+    di lettura la propria posizione dai GpsPoint dell'intervallo e, se c'e' un
+    match univoco, anche l'etichetta del Luogo Confermato piu' vicino.
     """
     trip = get_object_or_404(Trip, id=trip_id, user_id=request.auth.user_id)
     gps = list(trip.gps_points.order_by("timestamp"))
@@ -199,16 +202,22 @@ def get_trip_diary(request, trip_id: int):
             state=HabitualPlace.State.CONFIRMED,
         )
     )
+    persisted_segments = list(trip.segments.all())
+    virtual_stop_intervals = list(trip.virtual_stop_intervals.all())
+    source_intervals = stop_like_source_intervals(
+        persisted_segments,
+        virtual_stop_intervals,
+    )
     segments: list[SegmentOut] = []
     overlaid: dict[int, PlaceOut] = {}
-    for seg in project_diary_segments(list(trip.segments.all())):
+    for seg in project_diary_segments(persisted_segments, virtual_stop_intervals):
         place_out = None
         if seg.kind == MobilitySegment.Kind.STOP:
-            centroid = _stop_centroid(seg, gps)
-            match = match_confirmed_place(*centroid, confirmed) if centroid else None
-            if match is not None:
-                place_out = _place_out(match)
-                overlaid[match.id] = place_out
+            summary = visible_stop_summary(seg, source_intervals, gps, confirmed)
+            if summary is not None:
+                place_out = _visible_stop_place_out(summary)
+                if summary.matched_place is not None:
+                    overlaid[summary.matched_place.id] = _place_out(summary.matched_place)
         segments.append(
             SegmentOut(
                 kind=seg.kind,
@@ -341,14 +350,14 @@ def _export_segment_coordinates(segment, *, level: str) -> list[list[float]]:
     return cloaked["coordinates"] if cloaked is not None else []
 
 
-def _export_segment(segment, *, level: str, place_label: str) -> PrivacyExportSegmentOut:
+def _export_segment(segment, *, level: str, stop_title: str) -> PrivacyExportSegmentOut:
     masked = privacy_cell_size_meters(level) is not None
     if segment.kind == MobilitySegment.Kind.MOVE:
         title = segment.activity_label.lower()
     elif masked:
         title = PRIVACY_AWARE_STOP_LABEL
     else:
-        title = place_label or "sosta significativa"
+        title = stop_title or NEUTRAL_VISIBLE_STOP_TITLE
 
     coordinates = (
         _export_segment_coordinates(segment, level=level)
@@ -407,16 +416,36 @@ def get_trip_privacy_export(request, trip_id: int):
     """
     trip = get_object_or_404(Trip, id=trip_id, user_id=request.auth.user_id)
     level = _saved_privacy_level(request.auth.user_id)
-    place_label_by_id = {
-        place.id: place.label for place in trip.significant_places.all()
-    }
+    persisted_segments = list(trip.segments.all())
+    virtual_stop_intervals = list(trip.virtual_stop_intervals.all())
+    gps = list(trip.gps_points.order_by("timestamp"))
+    confirmed = list(
+        HabitualPlace.objects.filter(
+            user_id=request.auth.user_id,
+            state=HabitualPlace.State.CONFIRMED,
+        )
+    )
+    source_intervals = stop_like_source_intervals(
+        persisted_segments,
+        virtual_stop_intervals,
+    )
+    projected_segments = project_diary_segments(
+        persisted_segments,
+        virtual_stop_intervals,
+    )
     segments = [
         _export_segment(
             segment,
             level=level,
-            place_label=place_label_by_id.get(segment.place_id, ""),
+            stop_title=(
+                place_label(place)
+                if segment.kind == MobilitySegment.Kind.STOP
+                and (place := visible_stop_place(segment, source_intervals, gps, confirmed))
+                is not None
+                else ""
+            ),
         )
-        for segment in trip.segments.all()
+        for segment in projected_segments
     ]
     return PrivacyExportOut(
         trip_id=trip.id,

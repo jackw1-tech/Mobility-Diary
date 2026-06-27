@@ -60,21 +60,7 @@ class SamplingProfile {
           persistGpsPoints: true,
         );
 
-  const SamplingProfile.potentialMotion()
-      : this(
-          accelerometerHz: 100,
-          gyroscopeHz: 100,
-          magnetometerHz: 100,
-          gpsEnabled: true,
-          gpsInterval: const Duration(seconds: 5),
-          gpsDistanceFilterMeters: null,
-          gpsAccuracy: GpsAccuracyProfile.highAccuracy,
-          harWindowEnabled: true,
-          persistSensorWindows: false,
-          persistGpsPoints: false,
-        );
-
-  const SamplingProfile.activeTracking()
+  const SamplingProfile.movement()
       : this(
           accelerometerHz: 100,
           gyroscopeHz: 100,
@@ -97,10 +83,8 @@ class SamplingProfile {
         return stationaryDeep
             ? const SamplingProfile.stationaryDeep()
             : const SamplingProfile.stationaryRecent();
-      case TrackingState.potentialMotion:
-        return const SamplingProfile.potentialMotion();
-      case TrackingState.activeTracking:
-        return const SamplingProfile.activeTracking();
+      case TrackingState.movement:
+        return const SamplingProfile.movement();
     }
   }
 }

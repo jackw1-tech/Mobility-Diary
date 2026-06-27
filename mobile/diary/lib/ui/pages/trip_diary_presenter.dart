@@ -1,7 +1,5 @@
 import 'package:diary/network/dto/trip_track_dto.dart';
 
-const _stopMergeGapTolerance = Duration(minutes: 2);
-
 class TripStats {
   final Duration duration;
   final Duration moving;
@@ -20,8 +18,9 @@ class TripStats {
   );
 
   factory TripStats.fromSegments(List<TripDiarySegmentDto> segments) {
-    final presentable = presentableDiarySegments(segments);
-    if (presentable.isEmpty) {
+    final ordered = [...segments]
+      ..sort((a, b) => a.startTimestamp.compareTo(b.startTimestamp));
+    if (ordered.isEmpty) {
       return const TripStats(
         Duration.zero,
         Duration.zero,
@@ -38,9 +37,9 @@ class TripStats {
     var distance = 0.0;
     var stopCount = 0;
 
-    for (final segment in presentable) {
+    for (final segment in ordered) {
       final seconds = segmentDuration(segment).inSeconds;
-      if (!isStopLikeSegment(segment)) {
+      if (!isStopSegment(segment)) {
         movingSeconds += seconds;
         distance += segment.distanceMeters;
         activitySeconds.update(
@@ -61,8 +60,7 @@ class TripStats {
       ..sort((a, b) => b.duration.compareTo(a.duration));
 
     return TripStats(
-      presentable.last.endTimestamp
-          .difference(presentable.first.startTimestamp),
+      ordered.last.endTimestamp.difference(ordered.first.startTimestamp),
       Duration(seconds: movingSeconds),
       Duration(seconds: stoppedSeconds),
       distance,
@@ -84,64 +82,19 @@ const _activityLabels = {
 
 String activityLabelText(String label) => _activityLabels[label] ?? label;
 
-bool isStopLikeSegment(TripDiarySegmentDto segment) {
-  return segment.kind == 'STOP' || segment.activityLabel == 'IDLE';
-}
+bool isStopSegment(TripDiarySegmentDto segment) => segment.kind == 'STOP';
 
-List<TripDiarySegmentDto> presentableDiarySegments(
+List<TripDiarySegmentDto> placedStopSegments(
   List<TripDiarySegmentDto> segments,
 ) {
-  final ordered = [...segments]
-    ..sort((a, b) => a.startTimestamp.compareTo(b.startTimestamp));
-  final projected = <TripDiarySegmentDto>[];
-  TripDiarySegmentDto? pendingStop;
-
-  for (final segment in ordered) {
-    if (isStopLikeSegment(segment)) {
-      final stopProjection = _asStopSegment(segment);
-      if (pendingStop == null) {
-        pendingStop = stopProjection;
-        continue;
-      }
-      final gap = stopProjection.startTimestamp.difference(
-        pendingStop.endTimestamp,
-      );
-      if (gap <= _stopMergeGapTolerance) {
-        pendingStop = TripDiarySegmentDto(
-          kind: 'STOP',
-          startTimestamp: pendingStop.startTimestamp,
-          endTimestamp:
-              stopProjection.endTimestamp.isAfter(pendingStop.endTimestamp)
-                  ? stopProjection.endTimestamp
-                  : pendingStop.endTimestamp,
-          activityLabel: 'IDLE',
-          distanceMeters: 0,
-          pathGeojson: null,
-          place: _mergePlace(pendingStop.place, stopProjection.place),
-        );
-        continue;
-      }
-      projected.add(pendingStop);
-      pendingStop = stopProjection;
-      continue;
-    }
-
-    if (pendingStop != null) {
-      projected.add(pendingStop);
-      pendingStop = null;
-    }
-    projected.add(segment);
-  }
-
-  if (pendingStop != null) {
-    projected.add(pendingStop);
-  }
-
-  return projected;
+  return [
+    for (final segment in segments)
+      if (isStopSegment(segment) && segment.place != null) segment,
+  ];
 }
 
 String segmentTitle(TripDiarySegmentDto segment) {
-  if (isStopLikeSegment(segment)) {
+  if (isStopSegment(segment)) {
     final label = segment.place?.label;
     return label == null || label.isEmpty ? 'Sosta rilevata' : label;
   }
@@ -178,29 +131,7 @@ String _clock(DateTime time) {
       '${local.minute.toString().padLeft(2, '0')}';
 }
 
-TripDiarySegmentDto _asStopSegment(TripDiarySegmentDto segment) {
-  return TripDiarySegmentDto(
-    kind: 'STOP',
-    startTimestamp: segment.startTimestamp,
-    endTimestamp: segment.endTimestamp,
-    activityLabel: 'IDLE',
-    distanceMeters: 0,
-    pathGeojson: null,
-    place: segment.place,
-  );
-}
-
 String stopSummaryText(TripStats stats) {
   final noun = stats.stopCount == 1 ? 'sosta' : 'soste';
   return '${stats.stopCount} $noun · ${formatDuration(stats.stopped)}';
-}
-
-TripDiaryPlaceDto? _mergePlace(
-  TripDiaryPlaceDto? current,
-  TripDiaryPlaceDto? incoming,
-) {
-  if (current == null) return incoming;
-  if (incoming == null) return current;
-  if (current.id == incoming.id) return current;
-  return null;
 }

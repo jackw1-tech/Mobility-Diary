@@ -51,6 +51,12 @@ export type PointGeoJson = {
 
 export type PrivacyLevel = 'precise' | 'approximate' | 'aggregated';
 
+export type WebDiaryPlace = {
+  center_geojson: PointGeoJson | null;
+  label: string;
+  radius_meters: number;
+};
+
 export type WebDiarySegment = {
   kind: 'MOVE' | 'STOP';
   start_timestamp: string;
@@ -58,6 +64,7 @@ export type WebDiarySegment = {
   activity_label: string;
   distance_meters: number;
   path_geojson: LineStringGeoJson | null;
+  place?: WebDiaryPlace | null;
 };
 
 export type WebTrack = {

@@ -89,7 +89,7 @@ def base_payload(**overrides) -> dict:
             {
                 "timestamp": "2026-06-12T10:03:00Z",
                 "from_state": "STATIONARY",
-                "to_state": "ACTIVE_TRACKING",
+                "to_state": "MOVEMENT",
                 "reason": "test",
                 "sigma": 1.4,
                 "speed_mps": 2.0,

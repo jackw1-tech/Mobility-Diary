@@ -24,7 +24,6 @@ class AcquisitionRepositoryImpl implements AcquisitionRepository {
   AcquisitionSyncSnapshot _currentSyncSnapshot =
       const AcquisitionSyncSnapshot.none();
   String? _currentSessionId;
-  Timer? _potentialMotionTimeoutTimer;
   Timer? _syncRetryTimer;
   final Set<String> _persistedSensorWindowKeys = {};
   double? _latestLatitude;
@@ -75,7 +74,6 @@ class AcquisitionRepositoryImpl implements AcquisitionRepository {
       return;
     }
 
-    _potentialMotionTimeoutTimer?.cancel();
     _persistedSensorWindowKeys.clear();
     _latestLatitude = null;
     _latestLongitude = null;
@@ -109,8 +107,6 @@ class AcquisitionRepositoryImpl implements AcquisitionRepository {
 
   @override
   Future<void> stopTracking() async {
-    _potentialMotionTimeoutTimer?.cancel();
-    _potentialMotionTimeoutTimer = null;
     await _runtime?.stop();
     final sessionId = _currentSessionId;
     if (sessionId != null) {
@@ -154,8 +150,6 @@ class AcquisitionRepositoryImpl implements AcquisitionRepository {
         speedMps: _fsm.latestSpeedMetersPerSecond,
       );
     }
-
-    _syncPotentialMotionTimeout(decision.state);
 
     if (event is GpsFixReceived &&
         event.latitude != null &&
@@ -202,29 +196,10 @@ class AcquisitionRepositoryImpl implements AcquisitionRepository {
 
   @override
   void dispose() {
-    _potentialMotionTimeoutTimer?.cancel();
     _syncRetryTimer?.cancel();
     _runtime?.dispose();
     _snapshotController.close();
     _database.close();
-  }
-
-  void _syncPotentialMotionTimeout(TrackingState state) {
-    if (state == TrackingState.potentialMotion &&
-        _potentialMotionTimeoutTimer == null) {
-      _potentialMotionTimeoutTimer = Timer(
-        _config.potentialMotionTimeout,
-        () => ingestEvent(
-          PotentialMotionTimeoutElapsed(timestamp: DateTime.now().toUtc()),
-        ),
-      );
-      return;
-    }
-
-    if (state != TrackingState.potentialMotion) {
-      _potentialMotionTimeoutTimer?.cancel();
-      _potentialMotionTimeoutTimer = null;
-    }
   }
 
   void _emit(AcquisitionSnapshot snapshot) {

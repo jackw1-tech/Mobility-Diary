@@ -17,7 +17,7 @@ from django.contrib.gis.geos import Point
 from django.db import connection, transaction
 
 from .geo import haversine_meters
-from .models import CandidateVisit, GpsPoint, HabitualPlace
+from .models import CandidateVisit, GpsPoint, HabitualPlace, MobilitySegment
 
 # Soglie della stay-detection (motivazioni in relazione / PRD).
 STAY_RADIUS_METERS = 75.0      # raggio della permanenza
@@ -53,6 +53,13 @@ class DetectedVisit:
     started_at: datetime
     ended_at: datetime
     point_count: int
+
+
+@dataclass(frozen=True)
+class VisibleStopSummary:
+    lat: float
+    lon: float
+    matched_place: HabitualPlace | None
 
 
 def detect_visits(points) -> list[DetectedVisit]:
@@ -273,3 +280,75 @@ def match_confirmed_place(lat: float, lon: float, places) -> HabitualPlace | Non
         key=lambda item: (0 if _is_manually_labeled(item[1]) else 1, item[0])
     )
     return contenders[0][1]
+
+
+def stop_centroid(stop_like_interval, gps_points) -> tuple[float, float] | None:
+    points = [
+        g
+        for g in gps_points
+        if stop_like_interval.start_timestamp <= g.timestamp <= stop_like_interval.end_timestamp
+    ]
+    if not points:
+        return None
+    lat = sum(g.point.y for g in points) / len(points)
+    lon = sum(g.point.x for g in points) / len(points)
+    return lat, lon
+
+
+def stop_like_source_intervals(segments, virtual_stop_intervals):
+    return [
+        *[
+            segment
+            for segment in segments
+            if segment.kind == MobilitySegment.Kind.STOP
+            or segment.activity_label == "IDLE"
+        ],
+        *virtual_stop_intervals,
+    ]
+
+
+def visible_stop_summary(
+    visible_stop,
+    source_intervals,
+    gps_points,
+    confirmed_places,
+) -> VisibleStopSummary | None:
+    centroids = [
+        centroid
+        for interval in source_intervals
+        if _intervals_touch_or_overlap(interval, visible_stop)
+        if (centroid := stop_centroid(interval, gps_points)) is not None
+    ]
+    if not centroids:
+        return None
+    lat, lon = stop_centroid(visible_stop, gps_points) or (
+        sum(lat for lat, _ in centroids) / len(centroids),
+        sum(lon for _, lon in centroids) / len(centroids),
+    )
+    matches = {
+        match.id: match
+        for centroid in centroids
+        if (match := match_confirmed_place(*centroid, confirmed_places)) is not None
+    }
+    return VisibleStopSummary(
+        lat=lat,
+        lon=lon,
+        matched_place=next(iter(matches.values())) if len(matches) == 1 else None,
+    )
+
+
+def visible_stop_place(visible_stop, source_intervals, gps_points, confirmed_places):
+    summary = visible_stop_summary(
+        visible_stop,
+        source_intervals,
+        gps_points,
+        confirmed_places,
+    )
+    return None if summary is None else summary.matched_place
+
+
+def _intervals_touch_or_overlap(first, second) -> bool:
+    return (
+        first.start_timestamp <= second.end_timestamp
+        and second.start_timestamp <= first.end_timestamp
+    )

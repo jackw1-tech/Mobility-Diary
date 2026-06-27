@@ -11,6 +11,8 @@ from django.utils import timezone
 
 from accounts.models import AccessToken
 from mobility import api as mobility_api
+from mobility.ml.classifier import ClassifierResult
+from mobility.ml.pipeline import PipelineSensorWindow, run_pipeline
 from mobility.models import (
     ActivityLabel,
     CandidateVisit,
@@ -22,6 +24,7 @@ from mobility.models import (
     Trip,
     TripIngestion,
     TripIngestionPart,
+    VirtualStopInterval,
 )
 from mobility.tasks import _build_trip_path, process_trip_ingestion
 
@@ -65,6 +68,20 @@ def add_gps(trip: Trip, timestamp, lon: float, lat: float) -> GpsPoint:
         point=Point(lon, lat, srid=4326),
         speed_mps=1.0,
     )
+
+
+def _window(start, seconds: int):
+    return PipelineSensorWindow(
+        start_timestamp=start,
+        end_timestamp=start + timedelta(seconds=seconds),
+        sample_count=500,
+        frequency_hz=100,
+        matrix=[[0.0] * 9 for _ in range(500)],
+    )
+
+
+def _api_timestamp(value):
+    return value.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 @pytest.mark.django_db
@@ -154,7 +171,7 @@ def test_process_trip_ingestion_builds_path_idempotently(monkeypatch, user):
                 {
                     "timestamp": now.isoformat(),
                     "from_state": "STATIONARY",
-                    "to_state": "ACTIVE_TRACKING",
+                    "to_state": "MOVEMENT",
                     "reason": "test",
                 }
             ]
@@ -307,7 +324,7 @@ def test_diary_endpoint_overlays_confirmed_place_on_stop(user, other_user):
     assert stop_out["place"]["category"] == "universita"
     # Overlay read-time: il segmento persistito non viene riscritto.
     stop.refresh_from_db()
-    assert stop.place_id is None
+    assert not any(field.name == "place" for field in stop._meta.get_fields())
 
 
 @pytest.mark.django_db
@@ -362,7 +379,11 @@ def test_diary_overlay_ignores_unconfirmed_places(user):
         **auth_headers(user),
     )
 
-    assert response.json()["segments"][0]["place"] is None
+    stop = response.json()["segments"][0]["place"]
+    assert stop["label"] == "Sosta rilevata"
+    assert stop["category"] == ""
+    assert stop["lat"] == pytest.approx(45.4700)
+    assert stop["lon"] == pytest.approx(9.2000)
 
 
 @pytest.mark.django_db
@@ -429,6 +450,237 @@ def test_diary_endpoint_merges_consecutive_stop_and_idle_move(user):
     assert stop["path_geojson"] is None
     assert stop["distance_meters"] == 0
     assert stop["place"]["label"] == "universita"
+
+
+@pytest.mark.django_db
+def test_diary_endpoint_projects_virtual_stop_between_moves_without_place(user):
+    trip = create_trip(user, client_session_id="virtual-stop-neutral")
+    trip.status = Trip.Status.PROCESSED
+    trip.save(update_fields=["status", "updated_at"])
+    base = timezone.now()
+    MobilitySegment.objects.create(
+        trip=trip,
+        kind=MobilitySegment.Kind.MOVE,
+        start_timestamp=base,
+        end_timestamp=base + timedelta(minutes=5),
+        activity_label=ActivityLabel.BIKING,
+        path=LineString((9.10, 45.46), (9.15, 45.47), srid=4326),
+        distance_meters=600,
+    )
+    MobilitySegment.objects.create(
+        trip=trip,
+        kind=MobilitySegment.Kind.MOVE,
+        start_timestamp=base + timedelta(minutes=10),
+        end_timestamp=base + timedelta(minutes=15),
+        activity_label=ActivityLabel.WALKING,
+        path=LineString((9.15, 45.47), (9.20, 45.48), srid=4326),
+        distance_meters=500,
+    )
+    VirtualStopInterval.objects.create(
+        trip=trip,
+        start_timestamp=base + timedelta(minutes=5),
+        end_timestamp=base + timedelta(minutes=10),
+    )
+    add_gps(trip, base + timedelta(minutes=6), 9.1500, 45.4700)
+    add_gps(trip, base + timedelta(minutes=8), 9.1501, 45.4701)
+
+    response = Client().get(
+        f"/api/mobility/trips/{trip.id}/diary",
+        **auth_headers(user),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [segment["kind"] for segment in payload["segments"]] == [
+        MobilitySegment.Kind.MOVE,
+        MobilitySegment.Kind.STOP,
+        MobilitySegment.Kind.MOVE,
+    ]
+    stop = payload["segments"][1]
+    assert stop["activity_label"] == ActivityLabel.IDLE
+    assert stop["path_geojson"] is None
+    assert stop["distance_meters"] == 0
+    assert stop["place"]["label"] == "Sosta rilevata"
+    assert stop["place"]["category"] == ""
+    assert stop["place"]["lat"] == pytest.approx(45.47005)
+    assert stop["place"]["lon"] == pytest.approx(9.15005)
+
+
+@pytest.mark.django_db
+def test_diary_endpoint_overlays_confirmed_place_on_virtual_stop(user):
+    trip = create_trip(user, client_session_id="virtual-stop-overlay")
+    trip.status = Trip.Status.PROCESSED
+    trip.save(update_fields=["status", "updated_at"])
+    base = timezone.now()
+    _confirmed_place(user, 9.20, 45.47, category="universita")
+    MobilitySegment.objects.create(
+        trip=trip,
+        kind=MobilitySegment.Kind.MOVE,
+        start_timestamp=base,
+        end_timestamp=base + timedelta(minutes=5),
+        activity_label=ActivityLabel.BIKING,
+        path=LineString((9.10, 45.46), (9.20, 45.47), srid=4326),
+        distance_meters=1200,
+    )
+    VirtualStopInterval.objects.create(
+        trip=trip,
+        start_timestamp=base + timedelta(minutes=5),
+        end_timestamp=base + timedelta(minutes=10),
+    )
+    add_gps(trip, base + timedelta(minutes=6), 9.2000, 45.4700)
+    add_gps(trip, base + timedelta(minutes=8), 9.2001, 45.4701)
+
+    response = Client().get(
+        f"/api/mobility/trips/{trip.id}/diary",
+        **auth_headers(user),
+    )
+
+    assert response.status_code == 200
+    stop = response.json()["segments"][1]
+    assert stop["kind"] == MobilitySegment.Kind.STOP
+    assert stop["place"]["label"] == "universita"
+    assert stop["place"]["category"] == "universita"
+
+
+@pytest.mark.django_db
+def test_diary_endpoint_merges_adjacent_real_and_virtual_stop_without_visible_move_idle(user):
+    trip = create_trip(user, client_session_id="adjacent-real-virtual-stop")
+    trip.status = Trip.Status.PROCESSED
+    trip.save(update_fields=["status", "updated_at"])
+    base = timezone.now()
+    _confirmed_place(user, 9.20, 45.47, category="universita")
+    MobilitySegment.objects.create(
+        trip=trip,
+        kind=MobilitySegment.Kind.MOVE,
+        start_timestamp=base,
+        end_timestamp=base + timedelta(minutes=5),
+        activity_label=ActivityLabel.BIKING,
+        path=LineString((9.10, 45.46), (9.15, 45.47), srid=4326),
+        distance_meters=600,
+    )
+    MobilitySegment.objects.create(
+        trip=trip,
+        kind=MobilitySegment.Kind.STOP,
+        start_timestamp=base + timedelta(minutes=5),
+        end_timestamp=base + timedelta(minutes=10),
+        activity_label=ActivityLabel.IDLE,
+    )
+    MobilitySegment.objects.create(
+        trip=trip,
+        kind=MobilitySegment.Kind.MOVE,
+        start_timestamp=base + timedelta(minutes=15),
+        end_timestamp=base + timedelta(minutes=20),
+        activity_label=ActivityLabel.WALKING,
+        path=LineString((9.15, 45.47), (9.20, 45.48), srid=4326),
+        distance_meters=500,
+    )
+    VirtualStopInterval.objects.create(
+        trip=trip,
+        start_timestamp=base + timedelta(minutes=10),
+        end_timestamp=base + timedelta(minutes=15),
+    )
+    add_gps(trip, base + timedelta(minutes=7), 9.2000, 45.4700)
+    add_gps(trip, base + timedelta(minutes=12), 9.2001, 45.4701)
+
+    response = Client().get(
+        f"/api/mobility/trips/{trip.id}/diary",
+        **auth_headers(user),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [
+        (segment["kind"], segment["activity_label"])
+        for segment in payload["segments"]
+    ] == [
+        (MobilitySegment.Kind.MOVE, ActivityLabel.BIKING),
+        (MobilitySegment.Kind.STOP, ActivityLabel.IDLE),
+        (MobilitySegment.Kind.MOVE, ActivityLabel.WALKING),
+    ]
+    stop = payload["segments"][1]
+    assert stop["start_timestamp"] == _api_timestamp(base + timedelta(minutes=5))
+    assert stop["end_timestamp"] == _api_timestamp(base + timedelta(minutes=15))
+    assert stop["place"]["label"] == "universita"
+    assert not any(
+        segment["kind"] == MobilitySegment.Kind.MOVE
+        and segment["activity_label"] == ActivityLabel.IDLE
+        for segment in payload["segments"]
+    )
+
+
+@pytest.mark.django_db
+def test_diary_endpoint_absorbs_initial_short_idle_into_following_move(user, monkeypatch):
+    base = timezone.now()
+    trip = Trip.objects.create(
+        user=user,
+        client_session_id="initial-short-idle-visible",
+        device_id="test-device",
+        status=Trip.Status.CLOSED,
+        ended_at=base + timedelta(seconds=120),
+    )
+    StateTransition.objects.bulk_create(
+        [
+            StateTransition(
+                trip=trip,
+                from_state="STATIONARY",
+                to_state="MOVEMENT",
+                reason="start",
+                timestamp=base,
+            ),
+            StateTransition(
+                trip=trip,
+                from_state="MOVEMENT",
+                to_state="STATIONARY",
+                reason="stop",
+                timestamp=base + timedelta(seconds=120),
+            ),
+        ]
+    )
+    for offset, lon, lat in [
+        (0, 9.10, 45.46),
+        (60, 9.11, 45.47),
+        (119, 9.12, 45.48),
+    ]:
+        GpsPoint.objects.create(
+            trip=trip,
+            timestamp=base + timedelta(seconds=offset),
+            point=Point(lon, lat, srid=4326),
+            speed_mps=2.0,
+        )
+    monkeypatch.setattr(
+        "mobility.ml.pipeline.classify_windows",
+        lambda *_args, **_kwargs: ClassifierResult(
+            labels=[ActivityLabel.IDLE, ActivityLabel.WALKING],
+            summary={"classifier": "fake"},
+        ),
+    )
+    monkeypatch.setattr(
+        "mobility.ml.pipeline.correct_idle_with_gps",
+        lambda labels, _speeds: labels,
+    )
+
+    run_pipeline(
+        trip,
+        sensor_windows=[
+            _window(base, 90),
+            _window(base + timedelta(seconds=90), 30),
+        ],
+    )
+
+    response = Client().get(
+        f"/api/mobility/trips/{trip.id}/diary",
+        **auth_headers(user),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["processed"] is True
+    assert len(payload["segments"]) == 1
+    segment = payload["segments"][0]
+    assert segment["kind"] == MobilitySegment.Kind.MOVE
+    assert segment["activity_label"] == ActivityLabel.WALKING
+    assert segment["start_timestamp"] == _api_timestamp(base)
+    assert segment["end_timestamp"] == _api_timestamp(base + timedelta(seconds=120))
 
 
 @pytest.mark.django_db

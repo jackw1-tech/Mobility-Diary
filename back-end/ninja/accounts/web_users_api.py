@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Any
 
 from django.contrib.gis.db.models.functions import AsGeoJSON, Length
+from django.contrib.gis.geos import Point
 from django.contrib.auth import get_user_model
 from django.db.models import (
     BooleanField,
@@ -23,8 +24,8 @@ from ninja.errors import HttpError
 
 from .web_auth import web_dashboard_auth
 from .models import UserPrivacySettings
-from mobility.diary_projection import project_diary_segments
-from mobility.models import MobilitySegment, Trip
+from mobility.diary_projection import project_trip_diary_segments
+from mobility.models import HabitualPlace, MobilitySegment, Trip
 from mobility.privacy import (
     PRIVACY_AWARE_STOP_LABEL,
     cloak_linestring,
@@ -32,6 +33,12 @@ from mobility.privacy import (
     line_geojson,
     point_geojson,
     privacy_metrics,
+)
+from mobility.significant_places import (
+    place_label,
+    stop_like_source_intervals,
+    visible_stop_place,
+    visible_stop_summary,
 )
 
 router = Router(tags=["web-users"])
@@ -74,6 +81,12 @@ class WebTrackOut(Schema):
     geojson: dict[str, Any] | None
 
 
+class WebDiaryPlaceOut(Schema):
+    center_geojson: dict[str, Any] | None
+    label: str
+    radius_meters: float
+
+
 class WebDiarySegmentOut(Schema):
     kind: str
     start_timestamp: datetime
@@ -81,6 +94,7 @@ class WebDiarySegmentOut(Schema):
     activity_label: str
     distance_meters: float
     path_geojson: dict[str, Any] | None = None
+    place: WebDiaryPlaceOut | None = None
 
 
 class WebDiaryOut(Schema):
@@ -278,6 +292,20 @@ def _segment_path_geojson(segment: MobilitySegment, *, level: str | None) -> dic
 
 
 def _diary_out(trip: Trip, *, level: str | None = None) -> WebDiaryOut:
+    persisted_segments = list(trip.segments.all())
+    virtual_stop_intervals = list(trip.virtual_stop_intervals.all())
+    projected = project_trip_diary_segments(trip)
+    gps = list(trip.gps_points.order_by("timestamp"))
+    confirmed = list(
+        HabitualPlace.objects.filter(
+            user_id=trip.user_id,
+            state=HabitualPlace.State.CONFIRMED,
+        )
+    )
+    source_intervals = stop_like_source_intervals(
+        persisted_segments,
+        virtual_stop_intervals,
+    )
     return WebDiaryOut(
         trip_id=trip.id,
         status=trip.status,
@@ -290,9 +318,45 @@ def _diary_out(trip: Trip, *, level: str | None = None) -> WebDiaryOut:
                 activity_label=segment.activity_label,
                 distance_meters=segment.distance_meters,
                 path_geojson=_segment_path_geojson(segment, level=level),
+                place=_segment_place_out_cached(
+                    segment,
+                    level=level,
+                    gps=gps,
+                    confirmed=confirmed,
+                    source_intervals=source_intervals,
+                ),
             )
-            for segment in project_diary_segments(list(trip.segments.all()))
+            for segment in projected
         ],
+    )
+
+
+def _segment_place_out_cached(
+    segment: MobilitySegment,
+    *,
+    level: str | None,
+    gps,
+    confirmed,
+    source_intervals,
+) -> WebDiaryPlaceOut | None:
+    if segment.kind != MobilitySegment.Kind.STOP:
+        return None
+    summary = visible_stop_summary(segment, source_intervals, gps, confirmed)
+    if summary is None:
+        return None
+    masked = level not in (None, UserPrivacySettings.Level.PRECISE)
+    place = summary.matched_place
+    center = Point(summary.lon, summary.lat, srid=4326)
+    if masked:
+        center = cloak_point(center, level=level)
+    return WebDiaryPlaceOut(
+        center_geojson=point_geojson(center),
+        label=(
+            PRIVACY_AWARE_STOP_LABEL
+            if masked
+            else place_label(place) if place is not None else "Sosta rilevata"
+        ),
+        radius_meters=0 if place is None else place.radius_meters,
     )
 
 
@@ -321,14 +385,43 @@ def _privacy_significant_places_out(
     level: str,
 ) -> list[WebSignificantPlaceOut]:
     masked = level != UserPrivacySettings.Level.PRECISE
+    projected_segments = project_trip_diary_segments(trip)
+    gps = list(trip.gps_points.order_by("timestamp"))
+    confirmed = list(
+        HabitualPlace.objects.filter(
+            user_id=trip.user_id,
+            state=HabitualPlace.State.CONFIRMED,
+        )
+    )
+    source_intervals = stop_like_source_intervals(
+        list(trip.segments.all()),
+        list(trip.virtual_stop_intervals.all()),
+    )
+    aggregated = {}
+    for segment in projected_segments:
+        if segment.kind != MobilitySegment.Kind.STOP:
+            continue
+        place = visible_stop_place(segment, source_intervals, gps, confirmed)
+        if place is None:
+            continue
+        bucket = aggregated.setdefault(
+            place.id,
+            {
+                "place": place,
+                "dwell_seconds": 0,
+            },
+        )
+        bucket["dwell_seconds"] += int(
+            (segment.end_timestamp - segment.start_timestamp).total_seconds()
+        )
     return [
         WebSignificantPlaceOut(
-            center_geojson=point_geojson(cloak_point(place.center, level=level)),
-            label=PRIVACY_AWARE_STOP_LABEL if masked else place.label,
-            radius_meters=place.radius_meters,
-            dwell_seconds=place.dwell_seconds,
+            center_geojson=point_geojson(cloak_point(item["place"].center, level=level)),
+            label=PRIVACY_AWARE_STOP_LABEL if masked else place_label(item["place"]),
+            radius_meters=item["place"].radius_meters,
+            dwell_seconds=item["dwell_seconds"],
         )
-        for place in trip.significant_places.all()
+        for item in aggregated.values()
     ]
 
 

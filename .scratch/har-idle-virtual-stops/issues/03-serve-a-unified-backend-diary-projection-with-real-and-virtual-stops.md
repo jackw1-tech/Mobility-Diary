@@ -1,6 +1,6 @@
 # Serve a unified backend diary projection with real and virtual stops
 
-Status: ready-for-agent
+Status: ready-for-human
 
 ## Parent
 
@@ -58,3 +58,30 @@ relabel a persisted move entry itself.
 ## Blocked by
 
 - [Materialize HAR idle runs and virtual stop intervals](02-materialize-har-idle-runs-and-virtual-stop-intervals.md)
+
+## Comments
+
+- `mobility/diary_projection.py` is now the single backend seam for visible diary semantics. It merges:
+  - persisted real `STOP` segments;
+  - legacy `MOVE/IDLE` rows kept as backward-compatible stop-like evidence;
+  - persisted `VirtualStopInterval` rows from HAR post-processing.
+- The projection emits only visible `MOVE` and visible `STOP`, never a final visible `MOVE/IDLE`.
+- Real and virtual stops are merged interval-wise when they overlap or touch. The merge tolerance is explicit (`STOP_GAP_TOLERANCE = 0`) so the behavior is deterministic and easy to widen later if product wants it.
+- `get_trip_diary` now consumes `project_trip_diary_segments(trip)`, so significant-place overlay happens after stop merging on the final visible stop block.
+- The web dashboard backend builder (`accounts/web_users_api.py`) was switched to the same seam, so backend diary payloads stay aligned across mobile and web readers.
+- Simplification pass applied after implementation:
+  - extracted `project_trip_diary_segments(trip)` so API consumers no longer know which persisted tables compose the visible diary;
+  - kept projection pure and isolated instead of duplicating merge logic in endpoints.
+- Added focused tests for the projection contract:
+  - real-stop contains virtual-stop;
+  - virtual-stop contains real-stop;
+  - isolated virtual-stop between two moves;
+  - virtual-stop bridging two real stops.
+- Added API tests proving:
+  - a virtual stop appears as a visible stop even without a persisted `STOP`;
+  - significant-place overlay still enriches a stop projected from `VirtualStopInterval`.
+- Verification:
+  - `python3 -m py_compile mobility/diary_projection.py mobility/api.py ../ninja/accounts/web_users_api.py`
+  - `../.venv/bin/pytest mobility/tests/test_diary_projection.py -q`
+  - `../.venv/bin/pytest mobility/tests/test_trip_track.py -q`
+  - `../.venv/bin/pytest --reuse-db accounts/tests/test_web_users_api.py -q -k "trip_dashboard"`

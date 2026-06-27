@@ -30,8 +30,9 @@ import {
   activityColor,
   activityFilterOptions,
   activityLabel,
+  type DashboardSegment,
   filterSegments,
-  presentableSegments,
+  stopLabel,
   segmentSeconds,
   summarizeTrip,
 } from '../utils/tripDashboard';
@@ -66,6 +67,9 @@ const ownerName = computed(() => {
 const moveSegments = computed(() => (
   visibleSegments.value.filter((segment) => segment.kind === 'MOVE')
 ));
+const stopSegments = computed(() => (
+  visibleSegments.value.filter((segment) => segment.kind === 'STOP')
+));
 const activityOptions = computed(() => (
   activityFilterOptions(dashboard.value?.diary.segments ?? [])
 ));
@@ -87,24 +91,32 @@ const statCards = computed(() => {
   return [
     { icon: Clock, label: 'Durata totale', value: formatDuration(stats.value.totalDurationSeconds) },
     { icon: RouteIcon, label: 'Movimento', value: formatDuration(stats.value.movementSeconds) },
-    { icon: MapPinned, label: 'Soste', value: formatDuration(stats.value.stoppedSeconds) },
+    {
+      icon: MapPinned,
+      label: 'Soste',
+      value: `${stats.value.stopCount} · ${formatDuration(stats.value.stoppedSeconds)}`,
+    },
     { icon: BarChart3, label: 'Distanza movimento', value: formatDistance(stats.value.movementDistanceMeters) },
   ];
 });
 const tripStartInput = computed(() => formatDateTimeInput(dashboard.value?.trip.started_at));
 const tripEndInput = computed(() => formatDateTimeInput(dashboard.value?.trip.ended_at));
 const hasVisibleMapGeometry = computed(() => Boolean(
-  dashboard.value?.track.geojson || moveSegments.value.some((segment) => segment.path_geojson),
+  dashboard.value?.track.geojson ||
+  moveSegments.value.some((segment) => segment.path_geojson) ||
+  stopSegments.value.some((segment) => segment.place?.center_geojson) ||
+  visiblePrivacyStops.value.some((segment) => segment.place?.center_geojson),
 ));
 const visiblePrivacySegments = computed(() => {
   if (!dashboard.value) return [];
-  const visibleKeys = new Set(
-    visibleSegments.value.map((segment) => segmentKey(segment)),
-  );
-  return presentableSegments(dashboard.value.privacy_aware.diary.segments).filter((segment) => (
-    segment.kind === 'MOVE' && visibleKeys.has(segmentKey(segment))
-  ));
+  return filterSegments(dashboard.value.privacy_aware.diary.segments, filters);
 });
+const visiblePrivacyMoves = computed(() => (
+  visiblePrivacySegments.value.filter((segment) => segment.kind === 'MOVE')
+));
+const visiblePrivacyStops = computed(() => (
+  visiblePrivacySegments.value.filter((segment) => segment.kind === 'STOP')
+));
 const hasPrivateLayer = computed(() => (
   visibleMapLayer.value === 'private' || visibleMapLayer.value === 'both'
 ));
@@ -176,6 +188,7 @@ function renderMap() {
         visiblePoints,
       );
     }
+    drawStopMarkers(stopSegments.value, visiblePoints);
   }
 
   if (hasPrivacyAwareLayer.value) {
@@ -187,7 +200,7 @@ function renderMap() {
       visiblePoints,
       '8 8',
     );
-    for (const segment of visiblePrivacySegments.value) {
+    for (const segment of visiblePrivacyMoves.value) {
       drawLine(
         segment.path_geojson ?? null,
         '#0f766e',
@@ -197,6 +210,7 @@ function renderMap() {
         '8 8',
       );
     }
+    drawStopMarkers(visiblePrivacyStops.value, visiblePoints);
     drawPrivacyPlaces(visiblePoints);
   }
 
@@ -243,6 +257,29 @@ function drawPrivacyPlaces(visiblePoints: LatLngTuple[]) {
   }
 }
 
+function drawStopMarkers(
+  segments: DashboardSegment[],
+  visiblePoints: LatLngTuple[],
+) {
+  if (!leafletMap) return;
+  for (const segment of segments) {
+    const coordinates = segment.place?.center_geojson?.coordinates;
+    if (!coordinates) continue;
+    const [lon, lat] = coordinates;
+    const position: LatLngTuple = [lat, lon];
+    visiblePoints.push(position);
+    L.circleMarker(position, {
+      color: '#111111',
+      fillColor: '#111111',
+      fillOpacity: 0.78,
+      radius: 7,
+      weight: 2,
+    })
+      .bindTooltip(segment.place?.label || 'Sosta rilevata')
+      .addTo(leafletMap);
+  }
+}
+
 function destroyMap() {
   leafletMap?.remove();
   leafletMap = null;
@@ -254,14 +291,10 @@ function clearLocalFilters() {
   filters.to = '';
 }
 
-function segmentKey(segment: { start_timestamp: string; end_timestamp: string; kind: string }) {
-  return `${segment.start_timestamp}-${segment.end_timestamp}-${segment.kind}`;
-}
-
 watch([userId, tripId], loadDashboard, { immediate: true });
 watch(dashboard, clearLocalFilters);
 watch(
-  [dashboard, moveSegments, visiblePrivacySegments, visibleMapLayer],
+  [dashboard, moveSegments, stopSegments, visiblePrivacyMoves, visiblePrivacyStops, visibleMapLayer],
   () => nextTick(renderMap),
   { flush: 'post' },
 );
@@ -533,7 +566,7 @@ onBeforeUnmount(destroyMap);
               <strong>
                 {{ segment.kind === 'MOVE'
                   ? activityLabel(segment.activity_label)
-                  : 'Sosta rilevata' }}
+                  : stopLabel(segment) }}
               </strong>
               <small>
                 {{ formatDateTime(segment.start_timestamp) }} ·

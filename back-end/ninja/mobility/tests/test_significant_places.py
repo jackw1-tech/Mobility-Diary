@@ -19,7 +19,6 @@ from mobility.models import (
     GpsPoint,
     HabitualPlace,
     MobilitySegment,
-    SignificantPlace,
     Trip,
 )
 from mobility.significant_places import (
@@ -102,9 +101,7 @@ def test_final_pipeline_no_longer_creates_trip_scoped_places(user):
     result = run_pipeline(trip)
 
     assert "significant_places" not in result
-    assert SignificantPlace.objects.filter(trip=trip).count() == 0
-    stop = MobilitySegment.objects.get(trip=trip, kind=MobilitySegment.Kind.STOP)
-    assert stop.place is None
+    assert not any(f.name == "place" for f in MobilitySegment._meta.get_fields())
 
 
 # --------------------------------------------------------------------------- #

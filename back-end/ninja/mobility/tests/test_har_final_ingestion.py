@@ -20,7 +20,9 @@ from mobility.models import (
     Trip,
     TripIngestion,
     TripIngestionPart,
+    VirtualStopInterval,
 )
+from mobility.ml.classifier import ClassifierResult
 from mobility.tasks import InvalidRawSensorPayload, process_trip_har_final
 
 
@@ -271,13 +273,13 @@ def test_process_trip_har_final_reads_raw_and_regenerates_segments(
             StateTransition(
                 trip=trip,
                 from_state="STATIONARY",
-                to_state="ACTIVE_TRACKING",
+                to_state="MOVEMENT",
                 reason="test-start",
                 timestamp=start,
             ),
             StateTransition(
                 trip=trip,
-                from_state="ACTIVE_TRACKING",
+                from_state="MOVEMENT",
                 to_state="STATIONARY",
                 reason="test-stop",
                 timestamp=start + timedelta(minutes=10),
@@ -346,10 +348,104 @@ def test_process_trip_har_final_reads_raw_and_regenerates_segments(
     assert move.distance_meters > 0
     assert stop.activity_label == ActivityLabel.IDLE
     assert stop.path is None
-    # La scoperta dei luoghi e' user-scoped (ADR 0029): la pipeline non deriva
-    # piu' un SignificantPlace trip-scoped per la sosta.
-    assert stop.place is None
+    # La scoperta dei luoghi e' user-scoped (ADR 0029): il diario non persiste
+    # piu' riferimenti strutturali a luoghi trip-scoped sui segmenti.
+    assert not any(field.name == "place" for field in stop._meta.get_fields())
     assert deleted == []
+
+
+@pytest.mark.django_db
+def test_process_trip_har_final_materializes_virtual_stop_intervals(
+    user,
+    monkeypatch,
+):
+    start = timezone.now()
+    trip = Trip.objects.create(
+        user=user,
+        client_session_id="har-final-virtual-stop",
+        device_id="test-device",
+        status=Trip.Status.CLOSED,
+        ended_at=start + timedelta(minutes=12),
+    )
+    StateTransition.objects.bulk_create(
+        [
+            StateTransition(
+                trip=trip,
+                from_state="STATIONARY",
+                to_state="MOVEMENT",
+                reason="test-start",
+                timestamp=start,
+            ),
+            StateTransition(
+                trip=trip,
+                from_state="MOVEMENT",
+                to_state="STATIONARY",
+                reason="test-stop",
+                timestamp=start + timedelta(minutes=10),
+            ),
+        ]
+    )
+    for offset, lon, lat, speed in [
+        (1, 9.10, 45.46, 2.0),
+        (4, 9.12, 45.47, 2.2),
+        (8, 9.15, 45.49, 0.0),
+        (9, 9.1502, 45.4902, 0.0),
+    ]:
+        GpsPoint.objects.create(
+            trip=trip,
+            timestamp=start + timedelta(minutes=offset),
+            point=Point(lon, lat, srid=4326),
+            speed_mps=speed,
+        )
+
+    ingestion = TripIngestion.objects.create(
+        user=user,
+        client_session_id="har-final-virtual-stop",
+        core_status=TripIngestion.PhaseStatus.COMPLETED,
+        raw_status=TripIngestion.PhaseStatus.QUEUED,
+        expected_raw_parts={PartKind.SENSOR_WINDOWS: 1},
+        trip=trip,
+    )
+    TripIngestionPart.objects.create(
+        ingestion=ingestion,
+        kind=PartKind.SENSOR_WINDOWS,
+        sequence=1,
+        sha256="a" * 64,
+        object_key="sensor_windows_part_0001.json.gz",
+        received_at=timezone.now(),
+    )
+    job = HarJob.objects.create(trip=trip, kind=HarJob.Kind.FINAL_TRIP)
+    raw = gzip.compress(json.dumps(_sensor_part_payload(start)).encode("utf-8"))
+    monkeypatch.setattr(storage, "read_object", lambda object_key: raw)
+    monkeypatch.setattr(storage, "delete_objects", lambda _keys: None)
+    monkeypatch.setattr(
+        "mobility.ml.pipeline.classify_windows",
+        lambda *_args, **_kwargs: ClassifierResult(
+            labels=[ActivityLabel.WALKING, ActivityLabel.IDLE],
+            summary={"classifier": "fake"},
+        ),
+    )
+    monkeypatch.setattr(
+        "mobility.ml.pipeline.correct_idle_with_gps",
+        lambda labels, _speeds: labels,
+    )
+
+    result = process_trip_har_final.run(job.id, ingestion.id)
+
+    segments = list(trip.segments.order_by("start_timestamp"))
+    virtual_stop = VirtualStopInterval.objects.get(trip=trip)
+    assert result["segments"] == 2
+    assert result["virtual_stop_intervals"] == 1
+    assert [segment.kind for segment in segments] == [
+        MobilitySegment.Kind.MOVE,
+        MobilitySegment.Kind.STOP,
+    ]
+    assert [segment.activity_label for segment in segments] == [
+        ActivityLabel.WALKING,
+        ActivityLabel.IDLE,
+    ]
+    assert virtual_stop.start_timestamp == start + timedelta(minutes=5)
+    assert virtual_stop.end_timestamp == start + timedelta(minutes=10)
 
 
 @pytest.mark.django_db

@@ -48,7 +48,7 @@ void main() {
         );
       }
 
-      expect(cubit.state.trackingState, TrackingState.potentialMotion);
+      expect(cubit.state.trackingState, TrackingState.movement);
       expect(cubit.state.samplingProfile.accelerometerHz, 100);
       expect(cubit.state.samplingProfile.gyroscopeHz, 100);
     });

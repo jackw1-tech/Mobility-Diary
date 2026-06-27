@@ -127,30 +127,10 @@ class SensorWindow(models.Model):
         ]
 
 
-class SignificantPlace(models.Model):
-    trip = models.ForeignKey(
-        Trip, related_name="significant_places", on_delete=models.CASCADE
-    )
-    center = models.PointField(geography=True)
-    radius_meters = models.FloatField(default=0)
-    dwell_seconds = models.PositiveIntegerField(default=0)
-    label = models.CharField(max_length=128, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    @property
-    def latitude(self) -> float:
-        return self.center.y
-
-    @property
-    def longitude(self) -> float:
-        return self.center.x
-
-
 class HabitualPlace(models.Model):
     """Luogo Significativo Abituale: luogo user-scoped scoperto dalle visite ricorrenti.
 
-    A differenza di SignificantPlace (legato a un singolo Viaggio), questo vive
-    nella storia di un Proprietario del Viaggio e attraversa gli stati
+    Vive nella storia di un Proprietario del Viaggio e attraversa gli stati
     candidato/confermato/rifiutato. L'etichetta manuale (categoria + nome) ha
     priorita' sul testo automatico del diario.
     """
@@ -236,13 +216,6 @@ class MobilitySegment(models.Model):
     activity_label = models.CharField(
         max_length=32, choices=ActivityLabel.choices, default=ActivityLabel.IDLE
     )
-    place = models.ForeignKey(
-        SignificantPlace,
-        related_name="segments",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-    )
     path = models.LineStringField(
         geography=True,
         srid=4326,
@@ -258,6 +231,38 @@ class MobilitySegment(models.Model):
         indexes = [
             models.Index(fields=["trip", "start_timestamp"], name="mobility_seg_trip_id_idx"),
             GistIndex(fields=["path"], name="mobility_seg_path_gist"),
+        ]
+
+
+class VirtualStopInterval(models.Model):
+    """Intervallo di sosta virtuale derivato da un run HAR IDLE lungo.
+
+    Non e' un MobilitySegment persistito: rappresenta solo evidenza temporale di
+    fermo, da fondere piu' avanti nella proiezione read-time del diario.
+    """
+
+    trip = models.ForeignKey(
+        Trip,
+        related_name="virtual_stop_intervals",
+        on_delete=models.CASCADE,
+    )
+    start_timestamp = models.DateTimeField()
+    end_timestamp = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["start_timestamp"]
+        indexes = [
+            models.Index(
+                fields=["trip", "start_timestamp"],
+                name="mobility_vstop_trip_id_idx",
+            )
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["trip", "start_timestamp", "end_timestamp"],
+                name="unique_virtual_stop_interval_per_trip_time_range",
+            )
         ]
 
 

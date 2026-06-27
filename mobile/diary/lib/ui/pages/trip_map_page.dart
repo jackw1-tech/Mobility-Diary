@@ -69,7 +69,8 @@ class _TrackMapState extends State<_TrackMap> {
       _showSegments = true;
     }
     if (oldWidget.state.points != widget.state.points ||
-        oldWidget.state.segments != widget.state.segments) {
+        oldWidget.state.segments != widget.state.segments ||
+        oldWidget.state.diarySegments != widget.state.diarySegments) {
       _drawTrack();
     }
   }
@@ -165,6 +166,20 @@ class _TrackMapState extends State<_TrackMap> {
         circleStrokeWidth: 2,
       ),
     );
+    for (final stop in placedStopSegments(widget.state.diarySegments)) {
+      final place = stop.place!;
+      await circleManager.create(
+        CircleAnnotationOptions(
+          geometry: Point(
+            coordinates: Position(place.longitude, place.latitude),
+          ),
+          circleColor: Colors.black.toARGB32(),
+          circleRadius: 6,
+          circleStrokeColor: Colors.white.toARGB32(),
+          circleStrokeWidth: 2,
+        ),
+      );
+    }
 
     final currentCamera = await map.getCameraState();
     final bounds = await map.cameraForCoordinatesPadding(

@@ -19,7 +19,7 @@ void main() {
       await dao.insertTransition(
         sessionId: 'session-1',
         fromState: 'STATIONARY',
-        toState: 'POTENTIAL_MOTION',
+        toState: 'MOVEMENT',
         reason: 'movement_sigma_above_threshold',
         timestamp: startedAt.add(const Duration(seconds: 2)),
         sigma: 0.7,

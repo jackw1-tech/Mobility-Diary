@@ -1,6 +1,6 @@
 # Simplify the acquisition FSM to movement and stationary
 
-Status: ready-for-agent
+Status: ready-for-human
 
 ## Parent
 
@@ -30,3 +30,26 @@ noisy flapping.
 
 None - can start immediately
 
+## Comments
+
+- Done. The mobile acquisition FSM now exposes only `STATIONARY` and
+  `MOVEMENT`.
+- Removed `potentialMotion`, `activeTracking`, the timeout event, and the
+  repository timer that existed only to support the intermediate state.
+- Simplified `FsmConfig` by removing the potential-motion and fast-speed
+  branches; movement confirmation now comes from:
+  consecutive motion windows or repeated moving GPS fixes.
+- Sampling profiles were reduced to stationary/deep-stationary plus one
+  movement profile.
+- Synced transition fixtures were updated from `ACTIVE_TRACKING` /
+  `POTENTIAL_MOTION` to `MOVEMENT` in mobile tests and backend ingestion /
+  pipeline tests.
+- Complexity pass: net reduction of several hundred lines across FSM +
+  repository + tests. The new FSM file is substantially shorter and the
+  repository no longer owns state-timeout plumbing.
+- Verification:
+  `flutter test` on the affected mobile acquisition/domain/sync suites passed.
+  `flutter analyze` on the affected mobile files passed.
+  Targeted backend pytest passed except for the known pre-existing HAR-model
+  mismatch in `test_process_trip_har_final_reads_raw_and_regenerates_segments`
+  (`BIKING` vs `WALKING`), which is unrelated to this state-vocabulary change.

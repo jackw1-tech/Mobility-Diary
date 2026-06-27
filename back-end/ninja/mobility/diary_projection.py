@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 
 from django.contrib.gis.geos import LineString
 
-from .models import ActivityLabel, MobilitySegment
+from .models import ActivityLabel, MobilitySegment, Trip, VirtualStopInterval
+
+STOP_GAP_TOLERANCE = timedelta(0)
 
 
 @dataclass(frozen=True)
@@ -18,16 +20,22 @@ class ProjectedDiarySegment:
     path: LineString | None
 
 
+@dataclass(frozen=True)
+class _StopLikeInterval:
+    start_timestamp: datetime
+    end_timestamp: datetime
+
+
 def project_diary_segments(
     segments: list[MobilitySegment],
+    virtual_stop_intervals: list[VirtualStopInterval] | None = None,
 ) -> list[ProjectedDiarySegment]:
-    """Collapse adjacent stop-like stretches for read-time diary consumers.
+    """Build one visible diary timeline from real moves and stop-like evidence.
 
     Place semantics are applied as a read-time overlay by the diary endpoint, not
     here: this projection only normalizes stop/move structure.
     """
-
-    ordered = sorted(
+    ordered_segments = sorted(
         segments,
         key=lambda segment: (
             segment.start_timestamp,
@@ -35,61 +43,98 @@ def project_diary_segments(
             segment.pk or 0,
         ),
     )
-    projected: list[ProjectedDiarySegment] = []
-    pending_stop: ProjectedDiarySegment | None = None
-
-    for segment in ordered:
-        if _is_stop_like(segment):
-            stop_projection = _as_stop_projection(segment)
-            if pending_stop is None:
-                pending_stop = stop_projection
-                continue
-            if stop_projection.start_timestamp <= pending_stop.end_timestamp:
-                pending_stop = replace(
-                    pending_stop,
-                    end_timestamp=max(
-                        pending_stop.end_timestamp,
-                        stop_projection.end_timestamp,
-                    ),
-                )
-                continue
-            projected.append(pending_stop)
-            pending_stop = stop_projection
-            continue
-
-        if pending_stop is not None:
-            projected.append(pending_stop)
-            pending_stop = None
-        projected.append(
-            ProjectedDiarySegment(
-                kind=segment.kind,
-                start_timestamp=segment.start_timestamp,
-                end_timestamp=segment.end_timestamp,
-                activity_label=segment.activity_label,
-                distance_meters=segment.distance_meters,
-                path=segment.path,
-            )
+    projected_moves = [
+        ProjectedDiarySegment(
+            kind=segment.kind,
+            start_timestamp=segment.start_timestamp,
+            end_timestamp=segment.end_timestamp,
+            activity_label=segment.activity_label,
+            distance_meters=segment.distance_meters,
+            path=segment.path,
         )
+        for segment in ordered_segments
+        if not _is_stop_like(segment)
+    ]
+    projected_stops = _merge_stop_like_intervals(
+        _collect_stop_like_intervals(
+            ordered_segments,
+            virtual_stop_intervals or [],
+        )
+    )
+    return sorted(
+        [*projected_moves, *projected_stops],
+        key=lambda segment: (
+            segment.start_timestamp,
+            segment.end_timestamp,
+            segment.kind,
+        ),
+    )
 
-    if pending_stop is not None:
-        projected.append(pending_stop)
 
-    return projected
+def project_trip_diary_segments(trip: Trip) -> list[ProjectedDiarySegment]:
+    return project_diary_segments(
+        list(trip.segments.all()),
+        list(trip.virtual_stop_intervals.all()),
+    )
 
 
 def _is_stop_like(segment: MobilitySegment) -> bool:
+    # Backward compatibility for legacy MOVE/IDLE rows produced before issue 02.
     return (
         segment.kind == MobilitySegment.Kind.STOP
         or segment.activity_label == ActivityLabel.IDLE
     )
 
 
-def _as_stop_projection(segment: MobilitySegment) -> ProjectedDiarySegment:
-    return ProjectedDiarySegment(
-        kind=MobilitySegment.Kind.STOP,
-        start_timestamp=segment.start_timestamp,
-        end_timestamp=segment.end_timestamp,
-        activity_label=ActivityLabel.IDLE,
-        distance_meters=0.0,
-        path=None,
+def _collect_stop_like_intervals(
+    segments: list[MobilitySegment],
+    virtual_stop_intervals: list[VirtualStopInterval],
+) -> list[_StopLikeInterval]:
+    intervals = [
+        _StopLikeInterval(
+            start_timestamp=segment.start_timestamp,
+            end_timestamp=segment.end_timestamp,
+        )
+        for segment in segments
+        if _is_stop_like(segment)
+    ]
+    intervals.extend(
+        _StopLikeInterval(
+            start_timestamp=interval.start_timestamp,
+            end_timestamp=interval.end_timestamp,
+        )
+        for interval in virtual_stop_intervals
     )
+    return sorted(
+        intervals,
+        key=lambda interval: (interval.start_timestamp, interval.end_timestamp),
+    )
+
+
+def _merge_stop_like_intervals(
+    intervals: list[_StopLikeInterval],
+) -> list[ProjectedDiarySegment]:
+    if not intervals:
+        return []
+
+    merged: list[list[datetime]] = []
+    for interval in intervals:
+        if (
+            not merged
+            or interval.start_timestamp > merged[-1][1] + STOP_GAP_TOLERANCE
+        ):
+            merged.append([interval.start_timestamp, interval.end_timestamp])
+            continue
+        merged[-1][1] = max(merged[-1][1], interval.end_timestamp)
+
+    return [
+        ProjectedDiarySegment(
+            kind=MobilitySegment.Kind.STOP,
+            start_timestamp=start,
+            end_timestamp=end,
+            activity_label=ActivityLabel.IDLE,
+            distance_meters=0.0,
+            path=None,
+        )
+        for start, end in merged
+    ]

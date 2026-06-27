@@ -29,7 +29,3 @@ final class GpsFixReceived extends TrackingEvent {
     this.accuracyMeters,
   });
 }
-
-final class PotentialMotionTimeoutElapsed extends TrackingEvent {
-  const PotentialMotionTimeoutElapsed({required super.timestamp});
-}
