@@ -146,6 +146,82 @@ class SignificantPlace(models.Model):
         return self.center.x
 
 
+class HabitualPlace(models.Model):
+    """Luogo Significativo Abituale: luogo user-scoped scoperto dalle visite ricorrenti.
+
+    A differenza di SignificantPlace (legato a un singolo Viaggio), questo vive
+    nella storia di un Proprietario del Viaggio e attraversa gli stati
+    candidato/confermato/rifiutato. L'etichetta manuale (categoria + nome) ha
+    priorita' sul testo automatico del diario.
+    """
+
+    class State(models.TextChoices):
+        CANDIDATE = "CANDIDATE", "Candidate"
+        CONFIRMED = "CONFIRMED", "Confirmed"
+        REJECTED = "REJECTED", "Rejected"
+
+    class Category(models.TextChoices):
+        CASA = "casa", "Casa"
+        UNIVERSITA = "universita", "Universita"
+        LAVORO = "lavoro", "Lavoro"
+        PALESTRA = "palestra", "Palestra"
+        ALTRO = "altro", "Altro"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="habitual_places",
+        on_delete=models.CASCADE,
+    )
+    center = models.PointField(geography=True)
+    radius_meters = models.FloatField(default=0)
+    state = models.CharField(
+        max_length=16, choices=State.choices, default=State.CANDIDATE
+    )
+    visit_count = models.PositiveIntegerField(default=0)
+    distinct_days = models.PositiveIntegerField(default=0)
+    category = models.CharField(max_length=16, choices=Category.choices, blank=True)
+    custom_name = models.CharField(max_length=128, blank=True)
+    # True quando l'utente ha espresso una decisione manuale (conferma, rifiuto o
+    # etichetta): deve sopravvivere al ricomputo completo (ADR 0028).
+    manually_reviewed = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["user", "state"])]
+
+
+class CandidateVisit(models.Model):
+    """Visita Candidata: un episodio di permanenza dai GpsPoint grezzi di un utente.
+
+    Prodotta dalla stay-detection (un singolo periodo di permanenza); piu' visite
+    compatibili vengono poi clusterizzate in un HabitualPlace.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="candidate_visits",
+        on_delete=models.CASCADE,
+    )
+    center = models.PointField(geography=True)
+    started_at = models.DateTimeField()
+    ended_at = models.DateTimeField()
+    point_count = models.PositiveIntegerField()
+    # Valorizzato dal clustering: il Luogo Candidato che aggrega questa visita
+    # (null se la visita resta isolata / rumore). E' l'evidenza di mappa del luogo.
+    place = models.ForeignKey(
+        HabitualPlace,
+        related_name="visits",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["user", "started_at"])]
+
+
 class MobilitySegment(models.Model):
     """Una riga del diario: una sosta (STOP) o uno spostamento (MOVE)."""
 

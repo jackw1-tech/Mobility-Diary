@@ -1,4 +1,5 @@
 import asyncio
+import json
 from datetime import timedelta
 
 import pytest
@@ -12,10 +13,11 @@ from accounts.models import AccessToken
 from mobility import api as mobility_api
 from mobility.models import (
     ActivityLabel,
+    CandidateVisit,
     GpsPoint,
+    HabitualPlace,
     MobilitySegment,
     PartKind,
-    SignificantPlace,
     StateTransition,
     Trip,
     TripIngestion,
@@ -245,19 +247,22 @@ def test_diary_endpoint_returns_not_yet_enriched_state(user):
     assert payload["places"] == []
 
 
+def _confirmed_place(user, lon, lat, **kwargs):
+    return HabitualPlace.objects.create(
+        user=user,
+        center=Point(lon, lat, srid=4326),
+        state=HabitualPlace.State.CONFIRMED,
+        **kwargs,
+    )
+
+
 @pytest.mark.django_db
-def test_diary_endpoint_returns_segment_geometry_and_stop_place(user, other_user):
+def test_diary_endpoint_overlays_confirmed_place_on_stop(user, other_user):
     trip = create_trip(user)
     trip.status = Trip.Status.PROCESSED
     trip.save(update_fields=["status", "updated_at"])
     base = timezone.now()
-    place = SignificantPlace.objects.create(
-        trip=trip,
-        center=Point(9.20, 45.47, srid=4326),
-        radius_meters=45,
-        dwell_seconds=600,
-        label="universita",
-    )
+    _confirmed_place(user, 9.20, 45.47, category="universita")
     MobilitySegment.objects.create(
         trip=trip,
         kind=MobilitySegment.Kind.MOVE,
@@ -267,14 +272,16 @@ def test_diary_endpoint_returns_segment_geometry_and_stop_place(user, other_user
         path=LineString((9.10, 45.46), (9.20, 45.47), srid=4326),
         distance_meters=1200,
     )
-    MobilitySegment.objects.create(
+    stop = MobilitySegment.objects.create(
         trip=trip,
         kind=MobilitySegment.Kind.STOP,
         start_timestamp=base + timedelta(minutes=10),
         end_timestamp=base + timedelta(minutes=20),
         activity_label=ActivityLabel.IDLE,
-        place=place,
     )
+    # GPS della sosta vicino al luogo confermato: abilita l'overlay per prossimita'.
+    add_gps(trip, base + timedelta(minutes=12), 9.2001, 45.4701)
+    add_gps(trip, base + timedelta(minutes=15), 9.1999, 45.4699)
 
     response = Client().get(
         f"/api/mobility/trips/{trip.id}/diary",
@@ -290,14 +297,97 @@ def test_diary_endpoint_returns_segment_geometry_and_stop_place(user, other_user
     payload = response.json()
     assert payload["processed"] is True
     assert len(payload["segments"]) == 2
-    move, stop = payload["segments"]
+    move, stop_out = payload["segments"]
     assert move["kind"] == MobilitySegment.Kind.MOVE
     assert move["activity_label"] == ActivityLabel.BIKING
-    assert move["path_geojson"]["type"] == "LineString"
     assert move["path_geojson"]["coordinates"] == [[9.1, 45.46], [9.2, 45.47]]
-    assert stop["kind"] == MobilitySegment.Kind.STOP
-    assert stop["path_geojson"] is None
-    assert stop["place"]["label"] == "universita"
+    assert move["place"] is None  # i MOVE non vengono mai arricchiti (ADR 0021)
+    assert stop_out["kind"] == MobilitySegment.Kind.STOP
+    assert stop_out["place"]["label"] == "universita"
+    assert stop_out["place"]["category"] == "universita"
+    # Overlay read-time: il segmento persistito non viene riscritto.
+    stop.refresh_from_db()
+    assert stop.place_id is None
+
+
+@pytest.mark.django_db
+def test_diary_overlay_uses_neutral_wording_for_unlabeled_confirmed_place(user):
+    trip = create_trip(user)
+    trip.status = Trip.Status.PROCESSED
+    trip.save(update_fields=["status", "updated_at"])
+    base = timezone.now()
+    _confirmed_place(user, 9.20, 45.47)  # confermato ma senza etichetta manuale
+    MobilitySegment.objects.create(
+        trip=trip,
+        kind=MobilitySegment.Kind.STOP,
+        start_timestamp=base,
+        end_timestamp=base + timedelta(minutes=10),
+        activity_label=ActivityLabel.IDLE,
+    )
+    add_gps(trip, base + timedelta(minutes=2), 9.2000, 45.4700)
+
+    response = Client().get(
+        f"/api/mobility/trips/{trip.id}/diary",
+        **auth_headers(user),
+    )
+
+    stop = response.json()["segments"][0]
+    assert stop["place"]["label"] == "luogo abituale"
+    assert stop["place"]["category"] == ""
+
+
+@pytest.mark.django_db
+def test_diary_overlay_ignores_unconfirmed_places(user):
+    trip = create_trip(user)
+    trip.status = Trip.Status.PROCESSED
+    trip.save(update_fields=["status", "updated_at"])
+    base = timezone.now()
+    HabitualPlace.objects.create(
+        user=user,
+        center=Point(9.20, 45.47, srid=4326),
+        state=HabitualPlace.State.CANDIDATE,  # non confermato: non arricchisce
+        category="universita",
+    )
+    MobilitySegment.objects.create(
+        trip=trip,
+        kind=MobilitySegment.Kind.STOP,
+        start_timestamp=base,
+        end_timestamp=base + timedelta(minutes=10),
+        activity_label=ActivityLabel.IDLE,
+    )
+    add_gps(trip, base + timedelta(minutes=2), 9.2000, 45.4700)
+
+    response = Client().get(
+        f"/api/mobility/trips/{trip.id}/diary",
+        **auth_headers(user),
+    )
+
+    assert response.json()["segments"][0]["place"] is None
+
+
+@pytest.mark.django_db
+def test_diary_overlay_picks_closest_confirmed_place(user):
+    trip = create_trip(user)
+    trip.status = Trip.Status.PROCESSED
+    trip.save(update_fields=["status", "updated_at"])
+    base = timezone.now()
+    _confirmed_place(user, 9.2000, 45.4700, category="universita")  # vicino
+    _confirmed_place(user, 9.2005, 45.4705, category="palestra")    # piu' lontano
+    MobilitySegment.objects.create(
+        trip=trip,
+        kind=MobilitySegment.Kind.STOP,
+        start_timestamp=base,
+        end_timestamp=base + timedelta(minutes=10),
+        activity_label=ActivityLabel.IDLE,
+    )
+    add_gps(trip, base + timedelta(minutes=2), 9.2000, 45.4700)
+
+    response = Client().get(
+        f"/api/mobility/trips/{trip.id}/diary",
+        **auth_headers(user),
+    )
+
+    assert response.json()["segments"][0]["place"]["label"] == "universita"
 
 
 @pytest.mark.django_db
@@ -306,20 +396,13 @@ def test_diary_endpoint_merges_consecutive_stop_and_idle_move(user):
     trip.status = Trip.Status.PROCESSED
     trip.save(update_fields=["status", "updated_at"])
     base = timezone.now()
-    place = SignificantPlace.objects.create(
-        trip=trip,
-        center=Point(9.20, 45.47, srid=4326),
-        radius_meters=45,
-        dwell_seconds=600,
-        label="universita",
-    )
+    _confirmed_place(user, 9.20, 45.47, category="universita")
     MobilitySegment.objects.create(
         trip=trip,
         kind=MobilitySegment.Kind.STOP,
         start_timestamp=base,
         end_timestamp=base + timedelta(minutes=5),
         activity_label=ActivityLabel.IDLE,
-        place=place,
     )
     MobilitySegment.objects.create(
         trip=trip,
@@ -330,6 +413,7 @@ def test_diary_endpoint_merges_consecutive_stop_and_idle_move(user):
         path=LineString((9.20, 45.47), (9.2001, 45.4701), srid=4326),
         distance_meters=30,
     )
+    add_gps(trip, base + timedelta(minutes=2), 9.2000, 45.4700)
 
     response = Client().get(
         f"/api/mobility/trips/{trip.id}/diary",
@@ -345,6 +429,123 @@ def test_diary_endpoint_merges_consecutive_stop_and_idle_move(user):
     assert stop["path_geojson"] is None
     assert stop["distance_meters"] == 0
     assert stop["place"]["label"] == "universita"
+
+
+@pytest.mark.django_db
+def test_places_endpoint_lists_places_with_context_and_evidence(user, other_user):
+    place = HabitualPlace.objects.create(
+        user=user,
+        center=Point(9.19, 45.46, srid=4326),
+        radius_meters=30,
+        state=HabitualPlace.State.CONFIRMED,
+        category="universita",
+        visit_count=2,
+        distinct_days=2,
+    )
+    base = timezone.now()
+    for day in range(2):
+        CandidateVisit.objects.create(
+            user=user,
+            center=Point(9.19, 45.46, srid=4326),
+            started_at=base + timedelta(days=day),
+            ended_at=base + timedelta(days=day, minutes=6),
+            point_count=4,
+            place=place,
+        )
+    # Un luogo di un altro utente non deve comparire.
+    HabitualPlace.objects.create(
+        user=other_user,
+        center=Point(9.0, 45.0, srid=4326),
+        state=HabitualPlace.State.CONFIRMED,
+    )
+
+    response = Client().get("/api/mobility/places", **auth_headers(user))
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 1
+    place_out = payload[0]
+    assert place_out["state"] == HabitualPlace.State.CONFIRMED
+    assert place_out["label"] == "universita"
+    assert place_out["category"] == "universita"
+    assert place_out["visit_count"] == 2
+    assert place_out["distinct_days"] == 2
+    assert len(place_out["visits"]) == 2  # evidenza di mappa
+    assert place_out["visits"][0]["point_count"] == 4
+
+
+@pytest.mark.django_db
+def test_places_endpoint_uses_neutral_label_for_unlabeled_confirmed(user):
+    HabitualPlace.objects.create(
+        user=user,
+        center=Point(9.19, 45.46, srid=4326),
+        state=HabitualPlace.State.CONFIRMED,
+    )
+
+    response = Client().get("/api/mobility/places", **auth_headers(user))
+
+    assert response.json()[0]["label"] == "luogo abituale"
+
+
+@pytest.mark.django_db
+def test_place_actions_confirm_reject_reactivate_and_label(user):
+    place = HabitualPlace.objects.create(
+        user=user,
+        center=Point(9.19, 45.46, srid=4326),
+        state=HabitualPlace.State.CANDIDATE,
+    )
+    headers = auth_headers(user)
+
+    confirm = Client().post(f"/api/mobility/places/{place.id}/confirm", **headers)
+    assert confirm.status_code == 200
+    assert confirm.json()["state"] == "CONFIRMED"
+
+    reject = Client().post(f"/api/mobility/places/{place.id}/reject", **headers)
+    assert reject.json()["state"] == "REJECTED"
+
+    reactivate = Client().post(f"/api/mobility/places/{place.id}/reactivate", **headers)
+    assert reactivate.json()["state"] == "CANDIDATE"
+
+    label = Client().post(
+        f"/api/mobility/places/{place.id}/label",
+        data=json.dumps({"category": "universita", "custom_name": "Bicocca"}),
+        content_type="application/json",
+        **headers,
+    )
+    assert label.status_code == 200
+    body = label.json()
+    assert body["category"] == "universita"
+    assert body["custom_name"] == "Bicocca"
+    assert body["label"] == "Bicocca"  # il nome manuale ha priorita'
+
+    place.refresh_from_db()
+    assert place.manually_reviewed is True
+    assert place.category == "universita"
+
+
+@pytest.mark.django_db
+def test_place_label_rejects_invalid_category(user):
+    place = HabitualPlace.objects.create(
+        user=user, center=Point(9.19, 45.46, srid=4326)
+    )
+    response = Client().post(
+        f"/api/mobility/places/{place.id}/label",
+        data=json.dumps({"category": "aeroporto"}),
+        content_type="application/json",
+        **auth_headers(user),
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.django_db
+def test_place_actions_are_user_scoped(user, other_user):
+    place = HabitualPlace.objects.create(
+        user=user, center=Point(9.19, 45.46, srid=4326)
+    )
+    response = Client().post(
+        f"/api/mobility/places/{place.id}/confirm", **auth_headers(other_user)
+    )
+    assert response.status_code == 404
 
 
 def _read_streaming_body(response) -> str:

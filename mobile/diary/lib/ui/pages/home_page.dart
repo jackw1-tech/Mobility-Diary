@@ -61,6 +61,13 @@ class _AuthenticatedHomePage extends StatelessWidget {
             appBar: AppBar(
               centerTitle: true,
               title: Text(userLabel == null ? 'Mobile Edge' : userLabel!),
+              actions: [
+                IconButton(
+                  tooltip: 'I miei luoghi',
+                  icon: const Icon(Icons.place_outlined),
+                  onPressed: () => context.router.push(const PlacesRoute()),
+                ),
+              ],
             ),
             body: Stack(
               children: [

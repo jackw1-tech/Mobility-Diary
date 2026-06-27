@@ -1,6 +1,6 @@
 # Introduce user-scoped significant place domain and remove trip-scoped discovery
 
-Status: ready-for-agent
+Status: ready-for-human
 
 ## Parent
 
@@ -28,3 +28,14 @@ structure remains usable.
 ## Blocked by
 
 None - can start immediately
+
+## Comments
+
+- Done. Added user-scoped `HabitualPlace` model (states CANDIDATE/CONFIRMED/REJECTED,
+  geometry, evidence counters, closed category + optional name) in
+  `mobility/models.py` + migration `0010_habitualplace`. Removed trip-scoped
+  `SignificantPlace` creation from `ml/pipeline.py` (`_build_stop` no longer mines
+  places; dead `_centroid`/threshold/imports dropped, net −22 lines). The old
+  trip-scoped `SignificantPlace` model stays only as a read-model FK so the diary
+  keeps working; it will be retired once the issue-04 read-time overlay replaces it.
+  Tests: `tests/test_significant_places.py`.

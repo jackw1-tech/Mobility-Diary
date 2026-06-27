@@ -8,26 +8,27 @@ Passi (a fine viaggio, nel worker Celery):
   5. segmentazione a 2 passate:
        passata 1: confini SOSTA/SPOSTAMENTO dalle transizioni FSM
        passata 2: dentro gli SPOSTAMENTI, smoothing e split dei cambi label HAR
-  6. luoghi significativi (sosta >= soglia): centroide + raggio + dwell
-  7. scrittura MobilitySegment + SignificantPlace, Trip.status = PROCESSED
+  6. scrittura MobilitySegment, Trip.status = PROCESSED
+
+I luoghi significativi non nascono piu' qui: la scoperta e' user-scoped e parte
+dai GpsPoint grezzi dopo l'arricchimento finale (vedi ADR 0029).
 """
 
 from __future__ import annotations
 
-import math
 import statistics
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
 
-from django.contrib.gis.geos import LineString, Point
+from django.contrib.gis.geos import LineString
 
-from ..models import ActivityLabel, MobilitySegment, SignificantPlace, Trip
+from ..geo import haversine_meters
+from ..models import ActivityLabel, MobilitySegment, Trip
 from .classifier import classify_windows, correct_idle_with_gps, _label_from_speed
 from .preprocessing import normalize_window
 
 STOP_STATE = "STATIONARY"
-SIGNIFICANT_DWELL_SECONDS = 5 * 60  # soglia "permanenza" (motivata in relazione)
 MIN_ISOLATED_LABEL_SECONDS = 60
 
 
@@ -38,15 +39,6 @@ class PipelineSensorWindow:
     sample_count: int
     frequency_hz: int
     matrix: list[list[float]]
-
-
-def _haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    r = 6371000.0
-    p1, p2 = math.radians(lat1), math.radians(lat2)
-    dp = math.radians(lat2 - lat1)
-    dl = math.radians(lon2 - lon1)
-    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
-    return 2 * r * math.asin(min(1.0, math.sqrt(a)))
 
 
 def _gps_in(gps, start: datetime, end: datetime):
@@ -62,16 +54,10 @@ def _window_speed(window, gps) -> float | None:
     return statistics.median(speeds) if speeds else None
 
 
-def _centroid(points) -> tuple[float, float]:
-    lat = statistics.fmean(p.point.y for p in points)
-    lon = statistics.fmean(p.point.x for p in points)
-    return lat, lon
-
-
 def _path_distance(points) -> float:
     total = 0.0
     for a, b in zip(points, points[1:]):
-        total += _haversine(a.point.y, a.point.x, b.point.y, b.point.x)
+        total += haversine_meters(a.point.y, a.point.x, b.point.y, b.point.x)
     return total
 
 
@@ -120,28 +106,13 @@ def _macro_spans(trip, transitions, gps, windows):
     return merged
 
 
-def _build_stop(trip, start, end, gps) -> None:
-    dwell = (end - start).total_seconds()
-    points = _gps_in(gps, start, end)
-    place = None
-    if dwell >= SIGNIFICANT_DWELL_SECONDS and points:
-        lat, lon = _centroid(points)
-        radius = max(
-            (_haversine(lat, lon, p.point.y, p.point.x) for p in points), default=0.0
-        )
-        place = SignificantPlace.objects.create(
-            trip=trip,
-            center=Point(lon, lat, srid=4326),
-            radius_meters=radius,
-            dwell_seconds=int(dwell),
-        )
+def _build_stop(trip, start, end) -> None:
     MobilitySegment.objects.create(
         trip=trip,
         kind=MobilitySegment.Kind.STOP,
         start_timestamp=start,
         end_timestamp=end,
         activity_label=ActivityLabel.IDLE,
-        place=place,
         path=None,
     )
 
@@ -269,13 +240,12 @@ def run_pipeline(
 
     # Riscrittura idempotente del diario.
     trip.segments.all().delete()
-    trip.significant_places.all().delete()
 
-    # 5-7. segmentazione + luoghi + scrittura.
+    # 5-6. segmentazione + scrittura.
     spans = _macro_spans(trip, transitions, gps, windows)
     for start, end, kind in spans:
         if kind == MobilitySegment.Kind.STOP:
-            _build_stop(trip, start, end, gps)
+            _build_stop(trip, start, end)
         else:
             _build_move(trip, start, end, windows, labels, gps)
 
@@ -287,6 +257,5 @@ def run_pipeline(
         "gps_points": len(gps),
         "transitions": len(transitions),
         "segments": trip.segments.count(),
-        "significant_places": trip.significant_places.count(),
         **classifier_summary,
     }

@@ -1,6 +1,6 @@
 # Support manual confirm, reject, reactivate, and labeling from mobile
 
-Status: ready-for-agent
+Status: ready-for-human
 
 ## Parent
 
@@ -25,3 +25,19 @@ state must immediately affect the diary overlay and the places screen.
 ## Blocked by
 
 - [05-add-mobile-place-review-screen-for-candidates-and-confirmed-places.md](./05-add-mobile-place-review-screen-for-candidates-and-confirmed-places.md)
+
+## Comments
+
+- Done. Backend: `manually_reviewed` flag (migration `0013`) + four endpoints
+  `POST /places/{id}/{confirm,reject,reactivate,label}` (`_save_review` helper;
+  label validates the closed category set, 422 otherwise). Mining now preserves
+  manually-reviewed places across the full recompute (`_place_for_cluster`
+  reattaches a nearby manual place instead of recreating it; non-manual places
+  are deleted+rebuilt) — so rejected places stay frozen and don't resurface, and
+  labels/confirmations survive. Mobile: service action methods, `PlaceDetailCubit`
+  (+state), detail page action bar (Conferma/Rifiuta/Riattiva/Etichetta) with a
+  category-dropdown + name label dialog, list gains a Rifiutati section and
+  reloads on return. Simplify: unified the service GET/POST helpers into one
+  `_send`. Tests: backend action/scoping/validation + recompute-freeze/label-
+  survival; mobile `PlaceDetailCubit`. Issue 07 will add the overlay tie-break
+  (manual label wins) + regression hardening.

@@ -79,9 +79,42 @@ class PlaceOut(Schema):
     id: int
     lat: float
     lon: float
-    radius_meters: float
-    dwell_seconds: int
+    # Etichetta visualizzabile: nome manuale, categoria, o "luogo abituale".
     label: str
+    # Categoria chiusa (casa/universita/...) se etichettato, altrimenti vuota.
+    category: str = ""
+
+
+class PlaceVisitOut(Schema):
+    lat: float
+    lon: float
+    started_at: datetime
+    ended_at: datetime
+    point_count: int
+
+
+class PlaceLabelIn(Schema):
+    # Categoria chiusa (casa/universita/lavoro/palestra/altro) o "" per azzerare.
+    category: str = ""
+    custom_name: str = ""
+
+
+class PlaceReviewOut(Schema):
+    id: int
+    lat: float
+    lon: float
+    radius_meters: float
+    # CANDIDATE / CONFIRMED / REJECTED
+    state: str
+    # Etichetta visualizzabile (nome manuale, categoria, o "luogo abituale").
+    label: str
+    category: str
+    custom_name: str
+    # Contesto: perche' il luogo e' stato proposto/confermato.
+    visit_count: int
+    distinct_days: int
+    # Evidenza di mappa: le visite che compongono il luogo.
+    visits: list[PlaceVisitOut]
 
 
 class SegmentOut(Schema):

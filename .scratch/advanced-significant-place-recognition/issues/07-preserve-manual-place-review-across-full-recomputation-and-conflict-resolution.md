@@ -1,6 +1,6 @@
 # Preserve manual place review across full recomputation and conflict resolution
 
-Status: ready-for-agent
+Status: ready-for-human
 
 ## Parent
 
@@ -28,3 +28,20 @@ processing and does not lose user curation.
 ## Blocked by
 
 - [06-support-manual-confirm-reject-reactivate-and-labeling-from-mobile.md](./06-support-manual-confirm-reject-reactivate-and-labeling-from-mobile.md)
+
+## Comments
+
+- Done. Recompute preservation (AC1) was already implemented in issue 06 (manual
+  places survive the full recompute and reattach to the nearby cluster). This
+  slice adds the overlay conflict resolution (AC2): `match_confirmed_place` now
+  gathers all confirmed places within the match radius, and among those
+  effectively tied in distance (`OVERLAY_TIE_METERS` = 25 m) prefers a manually
+  labeled place over a purely automatic one, otherwise the closest wins.
+  Regression tests (AC3, all behavioural): rejected-place freeze, manual
+  label/confirmation survival, repeated-recompute stability (no duplication), and
+  tie / not-tied conflict resolution.
+- Note: the legacy trip-scoped `SignificantPlace` model + `MobilitySegment.place`
+  FK were intentionally NOT removed — issue 01 already removed them as a discovery
+  source from the diary pipeline (per ADR 0029), but the separate Vista
+  Privacy-Aware (`privacy-export`) still uses them as its own intended, tested
+  behaviour. Retiring them belongs to a privacy-export change, out of this PRD.

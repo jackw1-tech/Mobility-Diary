@@ -346,8 +346,9 @@ def test_process_trip_har_final_reads_raw_and_regenerates_segments(
     assert move.distance_meters > 0
     assert stop.activity_label == ActivityLabel.IDLE
     assert stop.path is None
-    assert stop.place is not None
-    assert stop.place.dwell_seconds == 300
+    # La scoperta dei luoghi e' user-scoped (ADR 0029): la pipeline non deriva
+    # piu' un SignificantPlace trip-scoped per la sosta.
+    assert stop.place is None
     assert deleted == []
 
 
@@ -378,13 +379,55 @@ def test_process_trip_har_final_publishes_enriched_after_commit(
         lambda *args, **kwargs: published.append((args, kwargs)),
     )
 
+    monkeypatch.setattr(
+        "mobility.tasks.mine_significant_places.delay", lambda user_id: None
+    )
+
     with django_capture_on_commit_callbacks(execute=False) as callbacks:
         process_trip_har_final.run(job.id, ingestion.id)
 
     assert published == []
-    assert len(callbacks) == 1
+    # Due callback post-commit: pubblicazione diario (prima) + mining luoghi.
+    assert len(callbacks) == 2
     callbacks[0]()
     assert published == [((trip.id, "enriched"), {"reason": None})]
+
+
+@pytest.mark.django_db
+def test_process_trip_har_final_schedules_place_mining_after_commit(
+    user,
+    monkeypatch,
+    django_capture_on_commit_callbacks,
+):
+    start = timezone.now()
+    trip, ingestion, job = _create_har_ingestion(
+        user,
+        session_id="har-mining",
+        start=start,
+    )
+    raw = gzip.compress(json.dumps(_sensor_part_payload(start)).encode("utf-8"))
+    mined = []
+
+    def fake_pipeline(trip, *, sensor_windows):
+        trip.status = Trip.Status.PROCESSED
+        trip.save(update_fields=["status", "updated_at"])
+        return {"segments": 0}
+
+    monkeypatch.setattr(storage, "read_object", lambda object_key: raw)
+    monkeypatch.setattr("mobility.tasks.run_pipeline", fake_pipeline)
+    monkeypatch.setattr(
+        "mobility.diary_events.publish_diary_status", lambda *a, **k: None
+    )
+    monkeypatch.setattr(
+        "mobility.tasks.mine_significant_places.delay",
+        lambda user_id: mined.append(user_id),
+    )
+
+    with django_capture_on_commit_callbacks(execute=True):
+        process_trip_har_final.run(job.id, ingestion.id)
+
+    # Il mining dei luoghi parte dopo l'arricchimento finale, per quell'utente.
+    assert mined == [user.id]
 
 
 @pytest.mark.django_db

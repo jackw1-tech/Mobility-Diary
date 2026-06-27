@@ -5,7 +5,7 @@ from datetime import datetime
 
 from django.contrib.gis.geos import LineString
 
-from .models import ActivityLabel, MobilitySegment, SignificantPlace
+from .models import ActivityLabel, MobilitySegment
 
 
 @dataclass(frozen=True)
@@ -16,13 +16,16 @@ class ProjectedDiarySegment:
     activity_label: str
     distance_meters: float
     path: LineString | None
-    place: SignificantPlace | None
 
 
 def project_diary_segments(
     segments: list[MobilitySegment],
 ) -> list[ProjectedDiarySegment]:
-    """Collapse adjacent stop-like stretches for read-time diary consumers."""
+    """Collapse adjacent stop-like stretches for read-time diary consumers.
+
+    Place semantics are applied as a read-time overlay by the diary endpoint, not
+    here: this projection only normalizes stop/move structure.
+    """
 
     ordered = sorted(
         segments,
@@ -48,7 +51,6 @@ def project_diary_segments(
                         pending_stop.end_timestamp,
                         stop_projection.end_timestamp,
                     ),
-                    place=_merge_place(pending_stop.place, stop_projection.place),
                 )
                 continue
             projected.append(pending_stop)
@@ -66,7 +68,6 @@ def project_diary_segments(
                 activity_label=segment.activity_label,
                 distance_meters=segment.distance_meters,
                 path=segment.path,
-                place=segment.place,
             )
         )
 
@@ -91,18 +92,4 @@ def _as_stop_projection(segment: MobilitySegment) -> ProjectedDiarySegment:
         activity_label=ActivityLabel.IDLE,
         distance_meters=0.0,
         path=None,
-        place=segment.place,
     )
-
-
-def _merge_place(
-    current: SignificantPlace | None,
-    incoming: SignificantPlace | None,
-) -> SignificantPlace | None:
-    if current is None:
-        return incoming
-    if incoming is None:
-        return current
-    if current.pk == incoming.pk:
-        return current
-    return None

@@ -25,6 +25,7 @@ from .models import (
     TripIngestion,
 )
 from .ml.pipeline import PipelineSensorWindow, run_pipeline
+from .significant_places import mine_user_significant_places
 
 
 class InvalidRawSensorPayload(ValueError):
@@ -45,6 +46,18 @@ RAW_CLAIMABLE_STATUSES = {
 
 def _skip_result(phase: str, status: str) -> dict:
     return {"skipped": f"{phase} ingestion is {status}"}
+
+
+@shared_task
+def mine_significant_places(user_id: int) -> dict:
+    """Riconoscimento dei Luoghi Significativi user-scoped (passo finale async)."""
+    return mine_user_significant_places(user_id)
+
+
+def _schedule_place_mining(user_id: int | None) -> None:
+    """Accoda il mining dei luoghi dopo il commit dell'arricchimento (ADR 0020)."""
+    if user_id is not None:
+        transaction.on_commit(lambda: mine_significant_places.delay(user_id))
 
 
 @shared_task(bind=True)
@@ -75,6 +88,7 @@ def process_trip_har(self, job_id: int) -> dict:
     job.result = result
     job.save(update_fields=["status", "result", "updated_at"])
     publish_diary_status_on_commit(trip.id, DIARY_STATUS_ENRICHED)
+    _schedule_place_mining(trip.user_id)
     return result
 
 
@@ -414,6 +428,7 @@ def process_trip_har_final(self, job_id: int, ingestion_id: int) -> dict:
             job.error = ""
             job.save(update_fields=["status", "result", "error", "updated_at"])
             publish_diary_status_on_commit(trip.id, DIARY_STATUS_ENRICHED)
+            _schedule_place_mining(trip.user_id)
     except InvalidRawSensorPayload as exc:
         ingestion.raw_status = TripIngestion.PhaseStatus.FAILED_FINAL
         ingestion.error_message = str(exc)

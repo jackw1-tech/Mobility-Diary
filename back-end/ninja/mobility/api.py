@@ -25,6 +25,7 @@ from .diary_events import (
 from .diary_projection import project_diary_segments
 from .models import (
     GpsPoint,
+    HabitualPlace,
     HarJob,
     MobilitySegment,
     SensorWindow,
@@ -32,6 +33,7 @@ from .models import (
     Trip,
     TripIngestion,
 )
+from .significant_places import match_confirmed_place, place_label
 from .privacy import (
     PRIVACY_AWARE_STOP_LABEL,
     cloak_linestring,
@@ -43,7 +45,10 @@ from .schemas import (
     GpsPointBatchIn,
     HarJobOut,
     HealthOut,
+    PlaceLabelIn,
     PlaceOut,
+    PlaceReviewOut,
+    PlaceVisitOut,
     PrivacyExportOut,
     PrivacyExportSegmentOut,
     SegmentOut,
@@ -159,36 +164,159 @@ def _place_out(place) -> PlaceOut:
         id=place.id,
         lat=place.center.y,
         lon=place.center.x,
-        radius_meters=place.radius_meters,
-        dwell_seconds=place.dwell_seconds,
-        label=place.label,
+        label=place_label(place),
+        category=place.category,
     )
+
+
+def _stop_centroid(segment, gps) -> tuple[float, float] | None:
+    """Posizione media di una sosta dai GpsPoint nel suo intervallo (o None)."""
+    points = [
+        g
+        for g in gps
+        if segment.start_timestamp <= g.timestamp <= segment.end_timestamp
+    ]
+    if not points:
+        return None
+    lat = sum(g.point.y for g in points) / len(points)
+    lon = sum(g.point.x for g in points) / len(points)
+    return lat, lon
 
 
 @router.get("/trips/{trip_id}/diary", response=DiaryOut, auth=mobile_bearer_auth)
 def get_trip_diary(request, trip_id: int):
+    """Diario con overlay read-time dei Luoghi Confermati sulle sole soste (ADR 0024).
+
+    I MobilitySegment persistiti non vengono riscritti: la sosta prende a tempo
+    di lettura il Luogo Confermato piu' vicino, derivando la propria posizione
+    dai GpsPoint dell'intervallo.
+    """
     trip = get_object_or_404(Trip, id=trip_id, user_id=request.auth.user_id)
-    places = list(trip.significant_places.all())
-    place_by_id = {pl.id: _place_out(pl) for pl in places}
-    segments = [
-        SegmentOut(
-            kind=seg.kind,
-            start_timestamp=seg.start_timestamp,
-            end_timestamp=seg.end_timestamp,
-            activity_label=seg.activity_label,
-            distance_meters=seg.distance_meters,
-            path_geojson=json.loads(seg.path.geojson) if seg.path is not None else None,
-            place=place_by_id.get(seg.place.pk) if seg.place is not None else None,
+    gps = list(trip.gps_points.order_by("timestamp"))
+    confirmed = list(
+        HabitualPlace.objects.filter(
+            user_id=request.auth.user_id,
+            state=HabitualPlace.State.CONFIRMED,
         )
-        for seg in project_diary_segments(list(trip.segments.all()))
-    ]
+    )
+    segments: list[SegmentOut] = []
+    overlaid: dict[int, PlaceOut] = {}
+    for seg in project_diary_segments(list(trip.segments.all())):
+        place_out = None
+        if seg.kind == MobilitySegment.Kind.STOP:
+            centroid = _stop_centroid(seg, gps)
+            match = match_confirmed_place(*centroid, confirmed) if centroid else None
+            if match is not None:
+                place_out = _place_out(match)
+                overlaid[match.id] = place_out
+        segments.append(
+            SegmentOut(
+                kind=seg.kind,
+                start_timestamp=seg.start_timestamp,
+                end_timestamp=seg.end_timestamp,
+                activity_label=seg.activity_label,
+                distance_meters=seg.distance_meters,
+                path_geojson=json.loads(seg.path.geojson) if seg.path is not None else None,
+                place=place_out,
+            )
+        )
     return DiaryOut(
         trip_id=trip.id,
         status=trip.status,
         processed=trip.status == Trip.Status.PROCESSED,
         segments=segments,
-        places=list(place_by_id.values()),
+        places=list(overlaid.values()),
     )
+
+
+def _place_review_out(place) -> PlaceReviewOut:
+    return PlaceReviewOut(
+        id=place.id,
+        lat=place.center.y,
+        lon=place.center.x,
+        radius_meters=place.radius_meters,
+        state=place.state,
+        label=place_label(place),
+        category=place.category,
+        custom_name=place.custom_name,
+        visit_count=place.visit_count,
+        distinct_days=place.distinct_days,
+        visits=[
+            PlaceVisitOut(
+                lat=visit.center.y,
+                lon=visit.center.x,
+                started_at=visit.started_at,
+                ended_at=visit.ended_at,
+                point_count=visit.point_count,
+            )
+            for visit in place.visits.all()
+        ],
+    )
+
+
+@router.get("/places", response=list[PlaceReviewOut], auth=mobile_bearer_auth)
+def list_places(request):
+    """Luoghi user-scoped per la review mobile, con evidenza di mappa.
+
+    Restituisce tutti i luoghi dell'utente (il client raggruppa per stato); ogni
+    luogo porta il contesto (visite, giorni distinti) e le visite di supporto.
+    """
+    places = (
+        HabitualPlace.objects.filter(user_id=request.auth.user_id)
+        .prefetch_related("visits")
+        .order_by("state", "-visit_count")
+    )
+    return [_place_review_out(place) for place in places]
+
+
+_VALID_PLACE_CATEGORIES = {choice.value for choice in HabitualPlace.Category}
+
+
+def _owned_place(request, place_id: int) -> HabitualPlace:
+    return get_object_or_404(
+        HabitualPlace, id=place_id, user_id=request.auth.user_id
+    )
+
+
+def _save_review(place: HabitualPlace, fields: list[str]) -> PlaceReviewOut:
+    place.save(update_fields=[*fields, "updated_at"])
+    return _place_review_out(place)
+
+
+@router.post("/places/{place_id}/confirm", response=PlaceReviewOut, auth=mobile_bearer_auth)
+def confirm_place(request, place_id: int):
+    place = _owned_place(request, place_id)
+    place.state = HabitualPlace.State.CONFIRMED
+    place.manually_reviewed = True
+    return _save_review(place, ["state", "manually_reviewed"])
+
+
+@router.post("/places/{place_id}/reject", response=PlaceReviewOut, auth=mobile_bearer_auth)
+def reject_place(request, place_id: int):
+    place = _owned_place(request, place_id)
+    place.state = HabitualPlace.State.REJECTED
+    place.manually_reviewed = True
+    return _save_review(place, ["state", "manually_reviewed"])
+
+
+@router.post("/places/{place_id}/reactivate", response=PlaceReviewOut, auth=mobile_bearer_auth)
+def reactivate_place(request, place_id: int):
+    """Riattiva un luogo rifiutato: torna candidato e rientra nel flusso automatico."""
+    place = _owned_place(request, place_id)
+    place.state = HabitualPlace.State.CANDIDATE
+    place.manually_reviewed = False
+    return _save_review(place, ["state", "manually_reviewed"])
+
+
+@router.post("/places/{place_id}/label", response=PlaceReviewOut, auth=mobile_bearer_auth)
+def label_place(request, place_id: int, payload: PlaceLabelIn):
+    if payload.category and payload.category not in _VALID_PLACE_CATEGORIES:
+        raise HttpError(422, "categoria non valida")
+    place = _owned_place(request, place_id)
+    place.category = payload.category
+    place.custom_name = payload.custom_name
+    place.manually_reviewed = True
+    return _save_review(place, ["category", "custom_name", "manually_reviewed"])
 
 
 def _saved_privacy_level(user_id: int) -> str:

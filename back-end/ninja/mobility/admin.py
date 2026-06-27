@@ -2,6 +2,7 @@ from django.contrib import admin
 
 from .models import (
     GpsPoint,
+    HabitualPlace,
     HarJob,
     MobilitySegment,
     SensorWindow,
@@ -41,6 +42,12 @@ class SensorWindowAdmin(admin.ModelAdmin):
 @admin.register(SignificantPlace)
 class SignificantPlaceAdmin(admin.ModelAdmin):
     list_display = ("id", "trip", "latitude", "longitude", "radius_meters", "dwell_seconds", "label")
+
+
+@admin.register(HabitualPlace)
+class HabitualPlaceAdmin(admin.ModelAdmin):
+    list_display = ("id", "user", "state", "category", "custom_name", "visit_count", "distinct_days")
+    list_filter = ("state", "category")
 
 
 @admin.register(MobilitySegment)

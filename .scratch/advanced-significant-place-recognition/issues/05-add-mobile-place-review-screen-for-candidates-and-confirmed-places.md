@@ -1,6 +1,6 @@
 # Add mobile place-review screen for candidates and confirmed places
 
-Status: ready-for-agent
+Status: ready-for-human
 
 ## Parent
 
@@ -27,3 +27,19 @@ real screen.
 ## Blocked by
 
 - [03-cluster-candidate-visits-into-luoghi-candidati-and-auto-confirm-habitual-places.md](./03-cluster-candidate-visits-into-luoghi-candidati-and-auto-confirm-habitual-places.md)
+
+## Comments
+
+- Done. Backend `GET /api/mobility/places` returns all user places with context
+  (state, visit_count, distinct_days, label) and embedded visit evidence
+  (`PlaceReviewOut`/`PlaceVisitOut`), so the mobile detail needs no extra fetch.
+  Mobile: `place_review_dto.dart`, `places_service.dart`, `places_cubit` (+state
+  with confirmed/candidate/rejected getters), `places_page.dart` (Confermati +
+  Candidati sections), `place_detail_page.dart` (Mapbox map: place center + visit
+  evidence circles + "why proposed" panel), shared `place_presenter.dart`
+  helpers. Routes `/places` + `/places/detail` (auto_route codegen via
+  `dart run build_runner build --force-jit`; needed `place_review_dto` imported in
+  `app_router.dart` so the generated part sees the arg type). Entry: a place icon
+  in the home AppBar. Tests: DTO + cubit. Note: each HTTP service still
+  duplicates the request boilerplate (pre-existing codebase convention) — a
+  shared json-http helper would cut LOC but is a separate, broader refactor.
