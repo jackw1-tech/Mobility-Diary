@@ -16,11 +16,10 @@ class TripDiaryTab extends StatelessWidget {
       builder: (context, state) {
         final message = _stateMessage(state, pending: 'Diario in analisi');
         if (message != null) return message;
-        if (state.diarySegments.isEmpty) {
+        final segments = presentableDiarySegments(state.diarySegments);
+        if (segments.isEmpty) {
           return _message(Icons.timeline, 'Nessun segmento');
         }
-        final segments = [...state.diarySegments]
-          ..sort((a, b) => a.startTimestamp.compareTo(b.startTimestamp));
         return ListView.separated(
           padding: const EdgeInsets.all(Dimensions.paddingMedium),
           itemBuilder: (context, index) => _segmentTile(segments[index]),
@@ -104,7 +103,7 @@ Widget? _stateMessage(TripTrackCubitState state, {required String pending}) {
 }
 
 Widget _segmentTile(TripDiarySegmentDto segment) {
-  final isMove = segment.kind == 'MOVE';
+  final isMove = !isStopLikeSegment(segment);
   final details = [
     formatTimeRange(segment),
     formatDuration(segmentDuration(segment)),

@@ -300,6 +300,53 @@ def test_diary_endpoint_returns_segment_geometry_and_stop_place(user, other_user
     assert stop["place"]["label"] == "universita"
 
 
+@pytest.mark.django_db
+def test_diary_endpoint_merges_consecutive_stop_and_idle_move(user):
+    trip = create_trip(user)
+    trip.status = Trip.Status.PROCESSED
+    trip.save(update_fields=["status", "updated_at"])
+    base = timezone.now()
+    place = SignificantPlace.objects.create(
+        trip=trip,
+        center=Point(9.20, 45.47, srid=4326),
+        radius_meters=45,
+        dwell_seconds=600,
+        label="universita",
+    )
+    MobilitySegment.objects.create(
+        trip=trip,
+        kind=MobilitySegment.Kind.STOP,
+        start_timestamp=base,
+        end_timestamp=base + timedelta(minutes=5),
+        activity_label=ActivityLabel.IDLE,
+        place=place,
+    )
+    MobilitySegment.objects.create(
+        trip=trip,
+        kind=MobilitySegment.Kind.MOVE,
+        start_timestamp=base + timedelta(minutes=5),
+        end_timestamp=base + timedelta(minutes=10),
+        activity_label=ActivityLabel.IDLE,
+        path=LineString((9.20, 45.47), (9.2001, 45.4701), srid=4326),
+        distance_meters=30,
+    )
+
+    response = Client().get(
+        f"/api/mobility/trips/{trip.id}/diary",
+        **auth_headers(user),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["segments"]) == 1
+    stop = payload["segments"][0]
+    assert stop["kind"] == MobilitySegment.Kind.STOP
+    assert stop["activity_label"] == ActivityLabel.IDLE
+    assert stop["path_geojson"] is None
+    assert stop["distance_meters"] == 0
+    assert stop["place"]["label"] == "universita"
+
+
 def _read_streaming_body(response) -> str:
     """Consuma il body async di una StreamingHttpResponse da un test sincrono."""
 

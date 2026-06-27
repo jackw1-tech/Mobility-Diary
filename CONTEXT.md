@@ -73,9 +73,41 @@ showing time interval, duration, activity label, movement distance, and stop
 place information when available.
 _Avoid_: Raw event list, sensor timeline, backend status log
 
-**Luogo Significativo**:
-A place inferred from a meaningful dwell interval and used to make the mobility diary readable without exposing every raw coordinate.
-_Avoid_: GPS point, POI, marker
+**Luogo Significativo del Viaggio**:
+A place reference used inside one Viaggio when the diary needs to point to a stop area, but in the new significant-place recognition flow it is no longer the source of truth for discovering meaningful places.
+_Avoid_: GPS point, POI, marker, habitual place, discovery source
+
+**Luogo Significativo Abituale**:
+A user-scoped place inferred by clustering recurring visits across multiple Viaggi of the same Proprietario del Viaggio. It can later receive a semantic category or a manual label such as home, university, work, or gym.
+_Avoid_: Single-trip stop, raw GPS cloud, generic marker
+
+**Etichetta Manuale del Luogo**:
+A user-provided description assigned to a Luogo Significativo Abituale, composed of a closed category such as casa, universita, lavoro, palestra, or altro, plus an optional free-form name such as Bicocca. When present, it takes precedence over any inferred category.
+_Avoid_: Automatic prediction, temporary stop label, debug note
+
+**Visita Candidata**:
+A user visit inferred from a permanence interval over raw GPS evidence that is strong enough to participate in cross-Viaggio place mining. It must represent remaining in an area rather than merely passing through it, and in the first implementation it should rely on at least three valid GPS points.
+_Avoid_: Raw GPS point, habitual place, manual label
+
+**Evidenza di Luogo**:
+A signal that contributes to one Luogo Candidato, built from raw-GPS permanence detection for the same user across multiple Viaggi.
+_Avoid_: Separate stop place, diary-only heuristic, final manual label
+
+**Luogo Candidato**:
+A user-scoped place hypothesis produced by clustering Visite Candidate before the user has confirmed that it is truly meaningful.
+_Avoid_: Confirmed habitual place, single GPS point, final manual label
+
+**Luogo Significativo Confermato**:
+A Luogo Candidato that has either accumulated recurring evidence across at least three distinct days or has been explicitly confirmed by the user through manual review. It may already enrich stop descriptions in the diary before manual labeling, using neutral wording when no manual label is available yet.
+_Avoid_: Temporary cluster, inferred stop, raw candidate
+
+**Luogo Rifiutato**:
+A Luogo Candidato that the user has explicitly marked as not meaningful. In the first implementation it becomes permanently frozen for automatic reconsideration, unless the user manually reactivates it.
+_Avoid_: Temporary false positive, hidden place, unlabeled candidate
+
+**Riconoscimento dei Luoghi Significativi**:
+The asynchronous backend step that mines Visite Candidate across multiple Viaggi of the same Proprietario del Viaggio, updates Luoghi Candidati and Luoghi Significativi Confermati, and feeds readable stop descriptions back into the Diario della Mobilita.
+_Avoid_: Single-trip stop detection, HAR classification, manual-only tagging
 
 **Etichetta di Attività**:
 The recognized or estimated mobility mode assigned to a mobility segment, such as idle, walking, running, biking, or moving vehicle.

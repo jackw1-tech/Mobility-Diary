@@ -50,6 +50,7 @@ class _TrackMapState extends State<_TrackMap> {
   PolylineAnnotationManager? _lineManager;
   CircleAnnotationManager? _circleManager;
   final Map<String, TripTrackSegmentState> _segmentByAnnotationId = {};
+  String? _selectedSegmentKey;
 
   @override
   void initState() {
@@ -77,6 +78,19 @@ class _TrackMapState extends State<_TrackMap> {
     _map = map;
     await map.scaleBar.updateSettings(ScaleBarSettings(enabled: false));
     await map.compass.updateSettings(CompassSettings(enabled: false));
+    // Dentro una TabBarView vogliamo che i drag restino alla mappa e non
+    // vengano interpretati come tentativi di cambio tab o gesture mancanti.
+    await map.gestures.updateSettings(
+      GesturesSettings(
+        scrollEnabled: true,
+        pinchToZoomEnabled: true,
+        doubleTapToZoomInEnabled: true,
+        doubleTouchToZoomOutEnabled: true,
+        quickZoomEnabled: true,
+        pitchEnabled: true,
+        rotateEnabled: true,
+      ),
+    );
   }
 
   Future<void> _onStyleLoaded(StyleLoadedEventData _) async {
@@ -95,6 +109,7 @@ class _TrackMapState extends State<_TrackMap> {
     _lineManager = null;
     _circleManager = null;
     _segmentByAnnotationId.clear();
+    _selectedSegmentKey = null;
     if (oldLineManager != null) {
       await map.annotations.removeAnnotationManager(oldLineManager);
     }
@@ -110,6 +125,7 @@ class _TrackMapState extends State<_TrackMap> {
           lineManager,
           segment.points,
           _activityColor(segment.activityLabel),
+          isSelected: false,
         );
         if (annotation != null) {
           _segmentByAnnotationId[annotation.id] = segment;
@@ -117,7 +133,12 @@ class _TrackMapState extends State<_TrackMap> {
       }
       lineManager.tapEvents(onTap: _onSegmentTapped);
     } else {
-      await _drawLine(lineManager, points, ColorPalette.primary);
+      await _drawLine(
+        lineManager,
+        points,
+        ColorPalette.primary,
+        isSelected: false,
+      );
     }
 
     final circleManager = await map.annotations.createCircleAnnotationManager();
@@ -160,10 +181,8 @@ class _TrackMapState extends State<_TrackMap> {
   }
 
   Future<PolylineAnnotation?> _drawLine(
-    PolylineAnnotationManager lineManager,
-    List<LatLng> points,
-    Color color,
-  ) async {
+      PolylineAnnotationManager lineManager, List<LatLng> points, Color color,
+      {required bool isSelected}) async {
     if (points.length < 2) return null;
     return lineManager.create(
       PolylineAnnotationOptions(
@@ -173,7 +192,10 @@ class _TrackMapState extends State<_TrackMap> {
           ],
         ),
         lineColor: color.toARGB32(),
-        lineWidth: 5.0,
+        // Un tratto un po' piu' spesso rende il tap molto piu' affidabile su
+        // mobile senza snaturare la leggibilita' della mappa.
+        lineWidth: isSelected ? 12.0 : 9.0,
+        lineOpacity: isSelected ? 1.0 : 0.82,
         lineJoin: LineJoin.ROUND,
       ),
     );
@@ -194,18 +216,63 @@ class _TrackMapState extends State<_TrackMap> {
     }
   }
 
-  void _onSegmentTapped(PolylineAnnotation annotation) {
+  Future<void> _onSegmentTapped(PolylineAnnotation annotation) async {
     final segment = _segmentByAnnotationId[annotation.id];
     if (segment == null) return;
-    showModalBottomSheet<void>(
+    await _highlightSelectedSegment(_segmentKeyFor(segment));
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
       builder: (context) => _SegmentDetailsSheet(
         color: _activityColor(segment.activityLabel),
         activityLabel: activityLabelText(segment.activityLabel),
         distanceMeters: segment.distanceMeters,
+        startTimestamp: segment.startTimestamp,
+        endTimestamp: segment.endTimestamp,
       ),
     );
+    await _highlightSelectedSegment(null);
+  }
+
+  Future<void> _highlightSelectedSegment(String? segmentKey) async {
+    if (_selectedSegmentKey == segmentKey) return;
+    if (!mounted) return;
+    setState(() => _selectedSegmentKey = segmentKey);
+    await _redrawSelectedSegments();
+  }
+
+  Future<void> _redrawSelectedSegments() async {
+    final map = _map;
+    final lineManager = _lineManager;
+    if (map == null || lineManager == null || !_styleReady) return;
+    if (!_showSegments || widget.state.segments.isEmpty) return;
+
+    await lineManager.deleteAll();
+    _segmentByAnnotationId.clear();
+
+    for (final segment in widget.state.segments) {
+      final color = _activityColor(segment.activityLabel);
+      final isSelected = _selectedSegmentKey != null &&
+          _selectedSegmentKey == _segmentKeyFor(segment);
+      final annotation = await _drawLine(
+        lineManager,
+        segment.points,
+        color,
+        isSelected: isSelected,
+      );
+      if (annotation != null) {
+        _segmentByAnnotationId[annotation.id] = segment;
+      }
+    }
+    lineManager.tapEvents(onTap: _onSegmentTapped);
+  }
+
+  String _segmentKeyFor(TripTrackSegmentState segment) {
+    return '${segment.startTimestamp.toIso8601String()}|'
+        '${segment.endTimestamp.toIso8601String()}|'
+        '${segment.activityLabel}|'
+        '${segment.distanceMeters.toStringAsFixed(1)}';
   }
 
   void _toggleSegmented(bool showSegments) {
@@ -366,15 +433,20 @@ class _SegmentDetailsSheet extends StatelessWidget {
   final Color color;
   final String activityLabel;
   final double distanceMeters;
+  final DateTime startTimestamp;
+  final DateTime endTimestamp;
 
   const _SegmentDetailsSheet({
     required this.color,
     required this.activityLabel,
     required this.distanceMeters,
+    required this.startTimestamp,
+    required this.endTimestamp,
   });
 
   @override
   Widget build(BuildContext context) {
+    final duration = endTimestamp.difference(startTimestamp);
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         Dimensions.paddingLarge,
@@ -382,37 +454,113 @@ class _SegmentDetailsSheet extends StatelessWidget {
         Dimensions.paddingLarge,
         Dimensions.paddingLarge,
       ),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 14,
-            height: 14,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          Text(
+            'Segmento del diario',
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: ColorPalette.textSecondary,
+                  fontWeight: FontWeight.w700,
+                ),
           ),
-          const SizedBox(width: Dimensions.paddingMedium),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  activityLabel,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
+          const SizedBox(height: Dimensions.paddingSmall),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 14,
+                height: 14,
+                margin: const EdgeInsets.only(top: 4),
+                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+              ),
+              const SizedBox(width: Dimensions.paddingMedium),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      activityLabel,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Il sistema ha riconosciuto questo tratto come $activityLabel.',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: ColorPalette.textSecondary,
+                          ),
+                    ),
+                  ],
                 ),
-                Text(
-                  formatDistance(distanceMeters),
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: ColorPalette.textSecondary,
-                      ),
-                ),
-              ],
-            ),
+              ),
+            ],
+          ),
+          const SizedBox(height: Dimensions.paddingMedium),
+          _DetailRow(
+            icon: Icons.schedule,
+            label: 'Orario',
+            value:
+                '${_clock(startTimestamp)} - ${_clock(endTimestamp)} (${formatDuration(duration)})',
+          ),
+          const SizedBox(height: Dimensions.paddingSmall),
+          _DetailRow(
+            icon: Icons.route,
+            label: 'Distanza',
+            value: formatDistance(distanceMeters),
           ),
         ],
       ),
     );
   }
+}
+
+class _DetailRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _DetailRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: ColorPalette.textSecondary),
+        const SizedBox(width: Dimensions.paddingSmall),
+        SizedBox(
+          width: 72,
+          child: Text(
+            label,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: ColorPalette.textSecondary,
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+String _clock(DateTime time) {
+  final local = time.toLocal();
+  return '${local.hour.toString().padLeft(2, '0')}:'
+      '${local.minute.toString().padLeft(2, '0')}';
 }
 
 class _DistanceOverlay extends StatelessWidget {

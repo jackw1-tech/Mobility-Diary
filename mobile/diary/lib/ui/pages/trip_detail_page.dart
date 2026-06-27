@@ -44,6 +44,7 @@ class TripDetailPage extends StatelessWidget {
             ),
           ),
           body: const TabBarView(
+            physics: NeverScrollableScrollPhysics(),
             children: [
               TripMapPage(),
               TripDiaryTab(),

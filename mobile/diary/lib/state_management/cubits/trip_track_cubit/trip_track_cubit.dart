@@ -57,6 +57,8 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
               points: segment.points,
               activityLabel: segment.activityLabel,
               distanceMeters: segment.distanceMeters,
+              startTimestamp: segment.startTimestamp,
+              endTimestamp: segment.endTimestamp,
             ),
         ];
         final points = [
@@ -138,7 +140,8 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
     _diaryEventSubscription = subscription;
   }
 
-  void _clearDiaryEventSubscription(StreamSubscription<DiaryEvent> subscription) {
+  void _clearDiaryEventSubscription(
+      StreamSubscription<DiaryEvent> subscription) {
     if (!identical(_diaryEventSubscription, subscription)) return;
     _diaryEventSubscription = null;
   }

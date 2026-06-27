@@ -22,6 +22,7 @@ from .diary_events import (
     diary_status_channel,
     diary_status_payload,
 )
+from .diary_projection import project_diary_segments
 from .models import (
     GpsPoint,
     HarJob,
@@ -177,9 +178,9 @@ def get_trip_diary(request, trip_id: int):
             activity_label=seg.activity_label,
             distance_meters=seg.distance_meters,
             path_geojson=json.loads(seg.path.geojson) if seg.path is not None else None,
-            place=place_by_id.get(seg.place_id),
+            place=place_by_id.get(seg.place.pk) if seg.place is not None else None,
         )
-        for seg in trip.segments.all()
+        for seg in project_diary_segments(list(trip.segments.all()))
     ]
     return DiaryOut(
         trip_id=trip.id,

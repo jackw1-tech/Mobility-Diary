@@ -370,6 +370,50 @@ def test_web_trip_dashboard_returns_privacy_aware_geometry(staff_user):
 
 
 @pytest.mark.django_db
+def test_web_trip_dashboard_merges_consecutive_stop_and_idle_move(staff_user):
+    base = timezone.now()
+    owner = create_user("dashboard-merged-stop@example.com")
+    trip = make_trip(
+        owner,
+        status=Trip.Status.PROCESSED,
+        started_at=base,
+        ended_at=base + timedelta(minutes=10),
+        distance_meters=30,
+        has_track=True,
+    )
+    MobilitySegment.objects.create(
+        trip=trip,
+        kind=MobilitySegment.Kind.STOP,
+        start_timestamp=base,
+        end_timestamp=base + timedelta(minutes=5),
+        activity_label=ActivityLabel.IDLE,
+    )
+    MobilitySegment.objects.create(
+        trip=trip,
+        kind=MobilitySegment.Kind.MOVE,
+        start_timestamp=base + timedelta(minutes=5),
+        end_timestamp=base + timedelta(minutes=10),
+        activity_label=ActivityLabel.IDLE,
+        path=LineString((9.20, 45.47), (9.2001, 45.4701), srid=4326),
+        distance_meters=30,
+    )
+
+    response = Client().get(
+        f"/api/web/users/{owner.id}/trips/{trip.id}",
+        **auth_headers(staff_user),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["diary"]["segments"]) == 1
+    stop = payload["diary"]["segments"][0]
+    assert stop["kind"] == MobilitySegment.Kind.STOP
+    assert stop["activity_label"] == ActivityLabel.IDLE
+    assert stop["path_geojson"] is None
+    assert stop["distance_meters"] == 0
+
+
+@pytest.mark.django_db
 def test_web_trip_dashboard_defaults_to_saved_level_with_metrics_and_masked_places(
     staff_user,
 ):

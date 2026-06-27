@@ -51,10 +51,14 @@ class TripTrackSegmentState {
   final List<LatLng> points;
   final String activityLabel;
   final double distanceMeters;
+  final DateTime startTimestamp;
+  final DateTime endTimestamp;
 
   const TripTrackSegmentState({
     required this.points,
     required this.activityLabel,
     required this.distanceMeters,
+    required this.startTimestamp,
+    required this.endTimestamp,
   });
 }

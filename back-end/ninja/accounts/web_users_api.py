@@ -23,6 +23,7 @@ from ninja.errors import HttpError
 
 from .web_auth import web_dashboard_auth
 from .models import UserPrivacySettings
+from mobility.diary_projection import project_diary_segments
 from mobility.models import MobilitySegment, Trip
 from mobility.privacy import (
     PRIVACY_AWARE_STOP_LABEL,
@@ -290,7 +291,7 @@ def _diary_out(trip: Trip, *, level: str | None = None) -> WebDiaryOut:
                 distance_meters=segment.distance_meters,
                 path_geojson=_segment_path_geojson(segment, level=level),
             )
-            for segment in trip.segments.all()
+            for segment in project_diary_segments(list(trip.segments.all()))
         ],
     )
 
