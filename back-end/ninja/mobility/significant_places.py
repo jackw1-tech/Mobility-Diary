@@ -14,7 +14,8 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from django.contrib.gis.geos import Point
-from django.db import connection, transaction
+from django.db import DatabaseError, connection, transaction
+from django.db.models import Q
 
 from .geo import haversine_meters
 from .models import CandidateVisit, GpsPoint, HabitualPlace, MobilitySegment
@@ -33,6 +34,10 @@ MAX_ACCURACY_METERS = 100.0    # i punti piu' imprecisi di cosi' vengono ignorat
 CLUSTER_EPS_METERS = STAY_RADIUS_METERS  # soglia spaziale fra centroidi di visite
 CLUSTER_MIN_VISITS = 2                    # un one-off isolato resta visita, non luogo
 AUTO_CONFIRM_DISTINCT_DAYS = 3            # auto-conferma con evidenza su >= 3 giorni
+# Proiezione metrica usata solo in query per il clustering spaziale lato PostGIS.
+# ETRS89 / LAEA Europe mantiene un errore contenuto su scala europea senza
+# cambiare il contratto WGS84/geography del dominio applicativo.
+CLUSTER_PROJECTION_SRID = 3035
 
 # Overlay read-time sul diario (ADR 0024): una sosta prende il Luogo Confermato
 # piu' vicino entro questa soglia.
@@ -62,6 +67,15 @@ class VisibleStopSummary:
     matched_place: HabitualPlace | None
 
 
+def _point_fields(point) -> tuple[datetime, Point, float | None]:
+    """Rende omogeneo l'accesso ai campi minimi richiesti dalla stay-detection."""
+    if hasattr(point, "timestamp"):
+        return point.timestamp, point.point, getattr(point, "accuracy_meters", None)
+    timestamp, geometry, *rest = point
+    accuracy = rest[0] if rest else None
+    return timestamp, geometry, accuracy
+
+
 def detect_visits(points) -> list[DetectedVisit]:
     """Stay-detection distance+time con centroide aggiornato.
 
@@ -71,43 +85,63 @@ def detect_visits(points) -> list[DetectedVisit]:
     temporale troppo lungo chiude la permanenza corrente e ne apre un'altra.
     """
     visits: list[DetectedVisit] = []
-    cluster: list = []
+    cluster_started_at: datetime | None = None
+    cluster_ended_at: datetime | None = None
+    point_count = 0
     sum_lat = 0.0
     sum_lon = 0.0
 
     def flush() -> None:
-        n = len(cluster)
-        if n < MIN_STAY_POINTS:
+        if point_count < MIN_STAY_POINTS or cluster_started_at is None or cluster_ended_at is None:
             return
-        if (cluster[-1].timestamp - cluster[0].timestamp).total_seconds() < MIN_STAY_SECONDS:
+        if (cluster_ended_at - cluster_started_at).total_seconds() < MIN_STAY_SECONDS:
             return
         visits.append(
             DetectedVisit(
-                lat=sum_lat / n,
-                lon=sum_lon / n,
-                started_at=cluster[0].timestamp,
-                ended_at=cluster[-1].timestamp,
-                point_count=n,
+                lat=sum_lat / point_count,
+                lon=sum_lon / point_count,
+                started_at=cluster_started_at,
+                ended_at=cluster_ended_at,
+                point_count=point_count,
             )
         )
 
     for p in points:
-        if p.accuracy_meters is not None and p.accuracy_meters > MAX_ACCURACY_METERS:
+        timestamp, point, accuracy_meters = _point_fields(p)
+        if accuracy_meters is not None and accuracy_meters > MAX_ACCURACY_METERS:
             continue  # punto troppo impreciso: ignorato prima della detection
-        lat, lon = p.point.y, p.point.x
-        if cluster:
-            n = len(cluster)
-            gap = (p.timestamp - cluster[-1].timestamp).total_seconds()
-            far = haversine_meters(sum_lat / n, sum_lon / n, lat, lon) > STAY_RADIUS_METERS
+        lat, lon = point.y, point.x
+        if point_count:
+            gap = (timestamp - cluster_ended_at).total_seconds()
+            far = (
+                haversine_meters(sum_lat / point_count, sum_lon / point_count, lat, lon)
+                > STAY_RADIUS_METERS
+            )
             if gap > MAX_GAP_SECONDS or far:
                 flush()
-                cluster = []
+                cluster_started_at = None
+                cluster_ended_at = None
+                point_count = 0
                 sum_lat = sum_lon = 0.0
-        cluster.append(p)
+        if cluster_started_at is None:
+            cluster_started_at = timestamp
+        cluster_ended_at = timestamp
+        point_count += 1
         sum_lat += lat
         sum_lon += lon
     flush()
     return visits
+
+
+def _user_points_for_detection(user_id: int):
+    """Stream minimale dei GpsPoint utili alla stay-detection dell'utente."""
+    return (
+        GpsPoint.objects.filter(trip__user_id=user_id)
+        .filter(Q(accuracy_meters__isnull=True) | Q(accuracy_meters__lte=MAX_ACCURACY_METERS))
+        .order_by("timestamp", "id")
+        .values_list("timestamp", "point")
+        .iterator(chunk_size=2000)
+    )
 
 
 def mine_user_significant_places(user_id: int) -> dict:
@@ -123,10 +157,7 @@ def mine_user_significant_places(user_id: int) -> dict:
                 "SELECT pg_advisory_xact_lock(%s, %s)",
                 [_MINING_LOCK_NAMESPACE, user_id],
             )
-        points = list(
-            GpsPoint.objects.filter(trip__user_id=user_id).order_by("timestamp", "id")
-        )
-        detected = detect_visits(points)
+        detected = detect_visits(_user_points_for_detection(user_id))
         # La review manuale sopravvive al ricomputo completo (ADR 0028): i luoghi
         # manuali non si cancellano, i cluster vicini si riagganciano a loro.
         manual_places = list(
@@ -154,15 +185,82 @@ def mine_user_significant_places(user_id: int) -> dict:
 
 def _cluster_into_places(user_id: int, visits: list, manual_places: list) -> int:
     """Clusterizza le visite in Luoghi Candidati e collega ogni visita al luogo."""
-    coords = [(v.center.y, v.center.x) for v in visits]
-    clusters = _dbscan(coords, CLUSTER_EPS_METERS, CLUSTER_MIN_VISITS)
-    for members in clusters:
-        cluster_visits = [visits[i] for i in members]
+    if not visits:
+        return 0
+
+    visit_by_id = {visit.pk: visit for visit in visits}
+    clusters = _postgis_visit_clusters(visits)
+    visits_to_update = []
+    for cluster_visit_ids in clusters:
+        cluster_visits = [visit_by_id[visit_id] for visit_id in cluster_visit_ids]
         place = _place_for_cluster(user_id, cluster_visits, manual_places)
-        CandidateVisit.objects.filter(pk__in=[v.pk for v in cluster_visits]).update(
-            place=place
-        )
+        for visit in cluster_visits:
+            visit.place = place
+        visits_to_update.extend(cluster_visits)
+    if visits_to_update:
+        CandidateVisit.objects.bulk_update(visits_to_update, ["place"])
     return len(clusters)
+
+
+def _postgis_visit_clusters(visits: list) -> list[list[int]]:
+    """Cluster DBSCAN in PostGIS sui centroidi visita; fallback a Python se serve."""
+    if connection.vendor != "postgresql":
+        return _python_visit_clusters(visits)
+
+    table = CandidateVisit._meta.db_table
+    visit_ids = [visit.pk for visit in visits]
+    sql = f"""
+        WITH clustered AS (
+            SELECT
+                id,
+                ST_ClusterDBSCAN(
+                    ST_Transform(center::geometry, %s),
+                    eps => %s,
+                    minpoints => %s
+                ) OVER (ORDER BY id) AS cluster_id
+            FROM {table}
+            WHERE id = ANY(%s)
+        )
+        SELECT id, cluster_id
+        FROM clustered
+        WHERE cluster_id IS NOT NULL
+        ORDER BY cluster_id, id
+    """
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                sql,
+                [
+                    CLUSTER_PROJECTION_SRID,
+                    CLUSTER_EPS_METERS,
+                    CLUSTER_MIN_VISITS,
+                    visit_ids,
+                ],
+            )
+            rows = cursor.fetchall()
+    except DatabaseError:
+        return _python_visit_clusters(visits)
+
+    clusters: list[list[int]] = []
+    current_cluster_id = None
+    current_members: list[int] = []
+    for visit_id, cluster_id in rows:
+        if cluster_id != current_cluster_id:
+            if current_members:
+                clusters.append(current_members)
+            current_cluster_id = cluster_id
+            current_members = []
+        current_members.append(visit_id)
+    if current_members:
+        clusters.append(current_members)
+    return clusters
+
+
+def _python_visit_clusters(visits: list) -> list[list[int]]:
+    """Fallback compatibile con il vecchio flusso per ambienti senza PostGIS DBSCAN."""
+    coords = [(visit.center.y, visit.center.x) for visit in visits]
+    clusters = _dbscan(coords, CLUSTER_EPS_METERS, CLUSTER_MIN_VISITS)
+    return [[visits[index].pk for index in members] for members in clusters]
 
 
 def _place_for_cluster(user_id: int, visits: list, manual_places: list) -> HabitualPlace:
@@ -282,7 +380,48 @@ def match_confirmed_place(lat: float, lon: float, places) -> HabitualPlace | Non
     return contenders[0][1]
 
 
-def stop_centroid(stop_like_interval, gps_points) -> tuple[float, float] | None:
+def _centroids_for_intervals(intervals, gps_points) -> dict[int, tuple[float, float] | None]:
+    """Calcola in una sola scansione i centroidi degli intervalli richiesti."""
+    ordered = sorted(
+        intervals,
+        key=lambda interval: (interval.start_timestamp, interval.end_timestamp),
+    )
+    stats = {id(interval): [0.0, 0.0, 0] for interval in ordered}
+    active = []
+    next_interval = 0
+
+    for gps_point in gps_points:
+        timestamp = gps_point.timestamp
+        while (
+            next_interval < len(ordered)
+            and ordered[next_interval].start_timestamp <= timestamp
+        ):
+            active.append(ordered[next_interval])
+            next_interval += 1
+
+        if not active:
+            continue
+
+        still_active = []
+        for interval in active:
+            if interval.end_timestamp < timestamp:
+                continue
+            still_active.append(interval)
+            stats[id(interval)][0] += gps_point.point.y
+            stats[id(interval)][1] += gps_point.point.x
+            stats[id(interval)][2] += 1
+        active = still_active
+
+    centroids = {}
+    for interval in ordered:
+        sum_lat, sum_lon, count = stats[id(interval)]
+        centroids[id(interval)] = None if count == 0 else (sum_lat / count, sum_lon / count)
+    return centroids
+
+
+def stop_centroid(stop_like_interval, gps_points, centroid_cache=None) -> tuple[float, float] | None:
+    if centroid_cache is not None:
+        return centroid_cache.get(id(stop_like_interval))
     points = [
         g
         for g in gps_points
@@ -313,15 +452,28 @@ def visible_stop_summary(
     gps_points,
     confirmed_places,
 ) -> VisibleStopSummary | None:
-    centroids = [
-        centroid
+    relevant_intervals = [
+        interval
         for interval in source_intervals
         if _intervals_touch_or_overlap(interval, visible_stop)
-        if (centroid := stop_centroid(interval, gps_points)) is not None
+    ]
+    if not relevant_intervals:
+        return None
+
+    intervals_for_centroids = {id(interval): interval for interval in relevant_intervals}
+    intervals_for_centroids.setdefault(id(visible_stop), visible_stop)
+    centroid_cache = _centroids_for_intervals(
+        intervals_for_centroids.values(),
+        gps_points,
+    )
+    centroids = [
+        centroid
+        for interval in relevant_intervals
+        if (centroid := stop_centroid(interval, gps_points, centroid_cache)) is not None
     ]
     if not centroids:
         return None
-    lat, lon = stop_centroid(visible_stop, gps_points) or (
+    lat, lon = stop_centroid(visible_stop, gps_points, centroid_cache) or (
         sum(lat for lat, _ in centroids) / len(centroids),
         sum(lon for _, lon in centroids) / len(centroids),
     )

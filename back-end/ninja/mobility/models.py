@@ -202,6 +202,35 @@ class CandidateVisit(models.Model):
         indexes = [models.Index(fields=["user", "started_at"])]
 
 
+class PlaceMiningStatus(models.Model):
+    """Read model operativo user-scoped del mining dei Luoghi Significativi."""
+
+    class Status(models.TextChoices):
+        IDLE = "IDLE", "Idle"
+        PENDING = "PENDING", "Pending"
+        RUNNING = "RUNNING", "Running"
+        SUCCEEDED = "SUCCEEDED", "Succeeded"
+        FAILED = "FAILED", "Failed"
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        related_name="place_mining_status",
+        on_delete=models.CASCADE,
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+    requested_at = models.DateTimeField(null=True, blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    error_message = models.TextField(blank=True)
+    rerun_requested = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
 class MobilitySegment(models.Model):
     """Una riga del diario: una sosta (STOP) o uno spostamento (MOVE)."""
 

@@ -99,6 +99,21 @@ class PlaceLabelIn(Schema):
     custom_name: str = ""
 
 
+class PlaceMiningStatusOut(Schema):
+    status: str
+    requested_at: datetime | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    error_message: str = ""
+    rerun_requested: bool = False
+
+
+class PlaceMutationBlockedOut(Schema):
+    detail: str
+    code: str
+    status: str
+
+
 class PlaceReviewOut(Schema):
     id: int
     lat: float

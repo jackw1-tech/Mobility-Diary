@@ -11,6 +11,26 @@ class PlaceDetailCubit extends Cubit<PlaceDetailState> {
   PlaceDetailCubit(this._service, PlaceReviewDto place)
       : super(PlaceDetailState(place: place));
 
+  Future<void> loadReviewStatus() async {
+    try {
+      final placeStatus = await _service.fetchPlacesStatus();
+      emit(
+        PlaceDetailState(
+          place: state.place,
+          canReview: placeStatus.isActionable,
+        ),
+      );
+    } catch (_) {
+      emit(
+        PlaceDetailState(
+          place: state.place,
+          canReview: state.canReview,
+          error: 'Impossibile verificare lo stato della review dei luoghi',
+        ),
+      );
+    }
+  }
+
   Future<void> confirm() => _run(() => _service.confirmPlace(state.place.id));
 
   Future<void> reject() => _run(() => _service.rejectPlace(state.place.id));
@@ -27,11 +47,36 @@ class PlaceDetailCubit extends Cubit<PlaceDetailState> {
       );
 
   Future<void> _run(Future<PlaceReviewDto> Function() action) async {
-    emit(PlaceDetailState(place: state.place, busy: true));
+    if (!state.canReview) {
+      emit(
+        PlaceDetailState(
+          place: state.place,
+          canReview: false,
+          error: 'Analisi dei luoghi abituali non completata',
+        ),
+      );
+      return;
+    }
+    emit(PlaceDetailState(
+        place: state.place, busy: true, canReview: state.canReview));
     try {
-      emit(PlaceDetailState(place: await action()));
+      emit(PlaceDetailState(place: await action(), canReview: true));
+    } on PlaceMutationBlockedException catch (error) {
+      emit(
+        PlaceDetailState(
+          place: state.place,
+          canReview: false,
+          error: error.message,
+        ),
+      );
     } catch (error) {
-      emit(PlaceDetailState(place: state.place, error: error.toString()));
+      emit(
+        PlaceDetailState(
+          place: state.place,
+          canReview: state.canReview,
+          error: error.toString(),
+        ),
+      );
     }
   }
 }

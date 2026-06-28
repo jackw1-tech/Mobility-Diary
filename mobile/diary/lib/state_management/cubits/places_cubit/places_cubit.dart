@@ -10,12 +10,15 @@ class PlacesCubit extends Cubit<PlacesCubitState> {
   Future<void> load() async {
     emit(const PlacesCubitState(status: PlacesStatus.loading));
     try {
+      final placeStatus = await _service.fetchPlacesStatus();
       final places = await _service.fetchPlaces();
       emit(
         PlacesCubitState(
-          status:
-              places.isEmpty ? PlacesStatus.empty : PlacesStatus.loaded,
+          status: places.isEmpty && placeStatus.isActionable
+              ? PlacesStatus.empty
+              : PlacesStatus.loaded,
           places: places,
+          placeStatus: placeStatus,
         ),
       );
     } catch (error) {

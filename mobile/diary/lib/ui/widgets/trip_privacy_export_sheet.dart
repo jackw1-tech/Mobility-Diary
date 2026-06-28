@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:diary/network/dto/trip_privacy_export_dto.dart';
 import 'package:diary/network/service/trip_privacy_export_service.dart';
 import 'package:diary/state_management/cubits/trip_privacy_export_cubit/trip_privacy_export_cubit.dart';
@@ -143,24 +145,57 @@ class _ReadyView extends StatelessWidget {
               ),
             ),
             const SizedBox(width: Dimensions.paddingSmall),
-            Expanded(
-              child: FilledButton.icon(
-                onPressed: () => _copyToClipboard(context, export.text),
-                icon: const Icon(Icons.copy),
-                label: const Text('Copia'),
-              ),
-            ),
+            Expanded(child: _CopyButton(text: export.text)),
           ],
         ),
       ],
     );
   }
+}
 
-  Future<void> _copyToClipboard(BuildContext context, String text) async {
-    await Clipboard.setData(ClipboardData(text: text));
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Export copiato negli appunti')),
+class _CopyButton extends StatefulWidget {
+  final String text;
+
+  const _CopyButton({required this.text});
+
+  @override
+  State<_CopyButton> createState() => _CopyButtonState();
+}
+
+class _CopyButtonState extends State<_CopyButton> {
+  bool _copied = false;
+  Timer? _resetTimer;
+
+  @override
+  void dispose() {
+    _resetTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _handleCopy() async {
+    await Clipboard.setData(ClipboardData(text: widget.text));
+    if (!mounted) return;
+    setState(() => _copied = true);
+    _resetTimer?.cancel();
+    _resetTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _copied = false);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FilledButton(
+      onPressed: _copied ? null : _handleCopy,
+      child: _copied
+          ? const Icon(Icons.check)
+          : const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.copy),
+                SizedBox(width: Dimensions.paddingSmall),
+                Text('Copia'),
+              ],
+            ),
     );
   }
 }

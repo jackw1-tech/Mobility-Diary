@@ -16,6 +16,7 @@ from mobility.models import (
     HarJob,
     MobilitySegment,
     PartKind,
+    PlaceMiningStatus,
     StateTransition,
     Trip,
     TripIngestion,
@@ -482,6 +483,11 @@ def test_process_trip_har_final_publishes_enriched_after_commit(
     with django_capture_on_commit_callbacks(execute=False) as callbacks:
         process_trip_har_final.run(job.id, ingestion.id)
 
+    status = PlaceMiningStatus.objects.get(user=user)
+    assert status.status == PlaceMiningStatus.Status.PENDING
+    assert status.requested_at is not None
+    assert status.started_at is None
+    assert status.finished_at is None
     assert published == []
     # Due callback post-commit: pubblicazione diario (prima) + mining luoghi.
     assert len(callbacks) == 2
@@ -522,8 +528,59 @@ def test_process_trip_har_final_schedules_place_mining_after_commit(
     with django_capture_on_commit_callbacks(execute=True):
         process_trip_har_final.run(job.id, ingestion.id)
 
+    status = PlaceMiningStatus.objects.get(user=user)
+    assert status.status == PlaceMiningStatus.Status.PENDING
     # Il mining dei luoghi parte dopo l'arricchimento finale, per quell'utente.
     assert mined == [user.id]
+
+
+@pytest.mark.django_db
+def test_process_trip_har_final_coalesces_place_mining_if_user_already_running(
+    user,
+    monkeypatch,
+    django_capture_on_commit_callbacks,
+):
+    start = timezone.now()
+    trip, ingestion, job = _create_har_ingestion(
+        user,
+        session_id="har-mining-coalesced",
+        start=start,
+    )
+    PlaceMiningStatus.objects.create(
+        user=user,
+        status=PlaceMiningStatus.Status.RUNNING,
+        requested_at=start - timedelta(minutes=10),
+        started_at=start - timedelta(minutes=9),
+    )
+    raw = gzip.compress(json.dumps(_sensor_part_payload(start)).encode("utf-8"))
+    published = []
+
+    def fake_pipeline(trip, *, sensor_windows):
+        trip.status = Trip.Status.PROCESSED
+        trip.save(update_fields=["status", "updated_at"])
+        return {"segments": 0}
+
+    monkeypatch.setattr(storage, "read_object", lambda object_key: raw)
+    monkeypatch.setattr("mobility.tasks.run_pipeline", fake_pipeline)
+    monkeypatch.setattr(
+        "mobility.diary_events.publish_diary_status",
+        lambda *args, **kwargs: published.append((args, kwargs)),
+    )
+    monkeypatch.setattr(
+        "mobility.tasks.mine_significant_places.delay",
+        lambda user_id: pytest.fail("non deve schedulare subito una seconda run"),
+    )
+
+    with django_capture_on_commit_callbacks(execute=False) as callbacks:
+        process_trip_har_final.run(job.id, ingestion.id)
+
+    status = PlaceMiningStatus.objects.get(user=user)
+    assert status.status == PlaceMiningStatus.Status.RUNNING
+    assert status.rerun_requested is True
+    assert published == []
+    assert len(callbacks) == 1
+    callbacks[0]()
+    assert published == [((trip.id, "enriched"), {"reason": None})]
 
 
 @pytest.mark.django_db

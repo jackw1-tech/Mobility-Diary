@@ -143,4 +143,37 @@ _Avoid_: Raw track, HAR route, sync completion
 Aggregated user-facing measures derived from the Segmenti di Mobilita of one
 Viaggio, such as time by activity, stopped time, movement time, distance, and
 visited significant places.
-_Avoid_: Stored metrics, classifier report, backend analytics
+_Avoid_: Stored metrics, classifier report, single-trip analytics
+
+**Analitiche Personali**:
+The owner-facing surface that aggregates the user's mobility across many Viaggi
+into recent trends and lifetime habits: time by Categoria di Mobilita, a Mappa
+di Frequentazione, distances, prevalent mobility mode, and Percorsi Frequenti.
+Distinct from the per-Viaggio Statistiche del Viaggio.
+_Avoid_: Statistiche del Viaggio, staff dashboard, report, single-trip stats
+
+**Categoria di Mobilità**:
+A user-facing bucket for time spent, derived one-to-one from an Etichetta di
+Attivita: Fermo (idle), A piedi (walking), Corsa (running), In bici (biking), In
+auto (moving vehicle). "In movimento" is not a bucket but the derived total of
+the non-Fermo categories.
+_Avoid_: Activity label, transport type, movement flag
+
+**Finestra Analitica**:
+The fixed rolling window that scopes the recent-trend parts of the Analitiche
+Personali, selectable between Giorno (last 7 days, daily buckets) and Settimana
+(last 8 weeks, weekly buckets). It scopes only the time-by-category trend and its
+distances; the Mappa di Frequentazione, Percorsi Frequenti, and prevalent mode
+stay cumulative over all history.
+_Avoid_: Date range, filter, reporting period
+
+**Mappa di Frequentazione**:
+The heatmap inside the Analitiche Personali that weights the user's Luoghi
+Significativi by how often they are visited, over all history.
+_Avoid_: Raw GPS heatmap, trajectory map, live map
+
+**Percorso Frequente**:
+A recurring origin→destination habit expressed as an ordered pair of Luoghi
+Significativi, counted by the number of Viaggi that started near the origin and
+ended near the destination. It is not a geometric trajectory shape.
+_Avoid_: Trajectory, polyline cluster, route geometry, single-trip path

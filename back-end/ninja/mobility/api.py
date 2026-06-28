@@ -9,7 +9,9 @@ from django.shortcuts import aget_object_or_404, get_object_or_404
 from django.utils import timezone
 from ninja import Router
 from ninja.errors import HttpError
+from ninja.responses import Status
 
+from accounts.schemas import MessageOut
 from accounts.auth import mobile_bearer_auth
 from accounts.models import UserPrivacySettings
 
@@ -28,6 +30,7 @@ from .models import (
     HabitualPlace,
     HarJob,
     MobilitySegment,
+    PlaceMiningStatus,
     SensorWindow,
     StateTransition,
     Trip,
@@ -51,6 +54,8 @@ from .schemas import (
     HarJobOut,
     HealthOut,
     PlaceLabelIn,
+    PlaceMiningStatusOut,
+    PlaceMutationBlockedOut,
     PlaceOut,
     PlaceReviewOut,
     PlaceVisitOut,
@@ -71,6 +76,7 @@ router = Router(tags=["mobility"])
 
 _TRIP_EVENT_MAX_SECONDS = 300
 NEUTRAL_VISIBLE_STOP_TITLE = "Sosta rilevata"
+_PLACE_REVIEW_RESPONSES = {200: PlaceReviewOut, 409: PlaceMutationBlockedOut}
 
 
 @router.get("/health", response=HealthOut)
@@ -263,6 +269,47 @@ def _place_review_out(place) -> PlaceReviewOut:
     )
 
 
+def _place_mining_status_out(user_id: int) -> PlaceMiningStatusOut:
+    row = (
+        PlaceMiningStatus.objects.filter(user_id=user_id)
+        .values(
+            "status",
+            "requested_at",
+            "started_at",
+            "finished_at",
+            "error_message",
+            "rerun_requested",
+        )
+        .first()
+    )
+    return PlaceMiningStatusOut(
+        **(
+            row
+            or {
+                "status": PlaceMiningStatus.Status.IDLE,
+                "error_message": "",
+                "rerun_requested": False,
+            }
+        )
+    )
+
+
+def _place_mutation_block(user_id: int) -> PlaceMutationBlockedOut | None:
+    status = (
+        PlaceMiningStatus.objects.filter(user_id=user_id)
+        .values_list("status", flat=True)
+        .first()
+        or PlaceMiningStatus.Status.IDLE
+    )
+    if status == PlaceMiningStatus.Status.SUCCEEDED:
+        return None
+    return PlaceMutationBlockedOut(
+        detail="analisi dei luoghi abituali non completata",
+        code="place_mining_not_ready",
+        status=status,
+    )
+
+
 @router.get("/places", response=list[PlaceReviewOut], auth=mobile_bearer_auth)
 def list_places(request):
     """Luoghi user-scoped per la review mobile, con evidenza di mappa.
@@ -276,6 +323,11 @@ def list_places(request):
         .order_by("state", "-visit_count")
     )
     return [_place_review_out(place) for place in places]
+
+
+@router.get("/places/status", response=PlaceMiningStatusOut, auth=mobile_bearer_auth)
+def get_places_status(request):
+    return _place_mining_status_out(request.auth.user_id)
 
 
 _VALID_PLACE_CATEGORIES = {choice.value for choice in HabitualPlace.Category}
@@ -292,36 +344,60 @@ def _save_review(place: HabitualPlace, fields: list[str]) -> PlaceReviewOut:
     return _place_review_out(place)
 
 
-@router.post("/places/{place_id}/confirm", response=PlaceReviewOut, auth=mobile_bearer_auth)
+@router.post(
+    "/places/{place_id}/confirm",
+    response=_PLACE_REVIEW_RESPONSES,
+    auth=mobile_bearer_auth,
+)
 def confirm_place(request, place_id: int):
     place = _owned_place(request, place_id)
+    if blocked := _place_mutation_block(request.auth.user_id):
+        return Status(409, blocked)
     place.state = HabitualPlace.State.CONFIRMED
     place.manually_reviewed = True
     return _save_review(place, ["state", "manually_reviewed"])
 
 
-@router.post("/places/{place_id}/reject", response=PlaceReviewOut, auth=mobile_bearer_auth)
+@router.post(
+    "/places/{place_id}/reject",
+    response=_PLACE_REVIEW_RESPONSES,
+    auth=mobile_bearer_auth,
+)
 def reject_place(request, place_id: int):
     place = _owned_place(request, place_id)
+    if blocked := _place_mutation_block(request.auth.user_id):
+        return Status(409, blocked)
     place.state = HabitualPlace.State.REJECTED
     place.manually_reviewed = True
     return _save_review(place, ["state", "manually_reviewed"])
 
 
-@router.post("/places/{place_id}/reactivate", response=PlaceReviewOut, auth=mobile_bearer_auth)
+@router.post(
+    "/places/{place_id}/reactivate",
+    response=_PLACE_REVIEW_RESPONSES,
+    auth=mobile_bearer_auth,
+)
 def reactivate_place(request, place_id: int):
     """Riattiva un luogo rifiutato: torna candidato e rientra nel flusso automatico."""
     place = _owned_place(request, place_id)
+    if blocked := _place_mutation_block(request.auth.user_id):
+        return Status(409, blocked)
     place.state = HabitualPlace.State.CANDIDATE
     place.manually_reviewed = False
     return _save_review(place, ["state", "manually_reviewed"])
 
 
-@router.post("/places/{place_id}/label", response=PlaceReviewOut, auth=mobile_bearer_auth)
+@router.post(
+    "/places/{place_id}/label",
+    response={**_PLACE_REVIEW_RESPONSES, 422: MessageOut},
+    auth=mobile_bearer_auth,
+)
 def label_place(request, place_id: int, payload: PlaceLabelIn):
     if payload.category and payload.category not in _VALID_PLACE_CATEGORIES:
         raise HttpError(422, "categoria non valida")
     place = _owned_place(request, place_id)
+    if blocked := _place_mutation_block(request.auth.user_id):
+        return Status(409, blocked)
     place.category = payload.category
     place.custom_name = payload.custom_name
     place.manually_reviewed = True
@@ -375,30 +451,45 @@ def _export_segment(segment, *, level: str, stop_title: str) -> PrivacyExportSeg
     )
 
 
-def _export_text(trip: Trip, *, level: str, segments: list[PrivacyExportSegmentOut]) -> str:
-    cell_size = privacy_cell_size_meters(level)
-    approximated = cell_size is not None
-    lines = [f"Diario viaggio #{trip.id}", f"Privacy level: {level}"]
-    if approximated:
-        lines.append(f"Cell size: {cell_size} m")
-        lines.append("Coordinate approssimate: non sono letture GPS originali.")
-    else:
-        lines.append("Esportazione NON protetta: adatta solo a destinatari fidati.")
-    lines.append("")
+_ACTIVITY_LABELS_IT = {
+    "WALKING": "a piedi",
+    "RUNNING": "di corsa",
+    "BIKING": "in bici",
+    "MOVING_VEHICLE": "in veicolo",
+    "IDLE": "fermo",
+}
 
-    for segment in segments:
-        lines.append(f"{segment.start_label}-{segment.end_label} {segment.title}")
-        if segment.kind != MobilitySegment.Kind.MOVE:
-            continue
-        if approximated:
-            lines.append(f"  Privacy-aware path: {segment.point_count} approximated points")
+
+def _activity_label_it(activity_label: str) -> str:
+    return _ACTIVITY_LABELS_IT.get(activity_label, activity_label.lower())
+
+
+def _adjacent_stop_title(
+    segments: list[PrivacyExportSegmentOut], index: int, *, step: int
+) -> str | None:
+    neighbour_index = index + step
+    if not 0 <= neighbour_index < len(segments):
+        return None
+    neighbour = segments[neighbour_index]
+    return neighbour.title if neighbour.kind == MobilitySegment.Kind.STOP else None
+
+
+def _export_text(segments: list[PrivacyExportSegmentOut]) -> str:
+    # Le etichette privacy-aware delle soste arrivano gia' filtrate da _export_segment.
+    lines = []
+    for index, segment in enumerate(segments):
+        time_range = f"{segment.start_label}–{segment.end_label}"
+        if segment.kind == MobilitySegment.Kind.MOVE:
+            from_title = _adjacent_stop_title(segments, index, step=-1)
+            to_title = _adjacent_stop_title(segments, index, step=1)
+            activity = _activity_label_it(segment.activity_label)
+            if from_title and to_title:
+                description = f"spostamento da {from_title} a {to_title}, modalita' prevalente: {activity}"
+            else:
+                description = f"spostamento {activity}"
         else:
-            lines.append(f"  Path: {segment.point_count} points")
-        if segment.coordinates:
-            rendered = " ".join(
-                f"[{lon}, {lat}]" for lon, lat in segment.coordinates
-            )
-            lines.append(f"    {rendered}")
+            description = f"permanenza in {segment.title}"
+        lines.append(f"{time_range}, {description}")
     return "\n".join(lines)
 
 
@@ -453,7 +544,7 @@ def get_trip_privacy_export(request, trip_id: int):
         protected=level != UserPrivacySettings.Level.PRECISE,
         approximated_coordinates=privacy_cell_size_meters(level) is not None,
         cell_size_meters=privacy_cell_size_meters(level),
-        text=_export_text(trip, level=level, segments=segments),
+        text=_export_text(segments),
         segments=segments,
     )
 

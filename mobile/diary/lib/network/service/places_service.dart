@@ -2,10 +2,12 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:diary/features/acquisition/sync/trip_ingestion_api.dart';
+import 'package:diary/network/dto/place_mining_status_dto.dart';
 import 'package:diary/network/dto/place_review_dto.dart';
 import 'package:diary/other/contants/api_contants.dart';
 
 abstract class PlacesService {
+  Future<PlaceMiningStatusDto> fetchPlacesStatus();
   Future<List<PlaceReviewDto>> fetchPlaces();
   Future<PlaceReviewDto> confirmPlace(int id);
   Future<PlaceReviewDto> rejectPlace(int id);
@@ -14,6 +16,16 @@ abstract class PlacesService {
     int id, {
     required String category,
     required String customName,
+  });
+}
+
+class PlaceMutationBlockedException extends IngestionApiException {
+  final PlaceMiningStatusDto placeStatus;
+
+  const PlaceMutationBlockedException(
+    super.message, {
+    required this.placeStatus,
+    super.statusCode,
   });
 }
 
@@ -26,6 +38,15 @@ class PlacesHttpService implements PlacesService {
     HttpClient? client,
   })  : _tokenProvider = tokenProvider,
         _client = client ?? HttpClient();
+
+  @override
+  Future<PlaceMiningStatusDto> fetchPlacesStatus() async {
+    final data = await _send('GET', '/mobility/places/status');
+    if (data is! Map) {
+      throw const IngestionApiException('Stato luoghi non valido');
+    }
+    return PlaceMiningStatusDto.fromJson(Map<String, dynamic>.from(data));
+  }
 
   @override
   Future<List<PlaceReviewDto>> fetchPlaces() async {
@@ -94,6 +115,8 @@ class PlacesHttpService implements PlacesService {
     final responseBody = await response.transform(utf8.decoder).join();
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
+      final blocked = _extractBlocked(response.statusCode, responseBody);
+      if (blocked != null) throw blocked;
       final detail = _extractDetail(responseBody);
       throw IngestionApiException(
         detail ?? 'Richiesta luoghi fallita (HTTP ${response.statusCode})',
@@ -118,6 +141,20 @@ class PlacesHttpService implements PlacesService {
       return decoded['detail'] as String;
     }
     return null;
+  }
+
+  PlaceMutationBlockedException? _extractBlocked(int statusCode, String body) {
+    final decoded = _tryDecode(body);
+    if (statusCode != 409 || decoded is! Map) return null;
+    if (decoded['code'] != 'place_mining_not_ready') return null;
+    final status = decoded['status'] as String?;
+    if (status == null || status.isEmpty) return null;
+    return PlaceMutationBlockedException(
+      (decoded['detail'] as String?) ??
+          'Analisi dei luoghi abituali non completata',
+      placeStatus: PlaceMiningStatusDto(status: status),
+      statusCode: statusCode,
+    );
   }
 
   Uri _uri(String path) {

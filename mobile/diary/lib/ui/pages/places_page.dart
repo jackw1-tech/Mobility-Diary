@@ -56,6 +56,12 @@ class _PlacesBody extends StatelessWidget {
               child: ListView(
                 padding: const EdgeInsets.all(Dimensions.paddingMedium),
                 children: [
+                  if (state.placeStatus != null && !state.canReview)
+                    _PlaceMiningBanner(
+                      statusText: placeMiningStatusTitle(state.placeStatus!),
+                      message: placeMiningStatusMessage(state.placeStatus!),
+                      onRefresh: () => context.read<PlacesCubit>().load(),
+                    ),
                   _PlaceSection(title: 'Confermati', places: state.confirmed),
                   _PlaceSection(title: 'Candidati', places: state.candidates),
                   _PlaceSection(title: 'Rifiutati', places: state.rejected),
@@ -64,6 +70,48 @@ class _PlacesBody extends StatelessWidget {
             );
         }
       },
+    );
+  }
+}
+
+class _PlaceMiningBanner extends StatelessWidget {
+  final String statusText;
+  final String message;
+  final VoidCallback onRefresh;
+
+  const _PlaceMiningBanner({
+    required this.statusText,
+    required this.message,
+    required this.onRefresh,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: Dimensions.paddingMedium),
+      color: ColorPalette.warning.withValues(alpha: 0.14),
+      child: Padding(
+        padding: const EdgeInsets.all(Dimensions.paddingMedium),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              statusText,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+            const SizedBox(height: Dimensions.paddingSmall),
+            Text(message),
+            const SizedBox(height: Dimensions.paddingMedium),
+            OutlinedButton.icon(
+              onPressed: onRefresh,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Aggiorna stato'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -81,7 +129,8 @@ class _PlaceSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.symmetric(vertical: Dimensions.paddingSmall),
+          padding:
+              const EdgeInsets.symmetric(vertical: Dimensions.paddingSmall),
           child: Text(
             '$title (${places.length})',
             style: Theme.of(context).textTheme.titleMedium?.copyWith(

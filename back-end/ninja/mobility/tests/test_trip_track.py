@@ -20,6 +20,7 @@ from mobility.models import (
     HabitualPlace,
     MobilitySegment,
     PartKind,
+    PlaceMiningStatus,
     StateTransition,
     Trip,
     TripIngestion,
@@ -740,11 +741,56 @@ def test_places_endpoint_uses_neutral_label_for_unlabeled_confirmed(user):
 
 
 @pytest.mark.django_db
+def test_places_status_endpoint_returns_idle_without_record(user):
+    response = Client().get("/api/mobility/places/status", **auth_headers(user))
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": PlaceMiningStatus.Status.IDLE,
+        "requested_at": None,
+        "started_at": None,
+        "finished_at": None,
+        "error_message": "",
+        "rerun_requested": False,
+    }
+
+
+@pytest.mark.django_db
+def test_places_status_endpoint_returns_persisted_state(user):
+    status = PlaceMiningStatus.objects.create(
+        user=user,
+        status=PlaceMiningStatus.Status.FAILED,
+        requested_at=timezone.now() - timedelta(minutes=5),
+        started_at=timezone.now() - timedelta(minutes=4),
+        finished_at=timezone.now() - timedelta(minutes=3),
+        error_message="boom",
+        rerun_requested=True,
+    )
+
+    response = Client().get("/api/mobility/places/status", **auth_headers(user))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == PlaceMiningStatus.Status.FAILED
+    assert body["error_message"] == "boom"
+    assert body["rerun_requested"] is True
+    assert body["requested_at"] is not None
+    assert body["started_at"] is not None
+    assert body["finished_at"] is not None
+    status.refresh_from_db()
+    assert status.status == PlaceMiningStatus.Status.FAILED
+
+
+@pytest.mark.django_db
 def test_place_actions_confirm_reject_reactivate_and_label(user):
     place = HabitualPlace.objects.create(
         user=user,
         center=Point(9.19, 45.46, srid=4326),
         state=HabitualPlace.State.CANDIDATE,
+    )
+    PlaceMiningStatus.objects.create(
+        user=user,
+        status=PlaceMiningStatus.Status.SUCCEEDED,
     )
     headers = auth_headers(user)
 
@@ -773,6 +819,61 @@ def test_place_actions_confirm_reject_reactivate_and_label(user):
     place.refresh_from_db()
     assert place.manually_reviewed is True
     assert place.category == "universita"
+
+
+@pytest.mark.django_db
+def test_place_actions_are_blocked_when_place_mining_is_not_ready(user):
+    place = HabitualPlace.objects.create(
+        user=user, center=Point(9.19, 45.46, srid=4326)
+    )
+    PlaceMiningStatus.objects.create(
+        user=user,
+        status=PlaceMiningStatus.Status.PENDING,
+    )
+    headers = auth_headers(user)
+
+    endpoints = [
+        (f"/api/mobility/places/{place.id}/confirm", None, None),
+        (f"/api/mobility/places/{place.id}/reject", None, None),
+        (f"/api/mobility/places/{place.id}/reactivate", None, None),
+        (
+            f"/api/mobility/places/{place.id}/label",
+            json.dumps({"category": "universita", "custom_name": "Bicocca"}),
+            "application/json",
+        ),
+    ]
+
+    client = Client()
+    for path, data, content_type in endpoints:
+        kwargs = {"data": data, **headers}
+        if content_type is not None:
+            kwargs["content_type"] = content_type
+        response = client.post(path, **kwargs)
+        assert response.status_code == 409
+        assert response.json() == {
+            "detail": "analisi dei luoghi abituali non completata",
+            "code": "place_mining_not_ready",
+            "status": PlaceMiningStatus.Status.PENDING,
+        }
+
+
+@pytest.mark.django_db
+def test_place_actions_are_blocked_without_status_record(user):
+    place = HabitualPlace.objects.create(
+        user=user, center=Point(9.19, 45.46, srid=4326)
+    )
+
+    response = Client().post(
+        f"/api/mobility/places/{place.id}/confirm",
+        **auth_headers(user),
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": "analisi dei luoghi abituali non completata",
+        "code": "place_mining_not_ready",
+        "status": PlaceMiningStatus.Status.IDLE,
+    }
 
 
 @pytest.mark.django_db

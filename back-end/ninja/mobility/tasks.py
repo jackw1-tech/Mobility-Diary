@@ -20,6 +20,7 @@ from .models import (
     GpsPoint,
     HarJob,
     PartKind,
+    PlaceMiningStatus,
     StateTransition,
     Trip,
     TripIngestion,
@@ -42,22 +43,174 @@ RAW_CLAIMABLE_STATUSES = {
     TripIngestion.PhaseStatus.QUEUED,
     TripIngestion.PhaseStatus.FAILED_RETRYABLE,
 }
+_PLACE_MINING_PENDING_FIELDS = [
+    "status",
+    "requested_at",
+    "started_at",
+    "finished_at",
+    "error_message",
+    "rerun_requested",
+]
 
 
 def _skip_result(phase: str, status: str) -> dict:
     return {"skipped": f"{phase} ingestion is {status}"}
 
 
-@shared_task
-def mine_significant_places(user_id: int) -> dict:
+def _place_mining_status_for_update(user_id: int) -> PlaceMiningStatus:
+    status, _ = PlaceMiningStatus.objects.get_or_create(
+        user_id=user_id,
+        defaults={
+            "status": PlaceMiningStatus.Status.IDLE,
+            "requested_at": timezone.now(),
+        },
+    )
+    return PlaceMiningStatus.objects.select_for_update().get(pk=status.pk)
+
+
+def _save_place_mining_status(status: PlaceMiningStatus, *fields: str) -> None:
+    status.save(update_fields=[*fields, "updated_at"])
+
+
+def _set_place_mining_pending(
+    status: PlaceMiningStatus,
+    *,
+    requested_at,
+    rerun_requested: bool,
+    error_message: str = "",
+) -> None:
+    status.status = PlaceMiningStatus.Status.PENDING
+    status.requested_at = requested_at
+    status.started_at = None
+    status.finished_at = None
+    status.error_message = error_message
+    status.rerun_requested = rerun_requested
+    _save_place_mining_status(status, *_PLACE_MINING_PENDING_FIELDS)
+
+
+def _request_place_mining(user_id: int | None) -> bool:
+    """Ritorna True solo quando va davvero accodata una nuova run."""
+    if user_id is None:
+        return False
+    with transaction.atomic():
+        status = _place_mining_status_for_update(user_id)
+        now = timezone.now()
+        if status.status in {
+            PlaceMiningStatus.Status.PENDING,
+            PlaceMiningStatus.Status.RUNNING,
+        }:
+            status.requested_at = now
+            status.rerun_requested = True
+            _save_place_mining_status(status, "requested_at", "rerun_requested")
+            return False
+        _set_place_mining_pending(
+            status,
+            requested_at=now,
+            rerun_requested=False,
+        )
+        return True
+
+
+def _begin_place_mining_run(user_id: int) -> bool:
+    with transaction.atomic():
+        status = _place_mining_status_for_update(user_id)
+        if status.status != PlaceMiningStatus.Status.PENDING:
+            return False
+        status.status = PlaceMiningStatus.Status.RUNNING
+        status.started_at = timezone.now()
+        status.finished_at = None
+        status.error_message = ""
+        _save_place_mining_status(
+            status,
+            "status",
+            "started_at",
+            "finished_at",
+            "error_message",
+        )
+        return True
+
+
+def _finish_place_mining_run(
+    user_id: int,
+    *,
+    status_value: str,
+    error_message: str = "",
+) -> bool:
+    """Chiude la run corrente e ritorna True se va schedulato un follow-up."""
+    with transaction.atomic():
+        status = _place_mining_status_for_update(user_id)
+        if status.rerun_requested:
+            _set_place_mining_pending(
+                status,
+                requested_at=timezone.now(),
+                rerun_requested=False,
+            )
+            return True
+        status.status = status_value
+        status.finished_at = timezone.now()
+        status.error_message = error_message
+        status.rerun_requested = False
+        _save_place_mining_status(
+            status,
+            "status",
+            "finished_at",
+            "error_message",
+            "rerun_requested",
+        )
+        return False
+
+
+def _mark_place_mining_retryable(user_id: int | None, exc: Exception) -> None:
+    if user_id is None:
+        return
+    with transaction.atomic():
+        status = _place_mining_status_for_update(user_id)
+        _set_place_mining_pending(
+            status,
+            requested_at=status.requested_at or timezone.now(),
+            rerun_requested=status.rerun_requested,
+            error_message=str(exc),
+        )
+
+
+@shared_task(bind=True, max_retries=3, retry_backoff=True)
+def mine_significant_places(self, user_id: int) -> dict:
     """Riconoscimento dei Luoghi Significativi user-scoped (passo finale async)."""
-    return mine_user_significant_places(user_id)
+    if not _begin_place_mining_run(user_id):
+        return {"skipped": "place mining not pending"}
+    try:
+        result = mine_user_significant_places(user_id)
+    except Exception as exc:  # noqa: BLE001
+        will_retry = self.request.retries < self.max_retries
+        if will_retry:
+            _mark_place_mining_retryable(user_id, exc)
+            raise self.retry(exc=exc)
+        if _finish_place_mining_run(
+            user_id,
+            status_value=PlaceMiningStatus.Status.FAILED,
+            error_message=str(exc),
+        ):
+            _schedule_place_mining(user_id)
+        raise
+    if _finish_place_mining_run(
+        user_id,
+        status_value=PlaceMiningStatus.Status.SUCCEEDED,
+    ):
+        _schedule_place_mining(user_id)
+    return result
 
 
 def _schedule_place_mining(user_id: int | None) -> None:
     """Accoda il mining dei luoghi dopo il commit dell'arricchimento (ADR 0020)."""
     if user_id is not None:
         transaction.on_commit(lambda: mine_significant_places.delay(user_id))
+
+
+def _after_har_success(trip: Trip) -> None:
+    should_schedule = _request_place_mining(trip.user_id)
+    publish_diary_status_on_commit(trip.id, DIARY_STATUS_ENRICHED)
+    if should_schedule:
+        _schedule_place_mining(trip.user_id)
 
 
 @shared_task(bind=True)
@@ -87,8 +240,7 @@ def process_trip_har(self, job_id: int) -> dict:
     job.status = HarJob.Status.SUCCESS
     job.result = result
     job.save(update_fields=["status", "result", "updated_at"])
-    publish_diary_status_on_commit(trip.id, DIARY_STATUS_ENRICHED)
-    _schedule_place_mining(trip.user_id)
+    _after_har_success(trip)
     return result
 
 
@@ -427,8 +579,7 @@ def process_trip_har_final(self, job_id: int, ingestion_id: int) -> dict:
             job.result = result
             job.error = ""
             job.save(update_fields=["status", "result", "error", "updated_at"])
-            publish_diary_status_on_commit(trip.id, DIARY_STATUS_ENRICHED)
-            _schedule_place_mining(trip.user_id)
+            _after_har_success(trip)
     except InvalidRawSensorPayload as exc:
         ingestion.raw_status = TripIngestion.PhaseStatus.FAILED_FINAL
         ingestion.error_message = str(exc)

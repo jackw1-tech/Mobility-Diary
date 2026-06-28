@@ -1,3 +1,4 @@
+import 'package:diary/network/dto/place_mining_status_dto.dart';
 import 'package:diary/network/dto/place_review_dto.dart';
 import 'package:diary/network/service/places_service.dart';
 import 'package:diary/state_management/cubits/places_cubit/places_cubit.dart';
@@ -5,8 +6,13 @@ import 'package:diary/state_management/cubits/places_cubit/places_cubit_state.da
 import 'package:flutter_test/flutter_test.dart';
 
 class FakePlacesService implements PlacesService {
+  PlaceMiningStatusDto statusResult =
+      const PlaceMiningStatusDto(status: 'SUCCEEDED');
   List<PlaceReviewDto>? result;
   Object? error;
+
+  @override
+  Future<PlaceMiningStatusDto> fetchPlacesStatus() async => statusResult;
 
   @override
   Future<List<PlaceReviewDto>> fetchPlaces() async {
@@ -74,6 +80,20 @@ void main() {
       await cubit.load();
 
       expect(cubit.state.status, PlacesStatus.empty);
+    });
+
+    test('keeps the screen loaded when mining is still pending', () async {
+      final service = FakePlacesService()
+        ..statusResult = const PlaceMiningStatusDto(status: 'PENDING')
+        ..result = const [];
+      final cubit = PlacesCubit(service);
+      addTearDown(cubit.close);
+
+      await cubit.load();
+
+      expect(cubit.state.status, PlacesStatus.loaded);
+      expect(cubit.state.canReview, isFalse);
+      expect(cubit.state.placeStatus?.status, 'PENDING');
     });
 
     test('emits error when service fails', () async {

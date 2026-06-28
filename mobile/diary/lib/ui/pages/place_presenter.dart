@@ -1,3 +1,4 @@
+import 'package:diary/network/dto/place_mining_status_dto.dart';
 import 'package:diary/network/dto/place_review_dto.dart';
 import 'package:diary/theme/color_palette.dart';
 import 'package:flutter/material.dart';
@@ -66,4 +67,27 @@ const List<String> placeCategories = [
 String placeCategoryLabel(String category) {
   if (category.isEmpty) return '';
   return category[0].toUpperCase() + category.substring(1);
+}
+
+String placeMiningStatusTitle(PlaceMiningStatusDto status) {
+  if (status.isRunning) return 'Analisi dei luoghi in corso';
+  if (status.isPending) return 'Analisi dei luoghi in attesa';
+  if (status.isFailed) return 'Analisi dei luoghi non completata';
+  return 'Luoghi aggiornati';
+}
+
+String placeMiningStatusMessage(PlaceMiningStatusDto status) {
+  if (status.isRunning) {
+    return 'Puoi leggere l’ultimo snapshot salvato, ma le azioni di review restano bloccate finche\' il ricalcolo non finisce.';
+  }
+  if (status.isPending) {
+    return 'Il ricalcolo dei luoghi e\' stato richiesto. Puoi aggiornare manualmente questa schermata per verificare quando sara\' pronto.';
+  }
+  if (status.isFailed) {
+    final suffix = status.errorMessage.isEmpty
+        ? ''
+        : ' Dettaglio: ${status.errorMessage}.';
+    return 'L’ultimo ricalcolo non e\' andato a buon fine e la review resta bloccata finche\' non verra\' eseguita una nuova analisi.$suffix';
+  }
+  return '';
 }

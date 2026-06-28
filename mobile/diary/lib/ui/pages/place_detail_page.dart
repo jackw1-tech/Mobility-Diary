@@ -22,7 +22,8 @@ class PlaceDetailPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocProvider(
       create: (context) =>
-          PlaceDetailCubit(context.read<PlacesService>(), place),
+          PlaceDetailCubit(context.read<PlacesService>(), place)
+            ..loadReviewStatus(),
       child: const _PlaceDetailView(),
     );
   }
@@ -199,43 +200,65 @@ class _PlaceActionBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final cubit = context.read<PlaceDetailCubit>();
     final place = state.place;
+    if (state.busy) {
+      return const SafeArea(
+        top: false,
+        child: Padding(
+          padding: EdgeInsets.all(Dimensions.paddingMedium),
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      );
+    }
+    if (!state.canReview) {
+      return SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.all(Dimensions.paddingMedium),
+          child: Text(
+            'Review temporaneamente bloccata: l’analisi dei luoghi non e\' ancora pronta.',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: ColorPalette.textSecondary,
+                ),
+          ),
+        ),
+      );
+    }
     return SafeArea(
       top: false,
       child: Padding(
         padding: const EdgeInsets.all(Dimensions.paddingMedium),
-        child: state.busy
-            ? const Center(child: CircularProgressIndicator())
-            : Wrap(
-                spacing: Dimensions.paddingSmall,
-                runSpacing: Dimensions.paddingSmall,
-                alignment: WrapAlignment.center,
-                children: [
-                  if (!place.isConfirmed && !place.isRejected)
-                    FilledButton.icon(
-                      onPressed: cubit.confirm,
-                      icon: const Icon(Icons.check),
-                      label: const Text('Conferma'),
-                    ),
-                  if (place.isRejected)
-                    FilledButton.icon(
-                      onPressed: cubit.reactivate,
-                      icon: const Icon(Icons.undo),
-                      label: const Text('Riattiva'),
-                    ),
-                  if (!place.isRejected)
-                    OutlinedButton.icon(
-                      onPressed: cubit.reject,
-                      icon: const Icon(Icons.block),
-                      label: const Text('Rifiuta'),
-                    ),
-                  if (!place.isRejected)
-                    OutlinedButton.icon(
-                      onPressed: () => _openLabelDialog(context, cubit, place),
-                      icon: const Icon(Icons.label_outline),
-                      label: const Text('Etichetta'),
-                    ),
-                ],
+        child: Wrap(
+          spacing: Dimensions.paddingSmall,
+          runSpacing: Dimensions.paddingSmall,
+          alignment: WrapAlignment.center,
+          children: [
+            if (!place.isConfirmed && !place.isRejected)
+              FilledButton.icon(
+                onPressed: cubit.confirm,
+                icon: const Icon(Icons.check),
+                label: const Text('Conferma'),
               ),
+            if (place.isRejected)
+              FilledButton.icon(
+                onPressed: cubit.reactivate,
+                icon: const Icon(Icons.undo),
+                label: const Text('Riattiva'),
+              ),
+            if (!place.isRejected)
+              OutlinedButton.icon(
+                onPressed: cubit.reject,
+                icon: const Icon(Icons.block),
+                label: const Text('Rifiuta'),
+              ),
+            if (!place.isRejected)
+              OutlinedButton.icon(
+                onPressed: () => _openLabelDialog(context, cubit, place),
+                icon: const Icon(Icons.label_outline),
+                label: const Text('Etichetta'),
+              ),
+          ],
+        ),
       ),
     );
   }
