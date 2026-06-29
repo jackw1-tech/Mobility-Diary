@@ -36,3 +36,21 @@ endpoint stays user-scoped.
 ## Blocked by
 
 - .scratch/personal-analytics/issues/01-analitiche-personali-walking-skeleton.md
+
+## Comments
+
+Implemented (local, no GitHub).
+
+Backend: `GET /mobility/analytics` now fills `heatmap` with the user's CONFIRMED
+Luoghi Significativi as `{lat, lon, weight}`, weight = `visit_count`, cumulative
+over all history and independent of the granularity toggle. HTTP-seam tests cover
+the visit-count weight, exclusion of non-confirmed (candidate/rejected) places,
+and user scoping.
+
+Mobile: pure `buildAnalyticsHeatmap` presenter exposes the points, `maxWeight`
+(for normalised intensity), and an `isEmpty` flag. A dedicated, non-interactive
+`AnalyticsHeatmapMap` widget renders a weighted Mapbox `HeatmapLayer` over a
+`GeoJsonSource` and fits the camera to the points; isolated in its own file to
+keep the Mapbox import off the fl_chart-heavy page. The "Luoghi piu' frequentati"
+section shows the map or a `_SectionEmpty` message when there are no places.
+Presenter-seam tests cover point mapping, max weight, and the empty flag.

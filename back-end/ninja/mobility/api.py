@@ -1,5 +1,10 @@
 import asyncio
 import json
+import math
+from collections import Counter, defaultdict
+from datetime import datetime, time, timedelta
+from datetime import timezone as dt_timezone
+from zoneinfo import ZoneInfo
 
 from django.contrib.gis.db.models.functions import AsGeoJSON, Length
 from django.contrib.gis.geos import Point
@@ -49,6 +54,11 @@ from .privacy import (
     privacy_cell_size_meters,
 )
 from .schemas import (
+    AnalyticsBucketOut,
+    AnalyticsCategorySliceOut,
+    AnalyticsHeatPointOut,
+    AnalyticsOut,
+    AnalyticsRouteOut,
     DiaryOut,
     GpsPointBatchIn,
     HarJobOut,
@@ -694,4 +704,183 @@ def get_trip_track(request, trip_id: int):
         geojson=json.loads(row["track_geojson"])
         if row["track_geojson"] is not None
         else None,
+    )
+
+
+# Categoria di Mobilita: mappatura 1-a-1 dalla Etichetta di Attivita.
+_CATEGORY_BY_ACTIVITY = {
+    "IDLE": "fermo",
+    "WALKING": "a_piedi",
+    "RUNNING": "corsa",
+    "BIKING": "in_bici",
+    "MOVING_VEHICLE": "in_auto",
+}
+_MOBILITY_CATEGORIES = ["fermo", "a_piedi", "corsa", "in_bici", "in_auto"]
+_ITALIAN_WEEKDAYS = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"]
+
+
+def _analytics_zone(tz: str):
+    """Fuso per il bucketing: offset firmato in minuti (dal mobile), nome IANA, o UTC."""
+    try:
+        return dt_timezone(timedelta(minutes=int(tz)))
+    except ValueError:
+        pass
+    try:
+        return ZoneInfo(tz)
+    except Exception:  # noqa: BLE001 — tz arbitraria dal client, fallback sicuro
+        return ZoneInfo("UTC")
+
+
+def _bucket_start_of(local_date, granularity: str):
+    """Inizio del bucket (lunedi' per la settimana, il giorno stesso altrimenti)."""
+    if granularity == "week":
+        return local_date - timedelta(days=local_date.weekday())
+    return local_date
+
+
+def _analytics_buckets(user_id: int, granularity: str, zone: ZoneInfo):
+    is_week = granularity == "week"
+    today = timezone.now().astimezone(zone).date()
+    step = timedelta(weeks=1) if is_week else timedelta(days=1)
+    count = 8 if is_week else 7
+    anchor = _bucket_start_of(today, granularity)
+    starts = [anchor - step * i for i in range(count - 1, -1, -1)]
+    index_by_start = {start: i for i, start in enumerate(starts)}
+    totals = [{c: [0.0, 0.0] for c in _MOBILITY_CATEGORIES} for _ in starts]
+
+    window_start = datetime.combine(starts[0], time.min, tzinfo=zone)
+    rows = MobilitySegment.objects.filter(
+        trip__user_id=user_id, start_timestamp__gte=window_start
+    ).values("start_timestamp", "end_timestamp", "activity_label", "distance_meters")
+
+    for row in rows:
+        local_date = row["start_timestamp"].astimezone(zone).date()
+        index = index_by_start.get(_bucket_start_of(local_date, granularity))
+        if index is None:
+            continue
+        category = _CATEGORY_BY_ACTIVITY.get(row["activity_label"], "fermo")
+        seconds = (row["end_timestamp"] - row["start_timestamp"]).total_seconds()
+        cell = totals[index][category]
+        cell[0] += max(0.0, seconds)
+        cell[1] += float(row["distance_meters"] or 0)
+
+    return [
+        AnalyticsBucketOut(
+            label=start.strftime("%d/%m")
+            if granularity == "week"
+            else _ITALIAN_WEEKDAYS[start.weekday()],
+            categories=[
+                AnalyticsCategorySliceOut(
+                    category=c, seconds=cell[c][0], distance_meters=cell[c][1]
+                )
+                for c in _MOBILITY_CATEGORIES
+            ],
+        )
+        for start, cell in zip(starts, totals)
+    ]
+
+
+def _analytics_heatmap(user_id: int) -> list[AnalyticsHeatPointOut]:
+    """Mappa di Frequentazione: Luoghi Significativi confermati pesati per visite."""
+    places = HabitualPlace.objects.filter(
+        user_id=user_id, state=HabitualPlace.State.CONFIRMED
+    ).only("center", "visit_count")
+    return [
+        AnalyticsHeatPointOut(
+            lat=place.center.y, lon=place.center.x, weight=float(place.visit_count)
+        )
+        for place in places
+    ]
+
+
+def _prevalent_mode(user_id: int) -> str | None:
+    """Categoria di Mobilita con piu' tempo totale su tutta la storia, Fermo escluso."""
+    rows = MobilitySegment.objects.filter(trip__user_id=user_id).values(
+        "activity_label", "start_timestamp", "end_timestamp"
+    )
+    totals: dict[str, float] = defaultdict(float)
+    for row in rows:
+        category = _CATEGORY_BY_ACTIVITY.get(row["activity_label"], "fermo")
+        if category == "fermo":
+            continue
+        totals[category] += (
+            row["end_timestamp"] - row["start_timestamp"]
+        ).total_seconds()
+    return max(totals, key=totals.get) if totals else None
+
+
+def _haversine_meters(lat1, lon1, lat2, lon2) -> float:
+    radius = 6371000.0
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(
+        dlambda / 2
+    ) ** 2
+    return 2 * radius * math.asin(math.sqrt(a))
+
+
+def _nearest_place(coord, places):
+    """Luogo Significativo piu' vicino a (lon, lat) entro il suo raggio (min 150 m)."""
+    lon, lat = coord[0], coord[1]
+    best, best_distance = None, None
+    for place in places:
+        distance = _haversine_meters(lat, lon, place.center.y, place.center.x)
+        if distance <= max(place.radius_meters or 0, 150.0) and (
+            best_distance is None or distance < best_distance
+        ):
+            best, best_distance = place, distance
+    return best
+
+
+def _frequent_routes(user_id: int, limit: int = 5) -> list[AnalyticsRouteOut]:
+    """Percorsi Frequenti: coppie Origine->Destinazione tra Luoghi Significativi."""
+    places = list(
+        HabitualPlace.objects.filter(
+            user_id=user_id, state=HabitualPlace.State.CONFIRMED
+        ).only("center", "radius_meters", "custom_name", "category")
+    )
+    if not places:
+        return []
+
+    pairs: Counter = Counter()
+    trips = Trip.objects.filter(user_id=user_id, path__isnull=False).only("path")
+    for trip in trips:
+        coords = trip.path.coords
+        if len(coords) < 2:
+            continue
+        origin = _nearest_place(coords[0], places)
+        destination = _nearest_place(coords[-1], places)
+        if origin is None or destination is None or origin.id == destination.id:
+            continue
+        pairs[(origin.id, destination.id)] += 1
+
+    by_id = {place.id: place for place in places}
+    return [
+        AnalyticsRouteOut(
+            origin_label=place_label(by_id[origin_id]),
+            destination_label=place_label(by_id[destination_id]),
+            trip_count=count,
+        )
+        for (origin_id, destination_id), count in pairs.most_common(limit)
+    ]
+
+
+@router.get("/analytics", response=AnalyticsOut, auth=mobile_bearer_auth)
+def get_personal_analytics(request, granularity: str = "day", tz: str = "UTC"):
+    """Analitiche Personali aggregate cross-Viaggio dell'utente (ADR 0030).
+
+    `granularity` (Finestra Analitica): day = ultimi 7 giorni, week = ultime 8
+    settimane. `tz` e' il fuso locale del dispositivo per il bucketing. Modalita'
+    prevalente, Percorsi Frequenti e heatmap sono cumulativi su tutta la storia.
+    """
+    user_id = request.auth.user_id
+    granularity = granularity if granularity in {"day", "week"} else "day"
+    return AnalyticsOut(
+        granularity=granularity,
+        has_data=Trip.objects.filter(user_id=user_id).exists(),
+        buckets=_analytics_buckets(user_id, granularity, _analytics_zone(tz)),
+        prevalent_mode=_prevalent_mode(user_id),
+        frequent_routes=_frequent_routes(user_id),
+        heatmap=_analytics_heatmap(user_id),
     )

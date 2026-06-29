@@ -65,4 +65,12 @@ List<RepositoryProvider> buildRepositories({
           );
         },
       ),
+      RepositoryProvider<AnalyticsService>(
+        create: (context) {
+          final auth = context.read<AuthRepository>();
+          return AnalyticsHttpService(
+            tokenProvider: () async => auth.accessToken,
+          );
+        },
+      ),
     ];

@@ -191,3 +191,40 @@ class PrivacyExportOut(Schema):
     cell_size_meters: int | None
     text: str
     segments: list[PrivacyExportSegmentOut]
+
+
+class AnalyticsCategorySliceOut(Schema):
+    # Categoria di Mobilita: fermo | a_piedi | corsa | in_bici | in_auto.
+    category: str
+    seconds: float
+    distance_meters: float
+
+
+class AnalyticsBucketOut(Schema):
+    # Un intervallo della Finestra Analitica (un giorno o una settimana).
+    label: str
+    categories: list[AnalyticsCategorySliceOut]
+
+
+class AnalyticsRouteOut(Schema):
+    origin_label: str
+    destination_label: str
+    trip_count: int
+
+
+class AnalyticsHeatPointOut(Schema):
+    lat: float
+    lon: float
+    weight: float
+
+
+class AnalyticsOut(Schema):
+    """Analitiche Personali: bucket finestrati + aggregati cumulativi (ADR 0030)."""
+
+    granularity: str
+    # False quando l'utente non ha ancora Viaggi sincronizzati (empty state).
+    has_data: bool
+    buckets: list[AnalyticsBucketOut]
+    prevalent_mode: str | None
+    frequent_routes: list[AnalyticsRouteOut]
+    heatmap: list[AnalyticsHeatPointOut]

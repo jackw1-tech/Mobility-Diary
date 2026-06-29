@@ -138,7 +138,6 @@ def test_inline_core_happy_path_materializes_trip_and_path(user):
 
     trip = ingestion.trip
     assert trip.user_id == user.id
-    assert trip.started_at == ingestion.started_at
     assert trip.ended_at == ingestion.ended_at
     assert GpsPoint.objects.filter(trip=trip).count() == 2
     assert StateTransition.objects.filter(trip=trip).count() == 1

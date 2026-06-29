@@ -63,6 +63,11 @@ class _AuthenticatedHomePage extends StatelessWidget {
               title: Text(userLabel == null ? 'Mobile Edge' : userLabel!),
               actions: [
                 IconButton(
+                  tooltip: 'Statistiche',
+                  icon: const Icon(Icons.insights_outlined),
+                  onPressed: () => context.router.push(const AnalyticsRoute()),
+                ),
+                IconButton(
                   tooltip: 'I miei luoghi',
                   icon: const Icon(Icons.place_outlined),
                   onPressed: () => context.router.push(const PlacesRoute()),

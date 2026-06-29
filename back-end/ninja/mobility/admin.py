@@ -12,6 +12,7 @@ from .models import (
     TripIngestion,
     TripIngestionPart,
     VirtualStopInterval,
+    PlaceMiningStatus,
 )
 
 
@@ -145,3 +146,10 @@ class TripIngestionPartAdmin(admin.ModelAdmin):
     readonly_fields = ("created_at",)
     raw_id_fields = ("ingestion",)
     ordering = ("-created_at",)
+
+@admin.register(PlaceMiningStatus)
+class PlaceMiningStatusAdmin(admin.ModelAdmin):
+    list_display = ("id", "user", "status", "last_updated_at")
+    list_filter = ("status", "last_updated_at")
+    search_fields = ("id", "user__email")
+    raw_id_fields = ("user",)

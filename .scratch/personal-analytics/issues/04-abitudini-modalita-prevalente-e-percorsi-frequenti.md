@@ -42,3 +42,25 @@ dedicated empty state when no journeys match.
 ## Blocked by
 
 - .scratch/personal-analytics/issues/01-analitiche-personali-walking-skeleton.md
+
+## Comments
+
+Implemented (local, no GitHub).
+
+Backend: `GET /mobility/analytics` now fills `prevalent_mode` and
+`frequent_routes`, both cumulative and independent of the granularity toggle.
+Prevalent mode is the Categoria di Mobilita with the most total time over all
+history, Fermo excluded (null when there is no movement). Frequent routes pair
+each Viaggio's trajectory start/end to the nearest CONFIRMED Luogo Significativo
+within its `radius_meters` (min 150 m, haversine), count the ordered O->D pairs,
+drop trips unmatched at either end or that loop on the same place, and return the
+top pairs by count with human-readable labels. HTTP-seam tests cover prevalent
+selection + Fermo exclusion + null case, O->D counting and ordering, and the
+exclusion of unmatched/loop trips.
+
+Mobile: pure `buildAnalyticsHabits` resolves the prevalent-mode `MobilityCategory`
+and carries the routes, with an `isEmpty` flag. The "Abitudini di sempre" section
+shows a prevalent-mode row (colour dot + label) and the Percorsi Frequenti as
+"Origine → Destinazione ×N" rows, or a `_SectionEmpty` message. Presenter-seam
+tests cover the prevalent label, route counts, and the empty flag. Refactor:
+extracted a shared `_Dot` widget reused by the chart legend and the prevalent row.

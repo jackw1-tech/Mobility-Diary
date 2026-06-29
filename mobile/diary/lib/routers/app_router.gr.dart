@@ -11,6 +11,22 @@
 part of 'app_router.dart';
 
 /// generated route for
+/// [AnalyticsPage]
+class AnalyticsRoute extends PageRouteInfo<void> {
+  const AnalyticsRoute({List<PageRouteInfo>? children})
+      : super(AnalyticsRoute.name, initialChildren: children);
+
+  static const String name = 'AnalyticsRoute';
+
+  static PageInfo page = PageInfo(
+    name,
+    builder: (data) {
+      return const AnalyticsPage();
+    },
+  );
+}
+
+/// generated route for
 /// [ExampleDetailPage]
 class ExampleDetailRoute extends PageRouteInfo<ExampleDetailRouteArgs> {
   ExampleDetailRoute({

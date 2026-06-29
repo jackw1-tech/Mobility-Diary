@@ -28,6 +28,7 @@ dependencies:
   crypto: ^3.0.0
   latlong2: ^0.9.1
   mapbox_maps_flutter: ^2.25.0
+  fl_chart: ^0.69.0
 
 dev_dependencies:
   flutter_test:

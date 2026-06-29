@@ -43,3 +43,25 @@ breakdown with an "In movimento" derived total (sum of non-Fermo categories).
 ## Blocked by
 
 - .scratch/personal-analytics/issues/01-analitiche-personali-walking-skeleton.md
+
+## Comments
+
+Implemented (local, no GitHub).
+
+Backend: `GET /mobility/analytics?granularity=day|week&tz=<iana>` now fills
+`buckets` — day = last 7 daily buckets, week = last 8 weekly buckets — each with
+per-Categoria di Mobilita seconds and distance. Segments are bucketed by the
+local day of their `start_timestamp` in the supplied timezone (unknown tz falls
+back to UTC). Category mapping is one-to-one from the Etichetta di Attivita.
+HTTP-seam tests cover day/week shape, per-category seconds+distance, local-midnight
+boundary bucketing, and the tz fallback.
+
+Mobile: added `fl_chart`. Pure `buildAnalyticsTrend` presenter maps the DTO into
+chart bars (seconds per category, aligned to `kMobilityCategories`), the derived
+"In movimento" total (sum of non-Fermo time), total distance, and per-category
+totals. `AnalyticsPage` ready state now renders a Giorno/Settimana SegmentedButton
+(re-scoping via the cubit), a stacked bar chart + legend, and a distances card.
+Presenter-seam tests cover series alignment, the movement total, and distances.
+
+Also removed an orphaned `started_at` assertion in
+`test_inline_core_ingestion_api.py` left from reverted work.

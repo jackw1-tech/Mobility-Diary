@@ -44,3 +44,19 @@ Frequentazione, Percorso Frequente).
 ## Blocked by
 
 None - can start immediately.
+
+## Comments
+
+Implemented (local, no GitHub).
+
+Backend: `GET /mobility/analytics` (user-scoped, bearer auth) returns the full
+Analitiche Personali contract — windowed `buckets` plus cumulative
+`prevalent_mode` / `frequent_routes` / `heatmap`, all empty in this slice — and a
+`has_data` flag for the empty state. HTTP-seam tests cover the empty-history
+payload, `has_data` with a trip, user scoping, and granularity echo/defaulting.
+
+Mobile: `AnalyticsDto` (full shape), `AnalyticsService`/`AnalyticsHttpService`,
+`AnalyticsCubit` (loading/ready/empty/error, granularity preserved on retry),
+and `AnalyticsPage` reachable from a new Home AppBar action via `AnalyticsRoute`,
+with pull-to-refresh and per-state UI. Cubit-seam tests cover
+ready/empty/error/setGranularity. Service registered in DI.
