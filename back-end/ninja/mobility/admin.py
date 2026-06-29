@@ -149,7 +149,7 @@ class TripIngestionPartAdmin(admin.ModelAdmin):
 
 @admin.register(PlaceMiningStatus)
 class PlaceMiningStatusAdmin(admin.ModelAdmin):
-    list_display = ("id", "user", "status", "last_updated_at")
-    list_filter = ("status", "last_updated_at")
+    list_display = ("id", "user", "status", "updated_at")
+    list_filter = ("status", "updated_at")
     search_fields = ("id", "user__email")
     raw_id_fields = ("user",)
