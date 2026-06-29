@@ -70,6 +70,17 @@ class AcquisitionSyncSnapshot {
         rawStatus == AcquisitionSyncStatus.failedFinal;
   }
 
+  bool get isNonRecoverable {
+    return status == AcquisitionSyncStatus.failedFinal ||
+        rawStatus == AcquisitionSyncStatus.failedFinal;
+  }
+
+  bool get canRetry {
+    return !isNonRecoverable &&
+        (status == AcquisitionSyncStatus.failedRetryable ||
+            rawStatus == AcquisitionSyncStatus.failedRetryable);
+  }
+
   bool get isRawWorking {
     return rawStatus == AcquisitionSyncStatus.packaging ||
         rawStatus == AcquisitionSyncStatus.uploading ||

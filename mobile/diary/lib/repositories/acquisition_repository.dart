@@ -1,5 +1,41 @@
 import 'package:diary/features/acquisition/domain/acquisition_domain.dart';
 
+class ActiveTripOnAnotherDeviceException implements Exception {
+  static const defaultMessage =
+      "Hai gia' un viaggio in corso su un altro dispositivo";
+
+  final String message;
+
+  const ActiveTripOnAnotherDeviceException([this.message = defaultMessage]);
+
+  @override
+  String toString() => message;
+}
+
+class PendingTripSyncException implements Exception {
+  static const defaultMessage =
+      'Hai un viaggio in chiusura. Attendi la sincronizzazione prima di iniziarne un altro.';
+
+  final String message;
+
+  const PendingTripSyncException([this.message = defaultMessage]);
+
+  @override
+  String toString() => message;
+}
+
+class StartRequiresConnectionException implements Exception {
+  static const defaultMessage =
+      'Serve connessione al backend per avviare un nuovo viaggio.';
+
+  final String message;
+
+  const StartRequiresConnectionException([this.message = defaultMessage]);
+
+  @override
+  String toString() => message;
+}
+
 abstract class AcquisitionRepository {
   Stream<AcquisitionSnapshot> get snapshots;
 

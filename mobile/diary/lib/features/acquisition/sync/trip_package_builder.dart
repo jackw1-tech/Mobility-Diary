@@ -58,6 +58,7 @@ class TripCorePayload {
 /// (REPORT_STRATEGIA_INGESTION_ASINCRONA.md, "Creazione del Pacchetto Locale").
 class TripPackage {
   final String localSessionId;
+  final int? remoteIngestionId;
   final DateTime? startedAt;
   final DateTime? endedAt;
   final Directory directory;
@@ -66,6 +67,7 @@ class TripPackage {
 
   const TripPackage({
     required this.localSessionId,
+    required this.remoteIngestionId,
     required this.startedAt,
     required this.endedAt,
     required this.directory,
@@ -108,6 +110,7 @@ class TripPackageBuilder {
 
   Future<TripPackage> build(String localSessionId) async {
     final session = await _dao.findSession(localSessionId);
+    final remoteIngestionId = session?.remoteIngestionId;
     final directory = await _packageDirectory(localSessionId);
 
     final gpsPoints = await _buildInlineGpsPoints(localSessionId);
@@ -124,6 +127,7 @@ class TripPackageBuilder {
             'ended_at': _utcIsoOrNull(session?.endedAt),
             'expected_raw_parts': _expectedParts(parts),
             'gps_points': gpsPoints,
+            if (remoteIngestionId != null) 'ingestion_id': remoteIngestionId,
             'schema_version': 1,
             'started_at': _utcIsoOrNull(session?.startedAt),
             'state_transitions': transitions,
@@ -132,6 +136,7 @@ class TripPackageBuilder {
 
     return TripPackage(
       localSessionId: localSessionId,
+      remoteIngestionId: remoteIngestionId,
       startedAt: session?.startedAt,
       endedAt: session?.endedAt,
       directory: directory,

@@ -12,15 +12,21 @@ List<RepositoryProvider> buildRepositories({
           final database = AcquisitionLocalDatabase();
           final auth = context.read<AuthRepository>();
           Future<String?> tokenProvider() async => auth.accessToken;
+          final deviceIdentityStore = DeviceIdentityStore();
+          final ingestionApi =
+              TripIngestionHttpApi(tokenProvider: tokenProvider);
           final syncQueue = TripSyncQueueImpl(
             dao: database.acquisitionDao,
             builder: TripPackageBuilder(dao: database.acquisitionDao),
-            api: TripIngestionHttpApi(tokenProvider: tokenProvider),
+            api: ingestionApi,
             tokenProvider: tokenProvider,
           );
           return AcquisitionRepositoryImpl(
             database: database,
             syncQueue: syncQueue,
+            ingestionApi: ingestionApi,
+            deviceIdProvider: deviceIdentityStore.getOrCreateDeviceId,
+            observeAppLifecycle: true,
           );
         },
         dispose: (repository) => repository.dispose(),

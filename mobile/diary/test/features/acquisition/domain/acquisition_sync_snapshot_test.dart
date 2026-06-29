@@ -34,5 +34,27 @@ void main() {
       expect(missingTrip.canOpenCoreDetail, isFalse);
       expect(missingMapFlag.canOpenCoreDetail, isTrue);
     });
+
+    test('only retryable failures expose retry action', () {
+      const retryable = AcquisitionSyncSnapshot(
+        status: AcquisitionSyncStatus.failedRetryable,
+      );
+      const finalFailure = AcquisitionSyncSnapshot(
+        status: AcquisitionSyncStatus.failedFinal,
+      );
+      const rawFinalFailure = AcquisitionSyncSnapshot(
+        status: AcquisitionSyncStatus.completed,
+        rawStatus: AcquisitionSyncStatus.failedFinal,
+      );
+
+      expect(retryable.isFailed, isTrue);
+      expect(retryable.canRetry, isTrue);
+      expect(retryable.isNonRecoverable, isFalse);
+      expect(finalFailure.isFailed, isTrue);
+      expect(finalFailure.canRetry, isFalse);
+      expect(finalFailure.isNonRecoverable, isTrue);
+      expect(rawFinalFailure.canRetry, isFalse);
+      expect(rawFinalFailure.isNonRecoverable, isTrue);
+    });
   });
 }

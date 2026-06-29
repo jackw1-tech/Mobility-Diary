@@ -30,8 +30,13 @@ class AcquisitionCubit extends Cubit<AcquisitionCubitState> {
   }
 
   Future<void> startTracking() async {
-    await _repository.startTracking();
-    _emitSnapshot(_repository.currentSnapshot, resetMetrics: true);
+    try {
+      await _repository.startTracking();
+      _emitSnapshot(_repository.currentSnapshot, resetMetrics: true);
+    } catch (error) {
+      emit(state.copyWith(errorMessage: error.toString()));
+      rethrow;
+    }
   }
 
   Future<void> stopTracking() async {
@@ -48,6 +53,12 @@ class AcquisitionCubit extends Cubit<AcquisitionCubitState> {
     await _repository.resumeSync();
   }
 
+  void dismissNonRecoverableSync() {
+    if (state.syncSnapshot.isNonRecoverable) {
+      emit(state.copyWith(syncSnapshot: const AcquisitionSyncSnapshot.none()));
+    }
+  }
+
   void _emitSnapshot(
     AcquisitionSnapshot snapshot, {
     bool resetMetrics = false,
@@ -55,9 +66,8 @@ class AcquisitionCubit extends Cubit<AcquisitionCubitState> {
     final metricClusters = resetMetrics
         ? <AcquisitionMetricCluster>[]
         : _updatedMetricClusters(snapshot);
-    final routePoints = resetMetrics
-        ? <LatLng>[]
-        : _updatedRoutePoints(snapshot);
+    final routePoints =
+        resetMetrics ? <LatLng>[] : _updatedRoutePoints(snapshot);
     emit(
       AcquisitionCubitState.fromSnapshot(
         snapshot,

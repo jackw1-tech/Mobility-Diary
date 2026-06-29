@@ -9,7 +9,12 @@ typedef AccessTokenProvider = Future<String?> Function();
 class IngestionApiException implements Exception {
   final String message;
   final int? statusCode;
-  const IngestionApiException(this.message, {this.statusCode});
+  final Map<String, dynamic> body;
+  const IngestionApiException(
+    this.message, {
+    this.statusCode,
+    this.body = const {},
+  });
   @override
   String toString() => message;
 }
@@ -112,9 +117,74 @@ class InlineCoreResult {
       rawStatus == 'PENDING' || rawStatus == 'RECEIVING';
 }
 
+class IngestionStartResult {
+  final int ingestionId;
+  final String clientSessionId;
+  final String deviceId;
+  final DateTime recordingStartedAt;
+  final bool alreadyExists;
+
+  const IngestionStartResult({
+    required this.ingestionId,
+    required this.clientSessionId,
+    required this.deviceId,
+    required this.recordingStartedAt,
+    required this.alreadyExists,
+  });
+}
+
+class ActiveIngestion {
+  final int ingestionId;
+  final String clientSessionId;
+  final String deviceId;
+  final DateTime recordingStartedAt;
+  final DateTime? lastSeenAt;
+
+  const ActiveIngestion({
+    required this.ingestionId,
+    required this.clientSessionId,
+    required this.deviceId,
+    required this.recordingStartedAt,
+    this.lastSeenAt,
+  });
+
+  factory ActiveIngestion.fromJson(Map<String, dynamic> data) {
+    final lastSeenAt = data['last_seen_at'] as String?;
+    return ActiveIngestion(
+      ingestionId: data['ingestion_id'] as int,
+      clientSessionId: data['client_session_id'] as String,
+      deviceId: data['device_id'] as String,
+      recordingStartedAt:
+          DateTime.parse(data['recording_started_at'] as String).toUtc(),
+      lastSeenAt:
+          lastSeenAt == null ? null : DateTime.parse(lastSeenAt).toUtc(),
+    );
+  }
+}
+
 /// Client REST dell'ingestione asincrona. Astratto per poter essere mockato
 /// nei test della coda di sync.
 abstract class TripIngestionApi {
+  Future<ActiveIngestion?> getActiveIngestion();
+
+  Future<IngestionStartResult> startIngestion({
+    required String clientSessionId,
+    required DateTime startedAt,
+    required String deviceId,
+    String devicePlatform,
+  });
+
+  Future<void> abandonIngestion({
+    required int ingestionId,
+    required String deviceId,
+  });
+
+  Future<void> heartbeatIngestion({
+    required int ingestionId,
+    required String clientSessionId,
+    required String deviceId,
+  });
+
   Future<InlineCoreResult> postCoreInline({
     required Map<String, dynamic> body,
   });
@@ -170,6 +240,71 @@ class TripIngestionHttpApi implements TripIngestionApi {
         _client = client ?? HttpClient();
 
   static const String _base = '/ingestion/trips';
+
+  @override
+  Future<ActiveIngestion?> getActiveIngestion() async {
+    try {
+      final data = await _sendJson('GET', '$_base/active');
+      return ActiveIngestion.fromJson(data);
+    } on IngestionApiException catch (e) {
+      if (e.statusCode == 404) {
+        return null;
+      }
+      rethrow;
+    }
+  }
+
+  @override
+  Future<IngestionStartResult> startIngestion({
+    required String clientSessionId,
+    required DateTime startedAt,
+    required String deviceId,
+    String devicePlatform = '',
+  }) async {
+    final data = await _sendJson('POST', '$_base/start', body: {
+      'client_session_id': clientSessionId,
+      'schema_version': 1,
+      'started_at': startedAt.toUtc().toIso8601String(),
+      'device_id': deviceId,
+      'device_platform': devicePlatform,
+    });
+    return IngestionStartResult(
+      ingestionId: data['ingestion_id'] as int,
+      clientSessionId: data['client_session_id'] as String,
+      deviceId: data['device_id'] as String,
+      recordingStartedAt:
+          DateTime.parse(data['recording_started_at'] as String).toUtc(),
+      alreadyExists: data['already_exists'] as bool? ?? false,
+    );
+  }
+
+  @override
+  Future<void> abandonIngestion({
+    required int ingestionId,
+    required String deviceId,
+  }) async {
+    await _sendJson(
+      'POST',
+      '$_base/$ingestionId/abandon',
+      body: {'device_id': deviceId},
+    );
+  }
+
+  @override
+  Future<void> heartbeatIngestion({
+    required int ingestionId,
+    required String clientSessionId,
+    required String deviceId,
+  }) async {
+    await _sendJson(
+      'POST',
+      '$_base/$ingestionId/heartbeat',
+      body: {
+        'client_session_id': clientSessionId,
+        'device_id': deviceId,
+      },
+    );
+  }
 
   @override
   Future<InlineCoreResult> postCoreInline({
@@ -361,6 +496,7 @@ class TripIngestionHttpApi implements TripIngestionApi {
       throw IngestionApiException(
         detail is String ? detail : 'Richiesta ingestion fallita',
         statusCode: response.statusCode,
+        body: decoded,
       );
     }
     return decoded;

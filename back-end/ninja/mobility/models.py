@@ -385,6 +385,13 @@ class TripIngestion(models.Model):
     app_version = models.CharField(max_length=32, blank=True)
     device_platform = models.CharField(max_length=32, blank=True)
 
+    # Lifecycle della registrazione attiva: il Trip visibile nasce solo a core
+    # ingestion completata, ma il lock account-wide vive gia' qui dallo Start.
+    recording_started_at = models.DateTimeField(null=True, blank=True)
+    recording_closed_at = models.DateTimeField(null=True, blank=True)
+    recording_abandoned_at = models.DateTimeField(null=True, blank=True)
+    last_seen_at = models.DateTimeField(null=True, blank=True)
+
     # Trip materializzato da Celery (null finche' non processato).
     trip = models.ForeignKey(
         Trip,
@@ -406,12 +413,22 @@ class TripIngestion(models.Model):
         indexes = [
             models.Index(fields=["user", "core_status"]),
             models.Index(fields=["user", "raw_status"]),
+            models.Index(fields=["user", "recording_started_at"]),
         ]
         constraints = [
             models.UniqueConstraint(
                 fields=["user", "client_session_id"],
                 name="unique_ingestion_per_user_session",
-            )
+            ),
+            models.UniqueConstraint(
+                fields=["user"],
+                condition=models.Q(
+                    recording_started_at__isnull=False,
+                    recording_closed_at__isnull=True,
+                    recording_abandoned_at__isnull=True,
+                ),
+                name="unique_active_ingestion_per_user",
+            ),
         ]
 
     def __str__(self) -> str:

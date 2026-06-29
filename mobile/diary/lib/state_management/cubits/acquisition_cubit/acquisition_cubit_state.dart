@@ -11,6 +11,7 @@ class AcquisitionCubitState {
   final AcquisitionSnapshot snapshot;
   final AcquisitionSyncSnapshot syncSnapshot;
   final List<AcquisitionMetricCluster> metricClusters;
+  final String? errorMessage;
 
   /// Percorso accumulato durante la sessione di tracking corrente, in ordine
   /// cronologico. Si svuota a ogni nuovo `startTracking`.
@@ -21,6 +22,7 @@ class AcquisitionCubitState {
     required this.snapshot,
     this.syncSnapshot = const AcquisitionSyncSnapshot.none(),
     this.metricClusters = const [],
+    this.errorMessage,
     this.routePoints = const [],
   });
 
@@ -32,6 +34,7 @@ class AcquisitionCubitState {
     AcquisitionSnapshot snapshot, {
     AcquisitionSyncSnapshot syncSnapshot = const AcquisitionSyncSnapshot.none(),
     List<AcquisitionMetricCluster> metricClusters = const [],
+    String? errorMessage,
     List<LatLng> routePoints = const [],
   }) {
     return AcquisitionCubitState(
@@ -41,6 +44,7 @@ class AcquisitionCubitState {
       snapshot: snapshot,
       syncSnapshot: syncSnapshot,
       metricClusters: metricClusters,
+      errorMessage: errorMessage,
       routePoints: routePoints,
     );
   }
@@ -50,6 +54,8 @@ class AcquisitionCubitState {
     AcquisitionSnapshot? snapshot,
     AcquisitionSyncSnapshot? syncSnapshot,
     List<AcquisitionMetricCluster>? metricClusters,
+    String? errorMessage,
+    bool clearErrorMessage = false,
     List<LatLng>? routePoints,
   }) {
     return AcquisitionCubitState(
@@ -57,6 +63,8 @@ class AcquisitionCubitState {
       snapshot: snapshot ?? this.snapshot,
       syncSnapshot: syncSnapshot ?? this.syncSnapshot,
       metricClusters: metricClusters ?? this.metricClusters,
+      errorMessage:
+          clearErrorMessage ? null : errorMessage ?? this.errorMessage,
       routePoints: routePoints ?? this.routePoints,
     );
   }

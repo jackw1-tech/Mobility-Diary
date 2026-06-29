@@ -20,6 +20,12 @@ class $AcquisitionSessionsTable extends AcquisitionSessions
   late final GeneratedColumn<String> deviceId = GeneratedColumn<String>(
       'device_id', aliasedName, false,
       type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _remoteIngestionIdMeta =
+      const VerificationMeta('remoteIngestionId');
+  @override
+  late final GeneratedColumn<int> remoteIngestionId = GeneratedColumn<int>(
+      'remote_ingestion_id', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
   static const VerificationMeta _startedAtMeta =
       const VerificationMeta('startedAt');
   @override
@@ -33,7 +39,8 @@ class $AcquisitionSessionsTable extends AcquisitionSessions
       'ended_at', aliasedName, true,
       type: DriftSqlType.dateTime, requiredDuringInsert: false);
   @override
-  List<GeneratedColumn> get $columns => [id, deviceId, startedAt, endedAt];
+  List<GeneratedColumn> get $columns =>
+      [id, deviceId, remoteIngestionId, startedAt, endedAt];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -54,6 +61,12 @@ class $AcquisitionSessionsTable extends AcquisitionSessions
           deviceId.isAcceptableOrUnknown(data['device_id']!, _deviceIdMeta));
     } else if (isInserting) {
       context.missing(_deviceIdMeta);
+    }
+    if (data.containsKey('remote_ingestion_id')) {
+      context.handle(
+          _remoteIngestionIdMeta,
+          remoteIngestionId.isAcceptableOrUnknown(
+              data['remote_ingestion_id']!, _remoteIngestionIdMeta));
     }
     if (data.containsKey('started_at')) {
       context.handle(_startedAtMeta,
@@ -78,6 +91,8 @@ class $AcquisitionSessionsTable extends AcquisitionSessions
           .read(DriftSqlType.string, data['${effectivePrefix}id'])!,
       deviceId: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}device_id'])!,
+      remoteIngestionId: attachedDatabase.typeMapping.read(
+          DriftSqlType.int, data['${effectivePrefix}remote_ingestion_id']),
       startedAt: attachedDatabase.typeMapping
           .read(DriftSqlType.dateTime, data['${effectivePrefix}started_at'])!,
       endedAt: attachedDatabase.typeMapping
@@ -95,11 +110,13 @@ class AcquisitionSession extends DataClass
     implements Insertable<AcquisitionSession> {
   final String id;
   final String deviceId;
+  final int? remoteIngestionId;
   final DateTime startedAt;
   final DateTime? endedAt;
   const AcquisitionSession(
       {required this.id,
       required this.deviceId,
+      this.remoteIngestionId,
       required this.startedAt,
       this.endedAt});
   @override
@@ -107,6 +124,9 @@ class AcquisitionSession extends DataClass
     final map = <String, Expression>{};
     map['id'] = Variable<String>(id);
     map['device_id'] = Variable<String>(deviceId);
+    if (!nullToAbsent || remoteIngestionId != null) {
+      map['remote_ingestion_id'] = Variable<int>(remoteIngestionId);
+    }
     map['started_at'] = Variable<DateTime>(startedAt);
     if (!nullToAbsent || endedAt != null) {
       map['ended_at'] = Variable<DateTime>(endedAt);
@@ -118,6 +138,9 @@ class AcquisitionSession extends DataClass
     return AcquisitionSessionsCompanion(
       id: Value(id),
       deviceId: Value(deviceId),
+      remoteIngestionId: remoteIngestionId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(remoteIngestionId),
       startedAt: Value(startedAt),
       endedAt: endedAt == null && nullToAbsent
           ? const Value.absent()
@@ -131,6 +154,7 @@ class AcquisitionSession extends DataClass
     return AcquisitionSession(
       id: serializer.fromJson<String>(json['id']),
       deviceId: serializer.fromJson<String>(json['deviceId']),
+      remoteIngestionId: serializer.fromJson<int?>(json['remoteIngestionId']),
       startedAt: serializer.fromJson<DateTime>(json['startedAt']),
       endedAt: serializer.fromJson<DateTime?>(json['endedAt']),
     );
@@ -141,6 +165,7 @@ class AcquisitionSession extends DataClass
     return <String, dynamic>{
       'id': serializer.toJson<String>(id),
       'deviceId': serializer.toJson<String>(deviceId),
+      'remoteIngestionId': serializer.toJson<int?>(remoteIngestionId),
       'startedAt': serializer.toJson<DateTime>(startedAt),
       'endedAt': serializer.toJson<DateTime?>(endedAt),
     };
@@ -149,11 +174,15 @@ class AcquisitionSession extends DataClass
   AcquisitionSession copyWith(
           {String? id,
           String? deviceId,
+          Value<int?> remoteIngestionId = const Value.absent(),
           DateTime? startedAt,
           Value<DateTime?> endedAt = const Value.absent()}) =>
       AcquisitionSession(
         id: id ?? this.id,
         deviceId: deviceId ?? this.deviceId,
+        remoteIngestionId: remoteIngestionId.present
+            ? remoteIngestionId.value
+            : this.remoteIngestionId,
         startedAt: startedAt ?? this.startedAt,
         endedAt: endedAt.present ? endedAt.value : this.endedAt,
       );
@@ -161,6 +190,9 @@ class AcquisitionSession extends DataClass
     return AcquisitionSession(
       id: data.id.present ? data.id.value : this.id,
       deviceId: data.deviceId.present ? data.deviceId.value : this.deviceId,
+      remoteIngestionId: data.remoteIngestionId.present
+          ? data.remoteIngestionId.value
+          : this.remoteIngestionId,
       startedAt: data.startedAt.present ? data.startedAt.value : this.startedAt,
       endedAt: data.endedAt.present ? data.endedAt.value : this.endedAt,
     );
@@ -171,6 +203,7 @@ class AcquisitionSession extends DataClass
     return (StringBuffer('AcquisitionSession(')
           ..write('id: $id, ')
           ..write('deviceId: $deviceId, ')
+          ..write('remoteIngestionId: $remoteIngestionId, ')
           ..write('startedAt: $startedAt, ')
           ..write('endedAt: $endedAt')
           ..write(')'))
@@ -178,13 +211,15 @@ class AcquisitionSession extends DataClass
   }
 
   @override
-  int get hashCode => Object.hash(id, deviceId, startedAt, endedAt);
+  int get hashCode =>
+      Object.hash(id, deviceId, remoteIngestionId, startedAt, endedAt);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is AcquisitionSession &&
           other.id == this.id &&
           other.deviceId == this.deviceId &&
+          other.remoteIngestionId == this.remoteIngestionId &&
           other.startedAt == this.startedAt &&
           other.endedAt == this.endedAt);
 }
@@ -192,12 +227,14 @@ class AcquisitionSession extends DataClass
 class AcquisitionSessionsCompanion extends UpdateCompanion<AcquisitionSession> {
   final Value<String> id;
   final Value<String> deviceId;
+  final Value<int?> remoteIngestionId;
   final Value<DateTime> startedAt;
   final Value<DateTime?> endedAt;
   final Value<int> rowid;
   const AcquisitionSessionsCompanion({
     this.id = const Value.absent(),
     this.deviceId = const Value.absent(),
+    this.remoteIngestionId = const Value.absent(),
     this.startedAt = const Value.absent(),
     this.endedAt = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -205,6 +242,7 @@ class AcquisitionSessionsCompanion extends UpdateCompanion<AcquisitionSession> {
   AcquisitionSessionsCompanion.insert({
     required String id,
     required String deviceId,
+    this.remoteIngestionId = const Value.absent(),
     required DateTime startedAt,
     this.endedAt = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -214,6 +252,7 @@ class AcquisitionSessionsCompanion extends UpdateCompanion<AcquisitionSession> {
   static Insertable<AcquisitionSession> custom({
     Expression<String>? id,
     Expression<String>? deviceId,
+    Expression<int>? remoteIngestionId,
     Expression<DateTime>? startedAt,
     Expression<DateTime>? endedAt,
     Expression<int>? rowid,
@@ -221,6 +260,7 @@ class AcquisitionSessionsCompanion extends UpdateCompanion<AcquisitionSession> {
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (deviceId != null) 'device_id': deviceId,
+      if (remoteIngestionId != null) 'remote_ingestion_id': remoteIngestionId,
       if (startedAt != null) 'started_at': startedAt,
       if (endedAt != null) 'ended_at': endedAt,
       if (rowid != null) 'rowid': rowid,
@@ -230,12 +270,14 @@ class AcquisitionSessionsCompanion extends UpdateCompanion<AcquisitionSession> {
   AcquisitionSessionsCompanion copyWith(
       {Value<String>? id,
       Value<String>? deviceId,
+      Value<int?>? remoteIngestionId,
       Value<DateTime>? startedAt,
       Value<DateTime?>? endedAt,
       Value<int>? rowid}) {
     return AcquisitionSessionsCompanion(
       id: id ?? this.id,
       deviceId: deviceId ?? this.deviceId,
+      remoteIngestionId: remoteIngestionId ?? this.remoteIngestionId,
       startedAt: startedAt ?? this.startedAt,
       endedAt: endedAt ?? this.endedAt,
       rowid: rowid ?? this.rowid,
@@ -250,6 +292,9 @@ class AcquisitionSessionsCompanion extends UpdateCompanion<AcquisitionSession> {
     }
     if (deviceId.present) {
       map['device_id'] = Variable<String>(deviceId.value);
+    }
+    if (remoteIngestionId.present) {
+      map['remote_ingestion_id'] = Variable<int>(remoteIngestionId.value);
     }
     if (startedAt.present) {
       map['started_at'] = Variable<DateTime>(startedAt.value);
@@ -268,6 +313,7 @@ class AcquisitionSessionsCompanion extends UpdateCompanion<AcquisitionSession> {
     return (StringBuffer('AcquisitionSessionsCompanion(')
           ..write('id: $id, ')
           ..write('deviceId: $deviceId, ')
+          ..write('remoteIngestionId: $remoteIngestionId, ')
           ..write('startedAt: $startedAt, ')
           ..write('endedAt: $endedAt, ')
           ..write('rowid: $rowid')
@@ -2379,6 +2425,7 @@ typedef $$AcquisitionSessionsTableCreateCompanionBuilder
     = AcquisitionSessionsCompanion Function({
   required String id,
   required String deviceId,
+  Value<int?> remoteIngestionId,
   required DateTime startedAt,
   Value<DateTime?> endedAt,
   Value<int> rowid,
@@ -2387,6 +2434,7 @@ typedef $$AcquisitionSessionsTableUpdateCompanionBuilder
     = AcquisitionSessionsCompanion Function({
   Value<String> id,
   Value<String> deviceId,
+  Value<int?> remoteIngestionId,
   Value<DateTime> startedAt,
   Value<DateTime?> endedAt,
   Value<int> rowid,
@@ -2474,6 +2522,10 @@ class $$AcquisitionSessionsTableFilterComposer
 
   ColumnFilters<String> get deviceId => $composableBuilder(
       column: $table.deviceId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get remoteIngestionId => $composableBuilder(
+      column: $table.remoteIngestionId,
+      builder: (column) => ColumnFilters(column));
 
   ColumnFilters<DateTime> get startedAt => $composableBuilder(
       column: $table.startedAt, builder: (column) => ColumnFilters(column));
@@ -2581,6 +2633,10 @@ class $$AcquisitionSessionsTableOrderingComposer
   ColumnOrderings<String> get deviceId => $composableBuilder(
       column: $table.deviceId, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<int> get remoteIngestionId => $composableBuilder(
+      column: $table.remoteIngestionId,
+      builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<DateTime> get startedAt => $composableBuilder(
       column: $table.startedAt, builder: (column) => ColumnOrderings(column));
 
@@ -2602,6 +2658,9 @@ class $$AcquisitionSessionsTableAnnotationComposer
 
   GeneratedColumn<String> get deviceId =>
       $composableBuilder(column: $table.deviceId, builder: (column) => column);
+
+  GeneratedColumn<int> get remoteIngestionId => $composableBuilder(
+      column: $table.remoteIngestionId, builder: (column) => column);
 
   GeneratedColumn<DateTime> get startedAt =>
       $composableBuilder(column: $table.startedAt, builder: (column) => column);
@@ -2726,6 +2785,7 @@ class $$AcquisitionSessionsTableTableManager extends RootTableManager<
           updateCompanionCallback: ({
             Value<String> id = const Value.absent(),
             Value<String> deviceId = const Value.absent(),
+            Value<int?> remoteIngestionId = const Value.absent(),
             Value<DateTime> startedAt = const Value.absent(),
             Value<DateTime?> endedAt = const Value.absent(),
             Value<int> rowid = const Value.absent(),
@@ -2733,6 +2793,7 @@ class $$AcquisitionSessionsTableTableManager extends RootTableManager<
               AcquisitionSessionsCompanion(
             id: id,
             deviceId: deviceId,
+            remoteIngestionId: remoteIngestionId,
             startedAt: startedAt,
             endedAt: endedAt,
             rowid: rowid,
@@ -2740,6 +2801,7 @@ class $$AcquisitionSessionsTableTableManager extends RootTableManager<
           createCompanionCallback: ({
             required String id,
             required String deviceId,
+            Value<int?> remoteIngestionId = const Value.absent(),
             required DateTime startedAt,
             Value<DateTime?> endedAt = const Value.absent(),
             Value<int> rowid = const Value.absent(),
@@ -2747,6 +2809,7 @@ class $$AcquisitionSessionsTableTableManager extends RootTableManager<
               AcquisitionSessionsCompanion.insert(
             id: id,
             deviceId: deviceId,
+            remoteIngestionId: remoteIngestionId,
             startedAt: startedAt,
             endedAt: endedAt,
             rowid: rowid,

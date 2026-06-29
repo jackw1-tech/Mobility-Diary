@@ -98,7 +98,7 @@ class TripSyncQueueImpl implements TripSyncQueue {
         return;
       }
 
-      var ingestionId = job.remoteIngestionId;
+      var ingestionId = job.remoteIngestionId ?? package.remoteIngestionId;
       late IngestionStatus status;
       if (coreAlreadyCompleted) {
         if (ingestionId == null) {
@@ -110,6 +110,8 @@ class TripSyncQueueImpl implements TripSyncQueue {
         await _dao.updateSyncJob(
           job.id,
           coreStatus: syncJobUploading,
+          remoteIngestionId:
+              ingestionId == null ? const Value.absent() : Value(ingestionId),
           corePayloadSha256: Value(corePayload.sha256),
           corePayloadSizeBytes: corePayload.sizeBytes,
         );

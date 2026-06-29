@@ -7,7 +7,7 @@ from django.test import Client
 from django.utils import timezone
 
 from accounts.models import AccessToken
-from mobility.models import HabitualPlace, MobilitySegment, Trip
+from mobility.models import HabitualPlace, MobilitySegment, Trip, TripIngestion
 
 
 @pytest.fixture
@@ -120,6 +120,32 @@ def test_analytics_is_user_scoped(user, other_user):
     payload = get_analytics(user).json()
 
     assert payload["has_data"] is False
+
+
+@pytest.mark.django_db
+def test_analytics_ignores_abandoned_and_failed_final_ingestions(user):
+    now = timezone.now()
+    TripIngestion.objects.create(
+        user=user,
+        client_session_id="analytics-abandoned",
+        device_id="test-device",
+        recording_started_at=now - timedelta(minutes=20),
+        recording_abandoned_at=now - timedelta(minutes=5),
+    )
+    TripIngestion.objects.create(
+        user=user,
+        client_session_id="analytics-failed-final",
+        device_id="test-device",
+        core_status=TripIngestion.PhaseStatus.FAILED_FINAL,
+        recording_started_at=now - timedelta(minutes=10),
+        recording_closed_at=now,
+    )
+
+    payload = get_analytics(user).json()
+
+    assert payload["has_data"] is False
+    assert payload["heatmap"] == []
+    assert payload["weekly_heatmaps"] == []
 
 
 @pytest.mark.django_db

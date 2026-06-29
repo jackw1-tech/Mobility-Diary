@@ -1,11 +1,13 @@
 import copy
 import hashlib
 import json
+from datetime import timedelta
 
 import pytest
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.test import Client
+from django.utils import timezone
 
 from accounts.models import AccessToken
 from mobility.ingestion import storage
@@ -108,6 +110,456 @@ def post_inline(client: Client, user, payload: dict):
         content_type="application/json",
         **auth_headers(user),
     )
+
+
+def start_payload(**overrides) -> dict:
+    payload = {
+        "client_session_id": "active-session",
+        "schema_version": 1,
+        "started_at": "2026-06-12T10:00:00Z",
+        "timezone": "Europe/Rome",
+        "device_id": "test-device",
+        "app_version": "1.0.0",
+        "device_platform": "ios",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def post_start(client: Client, user, payload: dict):
+    return client.post(
+        "/api/ingestion/trips/start",
+        data=stable_json(payload).decode("utf-8"),
+        content_type="application/json",
+        **auth_headers(user),
+    )
+
+
+def get_active(client: Client, user):
+    return client.get("/api/ingestion/trips/active", **auth_headers(user))
+
+
+def post_abandon(client: Client, user, ingestion_id: int, *, device_id: str):
+    return client.post(
+        f"/api/ingestion/trips/{ingestion_id}/abandon",
+        data=stable_json({"device_id": device_id}).decode("utf-8"),
+        content_type="application/json",
+        **auth_headers(user),
+    )
+
+
+def post_heartbeat(
+    client: Client,
+    user,
+    ingestion_id: int,
+    *,
+    client_session_id: str,
+    device_id: str,
+):
+    return client.post(
+        f"/api/ingestion/trips/{ingestion_id}/heartbeat",
+        data=stable_json(
+            {"client_session_id": client_session_id, "device_id": device_id}
+        ).decode("utf-8"),
+        content_type="application/json",
+        **auth_headers(user),
+    )
+
+
+def _active_ingestion_count(user) -> int:
+    return TripIngestion.objects.filter(
+        user=user,
+        recording_started_at__isnull=False,
+        recording_closed_at__isnull=True,
+        recording_abandoned_at__isnull=True,
+    ).count()
+
+
+@pytest.mark.django_db
+def test_inline_core_accepts_payload_with_null_fields(user):
+    # Il client mobile mantiene i campi null (accuracy_meters, sigma, speed_mps)
+    # nel calcolo del proprio hash canonico. Il server deve fare lo stesso: se
+    # rimuovesse i null l'hash non combacerebbe e il core verrebbe rifiutato.
+    payload = add_hash(
+        base_payload(
+            gps_points=[
+                {
+                    "timestamp": "2026-06-12T10:02:00Z",
+                    "latitude": 45.47,
+                    "longitude": 9.20,
+                    "speed_mps": 2.0,
+                    "accuracy_meters": None,
+                }
+            ],
+            state_transitions=[
+                {
+                    "timestamp": "2026-06-12T10:03:00Z",
+                    "from_state": "STATIONARY",
+                    "to_state": "MOVEMENT",
+                    "reason": "test",
+                    "sigma": None,
+                    "speed_mps": None,
+                }
+            ],
+        )
+    )
+
+    response = post_inline(Client(), user, payload)
+
+    assert response.status_code == 200, response.content
+
+
+@pytest.mark.django_db
+def test_start_creates_active_ingestion_without_visible_trip(user):
+    payload = start_payload()
+
+    response = post_start(Client(), user, payload)
+
+    assert response.status_code == 200, response.content
+    data = response.json()
+    assert data["client_session_id"] == payload["client_session_id"]
+    assert data["device_id"] == payload["device_id"]
+    assert data["recording_started_at"] is not None
+
+    ingestion = TripIngestion.objects.get(id=data["ingestion_id"])
+    assert ingestion.user_id == user.id
+    assert ingestion.client_session_id == payload["client_session_id"]
+    assert ingestion.device_id == payload["device_id"]
+    assert ingestion.recording_started_at is not None
+    assert ingestion.recording_closed_at is None
+    assert ingestion.recording_abandoned_at is None
+    assert ingestion.last_seen_at is not None
+    assert ingestion.trip_id is None
+    assert Trip.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_start_rejects_second_active_ingestion_for_same_user(user):
+    client = Client()
+    first = post_start(client, user, start_payload(client_session_id="active-a"))
+    second = post_start(client, user, start_payload(client_session_id="active-b"))
+
+    assert first.status_code == 200
+    assert second.status_code == 409
+    conflict = second.json()["active_ingestion"]
+    assert conflict["ingestion_id"] == first.json()["ingestion_id"]
+    assert conflict["client_session_id"] == "active-a"
+    assert conflict["device_id"] == "test-device"
+    assert conflict["recording_started_at"] is not None
+    assert conflict["last_seen_at"] is not None
+    assert TripIngestion.objects.filter(user=user).count() == 1
+    assert Trip.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_start_same_session_from_other_device_conflicts(user):
+    client = Client()
+    first = post_start(
+        client,
+        user,
+        start_payload(client_session_id="active-a", device_id="device-a"),
+    )
+    second = post_start(
+        client,
+        user,
+        start_payload(client_session_id="active-a", device_id="device-b"),
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 409
+    assert second.json()["active_ingestion"]["device_id"] == "device-a"
+
+
+@pytest.mark.django_db
+def test_active_lookup_returns_current_active_ingestion(user):
+    client = Client()
+    start = post_start(client, user, start_payload(client_session_id="active-a"))
+
+    response = get_active(client, user)
+
+    assert start.status_code == 200
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ingestion_id"] == start.json()["ingestion_id"]
+    assert data["client_session_id"] == "active-a"
+    assert data["device_id"] == "test-device"
+    assert data["recording_started_at"] is not None
+    assert data["last_seen_at"] is not None
+
+
+@pytest.mark.django_db
+def test_same_device_can_abandon_active_ingestion_and_start_again(user):
+    client = Client()
+    first = post_start(
+        client,
+        user,
+        start_payload(client_session_id="active-a", device_id="device-a"),
+    )
+    abandon = post_abandon(
+        client,
+        user,
+        first.json()["ingestion_id"],
+        device_id="device-a",
+    )
+    second = post_start(
+        client,
+        user,
+        start_payload(client_session_id="active-b", device_id="device-a"),
+    )
+
+    assert abandon.status_code == 200, abandon.content
+    assert abandon.json()["recording_abandoned_at"] is not None
+    assert second.status_code == 200, second.content
+    assert second.json()["client_session_id"] == "active-b"
+    assert TripIngestion.objects.filter(user=user).count() == 2
+
+
+@pytest.mark.django_db
+def test_other_device_cannot_abandon_active_ingestion(user):
+    client = Client()
+    start = post_start(
+        client,
+        user,
+        start_payload(client_session_id="active-a", device_id="device-a"),
+    )
+
+    abandon = post_abandon(
+        client,
+        user,
+        start.json()["ingestion_id"],
+        device_id="device-b",
+    )
+
+    assert abandon.status_code == 403
+    ingestion = TripIngestion.objects.get(id=start.json()["ingestion_id"])
+    assert ingestion.recording_abandoned_at is None
+
+
+@pytest.mark.django_db
+def test_heartbeat_updates_last_seen_for_active_ingestion(user):
+    client = Client()
+    start = post_start(
+        client,
+        user,
+        start_payload(client_session_id="active-a", device_id="device-a"),
+    )
+    ingestion = TripIngestion.objects.get(id=start.json()["ingestion_id"])
+    old_last_seen = timezone.now() - timedelta(minutes=30)
+    ingestion.last_seen_at = old_last_seen
+    ingestion.save(update_fields=["last_seen_at", "updated_at"])
+
+    response = post_heartbeat(
+        client,
+        user,
+        ingestion.id,
+        client_session_id="active-a",
+        device_id="device-a",
+    )
+
+    assert response.status_code == 200, response.content
+    ingestion.refresh_from_db()
+    assert ingestion.last_seen_at > old_last_seen
+    assert response.json()["last_seen_at"] is not None
+
+
+@pytest.mark.django_db
+def test_heartbeat_rejects_wrong_session_or_device(user):
+    client = Client()
+    start = post_start(
+        client,
+        user,
+        start_payload(client_session_id="active-a", device_id="device-a"),
+    )
+    ingestion_id = start.json()["ingestion_id"]
+
+    wrong_session = post_heartbeat(
+        client,
+        user,
+        ingestion_id,
+        client_session_id="active-b",
+        device_id="device-a",
+    )
+    wrong_device = post_heartbeat(
+        client,
+        user,
+        ingestion_id,
+        client_session_id="active-a",
+        device_id="device-b",
+    )
+
+    assert wrong_session.status_code == 409
+    assert wrong_device.status_code == 403
+
+
+@pytest.mark.django_db
+def test_start_abandons_stale_active_ingestion_after_24_hours(user):
+    client = Client()
+    first = post_start(
+        client,
+        user,
+        start_payload(client_session_id="active-a", device_id="device-a"),
+    )
+    stale = TripIngestion.objects.get(id=first.json()["ingestion_id"])
+    stale.last_seen_at = timezone.now() - timedelta(hours=24, minutes=1)
+    stale.save(update_fields=["last_seen_at", "updated_at"])
+
+    second = post_start(
+        client,
+        user,
+        start_payload(client_session_id="active-b", device_id="device-b"),
+    )
+
+    assert second.status_code == 200, second.content
+    stale.refresh_from_db()
+    assert stale.recording_abandoned_at is not None
+    assert second.json()["client_session_id"] == "active-b"
+    assert TripIngestion.objects.filter(
+        user=user,
+        recording_started_at__isnull=False,
+        recording_closed_at__isnull=True,
+        recording_abandoned_at__isnull=True,
+    ).count() == 1
+
+
+@pytest.mark.django_db
+def test_final_core_closes_precreated_ingestion_and_materializes_trip(user):
+    client = Client()
+    start = post_start(
+        client,
+        user,
+        start_payload(client_session_id="active-final", device_id="device-a"),
+    )
+    payload = add_hash(
+        base_payload(
+            ingestion_id=start.json()["ingestion_id"],
+            client_session_id="active-final",
+            device_id="device-a",
+        )
+    )
+
+    response = post_inline(client, user, payload)
+
+    assert response.status_code == 200, response.content
+    data = response.json()
+    ingestion = TripIngestion.objects.get(id=start.json()["ingestion_id"])
+    assert data["ingestion_id"] == ingestion.id
+    assert data["trip_id"] is not None
+    assert ingestion.trip_id == data["trip_id"]
+    assert ingestion.recording_closed_at is not None
+    assert ingestion.core_status == TripIngestion.PhaseStatus.COMPLETED
+    assert Trip.objects.filter(client_session_id="active-final").count() == 1
+    assert _active_ingestion_count(user) == 0
+
+
+@pytest.mark.django_db
+def test_final_core_rejects_ingestion_owned_by_another_user(user, other_user):
+    client = Client()
+    start = post_start(
+        client,
+        other_user,
+        start_payload(client_session_id="other-active", device_id="device-a"),
+    )
+    payload = add_hash(
+        base_payload(
+            ingestion_id=start.json()["ingestion_id"],
+            client_session_id="other-active",
+            device_id="device-a",
+        )
+    )
+
+    response = post_inline(client, user, payload)
+
+    assert response.status_code == 404
+
+
+@pytest.mark.django_db
+def test_final_core_rejects_mismatched_client_session(user):
+    client = Client()
+    start = post_start(
+        client,
+        user,
+        start_payload(client_session_id="active-final", device_id="device-a"),
+    )
+    payload = add_hash(
+        base_payload(
+            ingestion_id=start.json()["ingestion_id"],
+            client_session_id="wrong-session",
+            device_id="device-a",
+        )
+    )
+
+    response = post_inline(client, user, payload)
+
+    assert response.status_code == 409
+
+
+@pytest.mark.django_db
+def test_final_core_rejects_mismatched_device(user):
+    client = Client()
+    start = post_start(
+        client,
+        user,
+        start_payload(client_session_id="active-final", device_id="device-a"),
+    )
+    payload = add_hash(
+        base_payload(
+            ingestion_id=start.json()["ingestion_id"],
+            client_session_id="active-final",
+            device_id="device-b",
+        )
+    )
+
+    response = post_inline(client, user, payload)
+
+    assert response.status_code == 403
+
+
+@pytest.mark.django_db
+def test_final_core_rejects_abandoned_ingestion(user):
+    client = Client()
+    start = post_start(
+        client,
+        user,
+        start_payload(client_session_id="active-final", device_id="device-a"),
+    )
+    ingestion = TripIngestion.objects.get(id=start.json()["ingestion_id"])
+    ingestion.recording_abandoned_at = timezone.now()
+    ingestion.save(update_fields=["recording_abandoned_at", "updated_at"])
+    payload = add_hash(
+        base_payload(
+            ingestion_id=ingestion.id,
+            client_session_id="active-final",
+            device_id="device-a",
+        )
+    )
+
+    response = post_inline(client, user, payload)
+
+    assert response.status_code == 409
+
+
+@pytest.mark.django_db
+def test_final_core_rejects_incompatibly_closed_ingestion(user):
+    client = Client()
+    start = post_start(
+        client,
+        user,
+        start_payload(client_session_id="active-final", device_id="device-a"),
+    )
+    ingestion = TripIngestion.objects.get(id=start.json()["ingestion_id"])
+    ingestion.recording_closed_at = timezone.now()
+    ingestion.save(update_fields=["recording_closed_at", "updated_at"])
+    payload = add_hash(
+        base_payload(
+            ingestion_id=ingestion.id,
+            client_session_id="active-final",
+            device_id="device-a",
+        )
+    )
+
+    response = post_inline(client, user, payload)
+
+    assert response.status_code == 409
 
 
 @pytest.mark.django_db
@@ -317,16 +769,29 @@ def test_inline_core_completed_without_trip_is_explicit_conflict(user):
 
 @pytest.mark.django_db
 def test_inline_core_failed_final_conflicts(user):
-    TripIngestion.objects.create(
+    started_at = timezone.now()
+    ingestion = TripIngestion.objects.create(
         user=user,
         client_session_id="inline-failed-final",
+        device_id="test-device",
         core_status=TripIngestion.PhaseStatus.FAILED_FINAL,
+        recording_started_at=started_at,
+        last_seen_at=started_at,
     )
-    payload = add_hash(base_payload(client_session_id="inline-failed-final"))
+    payload = add_hash(
+        base_payload(
+            client_session_id="inline-failed-final",
+            ingestion_id=ingestion.id,
+        )
+    )
 
     response = post_inline(Client(), user, payload)
 
     assert response.status_code == 409
+    ingestion.refresh_from_db()
+    assert ingestion.recording_closed_at is not None
+    assert _active_ingestion_count(user) == 0
+    assert not Trip.objects.filter(client_session_id="inline-failed-final").exists()
 
 
 @pytest.mark.django_db

@@ -27,6 +27,38 @@ class FakeIngestionApi implements TripIngestionApi {
   bool get coreInlineCalled => coreInlineCallCount > 0;
 
   @override
+  Future<ActiveIngestion?> getActiveIngestion() async => null;
+
+  @override
+  Future<IngestionStartResult> startIngestion({
+    required String clientSessionId,
+    required DateTime startedAt,
+    required String deviceId,
+    String devicePlatform = '',
+  }) async {
+    return IngestionStartResult(
+      ingestionId: _nextId++,
+      clientSessionId: clientSessionId,
+      deviceId: deviceId,
+      recordingStartedAt: startedAt,
+      alreadyExists: false,
+    );
+  }
+
+  @override
+  Future<void> abandonIngestion({
+    required int ingestionId,
+    required String deviceId,
+  }) async {}
+
+  @override
+  Future<void> heartbeatIngestion({
+    required int ingestionId,
+    required String clientSessionId,
+    required String deviceId,
+  }) async {}
+
+  @override
   Future<InlineCoreResult> postCoreInline({
     required Map<String, dynamic> body,
   }) async {
@@ -39,8 +71,9 @@ class FakeIngestionApi implements TripIngestionApi {
         Map<String, dynamic>.from(body['expected_raw_parts'] as Map);
     final rawStatus =
         expectedRawParts.isEmpty ? 'COMPLETED' : rawStatusBeforeComplete;
+    final responseIngestionId = body['ingestion_id'] as int? ?? _nextId++;
     return InlineCoreResult(
-      ingestionId: _nextId++,
+      ingestionId: responseIngestionId,
       tripId: inlineCoreStatus == 'COMPLETED' ? 1 : null,
       coreStatus: inlineCoreStatus,
       rawStatus: rawStatus,
@@ -152,12 +185,16 @@ void main() {
     if (await tempDir.exists()) await tempDir.delete(recursive: true);
   });
 
-  Future<String> seedSessionWithData({bool includeSensorWindow = true}) async {
+  Future<String> seedSessionWithData({
+    bool includeSensorWindow = true,
+    int? remoteIngestionId,
+  }) async {
     final dao = database.acquisitionDao;
     const id = 'sess-q';
     await dao.createSession(
       id: id,
       deviceId: 'dev',
+      remoteIngestionId: remoteIngestionId,
       startedAt: DateTime.utc(2026, 6, 12, 10),
     );
     await dao.endSession(id: id, endedAt: DateTime.utc(2026, 6, 12, 10, 30));
@@ -253,6 +290,17 @@ void main() {
     expect(await database.acquisitionDao.findSession(id), isNotNull);
   });
 
+  test('posts final core against the ingestion created at start', () async {
+    final id = await seedSessionWithData(remoteIngestionId: 321);
+    final api = FakeIngestionApi();
+
+    await queue(api).kick();
+
+    final job = await database.acquisitionDao.syncJobForSession(id);
+    expect(api.inlineBodies.single['ingestion_id'], 321);
+    expect(job!.remoteIngestionId, 321);
+  });
+
   test(
       'failure schedules a retry with backoff and is not immediately claimable',
       () async {
@@ -271,6 +319,27 @@ void main() {
     final claimable =
         await database.acquisitionDao.claimableSyncJobs(DateTime.now().toUtc());
     expect(claimable, isEmpty);
+  });
+
+  test('retries final core failure against the same remote ingestion id',
+      () async {
+    final id = await seedSessionWithData(remoteIngestionId: 321);
+    final api = FakeIngestionApi()..failCoreInline = true;
+
+    await queue(api, backoff: const [Duration.zero]).kick();
+
+    var job = await database.acquisitionDao.syncJobForSession(id);
+    expect(job!.coreStatus, syncJobFailedRetryable);
+    expect(job.remoteIngestionId, 321);
+
+    api.failCoreInline = false;
+    await queue(api, backoff: const [Duration.zero]).kick();
+
+    job = await database.acquisitionDao.syncJobForSession(id);
+    expect(job!.coreStatus, syncJobCompleted);
+    expect(job.remoteIngestionId, 321);
+    expect(api.inlineBodies, hasLength(2));
+    expect(api.inlineBodies.map((body) => body['ingestion_id']), [321, 321]);
   });
 
   test('polls without raw upload when backend is already processing', () async {

@@ -10,6 +10,7 @@ part 'acquisition_local_database.g.dart';
 class AcquisitionSessions extends Table {
   TextColumn get id => text()();
   TextColumn get deviceId => text()();
+  IntColumn get remoteIngestionId => integer().nullable()();
   DateTimeColumn get startedAt => dateTime()();
   DateTimeColumn get endedAt => dateTime().nullable()();
 
@@ -117,7 +118,7 @@ class AcquisitionLocalDatabase extends _$AcquisitionLocalDatabase {
       : super(executor ?? _openConnection());
 
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -142,6 +143,12 @@ class AcquisitionLocalDatabase extends _$AcquisitionLocalDatabase {
               await m.addColumn(syncJobs, syncJobs.corePayloadSizeBytes);
               await m.addColumn(syncJobs, syncJobs.coreMapAvailable);
             }
+            if (from < 6) {
+              await m.addColumn(
+                acquisitionSessions,
+                acquisitionSessions.remoteIngestionId,
+              );
+            }
           }
         },
       );
@@ -164,11 +171,13 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
     required String id,
     required String deviceId,
     required DateTime startedAt,
+    int? remoteIngestionId,
   }) {
     return into(acquisitionSessions).insert(
       AcquisitionSessionsCompanion.insert(
         id: id,
         deviceId: deviceId,
+        remoteIngestionId: Value(remoteIngestionId),
         startedAt: _asUtc(startedAt),
       ),
     );
@@ -260,6 +269,26 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
         .then((session) => session == null ? null : _sessionAsUtc(session));
   }
 
+  Future<AcquisitionSession?> latestOpenSession() {
+    return (select(acquisitionSessions)
+          ..where((session) => session.endedAt.isNull())
+          ..orderBy([
+            (session) => OrderingTerm.desc(session.startedAt),
+          ])
+          ..limit(1))
+        .getSingleOrNull()
+        .then((session) => session == null ? null : _sessionAsUtc(session));
+  }
+
+  Future<AcquisitionSession?> findOpenSession(String id) {
+    return (select(acquisitionSessions)
+          ..where(
+            (session) => session.id.equals(id) & session.endedAt.isNull(),
+          ))
+        .getSingleOrNull()
+        .then((session) => session == null ? null : _sessionAsUtc(session));
+  }
+
   Future<List<AcquisitionSession>> allSessions() {
     return (select(acquisitionSessions)
           ..orderBy([
@@ -277,6 +306,18 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
           ]))
         .get()
         .then((transitions) => transitions.map(_transitionAsUtc).toList());
+  }
+
+  Future<StateTransition?> latestTransitionForSession(String sessionId) {
+    return (select(stateTransitions)
+          ..where((transition) => transition.sessionId.equals(sessionId))
+          ..orderBy([
+            (transition) => OrderingTerm.desc(transition.timestamp),
+          ])
+          ..limit(1))
+        .getSingleOrNull()
+        .then((transition) =>
+            transition == null ? null : _transitionAsUtc(transition));
   }
 
   Future<int> countTransitionsForSession(String sessionId) {
@@ -323,6 +364,16 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
           ..orderBy([(p) => OrderingTerm.asc(p.timestamp)]))
         .get()
         .then((points) => points.map(_gpsPointAsUtc).toList());
+  }
+
+  Future<GpsPoint?> latestGpsPointForSession(String sessionId) {
+    return (select(gpsPoints)
+          ..where(
+              (p) => p.sessionId.equals(sessionId) & p.accepted.equals(true))
+          ..orderBy([(p) => OrderingTerm.desc(p.timestamp)])
+          ..limit(1))
+        .getSingleOrNull()
+        .then((point) => point == null ? null : _gpsPointAsUtc(point));
   }
 
   Future<List<GpsPoint>> unsyncedGpsPoints(String sessionId) {
@@ -375,8 +426,7 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
           .go();
       await (delete(gpsPoints)..where((p) => p.sessionId.equals(sessionId)))
           .go();
-      await (delete(sensorWindows)
-            ..where((w) => w.sessionId.equals(sessionId)))
+      await (delete(sensorWindows)..where((w) => w.sessionId.equals(sessionId)))
           .go();
     });
   }
@@ -392,10 +442,12 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
     if (existing != null) {
       return _syncJobAsUtc(existing);
     }
+    final session = await findSession(localSessionId);
     final now = DateTime.now().toUtc();
     await into(syncJobs).insert(
       SyncJobsCompanion.insert(
         localSessionId: localSessionId,
+        remoteIngestionId: Value(session?.remoteIngestionId),
         createdAt: now,
         updatedAt: now,
       ),
@@ -420,6 +472,15 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
           ..orderBy([(j) => OrderingTerm.asc(j.createdAt)]))
         .get()
         .then((jobs) => jobs.map(_syncJobAsUtc).toList());
+  }
+
+  Future<SyncJob?> latestUnclosedCoreSyncJob() {
+    return (select(syncJobs)
+          ..where((j) => j.coreStatus.isIn(syncJobActiveStatuses))
+          ..orderBy([(j) => OrderingTerm.desc(j.updatedAt)])
+          ..limit(1))
+        .getSingleOrNull()
+        .then((job) => job == null ? null : _syncJobAsUtc(job));
   }
 
   Future<SyncJob?> syncJobForSession(String localSessionId) {

@@ -133,6 +133,31 @@ _Avoid_: Privacy score, privacy mode, visibility
 A Viaggio whose Core Ingestion has completed and can appear in the diary, regardless of whether raw sensor evidence has finished uploading.
 _Avoid_: Fully uploaded journey, HAR-complete journey
 
+**Viaggio in Corso**:
+A Viaggio whose recording has been explicitly started for one Proprietario del Viaggio but has not yet been closed or synchronized as a completed diary entry.
+_Avoid_: Local session, active trip, draft upload, open tracking
+
+**Dispositivo Origine del Viaggio**:
+The device that started a Viaggio in Corso and is the only device allowed to resume or close that in-progress recording.
+_Avoid_: Any logged-in phone, current device, sync client
+
+**Ripresa del Viaggio in Corso**:
+The act of continuing a Viaggio in Corso after the app was interrupted, allowed only when the current device matches the Dispositivo Origine del Viaggio and still has the local recording session for that Viaggio.
+_Avoid_: Remote takeover, duplicate start, cross-device continuation
+
+**Viaggio in Corso Abbandonato**:
+A Viaggio in Corso that has not received evidence of life from its Dispositivo Origine del Viaggio for at least 24 hours and no longer blocks the Proprietario del Viaggio from starting a new Viaggio.
+It may also be declared abandoned immediately by the Dispositivo Origine del Viaggio when that device no longer has the local SQLite session needed to resume it.
+_Avoid_: Failed upload, deleted trip, automatic stop, stale lock
+
+**Fallimento Finale di Core Ingestion**:
+A terminal Core Ingestion outcome where the backend cannot materialize a visible Viaggio from the final core evidence. It releases the active lock without creating a Trip and is shown on mobile as a dismissible non-recoverable state.
+_Avoid_: Retryable upload, abandoned trip, hidden diary entry
+
+**Vincolo di Singolo Viaggio Attivo**:
+The rule that one Proprietario del Viaggio can have at most one Viaggio in Corso at a time, regardless of which device is using the account.
+_Avoid_: Device lock, frontend-only guard, duplicate start check
+
 **Traiettoria del Viaggio**:
 The map-ready route shape for a Viaggio, available only when Core Ingestion
 contains enough valid GPS evidence. A Viaggio can be synchronized without having

@@ -337,8 +337,9 @@ class AcquisitionSensorRuntime {
       return AppleSettings(
         accuracy: accuracy,
         distanceFilter: distanceFilter,
-        pauseLocationUpdatesAutomatically:
-            profile.gpsAccuracy == GpsAccuracyProfile.lowPower,
+        // During an active trip, pausing in the stationary profile can let iOS
+        // suspend the app long enough that the user comes back to a cold start.
+        pauseLocationUpdatesAutomatically: false,
         activityType: profile.gpsAccuracy == GpsAccuracyProfile.highAccuracy
             ? ActivityType.fitness
             : ActivityType.other,

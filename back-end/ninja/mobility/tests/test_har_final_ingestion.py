@@ -322,6 +322,13 @@ def test_process_trip_har_final_reads_raw_and_regenerates_segments(
     deleted: list[str] = []
     monkeypatch.setattr(storage, "read_object", lambda object_key: raw)
     monkeypatch.setattr(storage, "delete_objects", lambda keys: deleted.extend(keys))
+    monkeypatch.setattr(
+        "mobility.ml.pipeline.classify_windows",
+        lambda *_args, **_kwargs: ClassifierResult(
+            labels=[ActivityLabel.BIKING, ActivityLabel.BIKING],
+            summary={"classifier": "test"},
+        ),
+    )
     MobilitySegment.objects.create(
         trip=trip,
         kind=MobilitySegment.Kind.MOVE,

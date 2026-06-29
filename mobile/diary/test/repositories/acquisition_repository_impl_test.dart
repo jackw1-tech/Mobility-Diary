@@ -1,10 +1,14 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:diary/features/acquisition/data/acquisition_local_database.dart';
 import 'package:diary/features/acquisition/domain/acquisition_domain.dart';
 import 'package:diary/features/acquisition/runtime/acquisition_sensor_runtime.dart';
+import 'package:diary/features/acquisition/sync/trip_ingestion_api.dart';
+import 'package:diary/repositories/acquisition_repository.dart';
 import 'package:diary/repositories/impl/acquisition_repository_impl.dart';
 import 'package:drift/native.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -75,6 +79,283 @@ void main() {
         ),
         1,
       );
+    });
+
+    test('start stores the backend active ingestion id locally', () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final runtime = _FakeAcquisitionSensorRuntime();
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        runtime: runtime,
+        ingestionApi: _FakeTripIngestionApi(ingestionId: 42),
+        deviceIdProvider: () async => 'stable-device',
+      );
+      addTearDown(repository.dispose);
+
+      await repository.startTracking();
+
+      final session = (await database.acquisitionDao.allSessions()).single;
+      expect(session.remoteIngestionId, 42);
+      expect(session.deviceId, 'stable-device');
+      expect(runtime.latestProfile, const SamplingProfile.stationary());
+      expect(repository.currentSnapshot.isTracking, isTrue);
+    });
+
+    test('start sends the stable device id to the backend', () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final api = _FakeTripIngestionApi();
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        enableRuntime: false,
+        ingestionApi: api,
+        deviceIdProvider: () async => 'stable-device',
+      );
+      addTearDown(repository.dispose);
+
+      await repository.startTracking();
+
+      expect(api.startedDeviceIds, ['stable-device']);
+    });
+
+    test('sends scheduled heartbeat while tracking', () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final api = _FakeTripIngestionApi(ingestionId: 42);
+      late _ManualTimer heartbeatTimer;
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        enableRuntime: false,
+        ingestionApi: api,
+        deviceIdProvider: () async => 'stable-device',
+        heartbeatTimerFactory: (duration, callback) {
+          expect(duration, const Duration(minutes: 5));
+          heartbeatTimer = _ManualTimer(callback);
+          return heartbeatTimer;
+        },
+      );
+      addTearDown(repository.dispose);
+
+      await repository.startTracking();
+      heartbeatTimer.fire();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(api.heartbeatCalls, hasLength(1));
+      expect(api.heartbeatCalls.single.ingestionId, 42);
+      expect(api.heartbeatCalls.single.deviceId, 'stable-device');
+    });
+
+    test('sends heartbeat when app returns to foreground', () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final api = _FakeTripIngestionApi(ingestionId: 42);
+      final lifecycle = StreamController<AppLifecycleState>();
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        enableRuntime: false,
+        ingestionApi: api,
+        deviceIdProvider: () async => 'stable-device',
+        lifecycleEvents: lifecycle.stream,
+      );
+      addTearDown(repository.dispose);
+      addTearDown(lifecycle.close);
+
+      await repository.startTracking();
+      lifecycle.add(AppLifecycleState.resumed);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(api.heartbeatCalls, hasLength(1));
+      expect(api.heartbeatCalls.single.ingestionId, 42);
+    });
+
+    test('heartbeat failure does not stop local tracking', () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final api = _FakeTripIngestionApi(
+        ingestionId: 42,
+        shouldFailHeartbeat: true,
+      );
+      late _ManualTimer heartbeatTimer;
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        enableRuntime: false,
+        ingestionApi: api,
+        deviceIdProvider: () async => 'stable-device',
+        heartbeatTimerFactory: (_, callback) {
+          heartbeatTimer = _ManualTimer(callback);
+          return heartbeatTimer;
+        },
+      );
+      addTearDown(repository.dispose);
+
+      await repository.startTracking();
+      heartbeatTimer.fire();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(api.heartbeatCalls, hasLength(1));
+      expect(repository.currentSnapshot.isTracking, isTrue);
+    });
+
+    test('start does not create a local session when backend start fails',
+        () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final runtime = _FakeAcquisitionSensorRuntime();
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        runtime: runtime,
+        ingestionApi: _FakeTripIngestionApi(shouldFailStart: true),
+      );
+      addTearDown(repository.dispose);
+
+      await expectLater(
+        repository.startTracking(),
+        throwsA(isA<StartRequiresConnectionException>()),
+      );
+
+      expect(await database.acquisitionDao.countSessions(), 0);
+      expect(runtime.latestProfile, isNull);
+      expect(repository.currentSnapshot.isTracking, isFalse);
+    });
+
+    test('start conflict resumes a same-device open SQLite session', () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final runtime = _FakeAcquisitionSensorRuntime();
+      final api = _FakeTripIngestionApi(
+        conflictActive: _active(
+          clientSessionId: 'remote-session',
+          deviceId: 'stable-device',
+        ),
+      );
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        runtime: runtime,
+        ingestionApi: api,
+        deviceIdProvider: () async => 'stable-device',
+      );
+      addTearDown(repository.dispose);
+      await database.acquisitionDao.createSession(
+        id: 'remote-session',
+        deviceId: 'stable-device',
+        startedAt: DateTime.utc(2026, 1, 1, 8),
+        remoteIngestionId: 7,
+      );
+
+      await repository.startTracking();
+
+      expect(repository.currentSnapshot.isTracking, isTrue);
+      expect(runtime.latestProfile, const SamplingProfile.stationary());
+      expect(await database.acquisitionDao.countSessions(), 1);
+      expect(api.abandonedIngestionIds, isEmpty);
+    });
+
+    test('start conflict abandons same-device remote lock without SQLite',
+        () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final api = _FakeTripIngestionApi(
+        conflictActive: _active(
+          clientSessionId: 'lost-session',
+          deviceId: 'stable-device',
+        ),
+        conflictOnce: true,
+      );
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        enableRuntime: false,
+        ingestionApi: api,
+        deviceIdProvider: () async => 'stable-device',
+      );
+      addTearDown(repository.dispose);
+
+      await repository.startTracking();
+
+      final session = (await database.acquisitionDao.allSessions()).single;
+      expect(session.id, isNot('lost-session'));
+      expect(session.deviceId, 'stable-device');
+      expect(api.abandonedIngestionIds, [7]);
+      expect(api.startCallCount, 2);
+    });
+
+    test('start conflict from another device is blocked', () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final api = _FakeTripIngestionApi(
+        conflictActive: _active(deviceId: 'other-device'),
+      );
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        enableRuntime: false,
+        ingestionApi: api,
+        deviceIdProvider: () async => 'stable-device',
+      );
+      addTearDown(repository.dispose);
+
+      await expectLater(
+        repository.startTracking(),
+        throwsA(isA<ActiveTripOnAnotherDeviceException>()),
+      );
+
+      expect(await database.acquisitionDao.countSessions(), 0);
+      expect(api.abandonedIngestionIds, isEmpty);
+    });
+
+    test('resumeSync abandons same-device remote lock without SQLite',
+        () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final api = _FakeTripIngestionApi(
+        activeIngestion: _active(
+          clientSessionId: 'missing-local-session',
+          deviceId: 'stable-device',
+        ),
+      );
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        enableRuntime: false,
+        ingestionApi: api,
+        deviceIdProvider: () async => 'stable-device',
+      );
+      addTearDown(repository.dispose);
+
+      await repository.resumeSync();
+
+      expect(api.activeLookupCount, 1);
+      expect(api.abandonedIngestionIds, [7]);
+      expect(repository.currentSnapshot.isTracking, isFalse);
+    });
+
+    test(
+        'resumeSync does not abandon a stopped session with a pending core sync',
+        () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final dao = database.acquisitionDao;
+      await dao.createSession(
+        id: 'stopped-pending-session',
+        deviceId: 'stable-device',
+        startedAt: DateTime.utc(2026, 1, 1, 8),
+        remoteIngestionId: 42,
+      );
+      await dao.endSession(
+        id: 'stopped-pending-session',
+        endedAt: DateTime.utc(2026, 1, 1, 8, 30),
+      );
+      // Sync job ancora da inviare: coreStatus default PENDING (attivo).
+      await dao.createSyncJobIfAbsent('stopped-pending-session');
+
+      final api = _FakeTripIngestionApi(
+        activeIngestion: _active(
+          ingestionId: 42,
+          clientSessionId: 'stopped-pending-session',
+          deviceId: 'stable-device',
+        ),
+      );
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        enableRuntime: false,
+        ingestionApi: api,
+        deviceIdProvider: () async => 'stable-device',
+      );
+      addTearDown(repository.dispose);
+
+      await repository.resumeSync();
+
+      // Il backend chiudera' l'ingestione quando arrivera' il core: non va
+      // abbandonata, altrimenti il viaggio fermato andrebbe perso.
+      expect(api.abandonedIngestionIds, isEmpty);
+      expect(repository.currentSnapshot.isTracking, isFalse);
     });
 
     test('ingests FSM events and exposes movement transition snapshots',
@@ -227,23 +508,53 @@ void main() {
     test('stop enqueues a persistent SyncJob without blocking on network',
         () async {
       final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final runtime = _FakeAcquisitionSensorRuntime();
       final repository = AcquisitionRepositoryImpl(
         database: database,
-        enableRuntime: false,
+        runtime: runtime,
+        ingestionApi: _FakeTripIngestionApi(ingestionId: 42),
+        deviceIdProvider: () async => 'stable-device',
       );
       addTearDown(repository.dispose);
+      final now = DateTime.utc(2026, 1, 1);
 
       await repository.startTracking();
+      await repository.ingestEvent(
+        GpsFixReceived(
+          timestamp: now,
+          latitude: 44.49491,
+          longitude: 11.34261,
+          speedMetersPerSecond: 0,
+          accuracyMeters: 25,
+        ),
+      );
+      await _enterMovement(repository, now.add(const Duration(seconds: 2)));
+      await runtime.completeWindow(
+        _harWindow(startedAt: now.add(const Duration(seconds: 20))),
+      );
       final sessions = await database.acquisitionDao.allSessions();
       final sessionId = sessions.single.id;
 
       await repository.stopTracking();
 
+      expect(runtime.latestProfile, isNull);
       final job = await database.acquisitionDao.syncJobForSession(sessionId);
       expect(job, isNotNull);
       expect(job!.coreStatus, syncJobPending);
       expect(job.attempts, 0);
-      expect(job.remoteIngestionId, isNull);
+      expect(job.remoteIngestionId, 42);
+      expect(
+        await database.acquisitionDao.countGpsPointsForSession(sessionId),
+        1,
+      );
+      expect(
+        await database.acquisitionDao.countTransitionsForSession(sessionId),
+        1,
+      );
+      expect(
+        await database.acquisitionDao.countSensorWindowsForSession(sessionId),
+        1,
+      );
 
       // Claimable subito (nessun next_retry_at futuro).
       final claimable = await database.acquisitionDao
@@ -252,6 +563,81 @@ void main() {
         claimable.where((j) => j.localSessionId == sessionId),
         hasLength(1),
       );
+    });
+
+    test('start is blocked while stopped trip core sync is pending', () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final api = _FakeTripIngestionApi(ingestionId: 42);
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        enableRuntime: false,
+        ingestionApi: api,
+        deviceIdProvider: () async => 'stable-device',
+      );
+      addTearDown(repository.dispose);
+
+      await repository.startTracking();
+      await repository.stopTracking();
+
+      await expectLater(
+        repository.startTracking(),
+        throwsA(isA<PendingTripSyncException>()),
+      );
+      expect(api.startCallCount, 1);
+    });
+
+    test('resumeSync restores an open local tracking session', () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final runtime = _FakeAcquisitionSensorRuntime();
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        runtime: runtime,
+      );
+      addTearDown(repository.dispose);
+      final dao = database.acquisitionDao;
+      final startedAt = DateTime.utc(2026, 1, 1, 8);
+      final transitionAt = startedAt.add(const Duration(minutes: 5));
+      final gpsAt = startedAt.add(const Duration(minutes: 6));
+
+      await dao.createSession(
+        id: 'open-session',
+        deviceId: 'dev',
+        startedAt: startedAt,
+      );
+      await dao.insertTransition(
+        sessionId: 'open-session',
+        fromState: TrackingState.stationary.wireName,
+        toState: TrackingState.movement.wireName,
+        reason: 'movement_sigma_above_threshold',
+        timestamp: transitionAt,
+        sigma: 1.4,
+        speedMps: 0.8,
+      );
+      await dao.insertGpsPoint(
+        sessionId: 'open-session',
+        latitude: 44.49491,
+        longitude: 11.34261,
+        timestamp: gpsAt,
+        speedMps: 1.1,
+        accuracyMeters: 12,
+      );
+
+      await repository.resumeSync();
+
+      expect(repository.currentSnapshot.isTracking, isTrue);
+      expect(repository.currentSnapshot.trackingState, TrackingState.movement);
+      expect(
+          repository.currentSnapshot.samplingProfile.harWindowEnabled, isTrue);
+      expect(repository.currentSnapshot.latitude, 44.49491);
+      expect(repository.currentSnapshot.longitude, 11.34261);
+      expect(runtime.latestProfile, const SamplingProfile.movement());
+
+      await repository.stopTracking();
+
+      final session = await dao.findSession('open-session');
+      final job = await dao.syncJobForSession('open-session');
+      expect(session!.endedAt, isNotNull);
+      expect(job, isNotNull);
     });
 
     test('exposes the latest SyncJob as a UI sync snapshot on stop', () async {
@@ -275,6 +661,27 @@ void main() {
       expect(syncSnapshot.remoteIngestionId, isNull);
       expect(
           repository.currentSyncSnapshot.status, AcquisitionSyncStatus.pending);
+    });
+
+    test('failed-final sync job does not block a new local start', () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final dao = database.acquisitionDao;
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        enableRuntime: false,
+      );
+      addTearDown(repository.dispose);
+      await dao.createSession(
+        id: 'failed-final-session',
+        deviceId: 'dev',
+        startedAt: DateTime.utc(2026, 1, 1),
+      );
+      final job = await dao.createSyncJobIfAbsent('failed-final-session');
+      await dao.updateSyncJob(job.id, coreStatus: syncJobFailedFinal);
+
+      await repository.startTracking();
+
+      expect(repository.currentSnapshot.isTracking, isTrue);
     });
 
     test('createSyncJobIfAbsent is idempotent per session', () async {
@@ -386,4 +793,141 @@ class _FakeAcquisitionSensorRuntime extends AcquisitionSensorRuntime {
     windows.insert(0, window);
     await harWindowSink?.call(window);
   }
+}
+
+class _FakeTripIngestionApi implements TripIngestionApi {
+  final int ingestionId;
+  final bool shouldFailStart;
+  final bool shouldFailHeartbeat;
+  final ActiveIngestion? conflictActive;
+  final ActiveIngestion? activeIngestion;
+  final bool conflictOnce;
+  final List<String> startedDeviceIds = [];
+  final List<int> abandonedIngestionIds = [];
+  final List<({int ingestionId, String clientSessionId, String deviceId})>
+      heartbeatCalls = [];
+  int startCallCount = 0;
+  int activeLookupCount = 0;
+
+  _FakeTripIngestionApi({
+    this.ingestionId = 1,
+    this.shouldFailStart = false,
+    this.shouldFailHeartbeat = false,
+    this.conflictActive,
+    this.activeIngestion,
+    this.conflictOnce = false,
+  });
+
+  @override
+  Future<ActiveIngestion?> getActiveIngestion() async {
+    activeLookupCount += 1;
+    return activeIngestion;
+  }
+
+  @override
+  Future<IngestionStartResult> startIngestion({
+    required String clientSessionId,
+    required DateTime startedAt,
+    required String deviceId,
+    String devicePlatform = '',
+  }) async {
+    startCallCount += 1;
+    if (shouldFailStart) {
+      throw const IngestionApiException('start failed', statusCode: 409);
+    }
+    final active = conflictActive;
+    if (active != null && (!conflictOnce || startCallCount == 1)) {
+      throw IngestionApiException(
+        "viaggio in corso gia' presente",
+        statusCode: 409,
+        body: {'active_ingestion': _activeJson(active)},
+      );
+    }
+    startedDeviceIds.add(deviceId);
+    return IngestionStartResult(
+      ingestionId: ingestionId,
+      clientSessionId: clientSessionId,
+      deviceId: deviceId,
+      recordingStartedAt: startedAt,
+      alreadyExists: false,
+    );
+  }
+
+  @override
+  Future<void> abandonIngestion({
+    required int ingestionId,
+    required String deviceId,
+  }) async {
+    abandonedIngestionIds.add(ingestionId);
+  }
+
+  @override
+  Future<void> heartbeatIngestion({
+    required int ingestionId,
+    required String clientSessionId,
+    required String deviceId,
+  }) async {
+    heartbeatCalls.add((
+      ingestionId: ingestionId,
+      clientSessionId: clientSessionId,
+      deviceId: deviceId,
+    ));
+    if (shouldFailHeartbeat) {
+      throw const IngestionApiException('heartbeat failed', statusCode: 500);
+    }
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _ManualTimer implements Timer {
+  final void Function(Timer timer) _callback;
+  bool _isActive = true;
+  int _tick = 0;
+
+  _ManualTimer(this._callback);
+
+  void fire() {
+    if (!_isActive) {
+      return;
+    }
+    _tick += 1;
+    _callback(this);
+  }
+
+  @override
+  void cancel() {
+    _isActive = false;
+  }
+
+  @override
+  bool get isActive => _isActive;
+
+  @override
+  int get tick => _tick;
+}
+
+ActiveIngestion _active({
+  int ingestionId = 7,
+  String clientSessionId = 'remote-session',
+  String deviceId = 'stable-device',
+}) {
+  return ActiveIngestion(
+    ingestionId: ingestionId,
+    clientSessionId: clientSessionId,
+    deviceId: deviceId,
+    recordingStartedAt: DateTime.utc(2026, 1, 1, 8),
+    lastSeenAt: DateTime.utc(2026, 1, 1, 8, 5),
+  );
+}
+
+Map<String, dynamic> _activeJson(ActiveIngestion active) {
+  return {
+    'ingestion_id': active.ingestionId,
+    'client_session_id': active.clientSessionId,
+    'device_id': active.deviceId,
+    'recording_started_at': active.recordingStartedAt.toIso8601String(),
+    'last_seen_at': active.lastSeenAt?.toIso8601String(),
+  };
 }

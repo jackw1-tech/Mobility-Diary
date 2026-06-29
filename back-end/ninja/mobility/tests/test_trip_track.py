@@ -192,6 +192,75 @@ def test_process_trip_ingestion_builds_path_idempotently(monkeypatch, user):
     assert list(trip.path.coords) == [(9.10, 45.46), (9.30, 45.46)]
 
 
+def _failing_gps_materializer(message: str):
+    def fail(_trip, _ingestion):
+        raise RuntimeError(message)
+
+    return fail
+
+
+@pytest.mark.django_db
+def test_process_trip_ingestion_final_failure_releases_lock_without_trip(
+    monkeypatch,
+    user,
+):
+    started_at = timezone.now()
+    ingestion = TripIngestion.objects.create(
+        user=user,
+        client_session_id="core-final-failure",
+        device_id="test-device",
+        expected_core_parts={"gps_points": 1},
+        raw_status=TripIngestion.PhaseStatus.COMPLETED,
+        recording_started_at=started_at,
+        last_seen_at=started_at,
+    )
+
+    monkeypatch.setattr(process_trip_ingestion, "max_retries", 0)
+    monkeypatch.setattr(
+        "mobility.tasks._materialize_gps",
+        _failing_gps_materializer("boom"),
+    )
+
+    with pytest.raises(RuntimeError, match="boom"):
+        process_trip_ingestion.run(ingestion.id)
+
+    ingestion.refresh_from_db()
+    assert ingestion.core_status == TripIngestion.PhaseStatus.FAILED_FINAL
+    assert ingestion.recording_closed_at is not None
+    assert not Trip.objects.filter(client_session_id="core-final-failure").exists()
+
+
+@pytest.mark.django_db
+def test_process_trip_ingestion_retryable_failure_keeps_active_lock(
+    monkeypatch,
+    user,
+):
+    started_at = timezone.now()
+    ingestion = TripIngestion.objects.create(
+        user=user,
+        client_session_id="core-retryable-failure",
+        device_id="test-device",
+        expected_core_parts={"gps_points": 1},
+        raw_status=TripIngestion.PhaseStatus.COMPLETED,
+        recording_started_at=started_at,
+        last_seen_at=started_at,
+    )
+
+    monkeypatch.setattr(
+        "mobility.tasks._materialize_gps",
+        _failing_gps_materializer("temporary"),
+    )
+
+    with pytest.raises(RuntimeError, match="temporary"):
+        process_trip_ingestion.run(ingestion.id)
+
+    ingestion.refresh_from_db()
+    assert ingestion.core_status == TripIngestion.PhaseStatus.FAILED_RETRYABLE
+    assert ingestion.recording_closed_at is None
+    assert ingestion.recording_abandoned_at is None
+    assert not Trip.objects.filter(client_session_id="core-retryable-failure").exists()
+
+
 @pytest.mark.django_db
 def test_track_endpoint_returns_geojson_distance_and_lon_lat_order(user):
     trip = create_trip(user)

@@ -56,7 +56,8 @@ def test_privacy_settings_update_allowed_levels(user, level):
 
 @pytest.mark.django_db
 def test_privacy_settings_update_clears_first_login_flag(user):
-    assert UserPrivacySettings.objects.get(user=user).is_first_login is True
+    settings, _ = UserPrivacySettings.objects.get_or_create(user=user)
+    assert settings.is_first_login is True
 
     Client().put(
         "/api/privacy/settings",
@@ -65,8 +66,8 @@ def test_privacy_settings_update_clears_first_login_flag(user):
         **auth_headers(user),
     )
 
-    user.privacy_settings.refresh_from_db()
-    assert user.privacy_settings.is_first_login is False
+    settings.refresh_from_db()
+    assert settings.is_first_login is False
 
 
 @pytest.mark.django_db

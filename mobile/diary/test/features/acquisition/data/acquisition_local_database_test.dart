@@ -14,6 +14,7 @@ void main() {
       await dao.createSession(
         id: 'session-1',
         deviceId: 'device-1',
+        remoteIngestionId: 42,
         startedAt: startedAt,
       );
       await dao.insertTransition(
@@ -34,6 +35,8 @@ void main() {
       final transitions = await dao.transitionsForSession('session-1');
 
       expect(sessions.single.id, 'session-1');
+      expect(sessions.single.deviceId, 'device-1');
+      expect(sessions.single.remoteIngestionId, 42);
       expect(sessions.single.endedAt, isNotNull);
       expect(transitions.single.reason, 'movement_sigma_above_threshold');
       expect(await dao.countTransitionsForSession('session-1'), 1);
@@ -48,12 +51,14 @@ void main() {
       await dao.createSession(
         id: 'session-core',
         deviceId: 'device-1',
+        remoteIngestionId: 42,
         startedAt: startedAt,
       );
       await dao.createSyncJobIfAbsent('session-core');
 
       final created = await dao.syncJobForSession('session-core');
-      expect(created!.corePayloadSha256, isNull);
+      expect(created!.remoteIngestionId, 42);
+      expect(created.corePayloadSha256, isNull);
       expect(created.corePayloadSizeBytes, 0);
       expect(created.coreMapAvailable, isFalse);
 

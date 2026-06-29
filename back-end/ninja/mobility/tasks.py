@@ -496,16 +496,24 @@ def process_trip_ingestion(self, ingestion_id: int) -> dict:
             )
     except Exception as exc:  # noqa: BLE001
         will_retry = self.request.retries < self.max_retries
+        failed_at = timezone.now()
         ingestion.core_status = (
             TripIngestion.PhaseStatus.FAILED_RETRYABLE
             if will_retry
             else TripIngestion.PhaseStatus.FAILED_FINAL
         )
         ingestion.error_message = str(exc)
-        ingestion.failed_at = timezone.now()
-        ingestion.save(
-            update_fields=["core_status", "error_message", "failed_at", "updated_at"]
-        )
+        ingestion.failed_at = failed_at
+        update_fields = ["core_status", "error_message", "failed_at", "updated_at"]
+        if (
+            not will_retry
+            and ingestion.recording_started_at is not None
+            and ingestion.recording_closed_at is None
+            and ingestion.recording_abandoned_at is None
+        ):
+            ingestion.recording_closed_at = failed_at
+            update_fields.append("recording_closed_at")
+        ingestion.save(update_fields=update_fields)
         if will_retry:
             raise self.retry(exc=exc)
         raise

@@ -596,9 +596,6 @@ class _WeeklyHeatmapCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final heatmap = week.heatmap;
-    final tripLabel = week.tripIds.length == 1
-        ? 'Viaggio #${week.tripIds.single}'
-        : 'Viaggi ${week.tripIds.map((id) => '#$id').join(', ')}';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -610,14 +607,6 @@ class _WeeklyHeatmapCard extends StatelessWidget {
               ),
         ),
         const SizedBox(height: Dimensions.paddingXSmall),
-        Text(
-          tripLabel,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: ColorPalette.textSecondary,
-              ),
-        ),
         const SizedBox(height: Dimensions.paddingSmall),
         if (heatmap.isEmpty)
           const _SectionEmpty(

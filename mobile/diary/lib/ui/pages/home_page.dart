@@ -1,6 +1,7 @@
 import 'package:auto_route/auto_route.dart';
 import 'package:diary/features/acquisition/domain/acquisition_domain.dart';
 import 'package:diary/network/service/privacy_settings_service.dart';
+import 'package:diary/repositories/acquisition_repository.dart';
 import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubit.dart';
 import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubit_state.dart';
 import 'package:diary/state_management/cubits/auth_cubit/auth_cubit.dart';
@@ -94,8 +95,7 @@ class _AuthenticatedHomePage extends StatelessWidget {
                       ),
                       child: ListView(
                         controller: scrollController,
-                        padding:
-                            const EdgeInsets.all(Dimensions.paddingMedium),
+                        padding: const EdgeInsets.all(Dimensions.paddingMedium),
                         children: [
                           const _SheetHandle(),
                           const SizedBox(height: Dimensions.paddingSmall),
@@ -227,13 +227,26 @@ class _TrackingHeader extends StatelessWidget {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Errore durante la comunicazione HTTP: $e'),
+            content: Text(_trackingErrorMessage(e)),
             backgroundColor: ColorPalette.error,
           ),
         );
       }
     }
   }
+}
+
+String _trackingErrorMessage(Object error) {
+  if (error is ActiveTripOnAnotherDeviceException) {
+    return error.message;
+  }
+  if (error is PendingTripSyncException) {
+    return error.message;
+  }
+  if (error is StartRequiresConnectionException) {
+    return error.message;
+  }
+  return 'Errore durante la comunicazione HTTP: $error';
 }
 
 class _SheetHandle extends StatelessWidget {
@@ -316,11 +329,18 @@ class _SyncStatusPanel extends StatelessWidget {
               ],
             ),
           ),
-          if (sync.isFailed)
+          if (sync.canRetry)
             TextButton.icon(
               onPressed: () => context.read<AcquisitionCubit>().resumeSync(),
               icon: const Icon(Icons.refresh),
               label: const Text('Riprova'),
+            ),
+          if (sync.isNonRecoverable)
+            IconButton(
+              tooltip: 'Nascondi avviso',
+              onPressed: () =>
+                  context.read<AcquisitionCubit>().dismissNonRecoverableSync(),
+              icon: const Icon(Icons.close),
             ),
           if (sync.canOpenCoreDetail)
             TextButton.icon(
@@ -381,7 +401,7 @@ class _SyncStatusPanel extends StatelessWidget {
         );
       case AcquisitionSyncStatus.failedFinal:
         return const _SyncStatusData(
-          title: 'Sync fallita',
+          title: 'Viaggio non recuperabile',
           icon: Icons.error_outline,
           color: ColorPalette.error,
         );
@@ -420,8 +440,8 @@ class _SyncStatusPanel extends StatelessWidget {
             : 'Errore temporaneo, $attemptText';
       case AcquisitionSyncStatus.failedFinal:
         return attemptText == null
-            ? 'Serve un nuovo tentativo manuale'
-            : 'Errore definitivo dopo $attemptText';
+            ? 'La chiusura e fallita definitivamente'
+            : 'Chiusura fallita definitivamente dopo $attemptText';
     }
   }
 

@@ -7,7 +7,7 @@ from django.test import Client
 from django.utils import timezone
 
 from accounts.models import AccessToken
-from mobility.models import GpsPoint, Trip
+from mobility.models import GpsPoint, Trip, TripIngestion
 from mobility.tasks import _build_trip_path
 
 
@@ -86,6 +86,24 @@ def test_list_trips_excludes_other_users_trips(user, other_user):
     payload = response.json()
     assert len(payload) == 1
     assert payload[0]["status"] == Trip.Status.CLOSED
+
+
+@pytest.mark.django_db
+def test_list_trips_ignores_abandoned_ingestions_without_visible_trip(user):
+    now = timezone.now()
+    visible = make_trip(user, client_session_id="visible", started_at=now)
+    TripIngestion.objects.create(
+        user=user,
+        client_session_id="abandoned-recording",
+        device_id="test-device",
+        recording_started_at=now - timedelta(minutes=10),
+        recording_abandoned_at=now,
+    )
+
+    response = Client().get("/api/mobility/trips", **auth_headers(user))
+
+    assert response.status_code == 200
+    assert [trip["id"] for trip in response.json()] == [visible.id]
 
 
 @pytest.mark.django_db
