@@ -82,6 +82,12 @@ def add_trip_with_path(user, coords, *, session):
     )
 
 
+def set_trip_started_at(trip, started_at):
+    Trip.objects.filter(pk=trip.pk).update(started_at=started_at)
+    trip.refresh_from_db()
+    return trip
+
+
 @pytest.mark.django_db
 def test_analytics_empty_history_is_well_formed(user):
     response = get_analytics(user)
@@ -95,6 +101,7 @@ def test_analytics_empty_history_is_well_formed(user):
     assert payload["prevalent_mode"] is None
     assert payload["frequent_routes"] == []
     assert payload["heatmap"] == []
+    assert payload["weekly_heatmaps"] == []
 
 
 @pytest.mark.django_db
@@ -210,6 +217,34 @@ def test_heatmap_is_user_scoped(user, other_user):
     add_place(other_user, 9.20, 45.47, visits=9)
 
     assert get_analytics(user).json()["heatmap"] == []
+
+
+@pytest.mark.django_db
+def test_weekly_heatmaps_group_trips_and_confirmed_places_by_week(user):
+    monday = timezone.now().replace(
+        hour=10, minute=0, second=0, microsecond=0
+    ) - timedelta(days=timezone.now().weekday())
+    add_place(user, 9.10, 45.46, visits=8, name="Casa")
+    add_place(user, 9.20, 45.47, visits=5, name="Universita")
+    add_place(user, 8.00, 44.00, visits=3, state=HabitualPlace.State.CANDIDATE)
+    first = set_trip_started_at(
+        add_trip_with_path(user, [(9.10, 45.46), (9.20, 45.47)], session="a"),
+        monday + timedelta(hours=8),
+    )
+    second = set_trip_started_at(
+        add_trip_with_path(user, [(9.10, 45.46), (8.00, 44.00)], session="b"),
+        monday + timedelta(days=1, hours=9),
+    )
+
+    weekly = get_analytics(user, tz="UTC").json()["weekly_heatmaps"]
+
+    current = weekly[-1]
+    assert current["label"] == monday.strftime("%d/%m")
+    assert current["trip_ids"] == [first.id, second.id]
+    assert current["habitual_places"] == [
+        {"lat": 45.46, "lon": 9.10, "weight": 2.0},
+        {"lat": 45.47, "lon": 9.20, "weight": 1.0},
+    ]
 
 
 @pytest.mark.django_db

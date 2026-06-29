@@ -9,7 +9,9 @@ import 'package:latlong2/latlong.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 
 class TripMapPage extends StatelessWidget {
-  const TripMapPage({Key? key}) : super(key: key);
+  final Widget? topLeftOverlay;
+
+  const TripMapPage({this.topLeftOverlay, Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -20,7 +22,7 @@ class TripMapPage extends StatelessWidget {
           case TripTrackStatus.loading:
             return const Center(child: CircularProgressIndicator());
           case TripTrackStatus.loaded:
-            return _TrackMap(state: state);
+            return _TrackMap(state: state, topLeftOverlay: topLeftOverlay);
           case TripTrackStatus.empty:
             return const _EmptyTrack();
           case TripTrackStatus.error:
@@ -36,8 +38,9 @@ class TripMapPage extends StatelessWidget {
 
 class _TrackMap extends StatefulWidget {
   final TripTrackCubitState state;
+  final Widget? topLeftOverlay;
 
-  const _TrackMap({required this.state});
+  const _TrackMap({required this.state, this.topLeftOverlay});
 
   @override
   State<_TrackMap> createState() => _TrackMapState();
@@ -340,6 +343,12 @@ class _TrackMapState extends State<_TrackMap> {
               showSegments: _showSegments,
               onChanged: _toggleSegmented,
             ),
+          ),
+        if (widget.topLeftOverlay != null)
+          Positioned(
+            top: hasEnrichmentBanner ? 96 : Dimensions.paddingMedium,
+            left: Dimensions.paddingMedium,
+            child: widget.topLeftOverlay!,
           ),
         Positioned(
           left: Dimensions.paddingMedium,

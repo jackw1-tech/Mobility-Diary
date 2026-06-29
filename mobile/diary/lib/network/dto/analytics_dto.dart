@@ -8,6 +8,7 @@ class AnalyticsDto {
   final String? prevalentMode;
   final List<AnalyticsRouteDto> frequentRoutes;
   final List<AnalyticsHeatPointDto> heatmap;
+  final List<AnalyticsWeeklyHeatmapDto> weeklyHeatmaps;
 
   const AnalyticsDto({
     required this.granularity,
@@ -16,6 +17,7 @@ class AnalyticsDto {
     required this.prevalentMode,
     required this.frequentRoutes,
     required this.heatmap,
+    this.weeklyHeatmaps = const [],
   });
 
   factory AnalyticsDto.fromJson(Map<String, dynamic> json) {
@@ -24,8 +26,11 @@ class AnalyticsDto {
       hasData: json['has_data'] as bool? ?? false,
       buckets: _list(json['buckets'], AnalyticsBucketDto.fromJson),
       prevalentMode: json['prevalent_mode'] as String?,
-      frequentRoutes: _list(json['frequent_routes'], AnalyticsRouteDto.fromJson),
+      frequentRoutes:
+          _list(json['frequent_routes'], AnalyticsRouteDto.fromJson),
       heatmap: _list(json['heatmap'], AnalyticsHeatPointDto.fromJson),
+      weeklyHeatmaps:
+          _list(json['weekly_heatmaps'], AnalyticsWeeklyHeatmapDto.fromJson),
     );
   }
 }
@@ -39,8 +44,7 @@ class AnalyticsBucketDto {
   factory AnalyticsBucketDto.fromJson(Map<String, dynamic> json) {
     return AnalyticsBucketDto(
       label: json['label'] as String? ?? '',
-      categories:
-          _list(json['categories'], AnalyticsCategorySliceDto.fromJson),
+      categories: _list(json['categories'], AnalyticsCategorySliceDto.fromJson),
     );
   }
 }
@@ -101,6 +105,29 @@ class AnalyticsHeatPointDto {
       lat: (json['lat'] as num? ?? 0).toDouble(),
       lon: (json['lon'] as num? ?? 0).toDouble(),
       weight: (json['weight'] as num? ?? 0).toDouble(),
+    );
+  }
+}
+
+class AnalyticsWeeklyHeatmapDto {
+  final String label;
+  final List<int> tripIds;
+  final List<AnalyticsHeatPointDto> habitualPlaces;
+
+  const AnalyticsWeeklyHeatmapDto({
+    required this.label,
+    required this.tripIds,
+    required this.habitualPlaces,
+  });
+
+  factory AnalyticsWeeklyHeatmapDto.fromJson(Map<String, dynamic> json) {
+    return AnalyticsWeeklyHeatmapDto(
+      label: json['label'] as String? ?? '',
+      tripIds: (json['trip_ids'] as List<dynamic>? ?? const [])
+          .map((value) => (value as num).toInt())
+          .toList(growable: false),
+      habitualPlaces:
+          _list(json['habitual_places'], AnalyticsHeatPointDto.fromJson),
     );
   }
 }

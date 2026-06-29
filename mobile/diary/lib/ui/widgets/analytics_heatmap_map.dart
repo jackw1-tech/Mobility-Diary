@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:diary/theme/color_palette.dart';
 import 'package:diary/ui/pages/analytics_presenter.dart';
 import 'package:flutter/material.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
@@ -10,8 +11,15 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 /// scroll della pagina; l'intensita' usa il peso normalizzato sul massimo.
 class AnalyticsHeatmapMap extends StatefulWidget {
   final AnalyticsHeatmap heatmap;
+  final bool interactive;
+  final VoidCallback? onTap;
 
-  const AnalyticsHeatmapMap({required this.heatmap, super.key});
+  const AnalyticsHeatmapMap({
+    required this.heatmap,
+    this.interactive = false,
+    this.onTap,
+    super.key,
+  });
 
   @override
   State<AnalyticsHeatmapMap> createState() => _AnalyticsHeatmapMapState();
@@ -20,6 +28,7 @@ class AnalyticsHeatmapMap extends StatefulWidget {
 class _AnalyticsHeatmapMapState extends State<AnalyticsHeatmapMap> {
   static const _sourceId = 'analytics-heat-src';
   static const _layerId = 'analytics-heat-layer';
+  static const _markerLayerId = 'analytics-place-marker-layer';
   MapboxMap? _map;
 
   Future<void> _onMapCreated(MapboxMap map) async {
@@ -28,12 +37,13 @@ class _AnalyticsHeatmapMapState extends State<AnalyticsHeatmapMap> {
     await map.compass.updateSettings(CompassSettings(enabled: false));
     await map.gestures.updateSettings(
       GesturesSettings(
-        scrollEnabled: false,
-        pinchToZoomEnabled: false,
-        rotateEnabled: false,
-        pitchEnabled: false,
-        doubleTapToZoomInEnabled: false,
-        quickZoomEnabled: false,
+        scrollEnabled: widget.interactive,
+        pinchToZoomEnabled: widget.interactive,
+        rotateEnabled: widget.interactive,
+        pitchEnabled: widget.interactive,
+        doubleTapToZoomInEnabled: widget.interactive,
+        doubleTouchToZoomOutEnabled: widget.interactive,
+        quickZoomEnabled: widget.interactive,
       ),
     );
   }
@@ -58,45 +68,150 @@ class _AnalyticsHeatmapMapState extends State<AnalyticsHeatmapMap> {
       id: _sourceId,
       data: jsonEncode({'type': 'FeatureCollection', 'features': features}),
     ));
-    await map.style.addLayer(HeatmapLayer(
-      id: _layerId,
-      sourceId: _sourceId,
-      heatmapRadius: 26,
-      heatmapOpacity: 0.85,
-      heatmapWeightExpression: [
-        'interpolate',
-        ['linear'],
-        ['get', 'weight'],
-        0,
-        0.0,
-        max(widget.heatmap.maxWeight, 1.0),
-        1.0,
-      ],
-    ));
+    if (points.length <= 3) {
+      await map.style.addLayer(CircleLayer(
+        id: _markerLayerId,
+        sourceId: _sourceId,
+        circleColor: ColorPalette.primary.toARGB32(),
+        circleOpacity: 0.82,
+        circleRadiusExpression: [
+          'interpolate',
+          ['linear'],
+          ['get', 'weight'],
+          0,
+          8.0,
+          max(widget.heatmap.maxWeight, 1.0),
+          18.0,
+        ],
+        circleStrokeColor: ColorPalette.surface.toARGB32(),
+        circleStrokeWidth: 3,
+      ));
+    } else {
+      await map.style.addLayer(HeatmapLayer(
+        id: _layerId,
+        sourceId: _sourceId,
+        heatmapRadius: 30,
+        heatmapOpacity: 0.82,
+        heatmapWeightExpression: [
+          'interpolate',
+          ['linear'],
+          ['get', 'weight'],
+          0,
+          0.0,
+          max(widget.heatmap.maxWeight, 1.0),
+          1.0,
+        ],
+      ));
+    }
 
-    final camera = await map.cameraForCoordinatesPadding(
-      [for (final p in points) Point(coordinates: Position(p.lon, p.lat))],
-      CameraOptions(zoom: 12),
-      MbxEdgeInsets(top: 40, left: 40, bottom: 40, right: 40),
-      null,
-      null,
-    );
-    await map.setCamera(camera);
+    if (points.length == 1) {
+      final point = points.single;
+      await map.setCamera(CameraOptions(
+        center: Point(coordinates: Position(point.lon, point.lat)),
+        zoom: 15,
+      ));
+    } else {
+      final camera = await map.cameraForCoordinatesPadding(
+        [for (final p in points) Point(coordinates: Position(p.lon, p.lat))],
+        CameraOptions(zoom: 13),
+        MbxEdgeInsets(top: 48, left: 48, bottom: 48, right: 48),
+        null,
+        null,
+      );
+      await map.setCamera(camera);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final first = widget.heatmap.points.first;
-    return MapWidget(
-      key: const ValueKey('analytics-heatmap'),
-      styleUri: MapboxStyles.MAPBOX_STREETS,
-      // ignore: deprecated_member_use
-      cameraOptions: CameraOptions(
-        center: Point(coordinates: Position(first.lon, first.lat)),
-        zoom: 11,
+    return Stack(
+      children: [
+        MapWidget(
+          key: const ValueKey('analytics-heatmap'),
+          styleUri: MapboxStyles.MAPBOX_STREETS,
+          // ignore: deprecated_member_use
+          cameraOptions: CameraOptions(
+            center: Point(coordinates: Position(first.lon, first.lat)),
+            zoom: 14,
+          ),
+          onMapCreated: _onMapCreated,
+          onStyleLoadedListener: _onStyleLoaded,
+        ),
+        Positioned(
+          top: 12,
+          left: 12,
+          child: _HeatmapSummary(heatmap: widget.heatmap),
+        ),
+        if (widget.onTap != null)
+          Positioned.fill(
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(onTap: widget.onTap),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class AnalyticsHeatmapMapPage extends StatelessWidget {
+  final String title;
+  final AnalyticsHeatmap heatmap;
+
+  const AnalyticsHeatmapMapPage({
+    required this.title,
+    required this.heatmap,
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(centerTitle: true, title: Text(title)),
+      body: SafeArea(
+        top: false,
+        child: AnalyticsHeatmapMap(
+          heatmap: heatmap,
+          interactive: true,
+        ),
       ),
-      onMapCreated: _onMapCreated,
-      onStyleLoadedListener: _onStyleLoaded,
+    );
+  }
+}
+
+class _HeatmapSummary extends StatelessWidget {
+  final AnalyticsHeatmap heatmap;
+
+  const _HeatmapSummary({required this.heatmap});
+
+  @override
+  Widget build(BuildContext context) {
+    final places = heatmap.points.length;
+    final visits = heatmap.points.fold<double>(
+      0,
+      (sum, point) => sum + point.weight,
+    );
+    final placeLabel = places == 1 ? '1 luogo' : '$places luoghi';
+    final visitLabel =
+        visits.round() == 1 ? '1 visita' : '${visits.round()} visite';
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: ColorPalette.surface.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: ColorPalette.hairline),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: Text(
+          '$placeLabel · $visitLabel',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: ColorPalette.textPrimary,
+                fontWeight: FontWeight.w700,
+              ),
+        ),
+      ),
     );
   }
 }

@@ -218,6 +218,12 @@ class AnalyticsHeatPointOut(Schema):
     weight: float
 
 
+class AnalyticsWeeklyHeatmapOut(Schema):
+    label: str
+    trip_ids: list[int]
+    habitual_places: list[AnalyticsHeatPointOut]
+
+
 class AnalyticsOut(Schema):
     """Analitiche Personali: bucket finestrati + aggregati cumulativi (ADR 0030)."""
 
@@ -228,3 +234,4 @@ class AnalyticsOut(Schema):
     prevalent_mode: str | None
     frequent_routes: list[AnalyticsRouteOut]
     heatmap: list[AnalyticsHeatPointOut]
+    weekly_heatmaps: list[AnalyticsWeeklyHeatmapOut]

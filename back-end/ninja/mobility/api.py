@@ -59,6 +59,7 @@ from .schemas import (
     AnalyticsHeatPointOut,
     AnalyticsOut,
     AnalyticsRouteOut,
+    AnalyticsWeeklyHeatmapOut,
     DiaryOut,
     GpsPointBatchIn,
     HarJobOut,
@@ -793,6 +794,73 @@ def _analytics_heatmap(user_id: int) -> list[AnalyticsHeatPointOut]:
     ]
 
 
+def _weekly_heatmaps(user_id: int, zone: ZoneInfo) -> list[AnalyticsWeeklyHeatmapOut]:
+    """Luoghi abituali toccati dai viaggi, raggruppati per settimana locale."""
+    today = timezone.now().astimezone(zone).date()
+    anchor = _bucket_start_of(today, "week")
+    starts = [anchor - timedelta(weeks=i) for i in range(7, -1, -1)]
+    index_by_start = {start: i for i, start in enumerate(starts)}
+    trip_ids = [[] for _ in starts]
+    place_hits = [Counter() for _ in starts]
+
+    places = list(
+        HabitualPlace.objects.filter(
+            user_id=user_id, state=HabitualPlace.State.CONFIRMED
+        ).only("center", "radius_meters")
+    )
+    if not places:
+        return []
+
+    by_id = {place.id: place for place in places}
+    window_start = datetime.combine(starts[0], time.min, tzinfo=zone)
+    trips = (
+        Trip.objects.filter(
+            user_id=user_id,
+            started_at__gte=window_start,
+            path__isnull=False,
+        )
+        .only("id", "started_at", "path")
+        .order_by("started_at")
+    )
+
+    for trip in trips:
+        local_date = trip.started_at.astimezone(zone).date()
+        index = index_by_start.get(_bucket_start_of(local_date, "week"))
+        if index is None:
+            continue
+        trip_ids[index].append(trip.id)
+        coords = trip.path.coords
+        if len(coords) < 2:
+            continue
+        matched = {
+            place.id
+            for place in (
+                _nearest_place(coords[0], places),
+                _nearest_place(coords[-1], places),
+            )
+            if place is not None
+        }
+        for place_id in matched:
+            place_hits[index][place_id] += 1
+
+    return [
+        AnalyticsWeeklyHeatmapOut(
+            label=start.strftime("%d/%m"),
+            trip_ids=ids,
+            habitual_places=[
+                AnalyticsHeatPointOut(
+                    lat=by_id[place_id].center.y,
+                    lon=by_id[place_id].center.x,
+                    weight=float(weight),
+                )
+                for place_id, weight in hits.most_common()
+            ],
+        )
+        for start, ids, hits in zip(starts, trip_ids, place_hits)
+        if ids or hits
+    ]
+
+
 def _prevalent_mode(user_id: int) -> str | None:
     """Categoria di Mobilita con piu' tempo totale su tutta la storia, Fermo escluso."""
     rows = MobilitySegment.objects.filter(trip__user_id=user_id).values(
@@ -883,4 +951,5 @@ def get_personal_analytics(request, granularity: str = "day", tz: str = "UTC"):
         prevalent_mode=_prevalent_mode(user_id),
         frequent_routes=_frequent_routes(user_id),
         heatmap=_analytics_heatmap(user_id),
+        weekly_heatmaps=_weekly_heatmaps(user_id, _analytics_zone(tz)),
     )

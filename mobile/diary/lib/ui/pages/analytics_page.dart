@@ -1,4 +1,5 @@
 import 'package:auto_route/auto_route.dart';
+import 'package:diary/network/dto/analytics_dto.dart';
 import 'package:diary/network/service/analytics_service.dart';
 import 'package:diary/state_management/cubits/analytics_cubit/analytics_cubit.dart';
 import 'package:diary/state_management/cubits/analytics_cubit/analytics_cubit_state.dart';
@@ -54,8 +55,7 @@ class _AnalyticsBody extends StatelessWidget {
               onRetry: () => context.read<AnalyticsCubit>().load(),
             );
           case AnalyticsStatus.ready:
-            final trend = buildAnalyticsTrend(state.data!);
-            final heatmap = buildAnalyticsHeatmap(state.data!);
+            final weeklyHeatmaps = buildWeeklyHeatmaps(state.data!);
             final habits = buildAnalyticsHabits(state.data!);
             return RefreshIndicator(
               onRefresh: () => context.read<AnalyticsCubit>().load(),
@@ -68,40 +68,22 @@ class _AnalyticsBody extends StatelessWidget {
                         context.read<AnalyticsCubit>().setGranularity(value),
                   ),
                   const SizedBox(height: Dimensions.paddingMedium),
-                  _Section(
-                    title: 'Tempo per attivita\'',
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _TimeByCategoryChart(bars: trend.bars),
-                        const SizedBox(height: Dimensions.paddingMedium),
-                        const _CategoryLegend(),
-                      ],
+                  _TrendSection(
+                    key: ValueKey(state.granularity),
+                    data: state.data!,
+                  ),
+                  if (state.granularity == 'week') ...[
+                    const SizedBox(height: Dimensions.paddingMedium),
+                    _Section(
+                      title: 'Luoghi piu\' frequentati',
+                      child: weeklyHeatmaps.isEmpty
+                          ? const _SectionEmpty(
+                              text:
+                                  'Nessun luogo significativo ancora riconosciuto',
+                            )
+                          : _WeeklyHeatmapsContent(weeks: weeklyHeatmaps),
                     ),
-                  ),
-                  const SizedBox(height: Dimensions.paddingMedium),
-                  _Section(
-                    title: 'Distanze',
-                    child: _DistancesContent(trend: trend),
-                  ),
-                  const SizedBox(height: Dimensions.paddingMedium),
-                  _Section(
-                    title: 'Luoghi piu\' frequentati',
-                    child: heatmap.isEmpty
-                        ? const _SectionEmpty(
-                            text:
-                                'Nessun luogo significativo ancora riconosciuto',
-                          )
-                        : SizedBox(
-                            height: 220,
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(
-                                Dimensions.borderRadiusMedium,
-                              ),
-                              child: AnalyticsHeatmapMap(heatmap: heatmap),
-                            ),
-                          ),
-                  ),
+                  ],
                   const SizedBox(height: Dimensions.paddingMedium),
                   _Section(
                     title: 'Abitudini di sempre',
@@ -141,13 +123,194 @@ class _GranularityToggle extends StatelessWidget {
   }
 }
 
-class _TimeByCategoryChart extends StatelessWidget {
-  final List<AnalyticsBar> bars;
+/// Sezione "Tempo per attivita'": grafico selezionabile + legenda + dettaglio
+/// del giorno/settimana selezionato (preselezionato sull'ultimo bucket = oggi
+/// / settimana corrente). La selezione e' solo stato di UI: i dati di ogni
+/// bucket sono gia' nel DTO, non serve richiamare il backend.
+class _TrendSection extends StatefulWidget {
+  final AnalyticsDto data;
 
-  const _TimeByCategoryChart({required this.bars});
+  const _TrendSection({required this.data, super.key});
+
+  @override
+  State<_TrendSection> createState() => _TrendSectionState();
+}
+
+class _TrendSectionState extends State<_TrendSection> {
+  late int _selected;
+  late int _windowStart;
+
+  @override
+  void initState() {
+    super.initState();
+    _resetWindow();
+  }
+
+  @override
+  void didUpdateWidget(covariant _TrendSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.data != widget.data) {
+      _resetWindow();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final allBars = analyticsBars(widget.data);
+    if (allBars.isEmpty) {
+      return const _Section(
+        title: 'Tempo per attivita\'',
+        child: _SectionEmpty(text: 'Nessun dato in questa finestra'),
+      );
+    }
+    final maxWindowStart = analyticsWindowMaxStart(allBars.length);
+    final safeWindowStart = _windowStart.clamp(0, maxWindowStart);
+    final visibleBars = analyticsWindow(allBars, safeWindowStart);
+    final visibleBuckets =
+        analyticsWindow(widget.data.buckets, safeWindowStart);
+    final visibleEnd = safeWindowStart + visibleBars.length;
+    final safeSelected = _selected.clamp(0, allBars.length - 1);
+    final selected =
+        safeSelected < safeWindowStart || safeSelected >= visibleEnd
+            ? visibleEnd - 1
+            : safeSelected;
+    final bucket = widget.data.buckets[selected];
+    final isCurrent = selected == allBars.length - 1;
+    final showWindowSlider = analyticsNeedsWindowSlider(allBars.length);
+
+    return _Section(
+      title: 'Tempo per attivita\'',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _TimeByCategoryChart(
+            bars: visibleBars,
+            selectedIndex: selected - safeWindowStart,
+            onSelect: (index) =>
+                setState(() => _selected = safeWindowStart + index),
+          ),
+          if (showWindowSlider) ...[
+            const SizedBox(height: Dimensions.paddingSmall),
+            _BucketWindowSlider(
+              granularity: widget.data.granularity,
+              windowStart: safeWindowStart,
+              maxWindowStart: maxWindowStart,
+              firstLabel: visibleBuckets.first.label,
+              lastLabel: visibleBuckets.last.label,
+              onChanged: (start) {
+                setState(() {
+                  _windowStart = start;
+                  final nextVisibleBars = analyticsWindow(allBars, start);
+                  final nextVisibleEnd = start + nextVisibleBars.length;
+                  if (_selected < start || _selected >= nextVisibleEnd) {
+                    _selected = nextVisibleEnd - 1;
+                  }
+                });
+              },
+            ),
+          ],
+          const SizedBox(height: Dimensions.paddingMedium),
+          const _CategoryLegend(),
+          const Divider(height: Dimensions.paddingLarge),
+          _BucketDetail(
+            title:
+                _detailTitle(widget.data.granularity, bucket.label, isCurrent),
+            summary: summarizeBuckets([bucket]),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _detailTitle(String granularity, String label, bool isCurrent) {
+    if (granularity == 'week') {
+      return isCurrent ? 'Questa settimana' : 'Settimana del $label';
+    }
+    return isCurrent ? 'Oggi' : label;
+  }
+
+  void _resetWindow() {
+    _selected =
+        widget.data.buckets.isEmpty ? 0 : widget.data.buckets.length - 1;
+    _windowStart = analyticsDefaultWindowStart(widget.data.buckets.length);
+  }
+}
+
+class _BucketWindowSlider extends StatelessWidget {
+  final String granularity;
+  final int windowStart;
+  final int maxWindowStart;
+  final String firstLabel;
+  final String lastLabel;
+  final ValueChanged<int> onChanged;
+
+  const _BucketWindowSlider({
+    required this.granularity,
+    required this.windowStart,
+    required this.maxWindowStart,
+    required this.firstLabel,
+    required this.lastLabel,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final periodLabel =
+        granularity == 'week' ? 'Settimane visibili' : 'Giorni visibili';
+    final rangeLabel =
+        firstLabel == lastLabel ? firstLabel : '$firstLabel - $lastLabel';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                periodLabel,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+            const SizedBox(width: Dimensions.paddingSmall),
+            Flexible(
+              child: Text(
+                rangeLabel,
+                textAlign: TextAlign.end,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: ColorPalette.textSecondary,
+                    ),
+              ),
+            ),
+          ],
+        ),
+        Slider(
+          value: windowStart.toDouble(),
+          min: 0,
+          max: maxWindowStart.toDouble(),
+          divisions: maxWindowStart,
+          label: rangeLabel,
+          onChanged: (value) => onChanged(value.round()),
+        ),
+      ],
+    );
+  }
+}
+
+class _TimeByCategoryChart extends StatelessWidget {
+  final List<AnalyticsBar> bars;
+  final int selectedIndex;
+  final ValueChanged<int> onSelect;
+
+  const _TimeByCategoryChart({
+    required this.bars,
+    required this.selectedIndex,
+    required this.onSelect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final trackTop = _trackTop();
     return SizedBox(
       height: 200,
       child: BarChart(
@@ -155,7 +318,20 @@ class _TimeByCategoryChart extends StatelessWidget {
           alignment: BarChartAlignment.spaceAround,
           borderData: FlBorderData(show: false),
           gridData: const FlGridData(show: false),
-          barTouchData: BarTouchData(enabled: false),
+          barTouchData: BarTouchData(
+            enabled: true,
+            handleBuiltInTouches: false,
+            // La traccia di sfondo a piena altezza rende l'intera colonna
+            // toccabile, anche i giorni senza attivita'.
+            allowTouchBarBackDraw: true,
+            touchExtraThreshold:
+                const EdgeInsets.symmetric(horizontal: Dimensions.paddingSmall),
+            touchCallback: (event, response) {
+              if (event is FlTapUpEvent && response?.spot != null) {
+                onSelect(response!.spot!.touchedBarGroupIndex);
+              }
+            },
+          ),
           titlesData: FlTitlesData(
             leftTitles: const AxisTitles(),
             topTitles: const AxisTitles(),
@@ -168,9 +344,14 @@ class _TimeByCategoryChart extends StatelessWidget {
                   padding: const EdgeInsets.only(top: Dimensions.paddingXSmall),
                   child: Text(
                     _labelAt(value.toInt()),
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 10,
-                      color: ColorPalette.textSecondary,
+                      color: value.toInt() == selectedIndex
+                          ? ColorPalette.textPrimary
+                          : ColorPalette.textSecondary,
+                      fontWeight: value.toInt() == selectedIndex
+                          ? FontWeight.w700
+                          : FontWeight.normal,
                     ),
                   ),
                 ),
@@ -179,7 +360,12 @@ class _TimeByCategoryChart extends StatelessWidget {
           ),
           barGroups: [
             for (var i = 0; i < bars.length; i++)
-              BarChartGroupData(x: i, barRods: [_rod(bars[i])]),
+              BarChartGroupData(
+                x: i,
+                barRods: [
+                  _rod(bars[i], dimmed: i != selectedIndex, trackTop: trackTop),
+                ],
+              ),
           ],
         ),
       ),
@@ -189,15 +375,33 @@ class _TimeByCategoryChart extends StatelessWidget {
   String _labelAt(int index) =>
       index >= 0 && index < bars.length ? bars[index].label : '';
 
-  BarChartRodData _rod(AnalyticsBar bar) {
+  double _barMinutes(AnalyticsBar bar) =>
+      bar.secondsByCategory.fold<double>(0, (sum, s) => sum + s) / 60.0;
+
+  double _trackTop() {
+    final maxMinutes = bars.fold<double>(0, (m, b) {
+      final total = _barMinutes(b);
+      return total > m ? total : m;
+    });
+    return maxMinutes <= 0 ? 1.0 : maxMinutes;
+  }
+
+  BarChartRodData _rod(
+    AnalyticsBar bar, {
+    required bool dimmed,
+    required double trackTop,
+  }) {
     final stack = <BarChartRodStackItem>[];
     var from = 0.0;
     for (var c = 0; c < kMobilityCategories.length; c++) {
       final minutes = bar.secondsByCategory[c] / 60.0;
       if (minutes <= 0) continue;
-      stack.add(
-        BarChartRodStackItem(from, from + minutes, kMobilityCategories[c].color),
-      );
+      final color = kMobilityCategories[c].color;
+      stack.add(BarChartRodStackItem(
+        from,
+        from + minutes,
+        dimmed ? color.withValues(alpha: 0.30) : color,
+      ));
       from += minutes;
     }
     return BarChartRodData(
@@ -206,6 +410,12 @@ class _TimeByCategoryChart extends StatelessWidget {
       color: Colors.transparent,
       rodStackItems: stack,
       borderRadius: BorderRadius.circular(2),
+      backDrawRodData: BackgroundBarChartRodData(
+        show: true,
+        toY: trackTop,
+        color:
+            dimmed ? ColorPalette.surfaceSofter : ColorPalette.surfacePressed,
+      ),
     );
   }
 }
@@ -225,7 +435,8 @@ class _CategoryLegend extends StatelessWidget {
             children: [
               _Dot(color: category.color),
               const SizedBox(width: Dimensions.paddingXSmall),
-              Text(category.label, style: Theme.of(context).textTheme.bodySmall),
+              Text(category.label,
+                  style: Theme.of(context).textTheme.bodySmall),
             ],
           ),
       ],
@@ -251,33 +462,44 @@ class _Dot extends StatelessWidget {
   }
 }
 
-class _DistancesContent extends StatelessWidget {
-  final AnalyticsTrend trend;
+/// Statistiche del singolo giorno/settimana selezionato nel grafico.
+class _BucketDetail extends StatelessWidget {
+  final String title;
+  final AnalyticsSummary summary;
 
-  const _DistancesContent({required this.trend});
+  const _BucketDetail({required this.title, required this.summary});
 
   @override
   Widget build(BuildContext context) {
-    final withDistance =
-        trend.categoryTotals.where((total) => total.distanceMeters > 0);
+    final active =
+        summary.categoryTotals.where((total) => total.time > Duration.zero);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        Text(
+          title,
+          style: Theme.of(context)
+              .textTheme
+              .titleSmall
+              ?.copyWith(fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: Dimensions.paddingXSmall),
         _DistanceRow(
           label: 'In movimento',
-          value: trend.movementTime == Duration.zero
+          value: summary.movementTime == Duration.zero
               ? '0 min'
-              : formatDuration(trend.movementTime),
+              : formatDuration(summary.movementTime),
         ),
         _DistanceRow(
-          label: 'Distanza totale',
-          value: formatDistance(trend.totalDistanceMeters),
+          label: 'Distanza',
+          value: formatDistance(summary.totalDistanceMeters),
         ),
-        if (withDistance.isNotEmpty) const Divider(height: Dimensions.paddingLarge),
-        for (final total in withDistance)
-          _DistanceRow(
+        if (active.isNotEmpty) const Divider(height: Dimensions.paddingLarge),
+        for (final total in active)
+          _DotStatRow(
+            color: total.category.color,
             label: total.category.label,
-            value: formatDistance(total.distanceMeters),
+            value: formatDuration(total.time),
           ),
       ],
     );
@@ -311,6 +533,125 @@ class _DistanceRow extends StatelessWidget {
   }
 }
 
+/// Riga con pallino di categoria a sinistra e valore in grassetto a destra.
+class _DotStatRow extends StatelessWidget {
+  final Color color;
+  final String label;
+  final String value;
+
+  const _DotStatRow({
+    required this.color,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: Dimensions.paddingXSmall),
+      child: Row(
+        children: [
+          _Dot(color: color),
+          const SizedBox(width: Dimensions.paddingSmall),
+          Expanded(
+            child: Text(label, style: Theme.of(context).textTheme.bodyMedium),
+          ),
+          Text(
+            value,
+            style: Theme.of(context)
+                .textTheme
+                .bodyMedium
+                ?.copyWith(fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WeeklyHeatmapsContent extends StatelessWidget {
+  final List<AnalyticsWeeklyHeatmap> weeks;
+
+  const _WeeklyHeatmapsContent({required this.weeks});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        for (var i = 0; i < weeks.length; i++) ...[
+          _WeeklyHeatmapCard(week: weeks[i]),
+          if (i != weeks.length - 1)
+            const Divider(height: Dimensions.paddingLarge),
+        ],
+      ],
+    );
+  }
+}
+
+class _WeeklyHeatmapCard extends StatelessWidget {
+  final AnalyticsWeeklyHeatmap week;
+
+  const _WeeklyHeatmapCard({required this.week});
+
+  @override
+  Widget build(BuildContext context) {
+    final heatmap = week.heatmap;
+    final tripLabel = week.tripIds.length == 1
+        ? 'Viaggio #${week.tripIds.single}'
+        : 'Viaggi ${week.tripIds.map((id) => '#$id').join(', ')}';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Settimana del ${week.label}',
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+        ),
+        const SizedBox(height: Dimensions.paddingXSmall),
+        Text(
+          tripLabel,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: ColorPalette.textSecondary,
+              ),
+        ),
+        const SizedBox(height: Dimensions.paddingSmall),
+        if (heatmap.isEmpty)
+          const _SectionEmpty(
+            text:
+                'Nessun habitual place associato ai viaggi di questa settimana',
+          )
+        else
+          SizedBox(
+            height: 220,
+            child: ClipRRect(
+              borderRadius:
+                  BorderRadius.circular(Dimensions.borderRadiusMedium),
+              child: AnalyticsHeatmapMap(
+                heatmap: heatmap,
+                onTap: () => _openHeatmap(context),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  void _openHeatmap(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => AnalyticsHeatmapMapPage(
+          title: 'Settimana del ${week.label}',
+          heatmap: week.heatmap,
+        ),
+      ),
+    );
+  }
+}
+
 class _HabitsContent extends StatelessWidget {
   final AnalyticsHabits habits;
 
@@ -323,28 +664,10 @@ class _HabitsContent extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (prevalent != null)
-          Padding(
-            padding:
-                const EdgeInsets.symmetric(vertical: Dimensions.paddingXSmall),
-            child: Row(
-              children: [
-                _Dot(color: prevalent.color),
-                const SizedBox(width: Dimensions.paddingSmall),
-                Expanded(
-                  child: Text(
-                    'Modalita\' prevalente',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                ),
-                Text(
-                  prevalent.label,
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodyMedium
-                      ?.copyWith(fontWeight: FontWeight.w700),
-                ),
-              ],
-            ),
+          _DotStatRow(
+            color: prevalent.color,
+            label: 'Modalita\' prevalente',
+            value: prevalent.label,
           ),
         if (prevalent != null && habits.routes.isNotEmpty)
           const Divider(height: Dimensions.paddingLarge),

@@ -32,21 +32,22 @@ class AnalyticsCategoryTotal {
   const AnalyticsCategoryTotal(this.category, this.time, this.distanceMeters);
 }
 
-/// Modello di presentazione dell'Andamento recente: barre del grafico +
-/// totali della finestra (tempo "In movimento" e distanze per categoria).
-class AnalyticsTrend {
-  final List<AnalyticsBar> bars;
+/// Statistiche di un insieme di bucket (la finestra intera o un singolo
+/// giorno/settimana selezionato): tempo "In movimento", distanza e dettaglio
+/// per Categoria di Mobilita.
+class AnalyticsSummary {
   final Duration movementTime;
   final double totalDistanceMeters;
   final List<AnalyticsCategoryTotal> categoryTotals;
 
-  const AnalyticsTrend({
-    required this.bars,
+  const AnalyticsSummary({
     required this.movementTime,
     required this.totalDistanceMeters,
     required this.categoryTotals,
   });
 }
+
+const kAnalyticsWindowSize = 7;
 
 MobilityCategory? categoryByKey(String? key) {
   for (final category in kMobilityCategories) {
@@ -76,29 +77,101 @@ class AnalyticsHeatmap {
   bool get isEmpty => points.isEmpty;
 }
 
+class AnalyticsWeeklyHeatmap {
+  final String label;
+  final List<int> tripIds;
+  final AnalyticsHeatmap heatmap;
+
+  const AnalyticsWeeklyHeatmap({
+    required this.label,
+    required this.tripIds,
+    required this.heatmap,
+  });
+}
+
 AnalyticsHeatmap buildAnalyticsHeatmap(AnalyticsDto data) {
-  final maxWeight = data.heatmap.fold<double>(
+  return buildHeatmapFromPoints(data.heatmap);
+}
+
+AnalyticsHeatmap buildHeatmapFromPoints(List<AnalyticsHeatPointDto> points) {
+  final maxWeight = points.fold<double>(
     0,
     (max, point) => point.weight > max ? point.weight : max,
   );
-  return AnalyticsHeatmap(data.heatmap, maxWeight);
+  return AnalyticsHeatmap(points, maxWeight);
 }
 
-AnalyticsTrend buildAnalyticsTrend(AnalyticsDto data) {
+List<AnalyticsWeeklyHeatmap> buildWeeklyHeatmaps(AnalyticsDto data) => [
+      for (final week in data.weeklyHeatmaps)
+        AnalyticsWeeklyHeatmap(
+          label: week.label,
+          tripIds: week.tripIds,
+          heatmap: buildHeatmapFromPoints(week.habitualPlaces),
+        ),
+    ];
+
+/// Una barra per bucket: secondi per categoria, allineati a kMobilityCategories.
+List<AnalyticsBar> analyticsBars(AnalyticsDto data) {
+  return [
+    for (final bucket in data.buckets)
+      AnalyticsBar(bucket.label, [
+        for (final category in kMobilityCategories)
+          _sliceSeconds(bucket, category.key),
+      ]),
+  ];
+}
+
+bool analyticsNeedsWindowSlider(
+  int bucketCount, {
+  int windowSize = kAnalyticsWindowSize,
+}) =>
+    bucketCount > windowSize;
+
+int analyticsWindowMaxStart(
+  int bucketCount, {
+  int windowSize = kAnalyticsWindowSize,
+}) {
+  if (bucketCount <= windowSize) return 0;
+  return bucketCount - windowSize;
+}
+
+int analyticsDefaultWindowStart(
+  int bucketCount, {
+  int windowSize = kAnalyticsWindowSize,
+}) =>
+    analyticsWindowMaxStart(bucketCount, windowSize: windowSize);
+
+List<T> analyticsWindow<T>(
+  List<T> items,
+  int start, {
+  int windowSize = kAnalyticsWindowSize,
+}) {
+  if (items.isEmpty) return const [];
+  final maxStart =
+      analyticsWindowMaxStart(items.length, windowSize: windowSize);
+  final safeStart = start.clamp(0, maxStart).toInt();
+  final end = (safeStart + windowSize).clamp(0, items.length).toInt();
+  return items.sublist(safeStart, end);
+}
+
+double _sliceSeconds(AnalyticsBucketDto bucket, String key) {
+  for (final slice in bucket.categories) {
+    if (slice.category == key) return slice.seconds;
+  }
+  return 0;
+}
+
+/// Aggrega uno o piu' bucket (l'intera finestra, o il singolo giorno/settimana
+/// selezionato) in tempo per categoria, tempo "In movimento" e distanza totale.
+AnalyticsSummary summarizeBuckets(Iterable<AnalyticsBucketDto> buckets) {
   final seconds = {for (final c in kMobilityCategories) c.key: 0.0};
   final meters = {for (final c in kMobilityCategories) c.key: 0.0};
 
-  final bars = <AnalyticsBar>[];
-  for (final bucket in data.buckets) {
-    final byKey = {for (final s in bucket.categories) s.category: s};
-    bars.add(AnalyticsBar(bucket.label, [
-      for (final c in kMobilityCategories) byKey[c.key]?.seconds ?? 0,
-    ]));
-    for (final c in kMobilityCategories) {
-      final slice = byKey[c.key];
-      if (slice == null) continue;
-      seconds[c.key] = seconds[c.key]! + slice.seconds;
-      meters[c.key] = meters[c.key]! + slice.distanceMeters;
+  for (final bucket in buckets) {
+    for (final slice in bucket.categories) {
+      if (!seconds.containsKey(slice.category)) continue;
+      seconds[slice.category] = seconds[slice.category]! + slice.seconds;
+      meters[slice.category] = meters[slice.category]! + slice.distanceMeters;
     }
   }
 
@@ -114,8 +187,7 @@ AnalyticsTrend buildAnalyticsTrend(AnalyticsDto data) {
       .where((total) => total.category.key != 'fermo')
       .fold(Duration.zero, (sum, total) => sum + total.time);
 
-  return AnalyticsTrend(
-    bars: bars,
+  return AnalyticsSummary(
     movementTime: movementTime,
     totalDistanceMeters: meters.values.fold(0.0, (a, b) => a + b),
     categoryTotals: categoryTotals,
