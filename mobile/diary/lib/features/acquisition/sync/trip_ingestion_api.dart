@@ -172,6 +172,7 @@ abstract class TripIngestionApi {
     required DateTime startedAt,
     required String deviceId,
     String devicePlatform,
+    int? sourceTripId,
   });
 
   Future<void> abandonIngestion({
@@ -226,6 +227,8 @@ abstract class TripIngestionApi {
   Future<void> completeRawIngestion(int ingestionId, {required int totalParts});
 
   Future<IngestionStatus> getStatus(int ingestionId);
+
+  Future<Map<String, dynamic>> getReplayData(int tripId);
 }
 
 /// Implementazione HTTP basata su dart:io, con bearer token.
@@ -260,6 +263,7 @@ class TripIngestionHttpApi implements TripIngestionApi {
     required DateTime startedAt,
     required String deviceId,
     String devicePlatform = '',
+    int? sourceTripId,
   }) async {
     final data = await _sendJson('POST', '$_base/start', body: {
       'client_session_id': clientSessionId,
@@ -267,6 +271,7 @@ class TripIngestionHttpApi implements TripIngestionApi {
       'started_at': startedAt.toUtc().toIso8601String(),
       'device_id': deviceId,
       'device_platform': devicePlatform,
+      if (sourceTripId != null) 'source_trip_id': sourceTripId,
     });
     return IngestionStartResult(
       ingestionId: data['ingestion_id'] as int,
@@ -461,6 +466,11 @@ class TripIngestionHttpApi implements TripIngestionApi {
           data['core_ingestion_mode'] as String? ?? 'LEGACY_PARTS',
       mapAvailable: data['map_available'] as bool? ?? false,
     );
+  }
+
+  @override
+  Future<Map<String, dynamic>> getReplayData(int tripId) async {
+    return _sendJson('GET', '/trips/reloadable/$tripId/replay-data');
   }
 
   Future<Map<String, dynamic>> _sendJson(

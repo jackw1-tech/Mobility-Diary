@@ -111,10 +111,43 @@ class AcquisitionCubit extends Cubit<AcquisitionCubitState> {
     }
   }
 
+  bool _isStoppingReplay = false;
+
+  Future<void> startReplay(int sourceTripId) async {
+    try {
+      await _repository.startReplay(sourceTripId);
+      _isStoppingReplay = false;
+      _emitSnapshot(_repository.currentSnapshot, resetMetrics: true);
+    } catch (error) {
+      emit(state.copyWith(errorMessage: error.toString()));
+      rethrow;
+    }
+  }
+
+  Future<void> stopReplay() async {
+    if (_isStoppingReplay) return;
+    _isStoppingReplay = true;
+    try {
+      final result = await _repository.stopReplay();
+      emit(state.copyWith(completedReplayTripId: result.tripId));
+      _emitSnapshot(_repository.currentSnapshot);
+    } catch (error) {
+      _isStoppingReplay = false;
+      emit(state.copyWith(errorMessage: error.toString()));
+      rethrow;
+    }
+  }
+
   void _emitSnapshot(
     AcquisitionSnapshot snapshot, {
     bool resetMetrics = false,
   }) {
+    if (snapshot.isTracking &&
+        snapshot.replaySecondsRemaining == 0 &&
+        !_isStoppingReplay) {
+      unawaited(stopReplay());
+    }
+
     final metricClusters = resetMetrics
         ? <AcquisitionMetricCluster>[]
         : _updatedMetricClusters(snapshot);
@@ -126,6 +159,7 @@ class AcquisitionCubit extends Cubit<AcquisitionCubitState> {
         syncSnapshot: state.syncSnapshot,
         metricClusters: metricClusters,
         routePoints: routePoints,
+        completedReplayTripId: state.completedReplayTripId,
       ),
     );
   }

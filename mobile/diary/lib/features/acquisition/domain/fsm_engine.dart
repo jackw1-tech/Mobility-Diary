@@ -73,6 +73,14 @@ class AcquisitionFsm {
 
   double get latestSpeedMetersPerSecond => _latestSpeedMetersPerSecond;
 
+  TrackingState? get currentState => _state;
+
+  void forceState(TrackingState state, double sigma, double speedMps) {
+    _state = state;
+    _latestSigma = sigma;
+    _latestSpeedMetersPerSecond = speedMps;
+  }
+
   FsmDecision apply(TrackingEvent event) {
     switch (event) {
       case MotionWindowEvaluated():

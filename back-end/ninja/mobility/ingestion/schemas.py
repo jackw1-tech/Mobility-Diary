@@ -27,6 +27,7 @@ class IngestionStartIn(Schema):
     device_id: str = ""
     app_version: str = ""
     device_platform: str = ""
+    source_trip_id: int | None = None
 
 
 class IngestionStartOut(Schema):
@@ -95,6 +96,7 @@ class InlineStateTransitionIn(Schema):
 
 class InlineCoreIn(Schema):
     ingestion_id: int | None = None
+    cutoff_source_timestamp: datetime | None = None
     client_session_id: str
     core_payload_sha256: str
     schema_version: int = 1

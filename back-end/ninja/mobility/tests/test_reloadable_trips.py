@@ -48,13 +48,13 @@ def auth_headers(user):
 @pytest.fixture
 def object_storage(monkeypatch):
     objects: dict[str, bytes] = {}
-    monkeypatch.setattr("mobility.api.storage.read_object", objects.__getitem__)
+    monkeypatch.setattr("mobility.replay_raw.storage.read_object", objects.__getitem__)
     monkeypatch.setattr(
-        "mobility.api.storage.write_object",
+        "mobility.replay_raw.storage.write_object",
         lambda key, body, **_kwargs: objects.__setitem__(key, body),
     )
     monkeypatch.setattr(
-        "mobility.api.storage.delete_object",
+        "mobility.replay_raw.storage.delete_object",
         lambda key: objects.pop(key, None),
     )
     return objects
@@ -304,6 +304,26 @@ def test_direct_reload_retry_recovers_incomplete_same_request(
 
 
 @pytest.mark.django_db
+def test_direct_reload_rejected_while_user_has_active_trip(
+    user, source_owner, object_storage
+):
+    source_start = datetime(2026, 6, 12, 10, tzinfo=dt_timezone.utc)
+    source = make_reloadable_trip(source_owner, source_start=source_start)
+    add_raw_sensor_part(source, object_storage, source_start=source_start)
+    TripIngestion.objects.create(
+        user=user,
+        client_session_id="active-recording",
+        device_id="device-a",
+        recording_started_at=timezone.now(),
+    )
+
+    response = post_reload(Client(), user, source, reload_request_id="while-active")
+
+    assert response.status_code == 409
+    assert not Trip.objects.filter(user=user, reloaded_from_trip=source).exists()
+
+
+@pytest.mark.django_db
 def test_direct_reload_same_request_survives_source_unpublishing(
     user, source_owner, monkeypatch, object_storage, har_delays
 ):
@@ -426,7 +446,9 @@ def test_direct_reload_storage_failure_leaves_no_visible_partial_trip(
             return
         raise OSError("bucket down")
 
-    monkeypatch.setattr("mobility.api.storage.write_object", fail_second_reload_write)
+    monkeypatch.setattr(
+        "mobility.replay_raw.storage.write_object", fail_second_reload_write
+    )
 
     response = post_reload(Client(), user, source, reload_request_id="storage-fails")
 
@@ -487,3 +509,178 @@ def test_direct_reload_queues_har_and_keeps_track_visible(
     assert track.status_code == 200
     assert track.json()["point_count"] == 2
     assert track.json()["geojson"] is not None
+
+
+def post_start(user, body):
+    return Client().post(
+        "/api/ingestion/trips/start",
+        data=json.dumps(body),
+        content_type="application/json",
+        **auth_headers(user),
+    )
+
+
+@pytest.mark.django_db
+def test_start_with_source_trip_marks_replay_ingestion(user, source_owner):
+    source = make_reloadable_trip(
+        source_owner, source_start=datetime(2026, 6, 12, 10, tzinfo=dt_timezone.utc)
+    )
+
+    response = post_start(
+        user,
+        {"client_session_id": "replay-1", "source_trip_id": source.id},
+    )
+
+    assert response.status_code == 200, response.content
+    ingestion = TripIngestion.objects.get(id=response.json()["ingestion_id"])
+    assert ingestion.source_trip_id == source.id
+    assert ingestion.recording_started_at is not None
+
+
+@pytest.mark.django_db
+def test_start_with_non_reloadable_source_is_rejected(user, source_owner):
+    source = make_reloadable_trip(
+        source_owner, source_start=datetime(2026, 6, 12, 10, tzinfo=dt_timezone.utc)
+    )
+    source.is_reloadable = False
+    source.save(update_fields=["is_reloadable", "updated_at"])
+
+    response = post_start(
+        user,
+        {"client_session_id": "replay-2", "source_trip_id": source.id},
+    )
+
+    assert response.status_code == 409
+    assert not TripIngestion.objects.filter(client_session_id="replay-2").exists()
+
+
+@pytest.mark.django_db
+def test_replay_data_returns_source_track_to_any_authenticated_user(
+    user, source_owner
+):
+    source_start = datetime(2026, 6, 12, 10, tzinfo=dt_timezone.utc)
+    source = make_reloadable_trip(source_owner, source_start=source_start)
+
+    response = Client().get(
+        f"/api/mobility/trips/reloadable/{source.id}/replay-data",
+        **auth_headers(user),
+    )
+
+    assert response.status_code == 200, response.content
+    data = response.json()
+    assert data["source_trip_id"] == source.id
+    assert len(data["gps_points"]) == 2
+    timestamps = [point["timestamp"] for point in data["gps_points"]]
+    assert timestamps == sorted(timestamps)
+    assert len(data["state_transitions"]) == 1
+
+
+@pytest.mark.django_db
+def test_replay_data_rejects_non_reloadable_trip(user, source_owner):
+    source_start = datetime(2026, 6, 12, 10, tzinfo=dt_timezone.utc)
+    source = make_reloadable_trip(source_owner, source_start=source_start)
+    source.is_reloadable = False
+    source.save(update_fields=["is_reloadable", "updated_at"])
+
+    response = Client().get(
+        f"/api/mobility/trips/reloadable/{source.id}/replay-data",
+        **auth_headers(user),
+    )
+
+    assert response.status_code == 404
+
+
+def _stable_json(data: dict) -> bytes:
+    return json.dumps(
+        data, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+
+
+def signed_core(body: dict) -> dict:
+    source = {k: v for k, v in body.items() if k != "core_payload_sha256"}
+    return {**body, "core_payload_sha256": hashlib.sha256(_stable_json(source)).hexdigest()}
+
+
+def post_core(user, body: dict):
+    return Client().post(
+        "/api/ingestion/trips/core",
+        data=_stable_json(body).decode("utf-8"),
+        content_type="application/json",
+        **auth_headers(user),
+    )
+
+
+@pytest.mark.django_db
+def test_replay_stop_materializes_trip_and_regenerates_raw_up_to_cutoff(
+    user, source_owner, object_storage, har_delays, django_capture_on_commit_callbacks
+):
+    source_start = datetime(2026, 6, 12, 10, tzinfo=dt_timezone.utc)
+    source = make_reloadable_trip(source_owner, source_start=source_start)
+    add_raw_sensor_part(source, object_storage, source_start=source_start, minute=1)
+    add_raw_sensor_part(
+        source, object_storage, source_start=source_start, sequence=2, minute=15
+    )
+    cutoff = source_start + timedelta(minutes=10)  # esclude la window al minuto 15
+
+    start = post_start(
+        user,
+        {
+            "client_session_id": "replay-stop",
+            "device_id": "replay-device",
+            "source_trip_id": source.id,
+        },
+    )
+    ingestion_id = start.json()["ingestion_id"]
+
+    reload_end = datetime(2026, 6, 30, 15, tzinfo=dt_timezone.utc)
+    body = signed_core(
+        {
+            "ingestion_id": ingestion_id,
+            "cutoff_source_timestamp": "2026-06-12T10:10:00Z",
+            "client_session_id": "replay-stop",
+            "schema_version": 1,
+            "started_at": "2026-06-30T14:45:00Z",
+            "ended_at": "2026-06-30T15:00:00Z",
+            "timezone": "Europe/Rome",
+            "device_id": "replay-device",
+            "app_version": "",
+            "device_platform": "",
+            "gps_points": [
+                {
+                    "timestamp": "2026-06-30T14:45:00Z",
+                    "latitude": 45.40,
+                    "longitude": 9.10,
+                    "speed_mps": 1.0,
+                    "accuracy_meters": 7.0,
+                },
+                {
+                    "timestamp": "2026-06-30T15:00:00Z",
+                    "latitude": 45.50,
+                    "longitude": 9.20,
+                    "speed_mps": 2.0,
+                    "accuracy_meters": 8.0,
+                },
+            ],
+            "state_transitions": [],
+            "expected_raw_parts": {},
+        }
+    )
+
+    with django_capture_on_commit_callbacks(execute=True):
+        response = post_core(user, body)
+
+    assert response.status_code == 200, response.content
+    data = response.json()
+    trip = Trip.objects.get(id=data["trip_id"])
+    assert trip.user_id == user.id
+    # Una sola parte raw rigenerata: quella al minuto 1, non quella al minuto 15.
+    parts = TripIngestionPart.objects.filter(ingestion_id=ingestion_id)
+    assert parts.count() == 1
+    regenerated = json.loads(gzip.decompress(object_storage[parts.first().object_key]))
+    window_start = regenerated["windows"][0]["window_start"]
+    # 10:01 sorgente + shift (15:00@06-30 - 10:10@06-12) = 14:51@06-30.
+    assert window_start == "2026-06-30T14:51:00Z"
+    assert har_delays  # HAR finale accodato
+    ingestion = TripIngestion.objects.get(id=ingestion_id)
+    assert ingestion.raw_status == TripIngestion.PhaseStatus.QUEUED
+    assert ingestion.recording_closed_at is not None

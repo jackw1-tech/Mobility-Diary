@@ -277,7 +277,120 @@ void main() {
       );
       expect(cubit.state.status, AcquisitionCubitStatus.idle);
     });
+
+    test('startReplay initiates replay and emits tracking status', () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        enableRuntime: false,
+        ingestionApi: _FakeTripIngestionApi(),
+        deviceIdProvider: () async => 'this-device',
+      );
+      final cubit = AcquisitionCubit(repository);
+      addTearDown(repository.dispose);
+      addTearDown(cubit.close);
+
+      await cubit.startReplay(123);
+
+      expect(cubit.state.status, AcquisitionCubitStatus.tracking);
+      expect(cubit.state.completedReplayTripId, isNull);
+    });
+
+    test('stopReplay emits the completed trip ID and sets status to idle', () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        enableRuntime: false,
+        ingestionApi: _FakeTripIngestionApi(),
+        deviceIdProvider: () async => 'this-device',
+      );
+      final cubit = AcquisitionCubit(repository);
+      addTearDown(repository.dispose);
+      addTearDown(cubit.close);
+
+      await cubit.startReplay(123);
+      await cubit.stopReplay();
+
+      expect(cubit.state.status, AcquisitionCubitStatus.idle);
+      expect(cubit.state.completedReplayTripId, 999);
+    });
   });
+}
+
+class _FakeTripIngestionApi implements TripIngestionApi {
+  @override
+  Future<ActiveIngestion?> getActiveIngestion() async => null;
+
+  @override
+  Future<IngestionStartResult> startIngestion({
+    required String clientSessionId,
+    required DateTime startedAt,
+    required String deviceId,
+    String devicePlatform = '',
+    int? sourceTripId,
+  }) async {
+    return IngestionStartResult(
+      ingestionId: 1,
+      clientSessionId: clientSessionId,
+      deviceId: deviceId,
+      recordingStartedAt: startedAt,
+      alreadyExists: false,
+    );
+  }
+
+  @override
+  Future<Map<String, dynamic>> getReplayData(int tripId) async {
+    return {
+      'points': [
+        {
+          'timestamp': '2026-01-01T08:00:00Z',
+          'latitude': 44.0,
+          'longitude': 11.0,
+          'speed_mps': 1.0,
+          'accuracy_meters': 5.0,
+        },
+      ],
+      'transitions': [
+        {
+          'timestamp': '2026-01-01T08:00:00Z',
+          'from_state': 'stationary',
+          'to_state': 'vehicle',
+          'sigma': 0.0,
+          'speed_mps': 0.0,
+        }
+      ]
+    };
+  }
+
+  @override
+  Future<InlineCoreResult> postCoreInline({
+    required Map<String, dynamic> body,
+  }) async {
+    final expectedRawParts =
+        Map<String, dynamic>.from(body['expected_raw_parts'] as Map);
+    final rawStatus =
+        expectedRawParts.isEmpty ? 'COMPLETED' : 'PENDING';
+    final responseIngestionId = body['ingestion_id'] as int? ?? 123;
+    
+    if (responseIngestionId != 123 && body['cutoff_source_timestamp'] == null) {
+      throw Exception('Missing cutoff_source_timestamp for replay');
+    }
+
+    return InlineCoreResult(
+      ingestionId: responseIngestionId,
+      tripId: 999,
+      coreStatus: 'SAVED',
+      rawStatus: rawStatus,
+      gpsPoints: (body['gps_points'] as List).length,
+      stateTransitions: (body['state_transitions'] as List).length,
+      pathPoints: 0,
+      distanceMeters: 0,
+      mapAvailable: false,
+    );
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _StartFailureApi implements TripIngestionApi {
@@ -290,6 +403,7 @@ class _StartFailureApi implements TripIngestionApi {
     required DateTime startedAt,
     required String deviceId,
     String devicePlatform = '',
+    int? sourceTripId,
   }) async {
     throw const IngestionApiException('network offline');
   }
@@ -321,6 +435,7 @@ class _AnotherDeviceConflictApi implements TripIngestionApi {
     required DateTime startedAt,
     required String deviceId,
     String devicePlatform = '',
+    int? sourceTripId,
   }) async {
     throw IngestionApiException(
       "viaggio in corso gia' presente",

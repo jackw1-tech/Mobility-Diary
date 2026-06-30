@@ -36,6 +36,12 @@ class StartRequiresConnectionException implements Exception {
   String toString() => message;
 }
 
+class ReplayStopResult {
+  final int? tripId;
+
+  const ReplayStopResult({required this.tripId});
+}
+
 abstract class AcquisitionRepository {
   Stream<AcquisitionSnapshot> get snapshots;
 
@@ -46,6 +52,10 @@ abstract class AcquisitionRepository {
   AcquisitionSyncSnapshot get currentSyncSnapshot;
 
   Future<void> startTracking();
+
+  Future<void> startReplay(int sourceTripId);
+
+  Future<ReplayStopResult> stopReplay();
 
   Future<void> stopTracking();
 

@@ -17,6 +17,10 @@ class AcquisitionSnapshot {
   final double? longitude;
   final double? accuracyMeters;
 
+  /// Countdown dei secondi rimanenti alla fine della riproduzione live.
+  /// `null` se non in replay o se mancano più di 15 secondi alla fine.
+  final int? replaySecondsRemaining;
+
   const AcquisitionSnapshot({
     required this.isTracking,
     required this.trackingState,
@@ -28,6 +32,7 @@ class AcquisitionSnapshot {
     this.latitude,
     this.longitude,
     this.accuracyMeters,
+    this.replaySecondsRemaining,
   });
 
   factory AcquisitionSnapshot.idle({DateTime? updatedAt}) {
@@ -39,6 +44,7 @@ class AcquisitionSnapshot {
       latestSpeedMetersPerSecond: 0,
       lastTransition: null,
       updatedAt: updatedAt ?? DateTime.now().toUtc(),
+      replaySecondsRemaining: null,
     );
   }
 

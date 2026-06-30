@@ -16,6 +16,7 @@ class AcquisitionCubitState {
   /// Percorso accumulato durante la sessione di tracking corrente, in ordine
   /// cronologico. Si svuota a ogni nuovo `startTracking`.
   final List<LatLng> routePoints;
+  final int? completedReplayTripId;
 
   const AcquisitionCubitState({
     required this.status,
@@ -24,6 +25,7 @@ class AcquisitionCubitState {
     this.metricClusters = const [],
     this.errorMessage,
     this.routePoints = const [],
+    this.completedReplayTripId,
   });
 
   factory AcquisitionCubitState.initial() {
@@ -36,6 +38,7 @@ class AcquisitionCubitState {
     List<AcquisitionMetricCluster> metricClusters = const [],
     String? errorMessage,
     List<LatLng> routePoints = const [],
+    int? completedReplayTripId,
   }) {
     return AcquisitionCubitState(
       status: snapshot.isTracking
@@ -46,6 +49,7 @@ class AcquisitionCubitState {
       metricClusters: metricClusters,
       errorMessage: errorMessage,
       routePoints: routePoints,
+      completedReplayTripId: completedReplayTripId,
     );
   }
 
@@ -57,6 +61,7 @@ class AcquisitionCubitState {
     String? errorMessage,
     bool clearErrorMessage = false,
     List<LatLng>? routePoints,
+    int? completedReplayTripId,
   }) {
     return AcquisitionCubitState(
       status: status ?? this.status,
@@ -66,6 +71,7 @@ class AcquisitionCubitState {
       errorMessage:
           clearErrorMessage ? null : errorMessage ?? this.errorMessage,
       routePoints: routePoints ?? this.routePoints,
+      completedReplayTripId: completedReplayTripId ?? this.completedReplayTripId,
     );
   }
 

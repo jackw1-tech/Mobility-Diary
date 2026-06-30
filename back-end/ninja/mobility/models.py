@@ -46,7 +46,10 @@ class Trip(models.Model):
         null=True,
         blank=True,
     )
-    started_at = models.DateTimeField(auto_now_add=True)
+    # Inizio reale del viaggio (dichiarato dal client / sorgente), modificabile in
+    # admin. NON usare auto_now_add: il Trip inline nasce allo Stop, quindi quel
+    # default coinciderebbe erroneamente con ended_at.
+    started_at = models.DateTimeField(null=True, blank=True)
     ended_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -404,6 +407,17 @@ class TripIngestion(models.Model):
     trip = models.ForeignKey(
         Trip,
         related_name="ingestions",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+
+    # Viaggio Ricaricabile sorgente, valorizzato solo per la Riproduzione Live:
+    # se presente, il core fa bucket-to-bucket dei raw invece di attenderne
+    # l'upload dal mobile.
+    source_trip = models.ForeignKey(
+        Trip,
+        related_name="replay_ingestions",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,

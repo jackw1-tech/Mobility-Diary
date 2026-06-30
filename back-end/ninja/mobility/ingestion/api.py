@@ -34,6 +34,7 @@ from ..models import (
     TripIngestionPart,
 )
 from . import storage
+from ..replay_raw import regenerate_raw_and_queue_har
 from .schemas import (
     ActiveIngestionConflictOut,
     ActiveIngestionOut,
@@ -177,13 +178,15 @@ def _map_available(ingestion: TripIngestion) -> bool:
 
 def _canonical_inline_payload(payload: InlineCoreIn) -> dict:
     # Manteniamo i campi null (accuracy_meters, sigma, speed_mps, started/ended_at):
-    # il client li include nel suo hash canonico. Rimuoviamo solo ``ingestion_id``
-    # quando assente, cosi' i client legacy (che non lo inviano affatto) continuano
-    # a far combaciare l'hash.
+    # il client li include nel suo hash canonico. Rimuoviamo solo i campi opzionali
+    # che il client omette del tutto quando assenti (``ingestion_id`` per i client
+    # legacy, ``cutoff_source_timestamp`` per i viaggi non-replay), cosi' l'hash
+    # combacia.
     data = payload.model_dump(mode="json")
     data.pop("core_payload_sha256", None)
-    if data.get("ingestion_id") is None:
-        data.pop("ingestion_id", None)
+    for optional_field in ("ingestion_id", "cutoff_source_timestamp"):
+        if data.get(optional_field) is None:
+            data.pop(optional_field, None)
     return data
 
 
@@ -241,13 +244,16 @@ def _get_or_create_inline_trip(ingestion: TripIngestion) -> Trip:
     )
     if trip is not None and trip.user_id not in {None, ingestion.user_id}:
         raise HttpError(409, "client_session_id gia' associato a un altro utente")
+    ended_at = ingestion.ended_at or timezone.now()
+    started_at = ingestion.started_at or ended_at
     if trip is None:
         return Trip.objects.create(
             user_id=ingestion.user_id,
             client_session_id=ingestion.client_session_id,
             device_id=ingestion.device_id or "unknown",
             status=Trip.Status.CLOSED,
-            ended_at=ingestion.ended_at or timezone.now(),
+            started_at=started_at,
+            ended_at=ended_at,
         )
 
     update_fields = ["updated_at"]
@@ -260,8 +266,11 @@ def _get_or_create_inline_trip(ingestion: TripIngestion) -> Trip:
     if trip.status == Trip.Status.OPEN:
         trip.status = Trip.Status.CLOSED
         update_fields.append("status")
+    if trip.started_at is None:
+        trip.started_at = started_at
+        update_fields.append("started_at")
     if trip.ended_at is None:
-        trip.ended_at = ingestion.ended_at or timezone.now()
+        trip.ended_at = ended_at
         update_fields.append("ended_at")
     trip.save(update_fields=update_fields)
     return trip
@@ -552,6 +561,16 @@ def start_ingestion(request, payload: IngestionStartIn):
     now = timezone.now()
     started_at = payload.started_at or now
 
+    source_trip_id = None
+    if payload.source_trip_id is not None:
+        if not Trip.objects.filter(
+            id=payload.source_trip_id,
+            is_reloadable=True,
+            status__in=[Trip.Status.CLOSED, Trip.Status.PROCESSED],
+        ).exists():
+            raise HttpError(409, "viaggio sorgente non ricaricabile")
+        source_trip_id = payload.source_trip_id
+
     with transaction.atomic():
         active = _active_ingestions(user_id).select_for_update().first()
         if active is not None:
@@ -574,6 +593,7 @@ def start_ingestion(request, payload: IngestionStartIn):
             started_at=started_at,
             recording_started_at=started_at,
             last_seen_at=now,
+            source_trip_id=source_trip_id,
         )
         if not ingestion.raw_base_path:
             ingestion.raw_base_path = f"ingestions/{ingestion.id}/"
@@ -699,6 +719,18 @@ def create_core_inline(request, payload: InlineCoreIn):
         ingestion.save(
             update_fields=update_fields,
         )
+
+        if ingestion.source_trip_id is not None:
+            if payload.cutoff_source_timestamp is None:
+                raise HttpError(400, "cutoff_source_timestamp richiesto per il replay")
+            ended_at = ingestion.recording_closed_at or now
+            regenerate_raw_and_queue_har(
+                ingestion,
+                ingestion.source_trip,
+                shift=ended_at - payload.cutoff_source_timestamp,
+                now=now,
+                cutoff=payload.cutoff_source_timestamp,
+            )
 
         return _inline_core_response(ingestion)
 

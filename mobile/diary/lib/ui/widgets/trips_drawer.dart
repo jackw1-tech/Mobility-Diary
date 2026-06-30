@@ -7,6 +7,7 @@ import 'package:diary/state_management/cubits/trips_list_cubit/trips_list_cubit_
 import 'package:diary/theme/color_palette.dart';
 import 'package:diary/theme/dimensions.dart';
 import 'package:diary/ui/widgets/trips_drawer_presenter.dart';
+import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubit.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -310,15 +311,26 @@ class _TripTile extends StatelessWidget {
               builder: (context, state) {
                 final isReloading = state.reloadingTripId == trip.id;
                 final isBusy = state.reloadingTripId != null;
-                return TextButton.icon(
-                  onPressed: isBusy ? null : () => _reload(context),
-                  icon: isReloading
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.file_upload_outlined),
-                  label: const Text('Carica'),
+                return Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextButton.icon(
+                      onPressed: isBusy ? null : () => _playLive(context),
+                      icon: const Icon(Icons.play_arrow_outlined),
+                      label: const Text('Live'),
+                    ),
+                    const SizedBox(width: Dimensions.paddingSmall),
+                    TextButton.icon(
+                      onPressed: isBusy ? null : () => _reload(context),
+                      icon: isReloading
+                          ? const SizedBox.square(
+                              dimension: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.file_upload_outlined),
+                      label: const Text('Carica'),
+                    ),
+                  ],
                 );
               },
             )
@@ -333,6 +345,28 @@ class _TripTile extends StatelessWidget {
               label: const Text('Dettaglio'),
             ),
     );
+  }
+
+  Future<void> _playLive(BuildContext context) async {
+    final acquisitionCubit = context.read<AcquisitionCubit>();
+    if (acquisitionCubit.state.isTracking) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Viaggio in corso attivo. Impossibile avviare il replay.')),
+      );
+      return;
+    }
+    
+    try {
+      await acquisitionCubit.startReplay(trip.id);
+      if (!context.mounted) return;
+      Scaffold.of(context).closeDrawer();
+    } catch (e) {
+      if (!context.mounted) return;
+      final error = acquisitionCubit.state.errorMessage;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error ?? 'Errore avvio replay')),
+      );
+    }
   }
 
   Future<void> _reload(BuildContext context) async {

@@ -754,6 +754,46 @@ void main() {
       final claimable = await dao.claimableSyncJobs(DateTime.now().toUtc());
       expect(claimable, hasLength(1));
     });
+    test('startReplay fetches replay data and initiates a timer', () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final api = _FakeTripIngestionApi();
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        enableRuntime: false,
+        ingestionApi: api,
+        deviceIdProvider: () async => 'stable-device',
+      );
+      addTearDown(repository.dispose);
+
+      await repository.startReplay(123);
+
+      expect(repository.currentSnapshot.isTracking, isTrue);
+      expect(api.startCallCount, 1);
+      // It should not create a local sqlite session
+      expect(await database.acquisitionDao.countSessions(), 0);
+    });
+
+    test('stopReplay builds payload and finalizes trip without SyncQueue', () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final api = _FakeTripIngestionApi();
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        enableRuntime: false,
+        ingestionApi: api,
+        deviceIdProvider: () async => 'stable-device',
+      );
+      addTearDown(repository.dispose);
+
+      await repository.startReplay(123);
+      final result = await repository.stopReplay();
+
+      expect(result.tripId, 999);
+      expect(repository.currentSnapshot.isTracking, isFalse);
+      
+      // Assicura che non sia stato creato alcun SyncJob
+      final jobs = await database.acquisitionDao.claimableSyncJobs(DateTime.now().toUtc());
+      expect(jobs, isEmpty);
+    });
   });
 }
 
@@ -883,6 +923,7 @@ class _FakeTripIngestionApi implements TripIngestionApi {
     required DateTime startedAt,
     required String deviceId,
     String devicePlatform = '',
+    int? sourceTripId,
   }) async {
     startCallCount += 1;
     if (shouldFailStart) {
@@ -928,6 +969,45 @@ class _FakeTripIngestionApi implements TripIngestionApi {
     if (shouldFailHeartbeat) {
       throw const IngestionApiException('heartbeat failed', statusCode: 500);
     }
+  }
+
+  @override
+  Future<Map<String, dynamic>> getReplayData(int tripId) async {
+    return {
+      'points': [
+        {
+          'timestamp': '2026-01-01T08:00:00Z',
+          'latitude': 44.0,
+          'longitude': 11.0,
+          'speed_mps': 1.0,
+          'accuracy_meters': 5.0,
+        },
+      ],
+      'transitions': [
+        {
+          'timestamp': '2026-01-01T08:00:00Z',
+          'from_state': 'stationary',
+          'to_state': 'vehicle',
+          'sigma': 0.0,
+          'speed_mps': 0.0,
+        }
+      ]
+    };
+  }
+
+  @override
+  Future<InlineCoreResult> postCoreInline({required Map<String, dynamic> body}) async {
+    return InlineCoreResult(
+      ingestionId: body['ingestion_id'] as int? ?? 1,
+      tripId: 999,
+      coreStatus: 'SAVED',
+      rawStatus: 'PENDING',
+      gpsPoints: (body['gps_points'] as List).length,
+      stateTransitions: (body['state_transitions'] as List).length,
+      pathPoints: 0,
+      distanceMeters: 0,
+      mapAvailable: false,
+    );
   }
 
   @override

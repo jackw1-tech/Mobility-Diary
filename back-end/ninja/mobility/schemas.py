@@ -184,6 +184,26 @@ class TripReloadOut(Schema):
     map_available: bool
 
 
+class ReplayPointOut(Schema):
+    timestamp: datetime
+    latitude: float
+    longitude: float
+    speed_mps: float
+    accuracy_meters: float | None
+
+
+class ReplayTransitionOut(Schema):
+    timestamp: datetime
+    from_state: str
+    to_state: str
+
+
+class ReplayDataOut(Schema):
+    source_trip_id: int
+    gps_points: list[ReplayPointOut]
+    state_transitions: list[ReplayTransitionOut]
+
+
 class PrivacyExportSegmentOut(Schema):
     kind: str
     start_label: str

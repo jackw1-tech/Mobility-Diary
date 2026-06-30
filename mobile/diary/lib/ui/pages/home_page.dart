@@ -52,9 +52,24 @@ class _AuthenticatedHomePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BlocListener<PrivacySettingsCubit, PrivacySettingsState>(
-      listenWhen: (previous, current) => current.needsPrivacyOnboarding,
-      listener: (context, state) => showPrivacyOnboardingDialog(context),
+    return MultiBlocListener(
+      listeners: [
+        BlocListener<PrivacySettingsCubit, PrivacySettingsState>(
+          listenWhen: (previous, current) => current.needsPrivacyOnboarding,
+          listener: (context, state) => showPrivacyOnboardingDialog(context),
+        ),
+        BlocListener<AcquisitionCubit, AcquisitionCubitState>(
+          listenWhen: (previous, current) =>
+              previous.completedReplayTripId == null &&
+              current.completedReplayTripId != null,
+          listener: (context, state) {
+            final tripId = state.completedReplayTripId;
+            if (tripId != null) {
+              context.router.push(TripDetailRoute(tripId: tripId));
+            }
+          },
+        ),
+      ],
       child: BlocBuilder<AcquisitionCubit, AcquisitionCubitState>(
         builder: (context, state) {
           return Scaffold(
@@ -183,6 +198,15 @@ class _TrackingHeader extends StatelessWidget {
               ],
             ),
           ),
+          if (state.snapshot.replaySecondsRemaining != null) ...[
+            Text(
+              'Fine tra ${state.snapshot.replaySecondsRemaining}s',
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: ColorPalette.warning,
+                  ),
+            ),
+            const SizedBox(width: Dimensions.paddingSmall),
+          ],
           FilledButton.icon(
             onPressed: () => _toggleTracking(context, state),
             icon: Icon(state.isTracking ? Icons.stop : Icons.play_arrow),

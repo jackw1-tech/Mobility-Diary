@@ -591,6 +591,10 @@ def test_inline_core_happy_path_materializes_trip_and_path(user):
     trip = ingestion.trip
     assert trip.user_id == user.id
     assert trip.ended_at == ingestion.ended_at
+    # started_at e' l'inizio reale dichiarato, NON l'istante di creazione (che
+    # coinciderebbe con ended_at perche' il Trip inline nasce allo Stop).
+    assert trip.started_at == ingestion.started_at
+    assert trip.started_at != trip.ended_at
     assert GpsPoint.objects.filter(trip=trip).count() == 2
     assert StateTransition.objects.filter(trip=trip).count() == 1
     assert list(trip.path.coords) == [(9.10, 45.46), (9.20, 45.47)]

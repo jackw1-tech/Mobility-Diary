@@ -35,6 +35,7 @@ class FakeIngestionApi implements TripIngestionApi {
     required DateTime startedAt,
     required String deviceId,
     String devicePlatform = '',
+    int? sourceTripId,
   }) async {
     return IngestionStartResult(
       ingestionId: _nextId++,
@@ -43,6 +44,11 @@ class FakeIngestionApi implements TripIngestionApi {
       recordingStartedAt: startedAt,
       alreadyExists: false,
     );
+  }
+
+  @override
+  Future<Map<String, dynamic>> getReplayData(int tripId) async {
+    return {};
   }
 
   @override
