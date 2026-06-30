@@ -110,3 +110,45 @@ def test_list_trips_ignores_abandoned_ingestions_without_visible_trip(user):
 def test_list_trips_requires_auth():
     response = Client().get("/api/mobility/trips")
     assert response.status_code == 401
+
+
+@pytest.mark.django_db
+def test_list_reloadable_trips_returns_only_published_completed_sources(
+    user, other_user
+):
+    now = timezone.now()
+    published = make_trip(
+        other_user,
+        client_session_id="published",
+        started_at=now - timedelta(minutes=30),
+    )
+    unpublished = make_trip(
+        other_user,
+        client_session_id="unpublished",
+        started_at=now - timedelta(minutes=20),
+    )
+    open_published = make_trip(
+        other_user,
+        client_session_id="open-published",
+        started_at=now - timedelta(minutes=10),
+    )
+    Trip.objects.filter(pk=published.pk).update(is_reloadable=True)
+    Trip.objects.filter(pk=open_published.pk).update(
+        is_reloadable=True,
+        status=Trip.Status.OPEN,
+    )
+
+    response = Client().get("/api/mobility/trips/reloadable", **auth_headers(user))
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [trip["id"] for trip in payload] == [published.id]
+    assert payload[0]["status"] == Trip.Status.CLOSED
+    assert unpublished.id not in [trip["id"] for trip in payload]
+    assert open_published.id not in [trip["id"] for trip in payload]
+
+
+@pytest.mark.django_db
+def test_list_reloadable_trips_requires_auth():
+    response = Client().get("/api/mobility/trips/reloadable")
+    assert response.status_code == 401

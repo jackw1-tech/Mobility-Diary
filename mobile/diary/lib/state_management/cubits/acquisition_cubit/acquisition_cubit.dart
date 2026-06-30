@@ -15,6 +15,10 @@ class AcquisitionCubit extends Cubit<AcquisitionCubitState> {
   late final StreamSubscription<AcquisitionSyncSnapshot>
       _syncSnapshotSubscription;
 
+  /// Ripristino in corso: coalescenza delle chiamate sovrapposte (costruttore +
+  /// trigger post-autologin) per evitare due `resumeSync` concorrenti.
+  Future<void>? _restoreInFlight;
+
   AcquisitionCubit(this._repository)
       : super(
           AcquisitionCubitState.fromSnapshot(
@@ -25,8 +29,56 @@ class AcquisitionCubit extends Cubit<AcquisitionCubitState> {
     _snapshotSubscription = _repository.snapshots.listen(_emitSnapshot);
     _syncSnapshotSubscription =
         _repository.syncSnapshots.listen(_emitSyncSnapshot);
-    // All'avvio (post-login) riprende eventuali upload rimasti in sospeso.
-    unawaited(_repository.resumeSync());
+    // All'avvio (post-login) riprende eventuali upload rimasti in sospeso e
+    // ripristina sulla mappa il percorso di un eventuale viaggio in corso.
+    unawaited(_restoreAndResume());
+  }
+
+  /// Da invocare a ogni avvio autenticato (incluso l'autologin): verifica se
+  /// esiste un viaggio in corso per questo dispositivo e, se device id e
+  /// sessione SQLite corrispondono, lo riprende ridisegnando il percorso sulla
+  /// mappa. Idempotente: se si sta gia' tracciando non riavvia nulla.
+  Future<void> restoreActiveTrip() => _restoreAndResume();
+
+  /// Riprende la sync pendente e, se l'app si riapre su un viaggio ancora in
+  /// corso (stesso dispositivo, sessione locale presente), ridisegna subito il
+  /// percorso accumulato finora ripopolando `routePoints`. Le chiamate
+  /// sovrapposte condividono lo stesso Future per non eseguire `resumeSync` in
+  /// parallelo; una chiamata successiva a ripristino concluso ne avvia uno nuovo.
+  Future<void> _restoreAndResume() {
+    return _restoreInFlight ??= _runRestoreAndResume().whenComplete(() {
+      _restoreInFlight = null;
+    });
+  }
+
+  Future<void> _runRestoreAndResume() async {
+    await _repository.resumeSync();
+    await _restoreRouteFromRestoredSession();
+  }
+
+  Future<void> _restoreRouteFromRestoredSession() async {
+    if (!_repository.currentSnapshot.isTracking) {
+      return;
+    }
+    final route = await _repository.currentSessionRoute();
+    // Il ripristino e' fire-and-forget dal costruttore: se il cubit e' stato
+    // chiuso durante gli await (logout/navigazione) non dobbiamo emettere.
+    if (isClosed) {
+      return;
+    }
+    // Se nel frattempo sono gia' arrivati fix live piu' recenti, non li
+    // sovrascriviamo: il percorso ripristinato serve solo a riempire il vuoto
+    // iniziale lasciato dallo snapshot di resume (una sola posizione).
+    if (route.length <= state.routePoints.length) {
+      return;
+    }
+    emit(
+      state.copyWith(
+        routePoints: [
+          for (final point in route) LatLng(point.latitude, point.longitude),
+        ],
+      ),
+    );
   }
 
   Future<void> startTracking() async {

@@ -18,8 +18,16 @@ from .models import (
 
 @admin.register(Trip)
 class TripAdmin(admin.ModelAdmin):
-    list_display = ("id", "device_id", "client_session_id", "status", "started_at", "ended_at")
-    list_filter = ("status", "created_at")
+    list_display = (
+        "id",
+        "device_id",
+        "client_session_id",
+        "status",
+        "is_reloadable",
+        "started_at",
+        "ended_at",
+    )
+    list_filter = ("status", "is_reloadable", "created_at")
     search_fields = ("id", "device_id", "client_session_id")
 
 

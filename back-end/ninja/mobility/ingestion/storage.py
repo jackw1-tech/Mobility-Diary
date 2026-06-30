@@ -90,6 +90,28 @@ def read_object(object_key: str) -> bytes:
     return response["Body"].read()
 
 
+def write_object(
+    object_key: str,
+    body: bytes,
+    *,
+    sha256: str,
+    content_type: str = "application/gzip",
+) -> None:
+    """Scrive un oggetto raw rigenerato lato backend."""
+    _internal_client().put_object(
+        Bucket=bucket_name(),
+        Key=object_key,
+        Body=body,
+        ContentType=content_type,
+        Metadata={"sha256": sha256},
+    )
+
+
+def delete_object(object_key: str) -> None:
+    """Cancella un oggetto appena scritto quando una transazione DB fallisce."""
+    _internal_client().delete_object(Bucket=bucket_name(), Key=object_key)
+
+
 def delete_objects(object_keys: list[str]) -> None:
     """Cancella oggetti raw. CONGELATO: no-op finche' HAR_CLEANUP_ENABLED e' False.
 

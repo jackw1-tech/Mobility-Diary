@@ -3,10 +3,18 @@ import 'dart:io';
 
 import 'package:diary/features/acquisition/sync/trip_ingestion_api.dart';
 import 'package:diary/network/dto/trip_list_item_dto.dart';
+import 'package:diary/network/dto/trip_reload_dto.dart';
 import 'package:diary/other/contants/api_contants.dart';
 
 abstract class TripsService {
   Future<List<TripListItemDto>> fetchTrips();
+
+  Future<List<TripListItemDto>> fetchReloadableTrips();
+
+  Future<TripReloadDto> reloadTrip({
+    required int sourceTripId,
+    required String reloadRequestId,
+  });
 }
 
 class TripsHttpService implements TripsService {
@@ -22,6 +30,29 @@ class TripsHttpService implements TripsService {
   @override
   Future<List<TripListItemDto>> fetchTrips() async {
     final data = await _sendJsonList('GET', '/mobility/trips');
+    return _tripItemsFromJson(data);
+  }
+
+  @override
+  Future<List<TripListItemDto>> fetchReloadableTrips() async {
+    final data = await _sendJsonList('GET', '/mobility/trips/reloadable');
+    return _tripItemsFromJson(data);
+  }
+
+  @override
+  Future<TripReloadDto> reloadTrip({
+    required int sourceTripId,
+    required String reloadRequestId,
+  }) async {
+    final data = await _sendJsonMap(
+      'POST',
+      '/mobility/trips/reloadable/$sourceTripId/reload',
+      body: {'reload_request_id': reloadRequestId},
+    );
+    return TripReloadDto.fromJson(data);
+  }
+
+  List<TripListItemDto> _tripItemsFromJson(List<dynamic> data) {
     return data
         .map((item) =>
             TripListItemDto.fromJson(Map<String, dynamic>.from(item as Map)))
@@ -29,6 +60,26 @@ class TripsHttpService implements TripsService {
   }
 
   Future<List<dynamic>> _sendJsonList(String method, String path) async {
+    final decoded = await _sendJson(method, path);
+    if (decoded is List) return decoded;
+    throw const IngestionApiException('Risposta lista viaggi non valida');
+  }
+
+  Future<Map<String, dynamic>> _sendJsonMap(
+    String method,
+    String path, {
+    Map<String, dynamic>? body,
+  }) async {
+    final decoded = await _sendJson(method, path, body: body);
+    if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    throw const IngestionApiException('Risposta ricaricamento non valida');
+  }
+
+  Future<dynamic> _sendJson(
+    String method,
+    String path, {
+    Map<String, dynamic>? body,
+  }) async {
     final token = await _tokenProvider();
     if (token == null || token.isEmpty) {
       throw const IngestionApiException('Sessione non disponibile');
@@ -38,7 +89,13 @@ class TripsHttpService implements TripsService {
     request.headers.contentType = ContentType.json;
     request.headers.set(HttpHeaders.acceptHeader, 'application/json');
     request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
-    request.contentLength = 0;
+    if (body != null) {
+      final encoded = utf8.encode(jsonEncode(body));
+      request.contentLength = encoded.length;
+      request.add(encoded);
+    } else {
+      request.contentLength = 0;
+    }
 
     final response = await request.close().timeout(const Duration(seconds: 30));
     final responseBody = await response.transform(utf8.decoder).join();
@@ -46,14 +103,13 @@ class TripsHttpService implements TripsService {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       final detail = _extractDetail(responseBody);
       throw IngestionApiException(
-        detail ?? 'Richiesta lista viaggi fallita (HTTP ${response.statusCode})',
+        detail ?? 'Richiesta viaggi fallita (HTTP ${response.statusCode})',
         statusCode: response.statusCode,
       );
     }
 
     final decoded = _tryDecode(responseBody);
-    if (decoded is List) return decoded;
-    throw const IngestionApiException('Risposta lista viaggi non valida');
+    return decoded;
   }
 
   /// Decodifica JSON senza lanciare: un 405/500 puo' tornare testo o HTML.

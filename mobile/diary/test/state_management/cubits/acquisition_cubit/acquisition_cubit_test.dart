@@ -7,6 +7,7 @@ import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubi
 import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubit_state.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:latlong2/latlong.dart';
 
 void main() {
   group('AcquisitionCubit', () {
@@ -53,6 +54,105 @@ void main() {
       expect(cubit.state.trackingState, TrackingState.movement);
       expect(cubit.state.samplingProfile.accelerometerHz, 100);
       expect(cubit.state.samplingProfile.gyroscopeHz, 100);
+    });
+
+    test('restores the recorded route on reopen so the map can redraw it',
+        () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final dao = database.acquisitionDao;
+      final startedAt = DateTime.utc(2026, 1, 1, 8);
+      // Sessione locale ancora aperta (viaggio in corso quando l'app si chiude).
+      await dao.createSession(
+        id: 'reopen-session',
+        deviceId: 'dev',
+        startedAt: startedAt,
+      );
+      const coordinates = [
+        LatLng(44.10, 11.10),
+        LatLng(44.11, 11.11),
+        LatLng(44.12, 11.12),
+      ];
+      for (var i = 0; i < coordinates.length; i += 1) {
+        await dao.insertGpsPoint(
+          sessionId: 'reopen-session',
+          latitude: coordinates[i].latitude,
+          longitude: coordinates[i].longitude,
+          timestamp: startedAt.add(Duration(minutes: i)),
+          speedMps: 1.0,
+        );
+      }
+
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        enableRuntime: false,
+      );
+      final cubit = AcquisitionCubit(repository);
+      addTearDown(repository.dispose);
+      addTearDown(cubit.close);
+
+      final restored = await cubit.stream.firstWhere(
+        (state) => state.routePoints.length >= 3,
+      );
+
+      expect(restored.status, AcquisitionCubitStatus.tracking);
+      expect(restored.routePoints, coordinates);
+    });
+
+    test('closing during route restore does not emit after close', () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final dao = database.acquisitionDao;
+      final startedAt = DateTime.utc(2026, 1, 1, 8);
+      await dao.createSession(
+        id: 'reopen-session',
+        deviceId: 'dev',
+        startedAt: startedAt,
+      );
+      for (var i = 0; i < 3; i += 1) {
+        await dao.insertGpsPoint(
+          sessionId: 'reopen-session',
+          latitude: 44.10 + i,
+          longitude: 11.10 + i,
+          timestamp: startedAt.add(Duration(minutes: i)),
+          speedMps: 1.0,
+        );
+      }
+
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        enableRuntime: false,
+      );
+      addTearDown(repository.dispose);
+
+      // Costruzione + chiusura immediata: il ripristino (fire-and-forget) deve
+      // completare senza lanciare "Cannot emit new states after calling close".
+      final cubit = AcquisitionCubit(repository);
+      await cubit.close();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(cubit.isClosed, isTrue);
+    });
+
+    test('restoreActiveTrip re-checks for an active trip after autologin',
+        () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final api = _CountingActiveLookupApi();
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        enableRuntime: false,
+        ingestionApi: api,
+        deviceIdProvider: () async => 'stable-device',
+      );
+      final cubit = AcquisitionCubit(repository);
+      addTearDown(repository.dispose);
+      addTearDown(cubit.close);
+
+      // Lascia completare il ripristino del costruttore (1 verifica).
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(api.activeLookupCount, 1);
+
+      // Trigger post-autologin: deve rifare la verifica.
+      await cubit.restoreActiveTrip();
+      expect(api.activeLookupCount, 2);
     });
 
     test('surfaces sync status after stop', () async {
@@ -192,6 +292,19 @@ class _StartFailureApi implements TripIngestionApi {
     String devicePlatform = '',
   }) async {
     throw const IngestionApiException('network offline');
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _CountingActiveLookupApi implements TripIngestionApi {
+  int activeLookupCount = 0;
+
+  @override
+  Future<ActiveIngestion?> getActiveIngestion() async {
+    activeLookupCount += 1;
+    return null;
   }
 
   @override

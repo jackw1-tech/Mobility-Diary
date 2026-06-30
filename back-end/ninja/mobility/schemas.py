@@ -168,6 +168,22 @@ class TripListItemOut(Schema):
     has_track: bool
 
 
+class TripReloadIn(Schema):
+    reload_request_id: str
+
+
+class TripReloadOut(Schema):
+    ingestion_id: int
+    trip_id: int
+    core_status: str
+    raw_status: str
+    gps_points: int
+    state_transitions: int
+    path_points: int
+    distance_meters: float
+    map_available: bool
+
+
 class PrivacyExportSegmentOut(Schema):
     kind: str
     start_label: str

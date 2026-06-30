@@ -640,6 +640,59 @@ void main() {
       expect(job, isNotNull);
     });
 
+    test('currentSessionRoute returns the recorded path after a resume',
+        () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        enableRuntime: false,
+      );
+      addTearDown(repository.dispose);
+      final dao = database.acquisitionDao;
+      final startedAt = DateTime.utc(2026, 1, 1, 8);
+
+      await dao.createSession(
+        id: 'route-session',
+        deviceId: 'dev',
+        startedAt: startedAt,
+      );
+      // Punti accettati (in ordine sparso): devono tornare in ordine cronologico.
+      await dao.insertGpsPoint(
+        sessionId: 'route-session',
+        latitude: 44.10,
+        longitude: 11.10,
+        timestamp: startedAt.add(const Duration(minutes: 2)),
+        speedMps: 1.0,
+      );
+      await dao.insertGpsPoint(
+        sessionId: 'route-session',
+        latitude: 44.20,
+        longitude: 11.20,
+        timestamp: startedAt.add(const Duration(minutes: 1)),
+        speedMps: 1.0,
+      );
+      // Punto scartato: non deve comparire nel percorso.
+      await dao.insertGpsPoint(
+        sessionId: 'route-session',
+        latitude: 0,
+        longitude: 0,
+        timestamp: startedAt.add(const Duration(minutes: 3)),
+        speedMps: 0,
+        accepted: false,
+        rejectionReason: 'accuracy',
+      );
+
+      expect(await repository.currentSessionRoute(), isEmpty);
+
+      await repository.resumeSync();
+
+      final route = await repository.currentSessionRoute();
+      expect(route, [
+        const AcquisitionRoutePoint(44.20, 11.20),
+        const AcquisitionRoutePoint(44.10, 11.10),
+      ]);
+    });
+
     test('exposes the latest SyncJob as a UI sync snapshot on stop', () async {
       final database = AcquisitionLocalDatabase(NativeDatabase.memory());
       final repository = AcquisitionRepositoryImpl(

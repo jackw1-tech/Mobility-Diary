@@ -1,4 +1,6 @@
 import asyncio
+import gzip
+import hashlib
 import json
 import math
 from collections import Counter, defaultdict
@@ -8,9 +10,11 @@ from zoneinfo import ZoneInfo
 
 from django.contrib.gis.db.models.functions import AsGeoJSON, Length
 from django.contrib.gis.geos import Point
+from django.db import transaction
 from django.db.models import BooleanField, Case, Count, Value, When
 from django.http import StreamingHttpResponse
 from django.shortcuts import aget_object_or_404, get_object_or_404
+from django.utils.dateparse import parse_datetime
 from django.utils import timezone
 from ninja import Router
 from ninja.errors import HttpError
@@ -30,16 +34,19 @@ from .diary_events import (
     diary_status_payload,
 )
 from .diary_projection import project_diary_segments
+from .ingestion import storage
 from .models import (
     GpsPoint,
     HabitualPlace,
     HarJob,
     MobilitySegment,
+    PartKind,
     PlaceMiningStatus,
     SensorWindow,
     StateTransition,
     Trip,
     TripIngestion,
+    TripIngestionPart,
 )
 from .significant_places import (
     place_label,
@@ -77,11 +84,13 @@ from .schemas import (
     StateTransitionBatchIn,
     StoredOut,
     TrackOut,
+    TripReloadIn,
+    TripReloadOut,
     TripCreateIn,
     TripListItemOut,
     TripOut,
 )
-from .tasks import process_trip_har
+from .tasks import _build_trip_path, process_trip_har
 
 router = Router(tags=["mobility"])
 
@@ -659,16 +668,9 @@ async def trip_events(request, trip_id: int):
     return response
 
 
-@router.get("/trips", response=list[TripListItemOut], auth=mobile_bearer_auth)
-def list_trips(request):
-    """Elenco dei viaggi dell'utente, dal piu' recente.
-
-    `has_track` e' calcolato a DB (path non null) senza caricare la geometria,
-    cosi' la UI sa se il pulsante "Vedi su mappa" puo' mostrare qualcosa.
-    """
+def _trip_list_items(queryset):
     return list(
-        Trip.objects.filter(user_id=request.auth.user_id)
-        .annotate(
+        queryset.annotate(
             has_track=Case(
                 When(path__isnull=False, then=Value(True)),
                 default=Value(False),
@@ -676,8 +678,289 @@ def list_trips(request):
             )
         )
         .order_by("-started_at")
-        .values("id", "started_at", "ended_at", "status", "distance_meters", "has_track")
+        .values(
+            "id",
+            "started_at",
+            "ended_at",
+            "status",
+            "distance_meters",
+            "has_track",
+        )
     )
+
+
+@router.get("/trips", response=list[TripListItemOut], auth=mobile_bearer_auth)
+def list_trips(request):
+    """Elenco dei viaggi dell'utente, dal piu' recente.
+
+    `has_track` e' calcolato a DB (path non null) senza caricare la geometria,
+    cosi' la UI sa se il pulsante "Vedi su mappa" puo' mostrare qualcosa.
+    """
+    return _trip_list_items(Trip.objects.filter(user_id=request.auth.user_id))
+
+
+@router.get(
+    "/trips/reloadable",
+    response=list[TripListItemOut],
+    auth=mobile_bearer_auth,
+)
+def list_reloadable_trips(request):
+    return _trip_list_items(
+        Trip.objects.filter(
+            is_reloadable=True,
+            status__in=[Trip.Status.CLOSED, Trip.Status.PROCESSED],
+        )
+    )
+
+
+def _reload_client_session_id(user_id: int, source_trip_id: int, request_id: str) -> str:
+    key = f"{user_id}:{source_trip_id}:{request_id}".encode("utf-8")
+    return f"reload-{hashlib.sha256(key).hexdigest()[:57]}"
+
+
+def _reload_response(ingestion: TripIngestion) -> TripReloadOut:
+    trip = ingestion.trip
+    if trip is None:
+        raise HttpError(409, "reload senza trip materializzato")
+    gps_count = GpsPoint.objects.filter(trip=trip).count()
+    transition_count = StateTransition.objects.filter(trip=trip).count()
+    return TripReloadOut(
+        ingestion_id=ingestion.id,
+        trip_id=trip.id,
+        core_status=ingestion.core_status,
+        raw_status=ingestion.raw_status,
+        gps_points=gps_count,
+        state_transitions=transition_count,
+        path_points=gps_count,
+        distance_meters=float(trip.distance_meters or 0),
+        map_available=trip.path is not None,
+    )
+
+
+def _iso_z(value):
+    utc = value.astimezone(dt_timezone.utc)
+    return utc.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _shift_raw_timestamp(raw_window: dict, field_names: tuple[str, str], shift) -> None:
+    for field in field_names:
+        if field not in raw_window:
+            continue
+        parsed = parse_datetime(str(raw_window[field]))
+        if parsed is None:
+            raise ValueError(f"timestamp raw non valido: {field}")
+        if timezone.is_naive(parsed):
+            parsed = timezone.make_aware(parsed, dt_timezone.utc)
+        raw_window[field] = _iso_z(parsed + shift)
+        return
+    raise ValueError(f"timestamp raw mancante: {field_names[0]}")
+
+
+def _shift_raw_sensor_part(source_key: str, shift) -> bytes:
+    payload = json.loads(
+        gzip.decompress(storage.read_object(source_key)).decode("utf-8")
+    )
+    raw_windows = payload.get("windows") if isinstance(payload, dict) else payload
+    if not isinstance(raw_windows, list):
+        raise ValueError("payload raw sensor senza lista windows")
+    for raw_window in raw_windows:
+        if not isinstance(raw_window, dict):
+            raise ValueError("sensor window non valida")
+        _shift_raw_timestamp(raw_window, ("window_start", "start"), shift)
+        _shift_raw_timestamp(raw_window, ("window_end", "end"), shift)
+    return gzip.compress(json.dumps(payload).encode("utf-8"))
+
+
+def _source_raw_sensor_parts(source: Trip) -> list[TripIngestionPart]:
+    return list(
+        TripIngestionPart.objects.filter(
+            ingestion__trip=source,
+            kind=PartKind.SENSOR_WINDOWS,
+            received_at__isnull=False,
+        ).order_by("ingestion_id", "sequence")
+    )
+
+
+@router.post(
+    "/trips/reloadable/{trip_id}/reload",
+    response=TripReloadOut,
+    auth=mobile_bearer_auth,
+)
+def reload_trip(request, trip_id: int, payload: TripReloadIn):
+    if not payload.reload_request_id:
+        raise HttpError(422, "reload_request_id richiesto")
+
+    source = get_object_or_404(Trip, id=trip_id)
+    client_session_id = _reload_client_session_id(
+        request.auth.user_id,
+        source.id,
+        payload.reload_request_id,
+    )
+
+    with transaction.atomic():
+        existing = (
+            TripIngestion.objects.select_for_update()
+            .filter(user_id=request.auth.user_id, client_session_id=client_session_id)
+            .first()
+        )
+        if existing is not None:
+            if existing.trip_id is not None:
+                return _reload_response(existing)
+            existing.delete()
+
+        source = Trip.objects.select_for_update().get(id=source.id)
+        if not source.is_reloadable or source.status not in [
+            Trip.Status.CLOSED,
+            Trip.Status.PROCESSED,
+        ]:
+            raise HttpError(409, "viaggio non ricaricabile")
+
+        source_points = list(source.gps_points.order_by("timestamp"))
+        source_transitions = list(source.state_transitions.order_by("timestamp"))
+        source_timestamps = [point.timestamp for point in source_points] + [
+            transition.timestamp for transition in source_transitions
+        ]
+        if not source_timestamps:
+            raise HttpError(409, "viaggio ricaricabile senza evidenza core")
+        source_raw_parts = _source_raw_sensor_parts(source)
+        if not source_raw_parts:
+            raise HttpError(409, "telemetrie sorgente non disponibili")
+
+        source_start = source.started_at or min(source_timestamps)
+        source_end = source.ended_at or max(source_timestamps)
+        if source_end < source_start:
+            raise HttpError(409, "durata viaggio ricaricabile non valida")
+        reload_end = timezone.now()
+        reload_start = reload_end - (source_end - source_start)
+        shift = reload_start - source_start
+        try:
+            raw_parts = [
+                _shift_raw_sensor_part(part.object_key, shift)
+                for part in source_raw_parts
+            ]
+        except (
+            KeyError,
+            gzip.BadGzipFile,
+            EOFError,
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+            TypeError,
+            ValueError,
+        ) as exc:
+            raise HttpError(409, "telemetrie sorgente non disponibili") from exc
+
+        written_object_keys: list[str] = []
+        try:
+            ingestion = TripIngestion.objects.create(
+                user_id=request.auth.user_id,
+                client_session_id=client_session_id,
+                device_id="reload",
+                core_status=TripIngestion.PhaseStatus.COMPLETED,
+                raw_status=TripIngestion.PhaseStatus.PENDING,
+                core_ingestion_mode=TripIngestion.CoreIngestionMode.INLINE,
+                expected_core_parts={},
+                expected_raw_parts={PartKind.SENSOR_WINDOWS: len(raw_parts)},
+                started_at=reload_start,
+                ended_at=reload_end,
+                completed_at=reload_end,
+            )
+            ingestion.raw_base_path = f"ingestions/{ingestion.id}/"
+            ingestion.save(update_fields=["raw_base_path", "updated_at"])
+
+            for sequence, raw_body in enumerate(raw_parts, start=1):
+                object_key = (
+                    f"{ingestion.raw_base_path}"
+                    f"sensor_windows_{sequence:04d}.json.gz"
+                )
+                sha256 = hashlib.sha256(raw_body).hexdigest()
+                try:
+                    storage.write_object(object_key, raw_body, sha256=sha256)
+                except Exception as exc:
+                    raise HttpError(
+                        503,
+                        "storage ricaricamento non disponibile",
+                    ) from exc
+                written_object_keys.append(object_key)
+                TripIngestionPart.objects.create(
+                    ingestion=ingestion,
+                    kind=PartKind.SENSOR_WINDOWS,
+                    sequence=sequence,
+                    sha256=sha256,
+                    size_bytes=len(raw_body),
+                    object_key=object_key,
+                    received_at=reload_end,
+                )
+
+            trip = Trip.objects.create(
+                user_id=request.auth.user_id,
+                client_session_id=client_session_id,
+                device_id="reload",
+                status=Trip.Status.CLOSED,
+                ended_at=reload_end,
+                reloaded_from_trip=source,
+            )
+            Trip.objects.filter(pk=trip.pk).update(started_at=reload_start)
+
+            GpsPoint.objects.bulk_create(
+                [
+                    GpsPoint(
+                        trip=trip,
+                        timestamp=point.timestamp + shift,
+                        point=Point(point.longitude, point.latitude, srid=4326),
+                        speed_mps=point.speed_mps,
+                        accuracy_meters=point.accuracy_meters,
+                    )
+                    for point in source_points
+                ],
+                ignore_conflicts=True,
+            )
+            StateTransition.objects.bulk_create(
+                [
+                    StateTransition(
+                        trip=trip,
+                        timestamp=transition.timestamp + shift,
+                        from_state=transition.from_state,
+                        to_state=transition.to_state,
+                        reason=transition.reason,
+                        sigma=transition.sigma,
+                        speed_mps=transition.speed_mps,
+                    )
+                    for transition in source_transitions
+                ],
+                ignore_conflicts=True,
+            )
+            _build_trip_path(trip)
+            trip.refresh_from_db(fields=["path", "distance_meters"])
+
+            ingestion.trip = trip
+            ingestion.raw_status = TripIngestion.PhaseStatus.QUEUED
+            ingestion.queued_at = reload_end
+            ingestion.save(
+                update_fields=[
+                    "trip",
+                    "raw_status",
+                    "queued_at",
+                    "updated_at",
+                ]
+            )
+            job = HarJob.objects.create(
+                trip=trip,
+                kind=HarJob.Kind.FINAL_TRIP,
+            )
+
+            from .tasks import process_trip_har_final
+
+            transaction.on_commit(
+                lambda: process_trip_har_final.delay(job.id, ingestion.id)
+            )
+            return _reload_response(ingestion)
+        except Exception:
+            for object_key in written_object_keys:
+                try:
+                    storage.delete_object(object_key)
+                except Exception:
+                    pass
+            raise
 
 
 @router.get("/trips/{trip_id}/track", response=TrackOut, auth=mobile_bearer_auth)

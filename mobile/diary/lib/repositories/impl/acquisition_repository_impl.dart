@@ -267,6 +267,19 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
   }
 
   @override
+  Future<List<AcquisitionRoutePoint>> currentSessionRoute() async {
+    final sessionId = _currentSessionId;
+    if (sessionId == null || !_currentSnapshot.isTracking) {
+      return const [];
+    }
+    final points = await _dao.gpsPointsForSession(sessionId);
+    return [
+      for (final point in points)
+        AcquisitionRoutePoint(point.latitude, point.longitude),
+    ];
+  }
+
+  @override
   void dispose() {
     _syncRetryTimer?.cancel();
     _heartbeatTimer?.cancel();

@@ -55,5 +55,10 @@ abstract class AcquisitionRepository {
   /// (es. all'avvio app). Non blocca: la coda lavora in background.
   Future<void> resumeSync();
 
+  /// Percorso GPS accettato della sessione di tracking attualmente ripristinata,
+  /// in ordine cronologico. Vuoto se non si sta tracciando. Serve a ridisegnare
+  /// subito la polyline sulla mappa quando si riapre l'app su un viaggio in corso.
+  Future<List<AcquisitionRoutePoint>> currentSessionRoute();
+
   void dispose();
 }

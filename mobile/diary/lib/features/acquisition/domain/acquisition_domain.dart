@@ -1,3 +1,4 @@
+export 'acquisition_route_point.dart';
 export 'acquisition_snapshot.dart';
 export 'acquisition_sync_snapshot.dart';
 export 'fsm_engine.dart';

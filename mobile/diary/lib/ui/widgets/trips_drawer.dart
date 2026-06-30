@@ -24,7 +24,7 @@ class TripsDrawer extends StatelessWidget {
   }
 }
 
-enum _TripsDrawerMode { list, days }
+enum _TripsDrawerMode { list, days, reloadable }
 
 class _TripsDrawerBody extends StatefulWidget {
   const _TripsDrawerBody();
@@ -67,6 +67,14 @@ class _TripsDrawerBodyState extends State<_TripsDrawerBody> {
           ),
         ),
         const Divider(height: 1),
+        Padding(
+          padding: const EdgeInsets.all(Dimensions.paddingMedium),
+          child: _DrawerModeToggle(
+            value: _mode,
+            onChanged: _changeMode,
+          ),
+        ),
+        const Divider(height: 1),
         Expanded(
           child: BlocBuilder<TripsListCubit, TripsListCubitState>(
             builder: (context, state) {
@@ -75,39 +83,34 @@ class _TripsDrawerBodyState extends State<_TripsDrawerBody> {
                 case TripsListStatus.loading:
                   return const Center(child: CircularProgressIndicator());
                 case TripsListStatus.empty:
-                  return const _DrawerMessage(
-                    icon: Icons.map_outlined,
-                    text: 'Nessun viaggio ancora sincronizzato',
+                  return _DrawerMessage(
+                    icon: _mode == _TripsDrawerMode.reloadable
+                        ? Icons.replay_outlined
+                        : Icons.map_outlined,
+                    text: _mode == _TripsDrawerMode.reloadable
+                        ? 'Nessun viaggio ricaricabile'
+                        : 'Nessun viaggio ancora sincronizzato',
                   );
                 case TripsListStatus.error:
                   return _DrawerMessage(
                     icon: Icons.error_outline,
                     text: state.error ?? 'Errore nel caricamento',
-                    onRetry: () => context.read<TripsListCubit>().load(),
+                    onRetry: () => _loadMode(context),
                   );
                 case TripsListStatus.loaded:
-                  return Column(
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.all(Dimensions.paddingMedium),
-                        child: _DrawerModeToggle(
-                          value: _mode,
-                          onChanged: _changeMode,
-                        ),
-                      ),
-                      const Divider(height: 1),
-                      Expanded(
-                        child: _mode == _TripsDrawerMode.list
-                            ? _TripsListView(trips: state.trips)
-                            : _TripsByDayView(
-                                groups: groupTrackTripsByLocalDay(state.trips),
-                                selectedDay: _selectedDay,
-                                onSelectDay: _selectDay,
-                                onBackToDays: _backToDays,
-                              ),
-                      ),
-                    ],
-                  );
+                  return _mode == _TripsDrawerMode.list
+                      ? _TripsListView(trips: state.trips)
+                      : _mode == _TripsDrawerMode.reloadable
+                          ? _TripsListView(
+                              trips: state.trips,
+                              reloadable: true,
+                            )
+                          : _TripsByDayView(
+                              groups: groupTrackTripsByLocalDay(state.trips),
+                              selectedDay: _selectedDay,
+                              onSelectDay: _selectDay,
+                              onBackToDays: _backToDays,
+                            );
               }
             },
           ),
@@ -122,6 +125,16 @@ class _TripsDrawerBodyState extends State<_TripsDrawerBody> {
       _mode = mode;
       _selectedDay = null;
     });
+    _loadMode(context);
+  }
+
+  void _loadMode(BuildContext context) {
+    final cubit = context.read<TripsListCubit>();
+    if (_mode == _TripsDrawerMode.reloadable) {
+      cubit.loadReloadable();
+    } else {
+      cubit.load();
+    }
   }
 
   void _selectDay(TripDayGroup group) {
@@ -153,6 +166,11 @@ class _DrawerModeToggle extends StatelessWidget {
           icon: Icon(Icons.calendar_month_outlined),
           label: Text('Giorni'),
         ),
+        ButtonSegment(
+          value: _TripsDrawerMode.reloadable,
+          icon: Icon(Icons.replay_outlined),
+          label: Text('Ricarica'),
+        ),
       ],
       selected: {value},
       showSelectedIcon: false,
@@ -163,15 +181,22 @@ class _DrawerModeToggle extends StatelessWidget {
 
 class _TripsListView extends StatelessWidget {
   final List<TripListItemDto> trips;
+  final bool reloadable;
 
-  const _TripsListView({required this.trips});
+  const _TripsListView({
+    required this.trips,
+    this.reloadable = false,
+  });
 
   @override
   Widget build(BuildContext context) {
     return ListView.separated(
       itemCount: trips.length,
       separatorBuilder: (_, __) => const Divider(height: 1),
-      itemBuilder: (context, index) => _TripTile(trip: trips[index]),
+      itemBuilder: (context, index) => _TripTile(
+        trip: trips[index],
+        reloadable: reloadable,
+      ),
     );
   }
 }
@@ -268,25 +293,60 @@ class _DayTripsView extends StatelessWidget {
 
 class _TripTile extends StatelessWidget {
   final TripListItemDto trip;
+  final bool reloadable;
 
-  const _TripTile({required this.trip});
+  const _TripTile({
+    required this.trip,
+    this.reloadable = false,
+  });
 
   @override
   Widget build(BuildContext context) {
     return ListTile(
       title: Text(_formatDate(trip.startedAt.toLocal())),
       subtitle: Text(_subtitle(trip)),
-      trailing: TextButton.icon(
-        onPressed: trip.hasTrack
-            ? () {
-                Scaffold.of(context).closeDrawer();
-                context.router.push(TripDetailRoute(tripId: trip.id));
-              }
-            : null,
-        icon: const Icon(Icons.route),
-        label: const Text('Dettaglio'),
-      ),
+      trailing: reloadable
+          ? BlocBuilder<TripsListCubit, TripsListCubitState>(
+              builder: (context, state) {
+                final isReloading = state.reloadingTripId == trip.id;
+                final isBusy = state.reloadingTripId != null;
+                return TextButton.icon(
+                  onPressed: isBusy ? null : () => _reload(context),
+                  icon: isReloading
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.file_upload_outlined),
+                  label: const Text('Carica'),
+                );
+              },
+            )
+          : TextButton.icon(
+              onPressed: trip.hasTrack
+                  ? () {
+                      Scaffold.of(context).closeDrawer();
+                      context.router.push(TripDetailRoute(tripId: trip.id));
+                    }
+                  : null,
+              icon: const Icon(Icons.route),
+              label: const Text('Dettaglio'),
+            ),
     );
+  }
+
+  Future<void> _reload(BuildContext context) async {
+    final tripId = await context.read<TripsListCubit>().reloadTrip(trip.id);
+    if (!context.mounted) return;
+    if (tripId == null) {
+      final error = context.read<TripsListCubit>().state.reloadError;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error ?? 'Ricaricamento non riuscito')),
+      );
+      return;
+    }
+    Scaffold.of(context).closeDrawer();
+    context.router.push(TripDetailRoute(tripId: tripId));
   }
 
   String _subtitle(TripListItemDto trip) {

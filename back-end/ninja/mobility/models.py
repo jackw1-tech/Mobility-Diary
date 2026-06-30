@@ -38,6 +38,14 @@ class Trip(models.Model):
         spatial_index=False,
     )
     distance_meters = models.FloatField(null=True, blank=True)
+    is_reloadable = models.BooleanField(default=False)
+    reloaded_from_trip = models.ForeignKey(
+        "self",
+        related_name="reloads",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
     started_at = models.DateTimeField(auto_now_add=True)
     ended_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
