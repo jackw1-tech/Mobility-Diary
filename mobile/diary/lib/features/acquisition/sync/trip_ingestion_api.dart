@@ -470,7 +470,7 @@ class TripIngestionHttpApi implements TripIngestionApi {
 
   @override
   Future<Map<String, dynamic>> getReplayData(int tripId) async {
-    return _sendJson('GET', '/trips/reloadable/$tripId/replay-data');
+    return _sendJson('GET', '/mobility/trips/reloadable/$tripId/replay-data');
   }
 
   Future<Map<String, dynamic>> _sendJson(
