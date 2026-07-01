@@ -62,6 +62,7 @@ class AcquisitionCubitState {
     bool clearErrorMessage = false,
     List<LatLng>? routePoints,
     int? completedReplayTripId,
+    bool clearCompletedReplayTripId = false,
   }) {
     return AcquisitionCubitState(
       status: status ?? this.status,
@@ -71,7 +72,9 @@ class AcquisitionCubitState {
       errorMessage:
           clearErrorMessage ? null : errorMessage ?? this.errorMessage,
       routePoints: routePoints ?? this.routePoints,
-      completedReplayTripId: completedReplayTripId ?? this.completedReplayTripId,
+      completedReplayTripId: clearCompletedReplayTripId
+          ? null
+          : completedReplayTripId ?? this.completedReplayTripId,
     );
   }
 

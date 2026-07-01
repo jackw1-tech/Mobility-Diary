@@ -60,7 +60,18 @@ class _AuthenticatedHomePage extends StatelessWidget {
         ),
         BlocListener<AcquisitionCubit, AcquisitionCubitState>(
           listenWhen: (previous, current) =>
-              previous.completedReplayTripId == null &&
+              !previous.syncSnapshot.canOpenCoreDetail &&
+              current.syncSnapshot.canOpenCoreDetail,
+          listener: (context, state) {
+            final tripId = state.syncSnapshot.remoteTripId;
+            if (tripId != null) {
+              context.router.push(TripDetailRoute(tripId: tripId));
+            }
+          },
+        ),
+        BlocListener<AcquisitionCubit, AcquisitionCubitState>(
+          listenWhen: (previous, current) =>
+              previous.completedReplayTripId != current.completedReplayTripId &&
               current.completedReplayTripId != null,
           listener: (context, state) {
             final tripId = state.completedReplayTripId;
@@ -95,8 +106,8 @@ class _AuthenticatedHomePage extends StatelessWidget {
                 const Positioned.fill(child: LiveMap()),
                 DraggableScrollableSheet(
                   initialChildSize: 0.30,
-                  minChildSize: 0.12,
-                  maxChildSize: 0.9,
+                  minChildSize: 0.05,
+                  maxChildSize: 0.38,
                   builder: (context, scrollController) {
                     return DecoratedBox(
                       decoration: const BoxDecoration(
@@ -133,6 +144,23 @@ class _AuthenticatedHomePage extends StatelessWidget {
       ),
     );
   }
+}
+
+int? autoOpenTripDetailId(
+  AcquisitionCubitState previous,
+  AcquisitionCubitState current,
+) {
+  final replayTripId = current.completedReplayTripId;
+  if (replayTripId != null && previous.completedReplayTripId != replayTripId) {
+    return replayTripId;
+  }
+
+  final sync = current.syncSnapshot;
+  if (!previous.syncSnapshot.canOpenCoreDetail && sync.canOpenCoreDetail) {
+    return sync.remoteTripId;
+  }
+
+  return null;
 }
 
 class _AuthLoadingPage extends StatelessWidget {

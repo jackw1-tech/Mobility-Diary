@@ -93,19 +93,14 @@ def regenerate_raw_and_queue_har(
 ) -> None:
     """Rigenera i raw sorgente nell'ingestion e accoda l'HAR. Rigetta con 409 se
     le telemetrie sorgenti mancano/illeggibili, con 503 se lo storage fallisce."""
-    source_ingestion = TripIngestion.objects.filter(
-        trip=source,
-        raw_status=TripIngestion.PhaseStatus.COMPLETED,
-    ).order_by("-updated_at").first()
-
-    if not source_ingestion:
-        raise HttpError(409, "telemetrie sorgente non disponibili")
-
     parts = TripIngestionPart.objects.filter(
-        ingestion=source_ingestion,
+        ingestion__trip=source,
+        ingestion__raw_status=TripIngestion.PhaseStatus.COMPLETED,
         kind=PartKind.SENSOR_WINDOWS,
         received_at__isnull=False,
-    ).order_by("sequence")
+    ).order_by("sequence", "id")
+    if not parts.exists():
+        raise HttpError(409, "telemetrie sorgente non disponibili")
     try:
         bodies = [
             body

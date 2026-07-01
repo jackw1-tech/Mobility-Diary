@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:diary/features/acquisition/sync/trip_ingestion_api.dart';
 import 'package:diary/network/dto/trip_list_item_dto.dart';
 import 'package:diary/network/dto/trip_reload_dto.dart';
+import 'package:diary/network/dto/trip_reload_slots_dto.dart';
 import 'package:diary/other/contants/api_contants.dart';
 
 abstract class TripsService {
@@ -11,9 +12,12 @@ abstract class TripsService {
 
   Future<List<TripListItemDto>> fetchReloadableTrips();
 
+  Future<TripReloadSlotsDto> fetchReloadSlots(int sourceTripId);
+
   Future<TripReloadDto> reloadTrip({
     required int sourceTripId,
     required String reloadRequestId,
+    DateTime? scheduledStartAt,
   });
 }
 
@@ -40,14 +44,28 @@ class TripsHttpService implements TripsService {
   }
 
   @override
+  Future<TripReloadSlotsDto> fetchReloadSlots(int sourceTripId) async {
+    final data = await _sendJsonMap(
+      'GET',
+      '/mobility/trips/reloadable/$sourceTripId/slots',
+    );
+    return TripReloadSlotsDto.fromJson(data);
+  }
+
+  @override
   Future<TripReloadDto> reloadTrip({
     required int sourceTripId,
     required String reloadRequestId,
+    DateTime? scheduledStartAt,
   }) async {
+    final body = <String, dynamic>{'reload_request_id': reloadRequestId};
+    if (scheduledStartAt != null) {
+      body['scheduled_start_at'] = scheduledStartAt.toUtc().toIso8601String();
+    }
     final data = await _sendJsonMap(
       'POST',
       '/mobility/trips/reloadable/$sourceTripId/reload',
-      body: {'reload_request_id': reloadRequestId},
+      body: body,
     );
     return TripReloadDto.fromJson(data);
   }

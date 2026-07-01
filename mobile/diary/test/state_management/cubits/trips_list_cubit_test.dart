@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:diary/network/dto/trip_list_item_dto.dart';
 import 'package:diary/network/dto/trip_reload_dto.dart';
+import 'package:diary/network/dto/trip_reload_slots_dto.dart';
 import 'package:diary/network/service/trips_service.dart';
 import 'package:diary/state_management/cubits/trips_list_cubit/trips_list_cubit.dart';
 import 'package:diary/state_management/cubits/trips_list_cubit/trips_list_cubit_state.dart';
@@ -18,6 +19,7 @@ class FakeTripsService implements TripsService {
   int reloadFailuresBeforeSuccess = 0;
   int? reloadedSourceTripId;
   String? reloadRequestId;
+  DateTime? scheduledStartAt;
   final List<String> reloadRequestIds = [];
 
   @override
@@ -39,12 +41,23 @@ class FakeTripsService implements TripsService {
   }
 
   @override
+  Future<TripReloadSlotsDto> fetchReloadSlots(int sourceTripId) async {
+    return TripReloadSlotsDto(
+      sourceTripId: sourceTripId,
+      durationSeconds: 1200,
+      slots: const [],
+    );
+  }
+
+  @override
   Future<TripReloadDto> reloadTrip({
     required int sourceTripId,
     required String reloadRequestId,
+    DateTime? scheduledStartAt,
   }) async {
     reloadedSourceTripId = sourceTripId;
     this.reloadRequestId = reloadRequestId;
+    this.scheduledStartAt = scheduledStartAt;
     reloadRequestIds.add(reloadRequestId);
     if (reloadFailuresBeforeSuccess > 0) {
       reloadFailuresBeforeSuccess -= 1;
@@ -161,6 +174,24 @@ void main() {
       expect(service.reloadRequestId, 'fixed-request');
       expect(cubit.state.reloadingTripId, isNull);
       expect(cubit.state.reloadError, isNull);
+    });
+
+    test('passes the selected start when reloading a trip', () async {
+      final selectedStart = DateTime.utc(2026, 6, 29, 12, 15);
+      final service = FakeTripsService()..reloadResult = _reload;
+      final cubit = TripsListCubit(
+        service,
+        reloadRequestIdFactory: () => 'fixed-request',
+      );
+      addTearDown(cubit.close);
+
+      final tripId = await cubit.reloadTrip(
+        7,
+        scheduledStartAt: selectedStart,
+      );
+
+      expect(tripId, 99);
+      expect(service.scheduledStartAt, selectedStart);
     });
 
     test('reuses the same request id when retrying after a failure', () async {

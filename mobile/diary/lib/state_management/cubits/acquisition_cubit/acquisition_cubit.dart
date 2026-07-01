@@ -84,7 +84,11 @@ class AcquisitionCubit extends Cubit<AcquisitionCubitState> {
   Future<void> startTracking() async {
     try {
       await _repository.startTracking();
-      _emitSnapshot(_repository.currentSnapshot, resetMetrics: true);
+      _emitSnapshot(
+        _repository.currentSnapshot,
+        resetMetrics: true,
+        clearCompletedReplayTripId: true,
+      );
     } catch (error) {
       emit(state.copyWith(errorMessage: error.toString()));
       rethrow;
@@ -113,11 +117,19 @@ class AcquisitionCubit extends Cubit<AcquisitionCubitState> {
 
   bool _isStoppingReplay = false;
 
-  Future<void> startReplay(int sourceTripId) async {
+  Future<void> startReplay(int sourceTripId,
+      {DateTime? scheduledStartAt}) async {
     try {
-      await _repository.startReplay(sourceTripId);
+      await _repository.startReplay(
+        sourceTripId,
+        scheduledStartAt: scheduledStartAt,
+      );
       _isStoppingReplay = false;
-      _emitSnapshot(_repository.currentSnapshot, resetMetrics: true);
+      _emitSnapshot(
+        _repository.currentSnapshot,
+        resetMetrics: true,
+        clearCompletedReplayTripId: true,
+      );
     } catch (error) {
       emit(state.copyWith(errorMessage: error.toString()));
       rethrow;
@@ -141,6 +153,7 @@ class AcquisitionCubit extends Cubit<AcquisitionCubitState> {
   void _emitSnapshot(
     AcquisitionSnapshot snapshot, {
     bool resetMetrics = false,
+    bool clearCompletedReplayTripId = false,
   }) {
     if (snapshot.isTracking &&
         snapshot.replaySecondsRemaining == 0 &&
@@ -159,7 +172,8 @@ class AcquisitionCubit extends Cubit<AcquisitionCubitState> {
         syncSnapshot: state.syncSnapshot,
         metricClusters: metricClusters,
         routePoints: routePoints,
-        completedReplayTripId: state.completedReplayTripId,
+        completedReplayTripId:
+            clearCompletedReplayTripId ? null : state.completedReplayTripId,
       ),
     );
   }

@@ -53,7 +53,7 @@ abstract class AcquisitionRepository {
 
   Future<void> startTracking();
 
-  Future<void> startReplay(int sourceTripId);
+  Future<void> startReplay(int sourceTripId, {DateTime? scheduledStartAt});
 
   Future<ReplayStopResult> stopReplay();
 

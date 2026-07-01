@@ -1,5 +1,6 @@
 import 'package:auto_route/auto_route.dart';
 import 'package:diary/network/dto/trip_list_item_dto.dart';
+import 'package:diary/network/dto/trip_reload_slots_dto.dart';
 import 'package:diary/network/service/trips_service.dart';
 import 'package:diary/routers/app_router.dart';
 import 'package:diary/state_management/cubits/trips_list_cubit/trips_list_cubit.dart';
@@ -351,13 +352,22 @@ class _TripTile extends StatelessWidget {
     final acquisitionCubit = context.read<AcquisitionCubit>();
     if (acquisitionCubit.state.isTracking) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Viaggio in corso attivo. Impossibile avviare il replay.')),
+        const SnackBar(
+          content:
+              Text('Viaggio in corso attivo. Impossibile avviare il replay.'),
+        ),
       );
       return;
     }
-    
+
+    final selectedStart = await _pickReloadStart(context);
+    if (selectedStart == null || !context.mounted) return;
+
     try {
-      await acquisitionCubit.startReplay(trip.id);
+      await acquisitionCubit.startReplay(
+        trip.id,
+        scheduledStartAt: selectedStart,
+      );
       if (!context.mounted) return;
       Scaffold.of(context).closeDrawer();
     } catch (e) {
@@ -370,7 +380,12 @@ class _TripTile extends StatelessWidget {
   }
 
   Future<void> _reload(BuildContext context) async {
-    final tripId = await context.read<TripsListCubit>().reloadTrip(trip.id);
+    final selectedStart = await _pickReloadStart(context);
+    if (selectedStart == null || !context.mounted) return;
+    final tripId = await context.read<TripsListCubit>().reloadTrip(
+          trip.id,
+          scheduledStartAt: selectedStart,
+        );
     if (!context.mounted) return;
     if (tripId == null) {
       final error = context.read<TripsListCubit>().state.reloadError;
@@ -383,6 +398,32 @@ class _TripTile extends StatelessWidget {
     context.router.push(TripDetailRoute(tripId: tripId));
   }
 
+  Future<DateTime?> _pickReloadStart(BuildContext context) async {
+    try {
+      final slots =
+          await context.read<TripsService>().fetchReloadSlots(trip.id);
+      if (!context.mounted) return null;
+      if (slots.slots.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Nessuno slot libero nel passato')),
+        );
+        return null;
+      }
+      return showModalBottomSheet<DateTime>(
+        context: context,
+        showDragHandle: true,
+        builder: (_) => _ReloadSlotSheet(slots: slots.slots),
+      );
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.toString())),
+        );
+      }
+      return null;
+    }
+  }
+
   String _subtitle(TripListItemDto trip) {
     final distance = trip.distanceMeters;
     if (distance == null || distance <= 0) {
@@ -392,6 +433,59 @@ class _TripTile extends StatelessWidget {
       return '${(distance / 1000).toStringAsFixed(1)} km';
     }
     return '${distance.toStringAsFixed(0)} m';
+  }
+}
+
+class _ReloadSlotSheet extends StatelessWidget {
+  final List<TripReloadSlotDto> slots;
+
+  const _ReloadSlotSheet({required this.slots});
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxHeight: 520),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                Dimensions.paddingMedium,
+                0,
+                Dimensions.paddingMedium,
+                Dimensions.paddingSmall,
+              ),
+              child: Text(
+                'Scegli data di inizio',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+            ),
+            Flexible(
+              child: ListView.separated(
+                shrinkWrap: true,
+                itemCount: slots.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (context, index) {
+                  final slot = slots[index];
+                  return ListTile(
+                    leading: const Icon(Icons.event_available_outlined),
+                    title: Text(_formatDate(slot.startedAt.toLocal())),
+                    subtitle: Text(
+                      'Fine prevista ${_formatDate(slot.endedAt.toLocal())}',
+                    ),
+                    onTap: () => Navigator.of(context).pop(slot.startedAt),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

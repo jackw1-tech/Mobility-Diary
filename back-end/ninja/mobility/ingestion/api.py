@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 from django.conf import settings
 from django.contrib.gis.geos import Point
 from django.db import transaction
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from ninja import Router
@@ -310,6 +311,27 @@ def _materialize_inline_core(trip: Trip, payload: InlineCoreIn) -> tuple[int, in
     gps_count = GpsPoint.objects.filter(trip=trip).count()
     transition_count = StateTransition.objects.filter(trip=trip).count()
     return gps_count, transition_count, path_points
+
+
+def _validate_replay_slot(
+    *,
+    user_id: int,
+    client_session_id: str,
+    started_at: datetime | None,
+    ended_at: datetime | None,
+) -> None:
+    if started_at is None or ended_at is None:
+        return
+    if ended_at > timezone.now():
+        raise HttpError(409, "scegli uno slot nel passato")
+    overlaps = (
+        Trip.objects.filter(user_id=user_id, started_at__lt=ended_at)
+        .filter(Q(ended_at__isnull=True) | Q(ended_at__gt=started_at))
+        .exclude(client_session_id=client_session_id)
+        .exists()
+    )
+    if overlaps:
+        raise HttpError(409, "slot sovrapposto a un viaggio esistente")
 
 
 def _validate_kind(kind: str) -> None:
@@ -695,6 +717,14 @@ def create_core_inline(request, payload: InlineCoreIn):
                 "updated_at",
             ]
         )
+
+        if ingestion.source_trip_id is not None:
+            _validate_replay_slot(
+                user_id=request.auth.user_id,
+                client_session_id=ingestion.client_session_id,
+                started_at=payload.started_at,
+                ended_at=payload.ended_at,
+            )
 
         trip = _get_or_create_inline_trip(ingestion)
         _materialize_inline_core(trip, payload)

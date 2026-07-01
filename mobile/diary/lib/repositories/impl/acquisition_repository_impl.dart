@@ -1,6 +1,4 @@
 import 'dart:async';
-
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:diary/features/acquisition/data/acquisition_local_database.dart';
@@ -47,6 +45,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
   int? _currentRemoteIngestionId;
   String? _currentDeviceId;
   int? _replaySourceTripId;
+  DateTime? _replayScheduledStartAt;
   List<Map<String, dynamic>>? _replayPoints;
   List<Map<String, dynamic>>? _replayTransitions;
   double? _latestLatitude;
@@ -180,7 +179,10 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
   }
 
   @override
-  Future<void> startReplay(int sourceTripId) async {
+  Future<void> startReplay(
+    int sourceTripId, {
+    DateTime? scheduledStartAt,
+  }) async {
     if (_currentSnapshot.isTracking) {
       return;
     }
@@ -209,7 +211,8 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
 
     final replayData = await _ingestionApi?.getReplayData(sourceTripId);
     if (replayData == null) {
-      throw const StartRequiresConnectionException('Failed to load replay data');
+      throw const StartRequiresConnectionException(
+          'Failed to load replay data');
     }
 
     _persistedSensorWindowKeys.clear();
@@ -223,6 +226,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     _currentRemoteIngestionId = remoteStart?.ingestionId;
     _currentDeviceId = deviceId;
     _replaySourceTripId = sourceTripId;
+    _replayScheduledStartAt = scheduledStartAt?.toUtc();
     _restartHeartbeat();
     _emit(
       AcquisitionSnapshot(
@@ -240,16 +244,22 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
   }
 
   void _startReplayTimer(Map<String, dynamic> data) {
-    final rawPoints = data['points'] as List<dynamic>? ?? [];
-    final rawTransitions = data['transitions'] as List<dynamic>? ?? [];
+    // Il backend (`ReplayDataOut`) espone `gps_points` e `state_transitions`.
+    final rawPoints = data['gps_points'] as List<dynamic>? ??
+        data['points'] as List<dynamic>? ??
+        [];
+    final rawTransitions = data['state_transitions'] as List<dynamic>? ??
+        data['transitions'] as List<dynamic>? ??
+        [];
 
     if (rawPoints.isEmpty && rawTransitions.isEmpty) {
       stopTracking();
       return;
     }
 
-    DateTime pTime(dynamic p) => DateTime.parse(p['timestamp'] as String).toUtc();
-    
+    DateTime pTime(dynamic p) =>
+        DateTime.parse(p['timestamp'] as String).toUtc();
+
     _replayPoints = List<Map<String, dynamic>>.from(rawPoints)
       ..sort((a, b) => pTime(a).compareTo(pTime(b)));
     _replayTransitions = List<Map<String, dynamic>>.from(rawTransitions)
@@ -259,13 +269,16 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     final transitions = _replayTransitions!;
 
     final firstPoint = points.isNotEmpty ? pTime(points.first) : null;
-    final firstTransition = transitions.isNotEmpty ? pTime(transitions.first) : null;
+    final firstTransition =
+        transitions.isNotEmpty ? pTime(transitions.first) : null;
     final lastPoint = points.isNotEmpty ? pTime(points.last) : null;
-    final lastTransition = transitions.isNotEmpty ? pTime(transitions.last) : null;
+    final lastTransition =
+        transitions.isNotEmpty ? pTime(transitions.last) : null;
 
     DateTime? startTime;
     if (firstPoint != null && firstTransition != null) {
-      startTime = firstPoint.isBefore(firstTransition) ? firstPoint : firstTransition;
+      startTime =
+          firstPoint.isBefore(firstTransition) ? firstPoint : firstTransition;
     } else {
       startTime = firstPoint ?? firstTransition;
     }
@@ -282,10 +295,25 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
       return;
     }
 
+    final initialRemaining = endTime.difference(startTime).inSeconds;
+    _emit(AcquisitionSnapshot(
+      isTracking: true,
+      trackingState: TrackingState.stationary,
+      samplingProfile: const SamplingProfile.stationary(),
+      latestSigma: 0,
+      latestSpeedMetersPerSecond: 0,
+      lastTransition: null,
+      updatedAt: startTime,
+      replaySecondsRemaining: initialRemaining <= 15
+          ? (initialRemaining > 0 ? initialRemaining : 0)
+          : null,
+    ));
+
     final startReplayAt = DateTime.now();
     int nextPointIdx = 0;
     int nextTransitionIdx = 0;
     FsmTransition? lastFsmTransition;
+    double latestSpeedMps = 0;
 
     _replayTimer?.cancel();
     _replayTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
@@ -298,7 +326,9 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
           !pTime(transitions[nextTransitionIdx]).isAfter(currentReplayTime)) {
         final t = transitions[nextTransitionIdx];
         final nextState = _trackingStateFromWire(t['to_state'] as String);
-        _fsm.forceState(nextState, (t['sigma'] as num).toDouble(), (t['speed_mps'] as num).toDouble());
+        // Le transizioni di `replay-data` non trasportano sigma/speed: la
+        // velocita' mostrata deriva dai punti GPS, la sigma resta 0.
+        _fsm.forceState(nextState, 0, latestSpeedMps);
         lastFsmTransition = FsmTransition(
           from: _trackingStateFromWire(t['from_state'] as String),
           to: nextState,
@@ -314,7 +344,8 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
         final p = points[nextPointIdx];
         _latestLatitude = (p['latitude'] as num).toDouble();
         _latestLongitude = (p['longitude'] as num).toDouble();
-        _latestAccuracyMeters = (p['accuracy_meters'] as num).toDouble();
+        _latestAccuracyMeters = (p['accuracy_meters'] as num?)?.toDouble();
+        latestSpeedMps = (p['speed_mps'] as num?)?.toDouble() ?? 0;
         nextPointIdx++;
         updated = true;
       }
@@ -329,9 +360,10 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
         _emit(AcquisitionSnapshot(
           isTracking: true,
           trackingState: _fsm.currentState ?? TrackingState.stationary,
-          samplingProfile: SamplingProfile.forState(_fsm.currentState ?? TrackingState.stationary),
+          samplingProfile: SamplingProfile.forState(
+              _fsm.currentState ?? TrackingState.stationary),
           latestSigma: _fsm.latestSigma,
-          latestSpeedMetersPerSecond: _fsm.latestSpeedMetersPerSecond,
+          latestSpeedMetersPerSecond: latestSpeedMps,
           lastTransition: lastFsmTransition,
           updatedAt: currentReplayTime,
           latitude: _latestLatitude,
@@ -352,10 +384,10 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     await _runtime?.stop();
     _heartbeatTimer?.cancel();
     _replayTimer?.cancel();
-    
+
     final sessionId = _currentSessionId;
     final isReplay = _replaySourceTripId != null;
-    
+
     if (sessionId != null && !isReplay) {
       await _dao.endSession(
         id: sessionId,
@@ -367,10 +399,11 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     _currentRemoteIngestionId = null;
     _currentDeviceId = null;
     _replaySourceTripId = null;
+    _replayScheduledStartAt = null;
     _persistedSensorWindowKeys.clear();
     _fsm = AcquisitionFsm(config: _config);
     _emit(AcquisitionSnapshot.idle());
-    
+
     await _endSessionAndQueueSync(sessionId, isReplay);
   }
 
@@ -381,10 +414,12 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     _heartbeatTimer?.cancel();
 
     if (_replaySourceTripId == null || _currentSessionId == null) {
-      throw const StartRequiresConnectionException('Invalid state for stopReplay');
+      throw const StartRequiresConnectionException(
+          'Invalid state for stopReplay');
     }
 
-    DateTime pTime(dynamic p) => DateTime.parse(p['timestamp'] as String).toUtc();
+    DateTime pTime(dynamic p) =>
+        DateTime.parse(p['timestamp'] as String).toUtc();
 
     final filteredPoints = _replayPoints!
         .where((p) => !pTime(p).isAfter(cutoffTimestamp))
@@ -394,7 +429,19 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
         .toList();
 
     final now = DateTime.now().toUtc();
-    final shift = now.difference(cutoffTimestamp);
+    final firstSourceTimestamp = [
+      ...filteredPoints.map(pTime),
+      ...filteredTransitions.map(pTime),
+    ].fold<DateTime?>(null, (earliest, timestamp) {
+      if (earliest == null || timestamp.isBefore(earliest)) return timestamp;
+      return earliest;
+    });
+    final scheduledStart = _replayScheduledStartAt;
+    final shift = scheduledStart != null && firstSourceTimestamp != null
+        ? scheduledStart.difference(firstSourceTimestamp)
+        : now.difference(cutoffTimestamp);
+    final replayEndedAt =
+        scheduledStart != null ? cutoffTimestamp.add(shift) : now;
 
     String shiftIso(DateTime original) {
       return _utcIso(original.add(shift));
@@ -407,9 +454,16 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
       };
     }).toList();
 
+    // Il core inline si aspetta i 6 campi di InlineStateTransitionIn: `replay-data`
+    // ne porta 3, quindi completiamo con i default del backend affinche' l'hash
+    // canonico combaci (reason="", sigma/speed_mps null).
     final shiftedTransitions = filteredTransitions.map((t) {
       return {
-        ...t,
+        'from_state': t['from_state'],
+        'to_state': t['to_state'],
+        'reason': t['reason'] ?? '',
+        'sigma': t['sigma'],
+        'speed_mps': t['speed_mps'],
         'timestamp': shiftIso(pTime(t)),
       };
     }).toList();
@@ -417,7 +471,8 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     final firstShiftedTs = shiftedPoints.isNotEmpty
         ? DateTime.parse(shiftedPoints.first['timestamp'] as String).toUtc()
         : (shiftedTransitions.isNotEmpty
-            ? DateTime.parse(shiftedTransitions.first['timestamp'] as String).toUtc()
+            ? DateTime.parse(shiftedTransitions.first['timestamp'] as String)
+                .toUtc()
             : now);
 
     final payload = {
@@ -425,28 +480,32 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
       'client_session_id': _currentSessionId,
       'device_id': _currentDeviceId ?? '',
       'device_platform': '',
-      'ended_at': shiftIso(now),
+      'ended_at': _utcIso(replayEndedAt),
       'cutoff_source_timestamp': _utcIso(cutoffTimestamp),
       'expected_raw_parts': const {},
       'gps_points': shiftedPoints,
-      if (_currentRemoteIngestionId != null) 'ingestion_id': _currentRemoteIngestionId,
+      if (_currentRemoteIngestionId != null)
+        'ingestion_id': _currentRemoteIngestionId,
       'schema_version': 1,
-      'started_at': shiftIso(firstShiftedTs),
+      'started_at': _utcIso(firstShiftedTs),
       'state_transitions': shiftedTransitions,
       'timezone': '',
     };
 
     final corePayload = TripCorePayload(payload);
-    final response = await _ingestionApi?.postCoreInline(body: corePayload.requestBody);
+    final response =
+        await _ingestionApi?.postCoreInline(body: corePayload.requestBody);
 
     if (response == null) {
-      throw const StartRequiresConnectionException('Network error during stopReplay');
+      throw const StartRequiresConnectionException(
+          'Network error during stopReplay');
     }
 
     _currentSessionId = null;
     _currentRemoteIngestionId = null;
     _currentDeviceId = null;
     _replaySourceTripId = null;
+    _replayScheduledStartAt = null;
     _replayPoints = null;
     _replayTransitions = null;
 

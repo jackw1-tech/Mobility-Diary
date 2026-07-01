@@ -159,10 +159,13 @@ def add_raw_sensor_part(
     return object_key, body
 
 
-def post_reload(client, user, trip, *, reload_request_id):
+def post_reload(client, user, trip, *, reload_request_id, scheduled_start_at=None):
+    body = {"reload_request_id": reload_request_id}
+    if scheduled_start_at is not None:
+        body["scheduled_start_at"] = scheduled_start_at.isoformat()
     return client.post(
         f"/api/mobility/trips/reloadable/{trip.id}/reload",
-        data=json.dumps({"reload_request_id": reload_request_id}),
+        data=json.dumps(body),
         content_type="application/json",
         **auth_headers(user),
     )
@@ -171,6 +174,112 @@ def post_reload(client, user, trip, *, reload_request_id):
 def reload_client_session_id(user, trip, request_id: str) -> str:
     key = f"{user.id}:{trip.id}:{request_id}".encode("utf-8")
     return f"reload-{hashlib.sha256(key).hexdigest()[:57]}"
+
+
+@pytest.mark.django_db
+def test_reload_slots_return_past_non_overlapping_candidates(
+    user, source_owner, monkeypatch, object_storage
+):
+    now = datetime(2026, 6, 30, 15, tzinfo=dt_timezone.utc)
+    source_start = datetime(2026, 6, 12, 10, tzinfo=dt_timezone.utc)
+    source = make_reloadable_trip(source_owner, source_start=source_start)
+    add_raw_sensor_part(source, object_storage, source_start=source_start)
+    Trip.objects.create(
+        user=user,
+        device_id="existing",
+        status=Trip.Status.CLOSED,
+        started_at=now - timedelta(hours=1),
+        ended_at=now - timedelta(minutes=30),
+    )
+    monkeypatch.setattr("mobility.api.timezone.now", lambda: now)
+
+    response = Client().get(
+        f"/api/mobility/trips/reloadable/{source.id}/slots",
+        {"days": 1, "step_minutes": 15},
+        **auth_headers(user),
+    )
+
+    assert response.status_code == 200, response.content
+    data = response.json()
+    assert data["source_trip_id"] == source.id
+    assert data["duration_seconds"] == 20 * 60
+    slots = [
+        (
+            datetime.fromisoformat(slot["started_at"]),
+            datetime.fromisoformat(slot["ended_at"]),
+        )
+        for slot in data["slots"]
+    ]
+    assert slots
+    assert all(start < end <= now for start, end in slots)
+    assert all(
+        end <= now - timedelta(hours=1) or start >= now - timedelta(minutes=30)
+        for start, end in slots
+    )
+
+
+@pytest.mark.django_db
+def test_direct_reload_uses_selected_past_start(
+    user, source_owner, monkeypatch, object_storage, har_delays
+):
+    source_start = datetime(2026, 6, 12, 10, tzinfo=dt_timezone.utc)
+    selected_start = datetime(2026, 6, 29, 12, 15, tzinfo=dt_timezone.utc)
+    source = make_reloadable_trip(source_owner, source_start=source_start)
+    add_raw_sensor_part(source, object_storage, source_start=source_start)
+    monkeypatch.setattr(
+        "mobility.api.timezone.now",
+        lambda: datetime(2026, 6, 30, 15, tzinfo=dt_timezone.utc),
+    )
+
+    response = post_reload(
+        Client(),
+        user,
+        source,
+        reload_request_id="selected-start",
+        scheduled_start_at=selected_start,
+    )
+
+    assert response.status_code == 200, response.content
+    reloaded = Trip.objects.get(id=response.json()["trip_id"])
+    assert reloaded.started_at == selected_start
+    assert reloaded.ended_at == selected_start + timedelta(minutes=20)
+
+
+@pytest.mark.django_db
+def test_direct_reload_rejects_selected_start_that_overlaps_or_ends_in_future(
+    user, source_owner, monkeypatch, object_storage, har_delays
+):
+    now = datetime(2026, 6, 30, 15, tzinfo=dt_timezone.utc)
+    source_start = datetime(2026, 6, 12, 10, tzinfo=dt_timezone.utc)
+    source = make_reloadable_trip(source_owner, source_start=source_start)
+    add_raw_sensor_part(source, object_storage, source_start=source_start)
+    Trip.objects.create(
+        user=user,
+        device_id="existing",
+        status=Trip.Status.CLOSED,
+        started_at=now - timedelta(hours=1),
+        ended_at=now - timedelta(minutes=30),
+    )
+    monkeypatch.setattr("mobility.api.timezone.now", lambda: now)
+
+    overlap = post_reload(
+        Client(),
+        user,
+        source,
+        reload_request_id="overlap",
+        scheduled_start_at=now - timedelta(minutes=45),
+    )
+    future = post_reload(
+        Client(),
+        user,
+        source,
+        reload_request_id="future",
+        scheduled_start_at=now - timedelta(minutes=10),
+    )
+
+    assert overlap.status_code == 409
+    assert future.status_code == 409
+    assert not Trip.objects.filter(user=user, reloaded_from_trip=source).exists()
 
 
 @pytest.mark.django_db
@@ -371,7 +480,7 @@ def test_direct_reload_regenerates_shifted_raw_sensor_object(
     assert part.received_at == reload_now
     assert part.size_bytes == len(object_storage[part.object_key])
     assert part.sha256 == hashlib.sha256(object_storage[part.object_key]).hexdigest()
-    assert object_storage[source_key] == gzipped(source_body)
+    assert json.loads(gzip.decompress(object_storage[source_key])) == source_body
 
     regenerated = json.loads(
         gzip.decompress(object_storage[part.object_key]).decode("utf-8")
@@ -608,6 +717,72 @@ def post_core(user, body: dict):
         content_type="application/json",
         **auth_headers(user),
     )
+
+
+@pytest.mark.django_db
+def test_replay_stop_rejects_selected_start_that_overlaps_user_trip(
+    user, source_owner, monkeypatch
+):
+    source_start = datetime(2026, 6, 12, 10, tzinfo=dt_timezone.utc)
+    source = make_reloadable_trip(source_owner, source_start=source_start)
+    Trip.objects.create(
+        user=user,
+        device_id="existing",
+        status=Trip.Status.CLOSED,
+        started_at=datetime(2026, 6, 29, 12, 20, tzinfo=dt_timezone.utc),
+        ended_at=datetime(2026, 6, 29, 12, 40, tzinfo=dt_timezone.utc),
+    )
+    start = post_start(
+        user,
+        {
+            "client_session_id": "replay-overlap",
+            "device_id": "replay-device",
+            "source_trip_id": source.id,
+        },
+    )
+    monkeypatch.setattr(
+        "mobility.ingestion.api.timezone.now",
+        lambda: datetime(2026, 6, 30, 15, tzinfo=dt_timezone.utc),
+    )
+
+    response = post_core(
+        user,
+        signed_core(
+            {
+                "ingestion_id": start.json()["ingestion_id"],
+                "cutoff_source_timestamp": "2026-06-12T10:20:00Z",
+                "client_session_id": "replay-overlap",
+                "schema_version": 1,
+                "started_at": "2026-06-29T12:15:00Z",
+                "ended_at": "2026-06-29T12:35:00Z",
+                "timezone": "Europe/Rome",
+                "device_id": "replay-device",
+                "app_version": "",
+                "device_platform": "",
+                "gps_points": [
+                        {
+                            "timestamp": "2026-06-29T12:15:00Z",
+                            "latitude": 45.40,
+                            "longitude": 9.10,
+                            "speed_mps": 1.0,
+                            "accuracy_meters": 7.0,
+                        },
+                        {
+                            "timestamp": "2026-06-29T12:35:00Z",
+                            "latitude": 45.50,
+                            "longitude": 9.20,
+                            "speed_mps": 2.0,
+                            "accuracy_meters": 8.0,
+                        },
+                ],
+                "state_transitions": [],
+                "expected_raw_parts": {},
+            }
+        ),
+    )
+
+    assert response.status_code == 409
+    assert not Trip.objects.filter(client_session_id="replay-overlap").exists()
 
 
 @pytest.mark.django_db

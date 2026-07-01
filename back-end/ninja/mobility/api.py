@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 from django.contrib.gis.db.models.functions import AsGeoJSON, Length
 from django.contrib.gis.geos import Point
 from django.db import transaction
-from django.db.models import BooleanField, Case, Count, Value, When
+from django.db.models import BooleanField, Case, Count, Q, Value, When
 from django.http import StreamingHttpResponse
 from django.shortcuts import aget_object_or_404, get_object_or_404
 from django.utils import timezone
@@ -39,11 +39,13 @@ from .models import (
     HabitualPlace,
     HarJob,
     MobilitySegment,
+    PartKind,
     PlaceMiningStatus,
     SensorWindow,
     StateTransition,
     Trip,
     TripIngestion,
+    TripIngestionPart,
 )
 from .significant_places import (
     place_label,
@@ -84,6 +86,7 @@ from .schemas import (
     TrackOut,
     TripReloadIn,
     TripReloadOut,
+    TripReloadSlotsOut,
     TripCreateIn,
     TripListItemOut,
     TripOut,
@@ -761,6 +764,149 @@ def _reload_response(ingestion: TripIngestion) -> TripReloadOut:
     )
 
 
+def _source_timeline(
+    source: Trip,
+) -> tuple[list[GpsPoint], list[StateTransition], datetime, datetime]:
+    source_points = list(source.gps_points.order_by("timestamp"))
+    source_transitions = list(source.state_transitions.order_by("timestamp"))
+    source_timestamps = [point.timestamp for point in source_points] + [
+        transition.timestamp for transition in source_transitions
+    ]
+    if not source_timestamps:
+        raise HttpError(409, "viaggio ricaricabile senza evidenza core")
+
+    source_start = source.started_at or min(source_timestamps)
+    source_end = source.ended_at or max(source_timestamps)
+    if source_end < source_start:
+        raise HttpError(409, "durata viaggio ricaricabile non valida")
+    return source_points, source_transitions, source_start, source_end
+
+
+def _reloadable_source_or_409(trip_id: int) -> Trip:
+    source = get_object_or_404(Trip, id=trip_id)
+    if not source.is_reloadable or source.status not in [
+        Trip.Status.CLOSED,
+        Trip.Status.PROCESSED,
+    ]:
+        raise HttpError(409, "viaggio non ricaricabile")
+    return source
+
+
+def _user_trip_overlaps(user_id: int, start: datetime, end: datetime) -> bool:
+    return (
+        Trip.objects.filter(user_id=user_id, started_at__lt=end)
+        .filter(Q(ended_at__isnull=True) | Q(ended_at__gt=start))
+        .exists()
+    )
+
+
+def _ensure_reload_slot_available(
+    user_id: int,
+    start: datetime,
+    end: datetime,
+    now: datetime,
+) -> None:
+    if end > now:
+        raise HttpError(409, "scegli uno slot nel passato")
+    if _user_trip_overlaps(user_id, start, end):
+        raise HttpError(409, "slot sovrapposto a un viaggio esistente")
+
+
+def _ceil_to_step(value: datetime, step_minutes: int) -> datetime:
+    step_seconds = step_minutes * 60
+    timestamp = math.ceil(value.timestamp() / step_seconds) * step_seconds
+    return datetime.fromtimestamp(timestamp, tz=dt_timezone.utc)
+
+
+def _source_has_raw_sensor_evidence(source: Trip) -> bool:
+    return TripIngestionPart.objects.filter(
+        ingestion__trip=source,
+        ingestion__raw_status=TripIngestion.PhaseStatus.COMPLETED,
+        kind=PartKind.SENSOR_WINDOWS,
+        received_at__isnull=False,
+    ).exists()
+
+
+def _reload_slot_candidates(
+    *,
+    user_id: int,
+    duration: timedelta,
+    now: datetime,
+    days: int,
+    step_minutes: int,
+    limit: int,
+) -> list[dict[str, datetime]]:
+    window_start = now - timedelta(days=max(1, min(days, 30)))
+    step_minutes = max(5, min(step_minutes, 60))
+    limit = max(1, min(limit, 500))
+    busy_rows = (
+        Trip.objects.filter(user_id=user_id, started_at__lt=now)
+        .filter(Q(ended_at__isnull=True) | Q(ended_at__gt=window_start))
+        .order_by("started_at")
+        .values_list("started_at", "ended_at")
+    )
+    busy = [
+        (max(start, window_start), min(end or now, now))
+        for start, end in busy_rows
+        if start and max(start, window_start) < min(end or now, now)
+    ]
+    free: list[tuple[datetime, datetime]] = []
+    cursor = window_start
+    for start, end in busy:
+        if start > cursor:
+            free.append((cursor, start))
+        if end > cursor:
+            cursor = end
+    if cursor < now:
+        free.append((cursor, now))
+
+    slots: list[dict[str, datetime]] = []
+    for free_start, free_end in free:
+        candidate = _ceil_to_step(free_start, step_minutes)
+        while candidate + duration <= free_end:
+            slots.append(
+                {
+                    "started_at": candidate,
+                    "ended_at": candidate + duration,
+                }
+            )
+            candidate += timedelta(minutes=step_minutes)
+    return slots[-limit:]
+
+
+@router.get(
+    "/trips/reloadable/{trip_id}/slots",
+    response=TripReloadSlotsOut,
+    auth=mobile_bearer_auth,
+)
+def list_reload_slots(
+    request,
+    trip_id: int,
+    days: int = 14,
+    step_minutes: int = 15,
+    limit: int = 200,
+):
+    source = _reloadable_source_or_409(trip_id)
+    if not _source_has_raw_sensor_evidence(source):
+        raise HttpError(409, "telemetrie sorgente non disponibili")
+    _, _, source_start, source_end = _source_timeline(source)
+    duration = source_end - source_start
+    if duration <= timedelta(0):
+        raise HttpError(409, "durata viaggio ricaricabile non valida")
+    return {
+        "source_trip_id": source.id,
+        "duration_seconds": int(duration.total_seconds()),
+        "slots": _reload_slot_candidates(
+            user_id=request.auth.user_id,
+            duration=duration,
+            now=timezone.now(),
+            days=days,
+            step_minutes=step_minutes,
+            limit=limit,
+        ),
+    }
+
+
 @router.post(
     "/trips/reloadable/{trip_id}/reload",
     response=TripReloadOut,
@@ -797,20 +943,22 @@ def reload_trip(request, trip_id: int, payload: TripReloadIn):
         ]:
             raise HttpError(409, "viaggio non ricaricabile")
 
-        source_points = list(source.gps_points.order_by("timestamp"))
-        source_transitions = list(source.state_transitions.order_by("timestamp"))
-        source_timestamps = [point.timestamp for point in source_points] + [
-            transition.timestamp for transition in source_transitions
-        ]
-        if not source_timestamps:
-            raise HttpError(409, "viaggio ricaricabile senza evidenza core")
-
-        source_start = source.started_at or min(source_timestamps)
-        source_end = source.ended_at or max(source_timestamps)
-        if source_end < source_start:
-            raise HttpError(409, "durata viaggio ricaricabile non valida")
+        source_points, source_transitions, source_start, source_end = _source_timeline(
+            source
+        )
+        duration = source_end - source_start
         reload_end = timezone.now()
-        reload_start = reload_end - (source_end - source_start)
+        if payload.scheduled_start_at is None:
+            reload_start = reload_end - duration
+        else:
+            reload_start = payload.scheduled_start_at
+            reload_end = reload_start + duration
+            _ensure_reload_slot_available(
+                request.auth.user_id,
+                reload_start,
+                reload_end,
+                timezone.now(),
+            )
         shift = reload_start - source_start
 
         ingestion = TripIngestion.objects.create(

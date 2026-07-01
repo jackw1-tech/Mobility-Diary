@@ -20,7 +20,8 @@ class TripsListCubit extends Cubit<TripsListCubitState> {
 
   Future<void> loadReloadable() => _load(_service.fetchReloadableTrips);
 
-  Future<int?> reloadTrip(int sourceTripId) async {
+  Future<int?> reloadTrip(int sourceTripId,
+      {DateTime? scheduledStartAt}) async {
     final reloadRequestId = _reloadRequestIdsBySource.putIfAbsent(
       sourceTripId,
       _reloadRequestIdFactory,
@@ -37,6 +38,7 @@ class TripsListCubit extends Cubit<TripsListCubitState> {
       final result = await _service.reloadTrip(
         sourceTripId: sourceTripId,
         reloadRequestId: reloadRequestId,
+        scheduledStartAt: scheduledStartAt,
       );
       _reloadRequestIdsBySource.remove(sourceTripId);
       emit(

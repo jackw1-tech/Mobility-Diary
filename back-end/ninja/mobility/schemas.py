@@ -170,6 +170,18 @@ class TripListItemOut(Schema):
 
 class TripReloadIn(Schema):
     reload_request_id: str
+    scheduled_start_at: datetime | None = None
+
+
+class TripReloadSlotOut(Schema):
+    started_at: datetime
+    ended_at: datetime
+
+
+class TripReloadSlotsOut(Schema):
+    source_trip_id: int
+    duration_seconds: int
+    slots: list[TripReloadSlotOut]
 
 
 class TripReloadOut(Schema):

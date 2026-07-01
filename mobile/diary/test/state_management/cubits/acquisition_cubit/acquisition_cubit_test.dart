@@ -296,7 +296,8 @@ void main() {
       expect(cubit.state.completedReplayTripId, isNull);
     });
 
-    test('stopReplay emits the completed trip ID and sets status to idle', () async {
+    test('stopReplay emits the completed trip ID and sets status to idle',
+        () async {
       final database = AcquisitionLocalDatabase(NativeDatabase.memory());
       final repository = AcquisitionRepositoryImpl(
         database: database,
@@ -313,6 +314,26 @@ void main() {
 
       expect(cubit.state.status, AcquisitionCubitStatus.idle);
       expect(cubit.state.completedReplayTripId, 999);
+    });
+
+    test('startReplay clears a previous completed replay trip ID', () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        enableRuntime: false,
+        ingestionApi: _FakeTripIngestionApi(),
+        deviceIdProvider: () async => 'this-device',
+      );
+      final cubit = AcquisitionCubit(repository);
+      addTearDown(repository.dispose);
+      addTearDown(cubit.close);
+
+      await cubit.startReplay(123);
+      await cubit.stopReplay();
+      await cubit.startReplay(123);
+
+      expect(cubit.state.status, AcquisitionCubitStatus.tracking);
+      expect(cubit.state.completedReplayTripId, isNull);
     });
   });
 }
@@ -368,10 +389,9 @@ class _FakeTripIngestionApi implements TripIngestionApi {
   }) async {
     final expectedRawParts =
         Map<String, dynamic>.from(body['expected_raw_parts'] as Map);
-    final rawStatus =
-        expectedRawParts.isEmpty ? 'COMPLETED' : 'PENDING';
+    final rawStatus = expectedRawParts.isEmpty ? 'COMPLETED' : 'PENDING';
     final responseIngestionId = body['ingestion_id'] as int? ?? 123;
-    
+
     if (responseIngestionId != 123 && body['cutoff_source_timestamp'] == null) {
       throw Exception('Missing cutoff_source_timestamp for replay');
     }

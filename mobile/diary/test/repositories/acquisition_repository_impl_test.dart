@@ -773,7 +773,8 @@ void main() {
       expect(await database.acquisitionDao.countSessions(), 0);
     });
 
-    test('stopReplay builds payload and finalizes trip without SyncQueue', () async {
+    test('stopReplay builds payload and finalizes trip without SyncQueue',
+        () async {
       final database = AcquisitionLocalDatabase(NativeDatabase.memory());
       final api = _FakeTripIngestionApi();
       final repository = AcquisitionRepositoryImpl(
@@ -789,10 +790,30 @@ void main() {
 
       expect(result.tripId, 999);
       expect(repository.currentSnapshot.isTracking, isFalse);
-      
+
       // Assicura che non sia stato creato alcun SyncJob
-      final jobs = await database.acquisitionDao.claimableSyncJobs(DateTime.now().toUtc());
+      final jobs = await database.acquisitionDao
+          .claimableSyncJobs(DateTime.now().toUtc());
       expect(jobs, isEmpty);
+    });
+
+    test('stopReplay uses the selected past start for replay payload',
+        () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final api = _FakeTripIngestionApi();
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        enableRuntime: false,
+        ingestionApi: api,
+        deviceIdProvider: () async => 'stable-device',
+      );
+      addTearDown(repository.dispose);
+
+      final selectedStart = DateTime.utc(2026, 6, 29, 12, 15);
+      await repository.startReplay(123, scheduledStartAt: selectedStart);
+      await repository.stopReplay();
+
+      expect(api.lastInlineCoreBody?['started_at'], '2026-06-29T12:15:00Z');
     });
   });
 }
@@ -901,6 +922,7 @@ class _FakeTripIngestionApi implements TripIngestionApi {
       heartbeatCalls = [];
   int startCallCount = 0;
   int activeLookupCount = 0;
+  Map<String, dynamic>? lastInlineCoreBody;
 
   _FakeTripIngestionApi({
     this.ingestionId = 1,
@@ -973,8 +995,11 @@ class _FakeTripIngestionApi implements TripIngestionApi {
 
   @override
   Future<Map<String, dynamic>> getReplayData(int tripId) async {
+    // Stesso contratto di `ReplayDataOut`: chiavi gps_points/state_transitions,
+    // transizioni con soli timestamp/from_state/to_state.
     return {
-      'points': [
+      'source_trip_id': tripId,
+      'gps_points': [
         {
           'timestamp': '2026-01-01T08:00:00Z',
           'latitude': 44.0,
@@ -982,21 +1007,28 @@ class _FakeTripIngestionApi implements TripIngestionApi {
           'speed_mps': 1.0,
           'accuracy_meters': 5.0,
         },
-      ],
-      'transitions': [
         {
-          'timestamp': '2026-01-01T08:00:00Z',
-          'from_state': 'stationary',
-          'to_state': 'vehicle',
-          'sigma': 0.0,
-          'speed_mps': 0.0,
+          'timestamp': '2026-01-01T08:20:00Z',
+          'latitude': 44.1,
+          'longitude': 11.1,
+          'speed_mps': 2.0,
+          'accuracy_meters': null,
+        },
+      ],
+      'state_transitions': [
+        {
+          'timestamp': '2026-01-01T08:05:00Z',
+          'from_state': 'STATIONARY',
+          'to_state': 'MOVEMENT',
         }
       ]
     };
   }
 
   @override
-  Future<InlineCoreResult> postCoreInline({required Map<String, dynamic> body}) async {
+  Future<InlineCoreResult> postCoreInline(
+      {required Map<String, dynamic> body}) async {
+    lastInlineCoreBody = body;
     return InlineCoreResult(
       ingestionId: body['ingestion_id'] as int? ?? 1,
       tripId: 999,

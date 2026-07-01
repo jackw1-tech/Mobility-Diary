@@ -8,6 +8,7 @@ class ApiConstants {
       'https://mobilitydiary.giacomobianco.com/api';
 
   static String get baseApiUrl {
+    return _productionApiUrl;
     if (const bool.hasEnvironment('API_BASE_URL')) {
       return const String.fromEnvironment('API_BASE_URL');
     }

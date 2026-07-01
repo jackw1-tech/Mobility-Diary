@@ -1,0 +1,81 @@
+import 'package:diary/features/acquisition/domain/acquisition_domain.dart';
+import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubit_state.dart';
+import 'package:diary/ui/pages/home_page.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+AcquisitionCubitState _state({
+  AcquisitionSyncSnapshot syncSnapshot = const AcquisitionSyncSnapshot.none(),
+  int? completedReplayTripId,
+}) {
+  return AcquisitionCubitState.fromSnapshot(
+    AcquisitionSnapshot.idle(),
+    syncSnapshot: syncSnapshot,
+    completedReplayTripId: completedReplayTripId,
+  );
+}
+
+void main() {
+  group('autoOpenTripDetailId', () {
+    test('opens when core sync detail becomes available', () {
+      final previous = _state(
+        syncSnapshot: const AcquisitionSyncSnapshot(
+          status: AcquisitionSyncStatus.uploading,
+          localSessionId: 'local-1',
+        ),
+      );
+      final current = _state(
+        syncSnapshot: const AcquisitionSyncSnapshot(
+          status: AcquisitionSyncStatus.completed,
+          localSessionId: 'local-1',
+          remoteTripId: 42,
+          coreMapAvailable: true,
+        ),
+      );
+
+      expect(autoOpenTripDetailId(previous, current), 42);
+    });
+
+    test('does not reopen an already available sync detail', () {
+      final previous = _state(
+        syncSnapshot: const AcquisitionSyncSnapshot(
+          status: AcquisitionSyncStatus.completed,
+          remoteTripId: 42,
+        ),
+      );
+      final current = _state(
+        syncSnapshot: const AcquisitionSyncSnapshot(
+          status: AcquisitionSyncStatus.completed,
+          remoteTripId: 42,
+        ),
+      );
+
+      expect(autoOpenTripDetailId(previous, current), isNull);
+    });
+
+    test('opens when a replay finishes with a new trip id', () {
+      final previous = _state(completedReplayTripId: 99);
+      final current = _state(completedReplayTripId: 100);
+
+      expect(autoOpenTripDetailId(previous, current), 100);
+    });
+
+    test('prefers a newly completed replay over an old sync detail', () {
+      final previous = _state(
+        syncSnapshot: const AcquisitionSyncSnapshot(
+          status: AcquisitionSyncStatus.completed,
+          remoteTripId: 42,
+        ),
+        completedReplayTripId: 99,
+      );
+      final current = _state(
+        syncSnapshot: const AcquisitionSyncSnapshot(
+          status: AcquisitionSyncStatus.completed,
+          remoteTripId: 42,
+        ),
+        completedReplayTripId: 100,
+      );
+
+      expect(autoOpenTripDetailId(previous, current), 100);
+    });
+  });
+}
