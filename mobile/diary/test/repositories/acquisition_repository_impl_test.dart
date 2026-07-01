@@ -773,6 +773,92 @@ void main() {
       expect(await database.acquisitionDao.countSessions(), 0);
     });
 
+    test('startReplay applies speed multiplier only to visual playback',
+        () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final api = _FakeTripIngestionApi(
+        replayData: {
+          'source_trip_id': 123,
+          'gps_points': [
+            {
+              'timestamp': '2026-01-01T08:00:00Z',
+              'latitude': 44.0,
+              'longitude': 11.0,
+              'speed_mps': 1.0,
+              'accuracy_meters': 5.0,
+            },
+            {
+              'timestamp': '2026-01-01T08:00:05Z',
+              'latitude': 44.5,
+              'longitude': 11.5,
+              'speed_mps': 2.0,
+              'accuracy_meters': 5.0,
+            },
+          ],
+          'state_transitions': const [],
+        },
+      );
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        enableRuntime: false,
+        ingestionApi: api,
+        deviceIdProvider: () async => 'stable-device',
+      );
+      addTearDown(repository.dispose);
+
+      final selectedStart = DateTime.utc(2026, 1, 2, 10);
+      await repository.startReplay(
+        123,
+        scheduledStartAt: selectedStart,
+        replaySpeedMultiplier: 5,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+
+      expect(repository.currentSnapshot.latitude, 44.5);
+      expect(repository.currentSnapshot.longitude, 11.5);
+
+      await repository.stopReplay();
+      expect(api.lastInlineCoreBody?['started_at'], '2026-01-02T10:00:00Z');
+      expect(api.lastInlineCoreBody?['ended_at'], '2026-01-02T10:00:05Z');
+    });
+
+    test('startReplay scales the end warning window by replay speed', () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final api = _FakeTripIngestionApi(
+        replayData: {
+          'source_trip_id': 123,
+          'gps_points': [
+            {
+              'timestamp': '2026-01-01T08:00:00Z',
+              'latitude': 44.0,
+              'longitude': 11.0,
+              'speed_mps': 1.0,
+              'accuracy_meters': 5.0,
+            },
+            {
+              'timestamp': '2026-01-01T08:01:10Z',
+              'latitude': 44.5,
+              'longitude': 11.5,
+              'speed_mps': 2.0,
+              'accuracy_meters': 5.0,
+            },
+          ],
+          'state_transitions': const [],
+        },
+      );
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        enableRuntime: false,
+        ingestionApi: api,
+        deviceIdProvider: () async => 'stable-device',
+      );
+      addTearDown(repository.dispose);
+
+      await repository.startReplay(123, replaySpeedMultiplier: 5);
+
+      expect(repository.currentSnapshot.replaySecondsRemaining, 14);
+    });
+
     test('stopReplay builds payload and finalizes trip without SyncQueue',
         () async {
       final database = AcquisitionLocalDatabase(NativeDatabase.memory());
@@ -916,6 +1002,7 @@ class _FakeTripIngestionApi implements TripIngestionApi {
   final ActiveIngestion? conflictActive;
   final ActiveIngestion? activeIngestion;
   final bool conflictOnce;
+  final Map<String, dynamic>? replayData;
   final List<String> startedDeviceIds = [];
   final List<int> abandonedIngestionIds = [];
   final List<({int ingestionId, String clientSessionId, String deviceId})>
@@ -931,6 +1018,7 @@ class _FakeTripIngestionApi implements TripIngestionApi {
     this.conflictActive,
     this.activeIngestion,
     this.conflictOnce = false,
+    this.replayData,
   });
 
   @override
@@ -995,6 +1083,9 @@ class _FakeTripIngestionApi implements TripIngestionApi {
 
   @override
   Future<Map<String, dynamic>> getReplayData(int tripId) async {
+    final customReplayData = replayData;
+    if (customReplayData != null) return customReplayData;
+
     // Stesso contratto di `ReplayDataOut`: chiavi gps_points/state_transitions,
     // transizioni con soli timestamp/from_state/to_state.
     return {

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubit_state.dart';
 import 'package:diary/theme/color_palette.dart';
 import 'package:flutter/material.dart';
@@ -21,12 +23,16 @@ class LiveMap extends StatefulWidget {
 
 class _LiveMapState extends State<LiveMap> {
   static const double _followZoom = 16.5;
+  static const String _replayMarkerSourceId = 'live-replay-position-source';
+  static const String _replayMarkerHaloLayerId = 'live-replay-position-halo';
+  static const String _replayMarkerDotLayerId = 'live-replay-position-dot';
 
   MapboxMap? _map;
   PolylineAnnotationManager? _routeManager;
   Point? _initialCenter;
   String? _error;
   bool _styleReady = false;
+  bool _replayMarkerReady = false;
 
   /// Se true la camera insegue automaticamente la posizione corrente.
   bool _followUser = true;
@@ -95,9 +101,36 @@ class _LiveMapState extends State<LiveMap> {
     // Catturato prima dell'await per non usare context oltre l'async gap.
     final cubit = context.read<AcquisitionCubit>();
     _routeManager = await map.annotations.createPolylineAnnotationManager();
+    await _installReplayMarkerLayer(map);
     _styleReady = true;
     // Se entriamo con una sessione già in corso, ridisegna subito.
     await _redrawRoute(cubit.state.routePoints);
+    await _syncNativePuck(cubit.state);
+    await _updateReplayMarker(cubit.state);
+  }
+
+  Future<void> _installReplayMarkerLayer(MapboxMap map) async {
+    _replayMarkerReady = false;
+    await map.style.addSource(GeoJsonSource(
+      id: _replayMarkerSourceId,
+      data: _emptyMarkerGeoJson(),
+    ));
+    await map.style.addLayer(CircleLayer(
+      id: _replayMarkerHaloLayerId,
+      sourceId: _replayMarkerSourceId,
+      circleColor: ColorPalette.primary.toARGB32(),
+      circleOpacity: 0.22,
+      circleRadius: 18,
+    ));
+    await map.style.addLayer(CircleLayer(
+      id: _replayMarkerDotLayerId,
+      sourceId: _replayMarkerSourceId,
+      circleColor: ColorPalette.primary.toARGB32(),
+      circleRadius: 8,
+      circleStrokeColor: ColorPalette.surface.toARGB32(),
+      circleStrokeWidth: 3,
+    ));
+    _replayMarkerReady = true;
   }
 
   Future<void> _redrawRoute(List<ll.LatLng> points) async {
@@ -132,8 +165,59 @@ class _LiveMapState extends State<LiveMap> {
     );
   }
 
+  Future<void> _syncNativePuck(AcquisitionCubitState state) async {
+    await _map?.location.updateSettings(
+      LocationComponentSettings(
+        enabled: !state.isReplay,
+        pulsingEnabled: true,
+        showAccuracyRing: true,
+        puckBearingEnabled: true,
+        puckBearing: PuckBearing.HEADING,
+      ),
+    );
+  }
+
+  Future<void> _updateReplayMarker(AcquisitionCubitState state) async {
+    final map = _map;
+    if (map == null || !_styleReady || !_replayMarkerReady) return;
+
+    final latest = state.latestPosition;
+    await map.style.setStyleSourceProperty(
+      _replayMarkerSourceId,
+      'data',
+      state.isReplay && latest != null
+          ? _markerGeoJson(latest)
+          : _emptyMarkerGeoJson(),
+    );
+  }
+
+  String _emptyMarkerGeoJson() {
+    return jsonEncode({
+      'type': 'FeatureCollection',
+      'features': const [],
+    });
+  }
+
+  String _markerGeoJson(ll.LatLng point) {
+    return jsonEncode({
+      'type': 'FeatureCollection',
+      'features': [
+        {
+          'type': 'Feature',
+          'geometry': {
+            'type': 'Point',
+            'coordinates': [point.longitude, point.latitude],
+          },
+          'properties': const {},
+        },
+      ],
+    });
+  }
+
   void _onStateChanged(AcquisitionCubitState state) {
     _redrawRoute(state.routePoints);
+    _syncNativePuck(state);
+    _updateReplayMarker(state);
     final latest = state.latestPosition;
     if (latest != null && state.isTracking) {
       _followTo(latest);
@@ -153,7 +237,8 @@ class _LiveMapState extends State<LiveMap> {
       listenWhen: (previous, current) =>
           previous.routePoints != current.routePoints ||
           previous.latestPosition != current.latestPosition ||
-          previous.isTracking != current.isTracking,
+          previous.isTracking != current.isTracking ||
+          previous.isReplay != current.isReplay,
       listener: (context, state) => _onStateChanged(state),
       child: Stack(
         children: [
@@ -169,8 +254,8 @@ class _LiveMapState extends State<LiveMap> {
             onStyleLoadedListener: _onStyleLoaded,
           ),
           Positioned(
-            right: 12,
-            bottom: 12,
+            right: 0,
+            top: 2,
             child: _RecenterButton(
               active: _followUser,
               onPressed: () async {

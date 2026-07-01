@@ -211,6 +211,7 @@ def test_reload_slots_return_past_non_overlapping_candidates(
         for slot in data["slots"]
     ]
     assert slots
+    assert slots == sorted(slots, reverse=True)
     assert all(start < end <= now for start, end in slots)
     assert all(
         end <= now - timedelta(hours=1) or start >= now - timedelta(minutes=30)

@@ -20,6 +20,7 @@ class AcquisitionSnapshot {
   /// Countdown dei secondi rimanenti alla fine della riproduzione live.
   /// `null` se non in replay o se mancano più di 15 secondi alla fine.
   final int? replaySecondsRemaining;
+  final bool isReplay;
 
   const AcquisitionSnapshot({
     required this.isTracking,
@@ -33,6 +34,7 @@ class AcquisitionSnapshot {
     this.longitude,
     this.accuracyMeters,
     this.replaySecondsRemaining,
+    this.isReplay = false,
   });
 
   factory AcquisitionSnapshot.idle({DateTime? updatedAt}) {

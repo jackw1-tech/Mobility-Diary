@@ -45,10 +45,21 @@ class HomePage extends StatelessWidget {
   }
 }
 
-class _AuthenticatedHomePage extends StatelessWidget {
+class _AuthenticatedHomePage extends StatefulWidget {
   final String? userLabel;
 
   const _AuthenticatedHomePage({required this.userLabel});
+
+  @override
+  State<_AuthenticatedHomePage> createState() => _AuthenticatedHomePageState();
+}
+
+class _AuthenticatedHomePageState extends State<_AuthenticatedHomePage> {
+  static const double _initialSheetExtent = 0.30;
+  static const double _minSheetExtent = 0.05;
+  static const double _maxSheetExtent = 0.38;
+
+  double _sheetExtent = _initialSheetExtent;
 
   @override
   Widget build(BuildContext context) {
@@ -87,7 +98,9 @@ class _AuthenticatedHomePage extends StatelessWidget {
             drawer: const TripsDrawer(),
             appBar: AppBar(
               centerTitle: true,
-              title: Text(userLabel == null ? 'Mobile Edge' : userLabel!),
+              title: Text(
+                widget.userLabel == null ? 'Mobile Edge' : widget.userLabel!,
+              ),
               actions: [
                 IconButton(
                   tooltip: 'Statistiche',
@@ -101,43 +114,72 @@ class _AuthenticatedHomePage extends StatelessWidget {
                 ),
               ],
             ),
-            body: Stack(
-              children: [
-                const Positioned.fill(child: LiveMap()),
-                DraggableScrollableSheet(
-                  initialChildSize: 0.30,
-                  minChildSize: 0.05,
-                  maxChildSize: 0.38,
-                  builder: (context, scrollController) {
-                    return DecoratedBox(
-                      decoration: const BoxDecoration(
-                        color: ColorPalette.background,
-                        borderRadius: BorderRadius.vertical(
-                          top: Radius.circular(Dimensions.borderRadiusLarge),
-                        ),
-                        border: Border(
-                          top: BorderSide(color: ColorPalette.hairline),
+            body: LayoutBuilder(
+              builder: (context, constraints) {
+                final replaySecondsRemaining =
+                    state.snapshot.replaySecondsRemaining;
+                return Stack(
+                  children: [
+                    const Positioned.fill(child: LiveMap()),
+                    if (replaySecondsRemaining != null)
+                      Positioned(
+                        left: Dimensions.paddingMedium,
+                        right: Dimensions.paddingMedium,
+                        bottom: constraints.maxHeight * _sheetExtent +
+                            Dimensions.paddingSmall,
+                        child: _ReplayCountdownPill(
+                          seconds: replaySecondsRemaining,
                         ),
                       ),
-                      child: ListView(
-                        controller: scrollController,
-                        padding: const EdgeInsets.all(Dimensions.paddingMedium),
-                        children: [
-                          const _SheetHandle(),
-                          const SizedBox(height: Dimensions.paddingSmall),
-                          _TrackingHeader(state: state),
-                          if (state.syncSnapshot.hasJob) ...[
-                            const SizedBox(height: Dimensions.paddingMedium),
-                            _SyncStatusPanel(state: state),
-                          ],
-                          const SizedBox(height: Dimensions.paddingMedium),
-                          _CoreMetrics(state: state),
-                        ],
+                    NotificationListener<DraggableScrollableNotification>(
+                      onNotification: (notification) {
+                        if ((notification.extent - _sheetExtent).abs() >
+                            0.001) {
+                          setState(() => _sheetExtent = notification.extent);
+                        }
+                        return false;
+                      },
+                      child: DraggableScrollableSheet(
+                        initialChildSize: _initialSheetExtent,
+                        minChildSize: _minSheetExtent,
+                        maxChildSize: _maxSheetExtent,
+                        builder: (context, scrollController) {
+                          return DecoratedBox(
+                            decoration: const BoxDecoration(
+                              color: ColorPalette.background,
+                              borderRadius: BorderRadius.vertical(
+                                top: Radius.circular(
+                                  Dimensions.borderRadiusLarge,
+                                ),
+                              ),
+                              border: Border(
+                                top: BorderSide(color: ColorPalette.hairline),
+                              ),
+                            ),
+                            child: ListView(
+                              controller: scrollController,
+                              padding: const EdgeInsets.all(
+                                Dimensions.paddingMedium,
+                              ),
+                              children: [
+                                const _SheetHandle(),
+                                const SizedBox(
+                                  height: Dimensions.paddingSmall,
+                                ),
+                                _TrackingHeader(state: state),
+                                const SizedBox(
+                                  height: Dimensions.paddingMedium,
+                                ),
+                                _CoreMetrics(state: state),
+                              ],
+                            ),
+                          );
+                        },
                       ),
-                    );
-                  },
-                ),
-              ],
+                    ),
+                  ],
+                );
+              },
             ),
           );
         },
@@ -172,6 +214,56 @@ class _AuthLoadingPage extends StatelessWidget {
       backgroundColor: ColorPalette.background,
       body: Center(
         child: CircularProgressIndicator(),
+      ),
+    );
+  }
+}
+
+class _ReplayCountdownPill extends StatelessWidget {
+  final int seconds;
+
+  const _ReplayCountdownPill({required this.seconds});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: ColorPalette.surface,
+          borderRadius: BorderRadius.circular(Dimensions.borderRadiusLarge),
+          border: Border.all(color: ColorPalette.warning),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.12),
+              blurRadius: 14,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: Dimensions.paddingMedium,
+            vertical: Dimensions.paddingSmall,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.timer_outlined,
+                color: ColorPalette.warning,
+                size: 18,
+              ),
+              const SizedBox(width: Dimensions.paddingSmall),
+              Text(
+                'Fine tra ${seconds}s',
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: ColorPalette.warning,
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -226,15 +318,6 @@ class _TrackingHeader extends StatelessWidget {
               ],
             ),
           ),
-          if (state.snapshot.replaySecondsRemaining != null) ...[
-            Text(
-              'Fine tra ${state.snapshot.replaySecondsRemaining}s',
-              style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    color: ColorPalette.warning,
-                  ),
-            ),
-            const SizedBox(width: Dimensions.paddingSmall),
-          ],
           FilledButton.icon(
             onPressed: () => _toggleTracking(context, state),
             icon: Icon(state.isTracking ? Icons.stop : Icons.play_arrow),
@@ -317,239 +400,6 @@ class _SheetHandle extends StatelessWidget {
       ),
     );
   }
-}
-
-class _SyncStatusPanel extends StatelessWidget {
-  final AcquisitionCubitState state;
-
-  const _SyncStatusPanel({required this.state});
-
-  @override
-  Widget build(BuildContext context) {
-    final sync = state.syncSnapshot;
-    final data = _syncStatusData(sync.status);
-    final nextRetryAt = sync.nextRetryAt;
-
-    return _Panel(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _SyncStatusIcon(sync: sync, data: data),
-          const SizedBox(width: Dimensions.paddingSmall),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  data.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  _syncSubtitle(sync),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: ColorPalette.textSecondary,
-                      ),
-                ),
-                if (sync.lastError != null && sync.isFailed) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    sync.lastError!,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: ColorPalette.error,
-                        ),
-                  ),
-                ],
-                if (nextRetryAt != null &&
-                    sync.status == AcquisitionSyncStatus.failedRetryable) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    'Retry dopo ${_formatTime(nextRetryAt)}',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: ColorPalette.textSecondary,
-                        ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          if (sync.canRetry)
-            TextButton.icon(
-              onPressed: () => context.read<AcquisitionCubit>().resumeSync(),
-              icon: const Icon(Icons.refresh),
-              label: const Text('Riprova'),
-            ),
-          if (sync.isNonRecoverable)
-            IconButton(
-              tooltip: 'Nascondi avviso',
-              onPressed: () =>
-                  context.read<AcquisitionCubit>().dismissNonRecoverableSync(),
-              icon: const Icon(Icons.close),
-            ),
-          if (sync.canOpenCoreDetail)
-            TextButton.icon(
-              onPressed: () => context.router.push(
-                TripDetailRoute(tripId: sync.remoteTripId!),
-              ),
-              icon: const Icon(Icons.route),
-              label: const Text('Dettaglio'),
-            ),
-        ],
-      ),
-    );
-  }
-
-  _SyncStatusData _syncStatusData(AcquisitionSyncStatus status) {
-    switch (status) {
-      case AcquisitionSyncStatus.none:
-        return const _SyncStatusData(
-          title: 'Nessuna sincronizzazione',
-          icon: Icons.cloud_off,
-          color: ColorPalette.textSecondary,
-        );
-      case AcquisitionSyncStatus.pending:
-        return const _SyncStatusData(
-          title: 'Sync in coda',
-          icon: Icons.schedule,
-          color: ColorPalette.info,
-        );
-      case AcquisitionSyncStatus.packaging:
-        return const _SyncStatusData(
-          title: 'Preparazione pacchetto',
-          icon: Icons.inventory_2,
-          color: ColorPalette.info,
-        );
-      case AcquisitionSyncStatus.uploading:
-        return const _SyncStatusData(
-          title: 'Upload viaggio',
-          icon: Icons.cloud_upload,
-          color: ColorPalette.info,
-        );
-      case AcquisitionSyncStatus.waitingProcessing:
-        return const _SyncStatusData(
-          title: 'Analisi backend',
-          icon: Icons.manage_search,
-          color: ColorPalette.warning,
-        );
-      case AcquisitionSyncStatus.completed:
-        return const _SyncStatusData(
-          title: 'Viaggio sincronizzato',
-          icon: Icons.cloud_done,
-          color: ColorPalette.success,
-        );
-      case AcquisitionSyncStatus.failedRetryable:
-        return const _SyncStatusData(
-          title: 'Sync in attesa',
-          icon: Icons.sync_problem,
-          color: ColorPalette.warning,
-        );
-      case AcquisitionSyncStatus.failedFinal:
-        return const _SyncStatusData(
-          title: 'Viaggio non recuperabile',
-          icon: Icons.error_outline,
-          color: ColorPalette.error,
-        );
-    }
-  }
-
-  String _syncSubtitle(AcquisitionSyncSnapshot sync) {
-    final ingestion = sync.remoteIngestionId == null
-        ? null
-        : 'ingestion #${sync.remoteIngestionId}';
-    final attemptText =
-        sync.attempts == 0 ? null : 'tentativo ${sync.attempts}';
-
-    switch (sync.status) {
-      case AcquisitionSyncStatus.none:
-        return 'Nessun viaggio da caricare';
-      case AcquisitionSyncStatus.pending:
-        return 'Il viaggio e salvato localmente e aspetta la rete';
-      case AcquisitionSyncStatus.packaging:
-        return 'Compressione e divisione dei dati in parti';
-      case AcquisitionSyncStatus.uploading:
-        return ingestion == null
-            ? 'Caricamento delle parti compresse'
-            : 'Caricamento parti su $ingestion';
-      case AcquisitionSyncStatus.waitingProcessing:
-        return ingestion == null
-            ? 'Dati caricati, elaborazione asincrona in corso'
-            : 'Dati caricati, $ingestion in elaborazione';
-      case AcquisitionSyncStatus.completed:
-        return ingestion == null
-            ? 'Dati disponibili sul backend'
-            : '$ingestion completata';
-      case AcquisitionSyncStatus.failedRetryable:
-        return attemptText == null
-            ? 'Errore temporaneo, verra ritentato'
-            : 'Errore temporaneo, $attemptText';
-      case AcquisitionSyncStatus.failedFinal:
-        return attemptText == null
-            ? 'La chiusura e fallita definitivamente'
-            : 'Chiusura fallita definitivamente dopo $attemptText';
-    }
-  }
-
-  String _formatTime(DateTime time) {
-    final localTime = time.toLocal();
-    return '${localTime.hour.toString().padLeft(2, '0')}:'
-        '${localTime.minute.toString().padLeft(2, '0')}';
-  }
-}
-
-class _SyncStatusIcon extends StatelessWidget {
-  final AcquisitionSyncSnapshot sync;
-  final _SyncStatusData data;
-
-  const _SyncStatusIcon({
-    required this.sync,
-    required this.data,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 40,
-      height: 40,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: data.color.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(Dimensions.borderRadiusSmall),
-        ),
-        child: Center(
-          child: sync.isWorking
-              ? SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: data.color,
-                  ),
-                )
-              : Icon(data.icon, color: data.color),
-        ),
-      ),
-    );
-  }
-}
-
-class _SyncStatusData {
-  final String title;
-  final IconData icon;
-  final Color color;
-
-  const _SyncStatusData({
-    required this.title,
-    required this.icon,
-    required this.color,
-  });
 }
 
 class _CoreMetrics extends StatelessWidget {

@@ -39,6 +39,7 @@ void main() {
       await cubit.startTracking();
 
       expect(cubit.state.status, AcquisitionCubitStatus.tracking);
+      expect(cubit.state.isReplay, isFalse);
       expect(cubit.state.samplingProfile.accelerometerHz, 10);
 
       for (var index = 0; index < 4; index += 1) {
@@ -293,6 +294,7 @@ void main() {
       await cubit.startReplay(123);
 
       expect(cubit.state.status, AcquisitionCubitStatus.tracking);
+      expect(cubit.state.isReplay, isTrue);
       expect(cubit.state.completedReplayTripId, isNull);
     });
 
@@ -314,6 +316,28 @@ void main() {
 
       expect(cubit.state.status, AcquisitionCubitStatus.idle);
       expect(cubit.state.completedReplayTripId, 999);
+    });
+
+    test('stopTracking finalizes an active replay instead of dropping it',
+        () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final api = _FakeTripIngestionApi();
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        enableRuntime: false,
+        ingestionApi: api,
+        deviceIdProvider: () async => 'this-device',
+      );
+      final cubit = AcquisitionCubit(repository);
+      addTearDown(repository.dispose);
+      addTearDown(cubit.close);
+
+      await cubit.startReplay(123);
+      await cubit.stopTracking();
+
+      expect(cubit.state.status, AcquisitionCubitStatus.idle);
+      expect(cubit.state.completedReplayTripId, 999);
+      expect(api.lastInlineCoreBody, isNotNull);
     });
 
     test('startReplay clears a previous completed replay trip ID', () async {
@@ -339,6 +363,8 @@ void main() {
 }
 
 class _FakeTripIngestionApi implements TripIngestionApi {
+  Map<String, dynamic>? lastInlineCoreBody;
+
   @override
   Future<ActiveIngestion?> getActiveIngestion() async => null;
 
@@ -387,6 +413,7 @@ class _FakeTripIngestionApi implements TripIngestionApi {
   Future<InlineCoreResult> postCoreInline({
     required Map<String, dynamic> body,
   }) async {
+    lastInlineCoreBody = body;
     final expectedRawParts =
         Map<String, dynamic>.from(body['expected_raw_parts'] as Map);
     final rawStatus = expectedRawParts.isEmpty ? 'COMPLETED' : 'PENDING';

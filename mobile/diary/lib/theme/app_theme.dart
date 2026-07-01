@@ -155,11 +155,13 @@ class AppTheme {
         shape: _pill,
       ),
 
-      // SnackBar / toast: ink nero, testo bianco, flottante.
+      // SnackBar / toast: ink nero, testo bianco. Ancorato in basso (fixed):
+      // il comportamento floating puo' finire fuori schermo sopra la mappa a
+      // tutto schermo e mandare in crash il layout (assert scaffold.dart).
       snackBarTheme: SnackBarThemeData(
         backgroundColor: ColorPalette.primary,
         contentTextStyle: const TextStyle(color: Colors.white),
-        behavior: SnackBarBehavior.floating,
+        behavior: SnackBarBehavior.fixed,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(Dimensions.borderRadiusLarge),
         ),

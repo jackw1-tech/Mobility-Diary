@@ -161,17 +161,14 @@ class _DrawerModeToggle extends StatelessWidget {
         ButtonSegment(
           value: _TripsDrawerMode.list,
           icon: Icon(Icons.format_list_bulleted),
-          label: Text('Lista'),
         ),
         ButtonSegment(
           value: _TripsDrawerMode.days,
           icon: Icon(Icons.calendar_month_outlined),
-          label: Text('Giorni'),
         ),
         ButtonSegment(
           value: _TripsDrawerMode.reloadable,
           icon: Icon(Icons.replay_outlined),
-          label: Text('Ricarica'),
         ),
       ],
       selected: {value},
@@ -312,6 +309,11 @@ class _TripTile extends StatelessWidget {
               builder: (context, state) {
                 final isReloading = state.reloadingTripId == trip.id;
                 final isBusy = state.reloadingTripId != null;
+                final compactStyle = TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 5),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                );
                 return Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -319,8 +321,8 @@ class _TripTile extends StatelessWidget {
                       onPressed: isBusy ? null : () => _playLive(context),
                       icon: const Icon(Icons.play_arrow_outlined),
                       label: const Text('Live'),
+                      style: compactStyle,
                     ),
-                    const SizedBox(width: Dimensions.paddingSmall),
                     TextButton.icon(
                       onPressed: isBusy ? null : () => _reload(context),
                       icon: isReloading
@@ -330,6 +332,7 @@ class _TripTile extends StatelessWidget {
                             )
                           : const Icon(Icons.file_upload_outlined),
                       label: const Text('Carica'),
+                      style: compactStyle,
                     ),
                   ],
                 );
@@ -362,11 +365,14 @@ class _TripTile extends StatelessWidget {
 
     final selectedStart = await _pickReloadStart(context);
     if (selectedStart == null || !context.mounted) return;
+    final replaySpeed = await _pickReplaySpeed(context);
+    if (replaySpeed == null || !context.mounted) return;
 
     try {
       await acquisitionCubit.startReplay(
         trip.id,
         scheduledStartAt: selectedStart,
+        replaySpeedMultiplier: replaySpeed,
       );
       if (!context.mounted) return;
       Scaffold.of(context).closeDrawer();
@@ -422,6 +428,14 @@ class _TripTile extends StatelessWidget {
       }
       return null;
     }
+  }
+
+  Future<double?> _pickReplaySpeed(BuildContext context) {
+    return showModalBottomSheet<double>(
+      context: context,
+      showDragHandle: true,
+      builder: (_) => const _ReplaySpeedSheet(),
+    );
   }
 
   String _subtitle(TripListItemDto trip) {
@@ -484,6 +498,42 @@ class _ReloadSlotSheet extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ReplaySpeedSheet extends StatelessWidget {
+  const _ReplaySpeedSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              Dimensions.paddingMedium,
+              0,
+              Dimensions.paddingMedium,
+              Dimensions.paddingSmall,
+            ),
+            child: Text(
+              'Velocità replay',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+          ),
+          for (final speed in const [1.0, 2.0, 5.0])
+            ListTile(
+              leading: const Icon(Icons.speed_outlined),
+              title: Text('${speed.toStringAsFixed(0)}x'),
+              onTap: () => Navigator.of(context).pop(speed),
+            ),
+        ],
       ),
     );
   }

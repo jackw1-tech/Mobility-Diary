@@ -182,6 +182,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
   Future<void> startReplay(
     int sourceTripId, {
     DateTime? scheduledStartAt,
+    double replaySpeedMultiplier = 1,
   }) async {
     if (_currentSnapshot.isTracking) {
       return;
@@ -237,13 +238,24 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
         latestSpeedMetersPerSecond: 0,
         lastTransition: null,
         updatedAt: now,
+        isReplay: true,
       ),
     );
 
-    _startReplayTimer(replayData);
+    _startReplayTimer(
+      replayData,
+      speedMultiplier: _replaySpeedMultiplier(replaySpeedMultiplier),
+    );
   }
 
-  void _startReplayTimer(Map<String, dynamic> data) {
+  double _replaySpeedMultiplier(double value) {
+    return value == 2 || value == 5 ? value : 1;
+  }
+
+  void _startReplayTimer(
+    Map<String, dynamic> data, {
+    required double speedMultiplier,
+  }) {
     // Il backend (`ReplayDataOut`) espone `gps_points` e `state_transitions`.
     final rawPoints = data['gps_points'] as List<dynamic>? ??
         data['points'] as List<dynamic>? ??
@@ -295,7 +307,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
       return;
     }
 
-    final initialRemaining = endTime.difference(startTime).inSeconds;
+    final initialRemaining = endTime.difference(startTime);
     _emit(AcquisitionSnapshot(
       isTracking: true,
       trackingState: TrackingState.stationary,
@@ -304,9 +316,11 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
       latestSpeedMetersPerSecond: 0,
       lastTransition: null,
       updatedAt: startTime,
-      replaySecondsRemaining: initialRemaining <= 15
-          ? (initialRemaining > 0 ? initialRemaining : 0)
-          : null,
+      replaySecondsRemaining: _replaySecondsRemaining(
+        initialRemaining,
+        speedMultiplier,
+      ),
+      isReplay: true,
     ));
 
     final startReplayAt = DateTime.now();
@@ -318,7 +332,14 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     _replayTimer?.cancel();
     _replayTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       final elapsed = DateTime.now().difference(startReplayAt);
-      final currentReplayTime = startTime!.add(elapsed);
+      final acceleratedReplayTime = startTime!.add(
+        Duration(
+          microseconds: (elapsed.inMicroseconds * speedMultiplier).round(),
+        ),
+      );
+      final currentReplayTime = acceleratedReplayTime.isAfter(endTime!)
+          ? endTime
+          : acceleratedReplayTime;
 
       bool updated = false;
 
@@ -350,13 +371,13 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
         updated = true;
       }
 
-      final remainingSeconds = endTime!.difference(currentReplayTime).inSeconds;
-      int? replaySecondsRemaining;
-      if (remainingSeconds <= 15) {
-        replaySecondsRemaining = remainingSeconds > 0 ? remainingSeconds : 0;
-      }
+      final remaining = endTime.difference(currentReplayTime);
+      final replaySecondsRemaining = _replaySecondsRemaining(
+        remaining,
+        speedMultiplier,
+      );
 
-      if (updated || remainingSeconds <= 15) {
+      if (updated || replaySecondsRemaining != null) {
         _emit(AcquisitionSnapshot(
           isTracking: true,
           trackingState: _fsm.currentState ?? TrackingState.stationary,
@@ -370,13 +391,24 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
           longitude: _latestLongitude,
           accuracyMeters: _latestAccuracyMeters,
           replaySecondsRemaining: replaySecondsRemaining,
+          isReplay: true,
         ));
       }
 
-      if (remainingSeconds <= 0) {
+      if (remaining <= Duration.zero) {
         _replayTimer?.cancel();
       }
     });
+  }
+
+  int? _replaySecondsRemaining(
+    Duration sourceRemaining,
+    double speedMultiplier,
+  ) {
+    final sourceSeconds = sourceRemaining.inSeconds;
+    if (sourceSeconds > (15 * speedMultiplier).ceil()) return null;
+    if (sourceSeconds <= 0) return 0;
+    return (sourceSeconds / speedMultiplier).ceil();
   }
 
   @override

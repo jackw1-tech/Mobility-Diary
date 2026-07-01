@@ -47,7 +47,7 @@ class TripsHttpService implements TripsService {
   Future<TripReloadSlotsDto> fetchReloadSlots(int sourceTripId) async {
     final data = await _sendJsonMap(
       'GET',
-      '/mobility/trips/reloadable/$sourceTripId/slots',
+      '/mobility/trips/reloadable/$sourceTripId/slots?limit=100',
     );
     return TripReloadSlotsDto.fromJson(data);
   }

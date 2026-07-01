@@ -80,6 +80,8 @@ class AcquisitionCubitState {
 
   bool get isTracking => status == AcquisitionCubitStatus.tracking;
 
+  bool get isReplay => snapshot.isReplay;
+
   /// Ultima posizione GPS nota (latest fix della sessione), se disponibile.
   LatLng? get latestPosition {
     if (!snapshot.hasPosition) return null;

@@ -871,7 +871,7 @@ def _reload_slot_candidates(
                 }
             )
             candidate += timedelta(minutes=step_minutes)
-    return slots[-limit:]
+    return list(reversed(slots[-limit:]))
 
 
 @router.get(
@@ -884,7 +884,7 @@ def list_reload_slots(
     trip_id: int,
     days: int = 14,
     step_minutes: int = 15,
-    limit: int = 200,
+    limit: int = 100,
 ):
     source = _reloadable_source_or_409(trip_id)
     if not _source_has_raw_sensor_evidence(source):

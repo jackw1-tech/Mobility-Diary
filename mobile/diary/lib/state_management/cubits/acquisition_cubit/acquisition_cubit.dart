@@ -96,6 +96,10 @@ class AcquisitionCubit extends Cubit<AcquisitionCubitState> {
   }
 
   Future<void> stopTracking() async {
+    if (state.isReplay) {
+      await stopReplay();
+      return;
+    }
     await _repository.stopTracking();
     _emitSnapshot(_repository.currentSnapshot);
   }
@@ -117,12 +121,16 @@ class AcquisitionCubit extends Cubit<AcquisitionCubitState> {
 
   bool _isStoppingReplay = false;
 
-  Future<void> startReplay(int sourceTripId,
-      {DateTime? scheduledStartAt}) async {
+  Future<void> startReplay(
+    int sourceTripId, {
+    DateTime? scheduledStartAt,
+    double replaySpeedMultiplier = 1,
+  }) async {
     try {
       await _repository.startReplay(
         sourceTripId,
         scheduledStartAt: scheduledStartAt,
+        replaySpeedMultiplier: replaySpeedMultiplier,
       );
       _isStoppingReplay = false;
       _emitSnapshot(
