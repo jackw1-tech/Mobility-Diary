@@ -110,7 +110,7 @@ class _AuthenticatedHomePageState extends State<_AuthenticatedHomePage> {
                 ),
                 IconButton(
                   tooltip: 'Statistiche',
-                  icon: const Icon(Icons.insights_outlined),
+                  icon: const Icon(Icons.bar_chart_outlined),
                   onPressed: () => context.router.push(const AnalyticsRoute()),
                 ),
                 IconButton(

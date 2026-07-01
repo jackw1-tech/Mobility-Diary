@@ -30,7 +30,7 @@ class _LiveMapState extends State<LiveMap> {
   static const String _replayMarkerHaloLayerId = 'live-replay-position-halo';
   static const String _replayMarkerDotLayerId = 'live-replay-position-dot';
   static const String _assistantRouteSourceId = 'route-assistant-source';
-  static const String _assistantRouteLayerId = 'route-assistant-dots';
+  static const String _assistantRouteLayerId = 'route-assistant-line';
 
   MapboxMap? _map;
   PolylineAnnotationManager? _routeManager;
@@ -122,16 +122,15 @@ class _LiveMapState extends State<LiveMap> {
     _assistantRouteReady = false;
     await map.style.addSource(GeoJsonSource(
       id: _assistantRouteSourceId,
-      data: _pointsGeoJson(const []),
+      data: _lineGeoJson(const []),
     ));
-    // Pallini viola separati: il percorso suggerito, distinto dalla polyline GPS.
-    await map.style.addLayer(CircleLayer(
+    await map.style.addLayer(LineLayer(
       id: _assistantRouteLayerId,
       sourceId: _assistantRouteSourceId,
-      circleColor: routeAssistantDotColor.toARGB32(),
-      circleRadius: 5,
-      circleStrokeColor: ColorPalette.surface.toARGB32(),
-      circleStrokeWidth: 1.5,
+      lineColor: routeAssistantRouteColor.toARGB32(),
+      lineWidth: 5.0,
+      lineJoin: LineJoin.ROUND,
+      lineCap: LineCap.ROUND,
     ));
     _assistantRouteReady = true;
   }
@@ -142,8 +141,28 @@ class _LiveMapState extends State<LiveMap> {
     await map.style.setStyleSourceProperty(
       _assistantRouteSourceId,
       'data',
-      _pointsGeoJson(points),
+      _lineGeoJson(points),
     );
+  }
+
+  String _lineGeoJson(List<ll.LatLng> points) {
+    return jsonEncode({
+      'type': 'FeatureCollection',
+      'features': points.length < 2
+          ? const []
+          : [
+              {
+                'type': 'Feature',
+                'geometry': {
+                  'type': 'LineString',
+                  'coordinates': [
+                    for (final p in points) [p.longitude, p.latitude],
+                  ],
+                },
+                'properties': const {},
+              },
+            ],
+    });
   }
 
   String _pointsGeoJson(List<ll.LatLng> points) {
@@ -219,6 +238,11 @@ class _LiveMapState extends State<LiveMap> {
     );
   }
 
+  void _pauseFollowForGesture(MapContentGestureContext context) {
+    if (!_followUser || context.gestureState == GestureState.ended) return;
+    setState(() => _followUser = false);
+  }
+
   Future<void> _syncNativePuck(AcquisitionCubitState state) async {
     await _map?.location.updateSettings(
       LocationComponentSettings(
@@ -275,7 +299,8 @@ class _LiveMapState extends State<LiveMap> {
         BlocListener<RouteAssistantCubit, RouteAssistantState>(
           listenWhen: (previous, current) =>
               previous.routePoints != current.routePoints,
-          listener: (context, state) => _updateAssistantRoute(state.routePoints),
+          listener: (context, state) =>
+              _updateAssistantRoute(state.routePoints),
         ),
       ],
       child: Stack(
@@ -290,6 +315,8 @@ class _LiveMapState extends State<LiveMap> {
             ),
             onMapCreated: _onMapCreated,
             onStyleLoadedListener: _onStyleLoaded,
+            onScrollListener: _pauseFollowForGesture,
+            onZoomListener: _pauseFollowForGesture,
           ),
           BlocBuilder<AcquisitionCubit, AcquisitionCubitState>(
             buildWhen: (previous, current) =>

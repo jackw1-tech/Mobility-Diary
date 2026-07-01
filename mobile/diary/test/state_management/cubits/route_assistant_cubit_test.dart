@@ -78,9 +78,9 @@ RouteAssistantCubit _cubit(
 }
 
 void main() {
-  test('parte in modalita cycling senza percorso', () {
+  test('parte in modalita walking senza percorso', () {
     final cubit = _cubit(FakeRouteAssistantService());
-    expect(cubit.state.mode, RouteMode.cycling);
+    expect(cubit.state.mode, RouteMode.walking);
     expect(cubit.state.routePoints, isEmpty);
     expect(cubit.state.isActive, isFalse);
   });
@@ -120,7 +120,8 @@ void main() {
     expect(cubit.state.routePoints, hasLength(2));
     expect(cubit.state.isActive, isTrue);
     expect(cubit.state.isSearchOpen, isFalse);
-    expect(service.lastMode, RouteMode.cycling);
+    expect(service.lastMode, RouteMode.walking);
+    cubit.dismiss();
   });
 
   test('setMode ricalcola il percorso col nuovo profilo', () async {
@@ -133,6 +134,7 @@ void main() {
 
     expect(service.lastMode, RouteMode.driving);
     expect(service.routeCalls, 2);
+    cubit.dismiss();
   });
 
   test('setMode senza destinazione non calcola percorsi', () async {
@@ -155,7 +157,7 @@ void main() {
 
     expect(cubit.state.routePoints, isEmpty);
     expect(cubit.state.destination, isNull);
-    expect(cubit.state.mode, RouteMode.cycling);
+    expect(cubit.state.mode, RouteMode.walking);
   });
 
   test('errore di routing viene esposto in errorMessage', () async {
@@ -197,10 +199,10 @@ void main() {
     expect(cubit.state.isActive, isFalse);
   });
 
-  test('Live rilevando una modalita diversa cambia profilo e ricalcola',
+  test('Live ricalcola il percorso a ogni tick (anche senza cambio modalita)',
       () async {
     final service = FakeRouteAssistantService()..route = [const ll.LatLng(1, 1)];
-    final classifier = FakeClassifierService()..result = RouteMode.driving;
+    final classifier = FakeClassifierService()..result = RouteMode.walking; // stessa del default
     final cubit = _cubit(service, classifier: classifier, sensorWindow: _oneWindow);
     cubit.selectDestination(_place('Duomo', 45.46, 9.19));
     await cubit.confirmDestination();
@@ -210,8 +212,8 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 5));
 
     expect(cubit.state.isLive, isTrue);
-    expect(cubit.state.mode, RouteMode.driving);
-    expect(cubit.state.detectedMode, RouteMode.driving);
+    expect(cubit.state.mode, RouteMode.walking);
+    expect(cubit.state.detectedMode, RouteMode.walking);
     expect(service.routeCalls, greaterThan(routeCallsBefore));
     cubit.dismiss();
   });
@@ -226,7 +228,7 @@ void main() {
     cubit.toggleLive();
     await Future<void>.delayed(const Duration(milliseconds: 5));
 
-    expect(cubit.state.mode, RouteMode.cycling);
+    expect(cubit.state.mode, RouteMode.walking);
     expect(cubit.state.detectedMode, isNull);
     cubit.dismiss();
   });
@@ -247,7 +249,7 @@ void main() {
     cubit.dismiss();
   });
 
-  test('spegnere Live ferma il ticker e libera il giallo', () async {
+  test('spegnere Live disabilita la classificazione (ricalcolo continua)', () async {
     final classifier = FakeClassifierService()..result = RouteMode.driving;
     final cubit = _cubit(
       FakeRouteAssistantService()..route = [const ll.LatLng(1, 1)],
@@ -265,6 +267,7 @@ void main() {
     expect(cubit.state.detectedMode, isNull);
     final callsAfterStop = classifier.calls;
     await Future<void>.delayed(const Duration(milliseconds: 40));
+    // Live OFF: il classificatore non viene piu' chiamato
     expect(classifier.calls, callsAfterStop);
     cubit.dismiss();
   });

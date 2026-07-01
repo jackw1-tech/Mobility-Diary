@@ -918,6 +918,7 @@ def test_replay_stop_materializes_trip_and_regenerates_raw_up_to_cutoff(
     data = response.json()
     trip = Trip.objects.get(id=data["trip_id"])
     assert trip.user_id == user.id
+    assert trip.reloaded_from_trip_id == source.id
     # Una sola parte raw rigenerata: quella al minuto 1, non quella al minuto 15.
     parts = TripIngestionPart.objects.filter(ingestion_id=ingestion_id)
     assert parts.count() == 1

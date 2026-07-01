@@ -255,12 +255,21 @@ def _get_or_create_inline_trip(ingestion: TripIngestion) -> Trip:
             status=Trip.Status.CLOSED,
             started_at=started_at,
             ended_at=ended_at,
+            reloaded_from_trip_id=ingestion.source_trip_id,
         )
 
     update_fields = ["updated_at"]
+    if (
+        trip.reloaded_from_trip_id is not None
+        and trip.reloaded_from_trip_id != ingestion.source_trip_id
+    ):
+        raise HttpError(409, "client_session_id gia' associato a un'altra sorgente")
     if trip.user_id is None:
         trip.user_id = ingestion.user_id
         update_fields.append("user")
+    if trip.reloaded_from_trip_id is None and ingestion.source_trip_id is not None:
+        trip.reloaded_from_trip_id = ingestion.source_trip_id
+        update_fields.append("reloaded_from_trip")
     if not trip.device_id and ingestion.device_id:
         trip.device_id = ingestion.device_id
         update_fields.append("device_id")

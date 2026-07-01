@@ -73,39 +73,41 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
     if (state.destination != null) await _fetchRoute();
   }
 
-  /// Accende/spegne la modalita' Live. Da ON: classifica subito e poi ogni
-  /// [_tickInterval]. Da OFF: ferma il ticker e libera l'evidenziazione gialla.
+  /// Accende/spegne la modalita' Live. Il timer di ricalcolo (avviato al primo
+  /// percorso) continua a girare: Live ON aggiunge la classificazione sensori
+  /// prima di ogni ricalcolo periodico.
   void toggleLive() {
     if (state.isLive) {
-      _stopLive();
+      emit(state.copyWith(isLive: false, clearDetected: true));
       return;
     }
     emit(state.copyWith(isLive: true));
-    _tick();
+    _tick(); // classifica e ricalcola subito senza aspettare il prossimo tick
+  }
+
+  void _ensureTimer() {
+    if (_liveTimer != null) return;
     _liveTimer = Timer.periodic(_tickInterval, (_) => _tick());
   }
 
-  void _stopLive() {
-    _liveTimer?.cancel();
-    _liveTimer = null;
-    emit(state.copyWith(isLive: false, clearDetected: true));
-  }
-
+  /// Tick periodico: se Live e' ON classifica prima e aggiorna il profilo;
+  /// poi ricalcola sempre il percorso per seguire il movimento dell'utente.
   Future<void> _tick() async {
-    // Best-effort: qualsiasi errore (sensori, rete, decodifica) salta il ciclo.
-    // Le guardie `!state.isLive` fermano un tick in volo se nel frattempo Live
-    // e' stato spento o l'assistente e' stato chiuso (dismiss azzera isLive).
+    if (isClosed || !state.isActive) return;
     try {
-      final samples = await _sensorWindowProvider();
-      if (isClosed || !state.isLive || samples.isEmpty) return;
-      final detected = await _classifier.classify(samples);
-      // IDLE (null): mantiene profilo ed evidenziazione correnti.
-      if (isClosed || !state.isLive || detected == null) return;
-      emit(state.copyWith(detectedMode: detected));
-      if (detected != state.mode) {
-        emit(state.copyWith(mode: detected));
-        await _fetchRoute();
+      if (state.isLive) {
+        final samples = await _sensorWindowProvider();
+        if (isClosed || !state.isActive) return;
+        if (samples.isNotEmpty) {
+          final detected = await _classifier.classify(samples);
+          if (isClosed || !state.isActive) return;
+          if (detected != null) {
+            emit(state.copyWith(detectedMode: detected, mode: detected));
+          }
+        }
       }
+      if (isClosed || !state.isActive) return;
+      await _fetchRoute();
     } catch (_) {
       // ignora: il prossimo tick riprovera'
     }
@@ -151,6 +153,7 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
       );
       if (isClosed || generation != _routeGeneration) return;
       emit(state.copyWith(routePoints: points, isRouting: false));
+      _ensureTimer(); // avvia il tick periodico al primo percorso calcolato
     } catch (error) {
       if (isClosed || generation != _routeGeneration) return;
       emit(state.copyWith(isRouting: false, errorMessage: error.toString()));

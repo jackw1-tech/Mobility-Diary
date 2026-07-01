@@ -78,8 +78,17 @@ class _RouteAssistantSearchSheetState extends State<RouteAssistantSearchSheet> {
               ..._results(cubit, state),
               const SizedBox(height: Dimensions.paddingSmall),
               FilledButton.icon(
-                onPressed: state.destination == null ? null : _confirm,
-                icon: const Icon(Icons.navigation_outlined),
+                onPressed:
+                    state.destination == null || state.isRouting ? null : _confirm,
+                icon: state.isRouting
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.navigation_outlined),
                 label: const Text('Vai'),
               ),
             ],

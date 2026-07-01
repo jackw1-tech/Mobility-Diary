@@ -19,7 +19,7 @@ class RouteAssistantState {
 
   const RouteAssistantState({
     this.isSearchOpen = false,
-    this.mode = RouteMode.cycling,
+    this.mode = RouteMode.walking,
     this.searchResults = const [],
     this.isSearching = false,
     this.destination,

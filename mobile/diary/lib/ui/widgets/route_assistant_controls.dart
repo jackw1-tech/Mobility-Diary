@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 /// Colori funzionali dell'assistente (fuori dal brand monocromatico).
-const Color routeAssistantDotColor = Color(0xFF7C4DFF); // viola pallini
+const Color routeAssistantRouteColor = Color(0xFF7C4DFF); // viola percorso
 const Color _selectedManualColor = Color(0xFF4FC3F7); // azzurrino manuale
 const Color _detectedColor = Color(0xFFFFD54F); // giallo modalita' rilevata
 
