@@ -348,6 +348,17 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
         .then((windows) => windows.map(_sensorWindowAsUtc).toList());
   }
 
+  /// Finestra sensori piu' recente della sessione: usata dalla classificazione
+  /// live dell'assistente di percorso. Null se la sessione non ne ha ancora.
+  Future<SensorWindow?> latestSensorWindow(String sessionId) {
+    return (select(sensorWindows)
+          ..where((window) => window.sessionId.equals(sessionId))
+          ..orderBy([(window) => OrderingTerm.desc(window.startTimestamp)])
+          ..limit(1))
+        .getSingleOrNull()
+        .then((window) => window == null ? null : _sensorWindowAsUtc(window));
+  }
+
   Future<int> countSensorWindowsForSession(String sessionId) {
     final count = sensorWindows.id.count();
     final query = selectOnly(sensorWindows)

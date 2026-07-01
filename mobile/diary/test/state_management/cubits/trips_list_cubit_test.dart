@@ -16,8 +16,16 @@ class FakeTripsService implements TripsService {
   Completer<List<TripListItemDto>>? reloadableCompleter;
   Object? error;
   Object? reloadError;
+  Object? mutationError;
   int reloadFailuresBeforeSuccess = 0;
   int? reloadedSourceTripId;
+  int? deletedTripId;
+  int? reloadableTripId;
+  bool? requestedReloadableValue;
+  TripListItemDto? reloadableUpdateResult;
+  int? noteTripId;
+  String? requestedNote;
+  TripListItemDto? noteUpdateResult;
   String? reloadRequestId;
   DateTime? scheduledStartAt;
   final List<String> reloadRequestIds = [];
@@ -50,6 +58,37 @@ class FakeTripsService implements TripsService {
   }
 
   @override
+  Future<void> deleteTrip(int tripId) async {
+    deletedTripId = tripId;
+    final failure = mutationError;
+    if (failure != null) throw failure;
+  }
+
+  @override
+  Future<TripListItemDto> setTripReloadable({
+    required int tripId,
+    required bool isReloadable,
+  }) async {
+    reloadableTripId = tripId;
+    requestedReloadableValue = isReloadable;
+    final failure = mutationError;
+    if (failure != null) throw failure;
+    return reloadableUpdateResult!;
+  }
+
+  @override
+  Future<TripListItemDto> updateTripNote({
+    required int tripId,
+    required String note,
+  }) async {
+    noteTripId = tripId;
+    requestedNote = note;
+    final failure = mutationError;
+    if (failure != null) throw failure;
+    return noteUpdateResult!;
+  }
+
+  @override
   Future<TripReloadDto> reloadTrip({
     required int sourceTripId,
     required String reloadRequestId,
@@ -71,13 +110,23 @@ class FakeTripsService implements TripsService {
   }
 }
 
-TripListItemDto _trip(int id) => TripListItemDto(
+TripListItemDto _trip(
+  int id, {
+  bool isReloadable = false,
+  String note = '',
+}) =>
+    TripListItemDto(
       id: id,
       startedAt: DateTime.utc(2026, 6, 12, 10),
       endedAt: DateTime.utc(2026, 6, 12, 10, 30),
       status: 'PROCESSED',
       distanceMeters: 1000,
+      note: note,
       hasTrack: true,
+      isReloadable: isReloadable,
+      canDelete: true,
+      canToggleReloadable: true,
+      canEditNote: true,
     );
 
 const _reload = TripReloadDto(
@@ -136,6 +185,65 @@ void main() {
 
       expect(cubit.state.status, TripsListStatus.loaded);
       expect(cubit.state.trips.single.id, 7);
+    });
+
+    test('deletes a trip from the loaded list', () async {
+      final service = FakeTripsService();
+      final cubit = TripsListCubit(service);
+      addTearDown(cubit.close);
+      cubit.emit(
+        TripsListCubitState(
+          status: TripsListStatus.loaded,
+          trips: [_trip(1), _trip(2)],
+        ),
+      );
+
+      final deleted = await cubit.deleteTrip(1);
+
+      expect(deleted, isTrue);
+      expect(service.deletedTripId, 1);
+      expect(cubit.state.trips.map((trip) => trip.id), [2]);
+      expect(cubit.state.mutationError, isNull);
+    });
+
+    test('updates a trip after changing reloadable flag', () async {
+      final service = FakeTripsService()
+        ..reloadableUpdateResult = _trip(1, isReloadable: true);
+      final cubit = TripsListCubit(service);
+      addTearDown(cubit.close);
+      cubit.emit(
+        TripsListCubitState(
+          status: TripsListStatus.loaded,
+          trips: [_trip(1), _trip(2)],
+        ),
+      );
+
+      final updated = await cubit.setTripReloadable(1, true);
+
+      expect(updated, isTrue);
+      expect(service.reloadableTripId, 1);
+      expect(service.requestedReloadableValue, isTrue);
+      expect(cubit.state.trips.first.isReloadable, isTrue);
+    });
+
+    test('updates a trip after changing note', () async {
+      final service = FakeTripsService()
+        ..noteUpdateResult = _trip(1, note: 'Casa universita');
+      final cubit = TripsListCubit(service);
+      addTearDown(cubit.close);
+      cubit.emit(
+        TripsListCubitState(
+          status: TripsListStatus.loaded,
+          trips: [_trip(1), _trip(2)],
+        ),
+      );
+
+      final updated = await cubit.updateTripNote(1, 'Casa universita');
+
+      expect(updated, isTrue);
+      expect(service.noteTripId, 1);
+      expect(service.requestedNote, 'Casa universita');
+      expect(cubit.state.trips.first.note, 'Casa universita');
     });
 
     test('ignores stale trip loads after switching to reloadable trips',

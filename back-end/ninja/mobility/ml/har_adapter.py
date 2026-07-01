@@ -49,6 +49,8 @@ class HarModelBundle:
     sequence_length: int
     cnn_model_path: str
     gru_model_path: str
+    # CNN completo con testa softmax: classifica una singola finestra senza GRU.
+    classifier: PredictableModel | None = None
 
 
 _MODEL_BUNDLE: HarModelBundle | None = None
@@ -88,6 +90,7 @@ def _load_model_bundle() -> HarModelBundle:
         sequence_length=settings.HAR_GRU_SEQUENCE_LENGTH,
         cnn_model_path=str(cnn_path),
         gru_model_path=str(gru_path),
+        classifier=cnn,
     )
     return _MODEL_BUNDLE
 
@@ -121,6 +124,27 @@ def _confidence_summary(confidences: list[float]) -> dict:
         "min": float(np.min(confidences)),
         "max": float(np.max(confidences)),
     }
+
+
+def predict_window_label(
+    matrix,
+    *,
+    bundle: HarModelBundle | None = None,
+) -> tuple[str, float]:
+    """Classifica una singola finestra 500x6 col solo CNN, senza contesto GRU.
+
+    Restituisce (ActivityLabel.value, confidenza). Usato dalla classificazione
+    live dell'assistente di percorso, dove esiste solo il presente.
+    """
+    model_bundle = bundle or _load_model_bundle()
+    x = np.expand_dims(_project_window_matrix(matrix), axis=0)
+    probs = np.asarray(_predict(model_bundle.classifier, x), dtype=np.float32)
+    if probs.shape != (1, len(MODEL_CLASS_NAMES)):
+        raise ValueError(
+            f"CNN HAR ha prodotto probabilita con shape inattesa: {probs.shape}"
+        )
+    idx = int(np.argmax(probs[0]))
+    return MODEL_TO_ACTIVITY_LABEL[MODEL_CLASS_NAMES[idx]].value, float(probs[0][idx])
 
 
 def predict_activity_windows(

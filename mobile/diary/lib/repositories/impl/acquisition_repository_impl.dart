@@ -46,6 +46,10 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
   String? _currentDeviceId;
   int? _replaySourceTripId;
   DateTime? _replayScheduledStartAt;
+  // Wall-clock e velocita' del replay: servono a calcolare l'offset nella
+  // timeline sorgente per la classificazione live dell'assistente di percorso.
+  DateTime? _replayStartWallClock;
+  double _replaySpeed = 1;
   List<Map<String, dynamic>>? _replayPoints;
   List<Map<String, dynamic>>? _replayTransitions;
   double? _latestLatitude;
@@ -324,6 +328,8 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     ));
 
     final startReplayAt = DateTime.now();
+    _replayStartWallClock = startReplayAt;
+    _replaySpeed = speedMultiplier;
     int nextPointIdx = 0;
     int nextTransitionIdx = 0;
     FsmTransition? lastFsmTransition;
@@ -432,6 +438,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     _currentDeviceId = null;
     _replaySourceTripId = null;
     _replayScheduledStartAt = null;
+    _replayStartWallClock = null;
     _persistedSensorWindowKeys.clear();
     _fsm = AcquisitionFsm(config: _config);
     _emit(AcquisitionSnapshot.idle());
@@ -538,6 +545,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     _currentDeviceId = null;
     _replaySourceTripId = null;
     _replayScheduledStartAt = null;
+    _replayStartWallClock = null;
     _replayPoints = null;
     _replayTransitions = null;
 
@@ -647,6 +655,48 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
       for (final point in points)
         AcquisitionRoutePoint(point.latitude, point.longitude),
     ];
+  }
+
+  @override
+  Future<List<List<double>>> currentSensorWindow() async {
+    // Riproduzione Live: i sensori non sono su SQLite, si recuperano dal backend
+    // all'offset corrente nella timeline sorgente (elapsed * velocita').
+    final sourceTripId = _replaySourceTripId;
+    if (sourceTripId != null) {
+      final offset = _currentReplayOffsetSeconds();
+      if (offset == null) return const [];
+      try {
+        return await _ingestionApi?.getReplaySensorWindow(
+              sourceTripId,
+              offset,
+            ) ??
+            const [];
+      } on IngestionApiException {
+        return const []; // 404 (offset fuori range) o rete: il tick salta
+      }
+    }
+
+    final sessionId = _currentSessionId;
+    if (sessionId == null || !_currentSnapshot.isTracking) {
+      return const [];
+    }
+    final window = await _dao.latestSensorWindow(sessionId);
+    if (window == null) return const [];
+    final decoded = jsonDecode(window.matrixJson);
+    if (decoded is! List) return const [];
+    return [
+      for (final row in decoded)
+        if (row is List) [for (final value in row) (value as num).toDouble()],
+    ];
+  }
+
+  /// Secondi trascorsi nella timeline sorgente dall'avvio del replay, scalati
+  /// per la velocita'. Null se non c'e' un replay attivo.
+  int? _currentReplayOffsetSeconds() {
+    final start = _replayStartWallClock;
+    if (start == null) return null;
+    final elapsed = DateTime.now().difference(start);
+    return (elapsed.inMilliseconds * _replaySpeed / 1000).round();
   }
 
   @override

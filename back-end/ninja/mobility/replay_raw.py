@@ -11,7 +11,7 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
 
 from django.db import transaction
@@ -81,6 +81,48 @@ def _shifted_part_body(object_key: str, shift, cutoff) -> bytes | None:
     else:
         payload = kept
     return gzip.compress(json.dumps(payload).encode("utf-8"))
+
+
+def source_sensor_window_at(
+    source: Trip, offset_seconds: int
+) -> list[list[float]] | None:
+    """Finestra sensori grezza (500x6, primi 6 canali) attiva a `offset_seconds`
+    dall'inizio del viaggio sorgente. None se fuori range o telemetrie assenti.
+
+    Read-only: usato dalla classificazione live dell'assistente durante una
+    Riproduzione Live, dove l'offset e' il tempo trascorso dall'avvio del replay.
+    """
+    parts = TripIngestionPart.objects.filter(
+        ingestion__trip=source,
+        ingestion__raw_status=TripIngestion.PhaseStatus.COMPLETED,
+        kind=PartKind.SENSOR_WINDOWS,
+        received_at__isnull=False,
+    ).order_by("sequence", "id")
+    windows: list[dict] = []
+    for part in parts:
+        try:
+            payload = json.loads(
+                gzip.decompress(storage.read_object(part.object_key)).decode("utf-8")
+            )
+        except _DECODE_ERRORS:
+            continue
+        raw = payload.get("windows") if isinstance(payload, dict) else payload
+        if isinstance(raw, list):
+            windows.extend(w for w in raw if isinstance(w, dict))
+    if not windows:
+        return None
+
+    base = source.started_at or _window_field(windows[0], _START_FIELDS)
+    target = base + timedelta(seconds=offset_seconds)
+    for window in windows:
+        start = _window_field(window, _START_FIELDS)
+        end = _window_field(window, _END_FIELDS)
+        if start <= target < end:
+            matrix = window.get("samples", window.get("matrix"))
+            if isinstance(matrix, list) and matrix:
+                return [[float(v) for v in row[:6]] for row in matrix]
+            return None
+    return None
 
 
 def regenerate_raw_and_queue_har(

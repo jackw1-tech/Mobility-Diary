@@ -28,6 +28,8 @@ class TripsDrawer extends StatelessWidget {
 
 enum _TripsDrawerMode { list, days, reloadable }
 
+enum _TripAction { note, toggleReloadable, delete }
+
 class _TripsDrawerBody extends StatefulWidget {
   const _TripsDrawerBody();
 
@@ -302,8 +304,16 @@ class _TripTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListTile(
-      title: Text(_formatDate(trip.startedAt.toLocal())),
-      subtitle: Text(_subtitle(trip)),
+      title: Text(
+        _title(trip),
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
+      subtitle: Text(
+        _subtitle(trip),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
       trailing: reloadable
           ? BlocBuilder<TripsListCubit, TripsListCubitState>(
               builder: (context, state) {
@@ -338,17 +348,241 @@ class _TripTile extends StatelessWidget {
                 );
               },
             )
-          : TextButton.icon(
-              onPressed: trip.hasTrack
-                  ? () {
-                      Scaffold.of(context).closeDrawer();
-                      context.router.push(TripDetailRoute(tripId: trip.id));
-                    }
-                  : null,
-              icon: const Icon(Icons.route),
-              label: const Text('Dettaglio'),
-            ),
+          : _standardActions(context),
     );
+  }
+
+  Widget _standardActions(BuildContext context) {
+    return BlocBuilder<TripsListCubit, TripsListCubitState>(
+      builder: (context, state) {
+        final isMutating = state.mutatingTripId == trip.id;
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              tooltip: 'Dettaglio',
+              onPressed: trip.hasTrack ? () => _openDetail(context) : null,
+              icon: const Icon(Icons.route),
+            ),
+            if (isMutating)
+              const SizedBox.square(
+                dimension: 22,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else
+              PopupMenuButton<_TripAction>(
+                tooltip: 'Azioni viaggio',
+                onSelected: (action) => _handleAction(context, action),
+                itemBuilder: (_) => [
+                  PopupMenuItem(
+                    value: _TripAction.note,
+                    enabled: trip.canEditNote,
+                    child: ListTile(
+                      leading: const Icon(Icons.notes_outlined),
+                      title: const Text('Nota'),
+                      subtitle: trip.canEditNote
+                          ? null
+                          : const Text('Disponibile a viaggio completato'),
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: _TripAction.toggleReloadable,
+                    enabled: trip.canToggleReloadable,
+                    child: ListTile(
+                      leading: Icon(
+                        trip.isReloadable
+                            ? Icons.replay_circle_filled_outlined
+                            : Icons.replay_outlined,
+                      ),
+                      title: Text(
+                        trip.isReloadable
+                            ? 'Rimuovi riutilizzo'
+                            : 'Rendi riutilizzabile',
+                      ),
+                      subtitle: trip.canToggleReloadable
+                          ? null
+                          : Text(_reloadableUnavailableReason(trip)),
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: _TripAction.delete,
+                    enabled: trip.canDelete,
+                    child: const ListTile(
+                      leading: Icon(Icons.delete_outline),
+                      title: Text('Elimina'),
+                      subtitle: Text('Non disponibile se gia clonato'),
+                    ),
+                  ),
+                ],
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _openDetail(BuildContext context) {
+    Scaffold.of(context).closeDrawer();
+    context.router.push(TripDetailRoute(tripId: trip.id));
+  }
+
+  Future<void> _handleAction(BuildContext context, _TripAction action) async {
+    switch (action) {
+      case _TripAction.note:
+        final note = await _editNote(context);
+        if (note != null && context.mounted) {
+          await _setNote(context, note);
+        }
+        break;
+      case _TripAction.toggleReloadable:
+        final confirmed = await _confirmReloadableChange(context);
+        if (confirmed == true && context.mounted) {
+          await _setReloadable(context, !trip.isReloadable);
+        }
+        break;
+      case _TripAction.delete:
+        final confirmed = await _confirmDelete(context);
+        if (confirmed == true && context.mounted) {
+          await _delete(context);
+        }
+        break;
+    }
+  }
+
+  Future<void> _setNote(BuildContext context, String note) async {
+    await _runMutation(
+      context,
+      (cubit) => cubit.updateTripNote(trip.id, note),
+      successMessage: 'Nota salvata',
+      fallbackError: 'Nota non salvata',
+    );
+  }
+
+  Future<void> _setReloadable(BuildContext context, bool value) async {
+    await _runMutation(
+      context,
+      (cubit) => cubit.setTripReloadable(trip.id, value),
+      successMessage: value ? 'Viaggio riutilizzabile' : 'Riutilizzo rimosso',
+      fallbackError: 'Modifica non riuscita',
+    );
+  }
+
+  Future<String?> _editNote(BuildContext context) async {
+    final controller = TextEditingController(text: trip.note);
+    try {
+      return await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Nota viaggio'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            maxLines: 4,
+            maxLength: 500,
+            decoration: const InputDecoration(
+              hintText: 'Aggiungi una nota',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Annulla'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(''),
+              child: const Text('Svuota'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(controller.text),
+              child: const Text('Salva'),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      controller.dispose();
+    }
+  }
+
+  Future<void> _delete(BuildContext context) async {
+    await _runMutation(
+      context,
+      (cubit) => cubit.deleteTrip(trip.id),
+      successMessage: 'Viaggio eliminato',
+      fallbackError: 'Eliminazione non riuscita',
+    );
+  }
+
+  Future<void> _runMutation(
+    BuildContext context,
+    Future<bool> Function(TripsListCubit cubit) action, {
+    required String successMessage,
+    required String fallbackError,
+  }) async {
+    final ok = await action(context.read<TripsListCubit>());
+    if (!context.mounted) return;
+    final state = context.read<TripsListCubit>().state;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content:
+            Text(ok ? successMessage : state.mutationError ?? fallbackError),
+      ),
+    );
+  }
+
+  Future<bool?> _confirmReloadableChange(BuildContext context) {
+    final enabling = !trip.isReloadable;
+    return showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(
+            enabling ? 'Rendere riutilizzabile?' : 'Rimuovere riutilizzo?'),
+        content: Text(
+          enabling
+              ? 'Il viaggio potra essere usato come sorgente per nuovi caricamenti.'
+              : 'Puoi rimuoverlo solo se non e stato ancora clonato.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Annulla'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(enabling ? 'Conferma' : 'Rimuovi'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<bool?> _confirmDelete(BuildContext context) {
+    return showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Eliminare viaggio?'),
+        content: const Text(
+          'Verranno rimossi dati del database e file nel bucket. Non puoi eliminare un viaggio gia clonato.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Annulla'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Elimina'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _reloadableUnavailableReason(TripListItemDto trip) {
+    if (trip.isDerived) return 'Non disponibile sui viaggi derivati';
+    if (trip.isReloadable) return 'Gia usato come sorgente';
+    return 'Richiede telemetrie complete';
   }
 
   Future<void> _playLive(BuildContext context) async {
@@ -438,15 +672,25 @@ class _TripTile extends StatelessWidget {
     );
   }
 
+  String _title(TripListItemDto trip) {
+    final note = trip.note.trim();
+    return note.isEmpty ? _formatDate(trip.startedAt.toLocal()) : note;
+  }
+
   String _subtitle(TripListItemDto trip) {
+    final prefix = trip.note.trim().isEmpty
+        ? ''
+        : '${_formatDate(trip.startedAt.toLocal())} - ';
     final distance = trip.distanceMeters;
     if (distance == null || distance <= 0) {
-      return trip.hasTrack ? 'Traiettoria disponibile' : 'Nessuna traiettoria';
+      return trip.hasTrack
+          ? '${prefix}Traiettoria disponibile'
+          : '${prefix}Nessuna traiettoria';
     }
     if (distance >= 1000) {
-      return '${(distance / 1000).toStringAsFixed(1)} km';
+      return '$prefix${(distance / 1000).toStringAsFixed(1)} km';
     }
-    return '${distance.toStringAsFixed(0)} m';
+    return '$prefix${distance.toStringAsFixed(0)} m';
   }
 }
 

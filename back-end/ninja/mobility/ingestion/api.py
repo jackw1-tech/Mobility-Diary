@@ -587,6 +587,7 @@ def start_ingestion(request, payload: IngestionStartIn):
     if payload.source_trip_id is not None:
         if not Trip.objects.filter(
             id=payload.source_trip_id,
+            user_id=user_id,
             is_reloadable=True,
             status__in=[Trip.Status.CLOSED, Trip.Status.PROCESSED],
         ).exists():

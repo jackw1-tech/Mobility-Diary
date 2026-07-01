@@ -773,6 +773,50 @@ void main() {
       expect(await database.acquisitionDao.countSessions(), 0);
     });
 
+    test('durante il replay currentSensorWindow legge la finestra dal backend',
+        () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final api = _FakeTripIngestionApi()
+        ..replaySensorWindowResult = [
+          [1, 2, 3, 4, 5, 6]
+        ];
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        enableRuntime: false,
+        ingestionApi: api,
+        deviceIdProvider: () async => 'stable-device',
+      );
+      addTearDown(repository.dispose);
+
+      await repository.startReplay(123);
+      final window = await repository.currentSensorWindow();
+
+      expect(window, [
+        [1, 2, 3, 4, 5, 6]
+      ]);
+      expect(api.replaySensorWindowCalls, hasLength(1));
+      expect(api.replaySensorWindowCalls.single.tripId, 123);
+      // Offset ~0 subito dopo l'avvio del replay.
+      expect(api.replaySensorWindowCalls.single.offset, lessThan(2));
+    });
+
+    test('offset fuori range (404) fa tornare finestra vuota', () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final api = _FakeTripIngestionApi()..replaySensorWindowFails = true;
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        enableRuntime: false,
+        ingestionApi: api,
+        deviceIdProvider: () async => 'stable-device',
+      );
+      addTearDown(repository.dispose);
+
+      await repository.startReplay(123);
+      final window = await repository.currentSensorWindow();
+
+      expect(window, isEmpty);
+    });
+
     test('startReplay applies speed multiplier only to visual playback',
         () async {
       final database = AcquisitionLocalDatabase(NativeDatabase.memory());
@@ -1010,6 +1054,11 @@ class _FakeTripIngestionApi implements TripIngestionApi {
   int startCallCount = 0;
   int activeLookupCount = 0;
   Map<String, dynamic>? lastInlineCoreBody;
+  List<List<double>> replaySensorWindowResult = const [
+    [1, 2, 3, 4, 5, 6]
+  ];
+  bool replaySensorWindowFails = false;
+  final List<({int tripId, int offset})> replaySensorWindowCalls = [];
 
   _FakeTripIngestionApi({
     this.ingestionId = 1,
@@ -1114,6 +1163,18 @@ class _FakeTripIngestionApi implements TripIngestionApi {
         }
       ]
     };
+  }
+
+  @override
+  Future<List<List<double>>> getReplaySensorWindow(
+    int tripId,
+    int offsetSeconds,
+  ) async {
+    replaySensorWindowCalls.add((tripId: tripId, offset: offsetSeconds));
+    if (replaySensorWindowFails) {
+      throw const IngestionApiException('fuori range', statusCode: 404);
+    }
+    return replaySensorWindowResult;
   }
 
   @override

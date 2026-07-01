@@ -11,4 +11,13 @@ final List<BlocProvider> blocs = [
       context.read<AcquisitionRepository>(),
     ),
   ),
+  BlocProvider<RouteAssistantCubit>(
+    create: (context) => RouteAssistantCubit(
+      context.read<RouteAssistantService>(),
+      classifier: context.read<RouteClassifierService>(),
+      locationProvider: currentDeviceLocation,
+      sensorWindowProvider:
+          context.read<AcquisitionRepository>().currentSensorWindow,
+    ),
+  ),
 ];

@@ -164,8 +164,22 @@ class TripListItemOut(Schema):
     ended_at: datetime | None
     status: str
     distance_meters: float | None
+    note: str
     # True se esiste una traiettoria disegnabile (path con >= 2 punti).
     has_track: bool
+    is_reloadable: bool
+    is_derived: bool
+    can_delete: bool
+    can_toggle_reloadable: bool
+    can_edit_note: bool
+
+
+class TripReloadableUpdateIn(Schema):
+    is_reloadable: bool
+
+
+class TripNoteUpdateIn(Schema):
+    note: str = ""
 
 
 class TripReloadIn(Schema):
@@ -214,6 +228,21 @@ class ReplayDataOut(Schema):
     source_trip_id: int
     gps_points: list[ReplayPointOut]
     state_transitions: list[ReplayTransitionOut]
+
+
+class RouteAssistantClassifyIn(Schema):
+    # Finestra grezza accelerometro+giroscopio: HAR_WINDOW_SAMPLE_COUNT righe x 6.
+    samples: list[list[float]]
+
+
+class RouteAssistantClassifyOut(Schema):
+    label: str  # walking | cycling | driving | idle
+    confidence: float
+
+
+class RouteAssistantSensorWindowOut(Schema):
+    # Finestra grezza (500x6) estratta dal viaggio sorgente per il replay live.
+    samples: list[list[float]]
 
 
 class PrivacyExportSegmentOut(Schema):

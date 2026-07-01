@@ -14,6 +14,18 @@ abstract class TripsService {
 
   Future<TripReloadSlotsDto> fetchReloadSlots(int sourceTripId);
 
+  Future<void> deleteTrip(int tripId);
+
+  Future<TripListItemDto> setTripReloadable({
+    required int tripId,
+    required bool isReloadable,
+  });
+
+  Future<TripListItemDto> updateTripNote({
+    required int tripId,
+    required String note,
+  });
+
   Future<TripReloadDto> reloadTrip({
     required int sourceTripId,
     required String reloadRequestId,
@@ -50,6 +62,37 @@ class TripsHttpService implements TripsService {
       '/mobility/trips/reloadable/$sourceTripId/slots?limit=100',
     );
     return TripReloadSlotsDto.fromJson(data);
+  }
+
+  @override
+  Future<void> deleteTrip(int tripId) async {
+    await _sendJson('DELETE', '/mobility/trips/$tripId');
+  }
+
+  @override
+  Future<TripListItemDto> setTripReloadable({
+    required int tripId,
+    required bool isReloadable,
+  }) async {
+    final data = await _sendJsonMap(
+      'PATCH',
+      '/mobility/trips/$tripId/reloadable',
+      body: {'is_reloadable': isReloadable},
+    );
+    return TripListItemDto.fromJson(data);
+  }
+
+  @override
+  Future<TripListItemDto> updateTripNote({
+    required int tripId,
+    required String note,
+  }) async {
+    final data = await _sendJsonMap(
+      'PATCH',
+      '/mobility/trips/$tripId/note',
+      body: {'note': note},
+    );
+    return TripListItemDto.fromJson(data);
   }
 
   @override

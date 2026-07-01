@@ -24,11 +24,12 @@ class TripAdmin(admin.ModelAdmin):
         "client_session_id",
         "status",
         "is_reloadable",
+        "note",
         "started_at",
         "ended_at",
     )
     list_filter = ("status", "is_reloadable", "created_at")
-    search_fields = ("id", "device_id", "client_session_id")
+    search_fields = ("id", "device_id", "client_session_id", "note")
 
 
 @admin.register(GpsPoint)

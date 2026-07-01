@@ -229,6 +229,10 @@ abstract class TripIngestionApi {
   Future<IngestionStatus> getStatus(int ingestionId);
 
   Future<Map<String, dynamic>> getReplayData(int tripId);
+
+  /// Finestra sensori (500x6) del viaggio sorgente all'offset richiesto, per la
+  /// classificazione live durante una Riproduzione Live.
+  Future<List<List<double>>> getReplaySensorWindow(int tripId, int offsetSeconds);
 }
 
 /// Implementazione HTTP basata su dart:io, con bearer token.
@@ -471,6 +475,23 @@ class TripIngestionHttpApi implements TripIngestionApi {
   @override
   Future<Map<String, dynamic>> getReplayData(int tripId) async {
     return _sendJson('GET', '/mobility/trips/reloadable/$tripId/replay-data');
+  }
+
+  @override
+  Future<List<List<double>>> getReplaySensorWindow(
+    int tripId,
+    int offsetSeconds,
+  ) async {
+    final data = await _sendJson(
+      'GET',
+      '/mobility/trips/reloadable/$tripId/sensor-window?offset_seconds=$offsetSeconds',
+    );
+    final samples = data['samples'];
+    if (samples is! List) return const [];
+    return [
+      for (final row in samples)
+        if (row is List) [for (final value in row) (value as num).toDouble()],
+    ];
   }
 
   Future<Map<String, dynamic>> _sendJson(

@@ -38,6 +38,7 @@ class Trip(models.Model):
         spatial_index=False,
     )
     distance_meters = models.FloatField(null=True, blank=True)
+    note = models.TextField(blank=True)
     is_reloadable = models.BooleanField(default=False)
     reloaded_from_trip = models.ForeignKey(
         "self",

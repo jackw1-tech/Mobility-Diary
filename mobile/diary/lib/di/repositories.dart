@@ -79,4 +79,32 @@ List<RepositoryProvider> buildRepositories({
           );
         },
       ),
+      RepositoryProvider<RouteAssistantService>(
+        create: (_) => MapboxRouteAssistantService(),
+      ),
+      RepositoryProvider<RouteClassifierService>(
+        create: (context) {
+          final auth = context.read<AuthRepository>();
+          return RouteClassifierHttpService(
+            tokenProvider: () async => auth.accessToken,
+          );
+        },
+      ),
     ];
+
+/// Posizione GPS corrente (punto A dell'assistente di percorso). Indipendente
+/// dall'AcquisitionCubit: usa direttamente il geolocator.
+Future<ll.LatLng?> currentDeviceLocation() async {
+  if (!await geo.Geolocator.isLocationServiceEnabled()) return null;
+  var permission = await geo.Geolocator.checkPermission();
+  if (permission == geo.LocationPermission.denied) {
+    permission = await geo.Geolocator.requestPermission();
+  }
+  if (permission == geo.LocationPermission.denied ||
+      permission == geo.LocationPermission.deniedForever) {
+    return null;
+  }
+  final position = await geo.Geolocator.getLastKnownPosition() ??
+      await geo.Geolocator.getCurrentPosition();
+  return ll.LatLng(position.latitude, position.longitude);
+}

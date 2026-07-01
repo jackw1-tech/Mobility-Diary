@@ -13,6 +13,7 @@ import 'package:diary/theme/color_palette.dart';
 import 'package:diary/ui/pages/auth_page.dart';
 import 'package:diary/ui/widgets/live_map.dart';
 import 'package:diary/ui/widgets/privacy_onboarding_dialog.dart';
+import 'package:diary/ui/widgets/route_assistant_search_sheet.dart';
 import 'package:diary/ui/widgets/trips_drawer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -102,6 +103,11 @@ class _AuthenticatedHomePageState extends State<_AuthenticatedHomePage> {
                 widget.userLabel == null ? 'Mobile Edge' : widget.userLabel!,
               ),
               actions: [
+                IconButton(
+                  tooltip: 'Assistente percorso',
+                  icon: const Icon(Icons.alt_route),
+                  onPressed: () => showRouteAssistantSearch(context),
+                ),
                 IconButton(
                   tooltip: 'Statistiche',
                   icon: const Icon(Icons.insights_outlined),

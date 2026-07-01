@@ -32,7 +32,12 @@ def user(db):
 
 
 @pytest.fixture
-def source_owner(db):
+def source_owner(user):
+    return user
+
+
+@pytest.fixture
+def other_source_owner(db):
     return get_user_model().objects.create_user(
         username="source-owner@example.com",
         email="source-owner@example.com",
@@ -330,6 +335,25 @@ def test_direct_reload_creates_new_stop_like_trip_for_clicking_user(
 
 
 @pytest.mark.django_db
+def test_direct_reload_does_not_copy_source_note(
+    user, source_owner, monkeypatch, object_storage, har_delays
+):
+    source_start = datetime(2026, 6, 12, 10, tzinfo=dt_timezone.utc)
+    source = make_reloadable_trip(source_owner, source_start=source_start)
+    Trip.objects.filter(pk=source.pk).update(note="Nota privata")
+    add_raw_sensor_part(source, object_storage, source_start=source_start)
+    monkeypatch.setattr(
+        "mobility.api.timezone.now",
+        lambda: datetime(2026, 6, 30, 15, tzinfo=dt_timezone.utc),
+    )
+
+    response = post_reload(Client(), user, source, reload_request_id="no-note-copy")
+
+    assert response.status_code == 200, response.content
+    assert Trip.objects.get(id=response.json()["trip_id"]).note == ""
+
+
+@pytest.mark.django_db
 def test_direct_reload_is_idempotent_per_reload_request_id(
     user, source_owner, monkeypatch, object_storage, har_delays
 ):
@@ -516,6 +540,24 @@ def test_direct_reload_rejects_source_without_raw_sensor_evidence(
 
 
 @pytest.mark.django_db
+def test_direct_reload_rejects_other_users_source(
+    user, other_source_owner, monkeypatch, object_storage, har_delays
+):
+    source_start = datetime(2026, 6, 12, 10, tzinfo=dt_timezone.utc)
+    source = make_reloadable_trip(other_source_owner, source_start=source_start)
+    add_raw_sensor_part(source, object_storage, source_start=source_start)
+    monkeypatch.setattr(
+        "mobility.api.timezone.now",
+        lambda: datetime(2026, 6, 30, 15, tzinfo=dt_timezone.utc),
+    )
+
+    response = post_reload(Client(), user, source, reload_request_id="other-source")
+
+    assert response.status_code == 404
+    assert Trip.objects.filter(user=user, reloaded_from_trip=source).count() == 0
+
+
+@pytest.mark.django_db
 def test_direct_reload_storage_failure_leaves_no_visible_partial_trip(
     user, source_owner, monkeypatch, object_storage, har_delays
 ):
@@ -665,9 +707,23 @@ def test_start_with_non_reloadable_source_is_rejected(user, source_owner):
 
 
 @pytest.mark.django_db
-def test_replay_data_returns_source_track_to_any_authenticated_user(
-    user, source_owner
-):
+def test_start_with_other_users_source_is_rejected(user, other_source_owner):
+    source = make_reloadable_trip(
+        other_source_owner,
+        source_start=datetime(2026, 6, 12, 10, tzinfo=dt_timezone.utc),
+    )
+
+    response = post_start(
+        user,
+        {"client_session_id": "replay-other", "source_trip_id": source.id},
+    )
+
+    assert response.status_code == 409
+    assert not TripIngestion.objects.filter(client_session_id="replay-other").exists()
+
+
+@pytest.mark.django_db
+def test_replay_data_returns_owner_source_track(user, source_owner):
     source_start = datetime(2026, 6, 12, 10, tzinfo=dt_timezone.utc)
     source = make_reloadable_trip(source_owner, source_start=source_start)
 
@@ -683,6 +739,19 @@ def test_replay_data_returns_source_track_to_any_authenticated_user(
     timestamps = [point["timestamp"] for point in data["gps_points"]]
     assert timestamps == sorted(timestamps)
     assert len(data["state_transitions"]) == 1
+
+
+@pytest.mark.django_db
+def test_replay_data_rejects_other_users_source(user, other_source_owner):
+    source_start = datetime(2026, 6, 12, 10, tzinfo=dt_timezone.utc)
+    source = make_reloadable_trip(other_source_owner, source_start=source_start)
+
+    response = Client().get(
+        f"/api/mobility/trips/reloadable/{source.id}/replay-data",
+        **auth_headers(user),
+    )
+
+    assert response.status_code == 404
 
 
 @pytest.mark.django_db

@@ -8,6 +8,9 @@ import 'package:geolocator/geolocator.dart' as geo;
 import 'package:latlong2/latlong.dart' as ll;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubit.dart';
+import 'package:diary/state_management/cubits/route_assistant_cubit/route_assistant_cubit.dart';
+import 'package:diary/state_management/cubits/route_assistant_cubit/route_assistant_cubit_state.dart';
+import 'package:diary/ui/widgets/route_assistant_controls.dart';
 
 /// Mappa live a tutto schermo:
 ///  - mostra subito il "puck" della posizione corrente (Location Component
@@ -26,6 +29,8 @@ class _LiveMapState extends State<LiveMap> {
   static const String _replayMarkerSourceId = 'live-replay-position-source';
   static const String _replayMarkerHaloLayerId = 'live-replay-position-halo';
   static const String _replayMarkerDotLayerId = 'live-replay-position-dot';
+  static const String _assistantRouteSourceId = 'route-assistant-source';
+  static const String _assistantRouteLayerId = 'route-assistant-dots';
 
   MapboxMap? _map;
   PolylineAnnotationManager? _routeManager;
@@ -33,6 +38,7 @@ class _LiveMapState extends State<LiveMap> {
   String? _error;
   bool _styleReady = false;
   bool _replayMarkerReady = false;
+  bool _assistantRouteReady = false;
 
   /// Se true la camera insegue automaticamente la posizione corrente.
   bool _followUser = true;
@@ -100,20 +106,68 @@ class _LiveMapState extends State<LiveMap> {
     if (map == null) return;
     // Catturato prima dell'await per non usare context oltre l'async gap.
     final cubit = context.read<AcquisitionCubit>();
+    final assistant = context.read<RouteAssistantCubit>();
     _routeManager = await map.annotations.createPolylineAnnotationManager();
     await _installReplayMarkerLayer(map);
+    await _installAssistantRouteLayer(map);
     _styleReady = true;
     // Se entriamo con una sessione già in corso, ridisegna subito.
     await _redrawRoute(cubit.state.routePoints);
     await _syncNativePuck(cubit.state);
     await _updateReplayMarker(cubit.state);
+    await _updateAssistantRoute(assistant.state.routePoints);
+  }
+
+  Future<void> _installAssistantRouteLayer(MapboxMap map) async {
+    _assistantRouteReady = false;
+    await map.style.addSource(GeoJsonSource(
+      id: _assistantRouteSourceId,
+      data: _pointsGeoJson(const []),
+    ));
+    // Pallini viola separati: il percorso suggerito, distinto dalla polyline GPS.
+    await map.style.addLayer(CircleLayer(
+      id: _assistantRouteLayerId,
+      sourceId: _assistantRouteSourceId,
+      circleColor: routeAssistantDotColor.toARGB32(),
+      circleRadius: 5,
+      circleStrokeColor: ColorPalette.surface.toARGB32(),
+      circleStrokeWidth: 1.5,
+    ));
+    _assistantRouteReady = true;
+  }
+
+  Future<void> _updateAssistantRoute(List<ll.LatLng> points) async {
+    final map = _map;
+    if (map == null || !_styleReady || !_assistantRouteReady) return;
+    await map.style.setStyleSourceProperty(
+      _assistantRouteSourceId,
+      'data',
+      _pointsGeoJson(points),
+    );
+  }
+
+  String _pointsGeoJson(List<ll.LatLng> points) {
+    return jsonEncode({
+      'type': 'FeatureCollection',
+      'features': [
+        for (final p in points)
+          {
+            'type': 'Feature',
+            'geometry': {
+              'type': 'Point',
+              'coordinates': [p.longitude, p.latitude],
+            },
+            'properties': const {},
+          },
+      ],
+    });
   }
 
   Future<void> _installReplayMarkerLayer(MapboxMap map) async {
     _replayMarkerReady = false;
     await map.style.addSource(GeoJsonSource(
       id: _replayMarkerSourceId,
-      data: _emptyMarkerGeoJson(),
+      data: _pointsGeoJson(const []),
     ));
     await map.style.addLayer(CircleLayer(
       id: _replayMarkerHaloLayerId,
@@ -185,33 +239,8 @@ class _LiveMapState extends State<LiveMap> {
     await map.style.setStyleSourceProperty(
       _replayMarkerSourceId,
       'data',
-      state.isReplay && latest != null
-          ? _markerGeoJson(latest)
-          : _emptyMarkerGeoJson(),
+      _pointsGeoJson(state.isReplay && latest != null ? [latest] : const []),
     );
-  }
-
-  String _emptyMarkerGeoJson() {
-    return jsonEncode({
-      'type': 'FeatureCollection',
-      'features': const [],
-    });
-  }
-
-  String _markerGeoJson(ll.LatLng point) {
-    return jsonEncode({
-      'type': 'FeatureCollection',
-      'features': [
-        {
-          'type': 'Feature',
-          'geometry': {
-            'type': 'Point',
-            'coordinates': [point.longitude, point.latitude],
-          },
-          'properties': const {},
-        },
-      ],
-    });
   }
 
   void _onStateChanged(AcquisitionCubitState state) {
@@ -233,13 +262,22 @@ class _LiveMapState extends State<LiveMap> {
       return const Center(child: CircularProgressIndicator());
     }
 
-    return BlocListener<AcquisitionCubit, AcquisitionCubitState>(
-      listenWhen: (previous, current) =>
-          previous.routePoints != current.routePoints ||
-          previous.latestPosition != current.latestPosition ||
-          previous.isTracking != current.isTracking ||
-          previous.isReplay != current.isReplay,
-      listener: (context, state) => _onStateChanged(state),
+    return MultiBlocListener(
+      listeners: [
+        BlocListener<AcquisitionCubit, AcquisitionCubitState>(
+          listenWhen: (previous, current) =>
+              previous.routePoints != current.routePoints ||
+              previous.latestPosition != current.latestPosition ||
+              previous.isTracking != current.isTracking ||
+              previous.isReplay != current.isReplay,
+          listener: (context, state) => _onStateChanged(state),
+        ),
+        BlocListener<RouteAssistantCubit, RouteAssistantState>(
+          listenWhen: (previous, current) =>
+              previous.routePoints != current.routePoints,
+          listener: (context, state) => _updateAssistantRoute(state.routePoints),
+        ),
+      ],
       child: Stack(
         children: [
           MapWidget(
@@ -252,6 +290,12 @@ class _LiveMapState extends State<LiveMap> {
             ),
             onMapCreated: _onMapCreated,
             onStyleLoadedListener: _onStyleLoaded,
+          ),
+          BlocBuilder<AcquisitionCubit, AcquisitionCubitState>(
+            buildWhen: (previous, current) =>
+                previous.isTracking != current.isTracking,
+            builder: (context, state) =>
+                RouteAssistantControls(liveEnabled: state.isTracking),
           ),
           Positioned(
             right: 0,

@@ -7,10 +7,11 @@ from datetime import datetime, time, timedelta
 from datetime import timezone as dt_timezone
 from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.contrib.gis.db.models.functions import AsGeoJSON, Length
 from django.contrib.gis.geos import Point
 from django.db import transaction
-from django.db.models import BooleanField, Case, Count, Q, Value, When
+from django.db.models import BooleanField, Case, Count, Exists, OuterRef, Q, Value, When
 from django.http import StreamingHttpResponse
 from django.shortcuts import aget_object_or_404, get_object_or_404
 from django.utils import timezone
@@ -32,8 +33,10 @@ from .diary_events import (
     diary_status_payload,
 )
 from .diary_projection import project_diary_segments
+from .ingestion import storage
 from .ingestion.api import _active_ingestions
-from .replay_raw import regenerate_raw_and_queue_har
+from .ml.har_adapter import predict_window_label
+from .replay_raw import regenerate_raw_and_queue_har, source_sensor_window_at
 from .models import (
     GpsPoint,
     HabitualPlace,
@@ -79,12 +82,17 @@ from .schemas import (
     PrivacyExportOut,
     PrivacyExportSegmentOut,
     ReplayDataOut,
+    RouteAssistantClassifyIn,
+    RouteAssistantClassifyOut,
+    RouteAssistantSensorWindowOut,
     SegmentOut,
     SensorWindowBatchIn,
     StateTransitionBatchIn,
     StoredOut,
     TrackOut,
+    TripNoteUpdateIn,
     TripReloadIn,
+    TripReloadableUpdateIn,
     TripReloadOut,
     TripReloadSlotsOut,
     TripCreateIn,
@@ -103,6 +111,35 @@ _PLACE_REVIEW_RESPONSES = {200: PlaceReviewOut, 409: PlaceMutationBlockedOut}
 @router.get("/health", response=HealthOut)
 def health(request):
     return {"status": "ok"}
+
+
+# Le tre modalita' dell'assistente di percorso derivano dall'etichetta HAR:
+# running e' assimilato a walking, moving_vehicle a driving.
+_ASSISTANT_MODE_BY_LABEL = {
+    "IDLE": "idle",
+    "WALKING": "walking",
+    "RUNNING": "walking",
+    "BIKING": "cycling",
+    "MOVING_VEHICLE": "driving",
+}
+
+
+@router.post(
+    "/route-assistant/classify",
+    response=RouteAssistantClassifyOut,
+    auth=mobile_bearer_auth,
+)
+def classify_route_assistant_window(request, payload: RouteAssistantClassifyIn):
+    samples = payload.samples
+    if len(samples) != settings.HAR_WINDOW_SAMPLE_COUNT or any(
+        len(row) < 6 for row in samples
+    ):
+        raise HttpError(422, "finestra sensori non valida")
+    label, confidence = predict_window_label(samples)
+    return {
+        "label": _ASSISTANT_MODE_BY_LABEL.get(label, "idle"),
+        "confidence": confidence,
+    }
 
 
 @router.post("/trips", response=TripOut, auth=mobile_bearer_auth)
@@ -677,24 +714,103 @@ async def trip_events(request, trip_id: int):
 
 
 def _trip_list_items(queryset):
-    return list(
-        queryset.annotate(
-            has_track=Case(
-                When(path__isnull=False, then=Value(True)),
-                default=Value(False),
-                output_field=BooleanField(),
-            )
-        )
+    rows = (
+        queryset.annotate(**_trip_list_annotations())
         .order_by("-started_at")
-        .values(
-            "id",
-            "started_at",
-            "ended_at",
-            "status",
-            "distance_meters",
-            "has_track",
-        )
     )
+    return [_trip_list_item(row) for row in rows]
+
+
+def _trip_list_annotations():
+    return {
+        "has_track": _has_track_case(),
+        "has_reload_descendants": Exists(
+            Trip.objects.filter(reloaded_from_trip=OuterRef("pk"))
+        ),
+        "has_replay_ingestions": Exists(
+            TripIngestion.objects.filter(source_trip=OuterRef("pk"))
+        ),
+        "has_raw_sensor_evidence": Exists(
+            TripIngestionPart.objects.filter(
+                ingestion__trip=OuterRef("pk"),
+                ingestion__raw_status=TripIngestion.PhaseStatus.COMPLETED,
+                kind=PartKind.SENSOR_WINDOWS,
+                received_at__isnull=False,
+            )
+        ),
+        "has_completed_ingestion": Exists(
+            TripIngestion.objects.filter(
+                trip=OuterRef("pk"),
+                core_status=TripIngestion.PhaseStatus.COMPLETED,
+                raw_status=TripIngestion.PhaseStatus.COMPLETED,
+            )
+        ),
+    }
+
+
+def _has_track_case():
+    return Case(
+        When(path__isnull=False, then=Value(True)),
+        default=Value(False),
+        output_field=BooleanField(),
+    )
+
+
+def _trip_has_reload_usage(trip: Trip) -> bool:
+    return trip.reloads.exists() or trip.replay_ingestions.exists()
+
+
+def _trip_can_delete(trip: Trip) -> bool:
+    return not trip.has_reload_descendants and not trip.has_replay_ingestions
+
+
+def _trip_can_toggle_reloadable(trip: Trip) -> bool:
+    is_real = trip.reloaded_from_trip_id is None
+    is_completed = trip.status in [Trip.Status.CLOSED, Trip.Status.PROCESSED]
+    can_publish = not trip.is_reloadable and trip.has_raw_sensor_evidence
+    can_withdraw = trip.is_reloadable and _trip_can_delete(trip)
+    return is_real and is_completed and (can_publish or can_withdraw)
+
+
+def _trip_can_edit_note(trip: Trip) -> bool:
+    return trip.has_completed_ingestion
+
+
+def _trip_list_item(trip: Trip) -> dict:
+    return {
+        "id": trip.id,
+        "started_at": trip.started_at,
+        "ended_at": trip.ended_at,
+        "status": trip.status,
+        "distance_meters": trip.distance_meters,
+        "note": trip.note,
+        "has_track": trip.has_track,
+        "is_reloadable": trip.is_reloadable,
+        "is_derived": trip.reloaded_from_trip_id is not None,
+        "can_delete": _trip_can_delete(trip),
+        "can_toggle_reloadable": _trip_can_toggle_reloadable(trip),
+        "can_edit_note": _trip_can_edit_note(trip),
+    }
+
+
+def _trip_list_item_by_id(trip_id: int) -> dict:
+    trip = Trip.objects.filter(id=trip_id).annotate(**_trip_list_annotations()).get()
+    return _trip_list_item(trip)
+
+
+def _trip_object_keys(trip: Trip) -> list[str]:
+    sensor_keys = SensorWindow.objects.filter(trip=trip).exclude(object_key="").values_list(
+        "object_key", flat=True
+    )
+    ingestion_keys = TripIngestionPart.objects.filter(
+        ingestion__trip=trip
+    ).values_list("object_key", flat=True)
+    return sorted({key for key in [*sensor_keys, *ingestion_keys] if key})
+
+
+def _delete_storage_objects(object_keys: list[str]) -> None:
+    for object_key in object_keys:
+        storage.delete_object(object_key)
 
 
 @router.get("/trips", response=list[TripListItemOut], auth=mobile_bearer_auth)
@@ -715,10 +831,86 @@ def list_trips(request):
 def list_reloadable_trips(request):
     return _trip_list_items(
         Trip.objects.filter(
+            user_id=request.auth.user_id,
             is_reloadable=True,
             status__in=[Trip.Status.CLOSED, Trip.Status.PROCESSED],
         )
     )
+
+
+@router.patch(
+    "/trips/{trip_id}/reloadable",
+    response=TripListItemOut,
+    auth=mobile_bearer_auth,
+)
+def update_trip_reloadable(request, trip_id: int, payload: TripReloadableUpdateIn):
+    with transaction.atomic():
+        trip = get_object_or_404(
+            Trip.objects.select_for_update(),
+            id=trip_id,
+            user_id=request.auth.user_id,
+        )
+        if trip.reloaded_from_trip_id is not None:
+            raise HttpError(409, "un viaggio derivato non puo' diventare ricaricabile")
+        if trip.status not in [Trip.Status.CLOSED, Trip.Status.PROCESSED]:
+            raise HttpError(409, "solo un viaggio completato puo' diventare ricaricabile")
+
+        if payload.is_reloadable and not _source_has_raw_sensor_evidence(trip):
+            raise HttpError(409, "telemetrie sorgente non disponibili")
+        if (
+            not payload.is_reloadable
+            and trip.is_reloadable
+            and _trip_has_reload_usage(trip)
+        ):
+            raise HttpError(409, "viaggio gia' usato come sorgente")
+
+        trip.is_reloadable = payload.is_reloadable
+        trip.save(update_fields=["is_reloadable", "updated_at"])
+    return _trip_list_item_by_id(trip.id)
+
+
+@router.patch(
+    "/trips/{trip_id}/note",
+    response=TripListItemOut,
+    auth=mobile_bearer_auth,
+)
+def update_trip_note(request, trip_id: int, payload: TripNoteUpdateIn):
+    trip = get_object_or_404(Trip, id=trip_id, user_id=request.auth.user_id)
+    if not TripIngestion.objects.filter(
+        trip=trip,
+        core_status=TripIngestion.PhaseStatus.COMPLETED,
+        raw_status=TripIngestion.PhaseStatus.COMPLETED,
+    ).exists():
+        raise HttpError(409, "nota disponibile solo a viaggio completato")
+
+    note = payload.note.strip()
+    if len(note) > 500:
+        raise HttpError(422, "nota troppo lunga")
+    trip.note = note
+    trip.save(update_fields=["note", "updated_at"])
+    return _trip_list_item_by_id(trip.id)
+
+
+@router.delete(
+    "/trips/{trip_id}",
+    response={204: None},
+    auth=mobile_bearer_auth,
+)
+def delete_trip(request, trip_id: int):
+    with transaction.atomic():
+        trip = get_object_or_404(
+            Trip.objects.select_for_update(),
+            id=trip_id,
+            user_id=request.auth.user_id,
+        )
+        if _trip_has_reload_usage(trip):
+            raise HttpError(409, "viaggio gia' usato come sorgente")
+
+        object_keys = _trip_object_keys(trip)
+        _delete_storage_objects(object_keys)
+        TripIngestion.objects.filter(trip=trip).delete()
+        trip.delete()
+    return Status(204, None)
 
 
 @router.get(
@@ -730,6 +922,7 @@ def get_replay_data(request, trip_id: int):
     source = get_object_or_404(
         Trip,
         id=trip_id,
+        user_id=request.auth.user_id,
         is_reloadable=True,
         status__in=[Trip.Status.CLOSED, Trip.Status.PROCESSED],
     )
@@ -738,6 +931,25 @@ def get_replay_data(request, trip_id: int):
         "gps_points": source.gps_points.order_by("timestamp"),
         "state_transitions": source.state_transitions.order_by("timestamp"),
     }
+
+
+@router.get(
+    "/trips/reloadable/{trip_id}/sensor-window",
+    response=RouteAssistantSensorWindowOut,
+    auth=mobile_bearer_auth,
+)
+def get_reloadable_sensor_window(request, trip_id: int, offset_seconds: int):
+    source = get_object_or_404(
+        Trip,
+        id=trip_id,
+        user_id=request.auth.user_id,
+        is_reloadable=True,
+        status__in=[Trip.Status.CLOSED, Trip.Status.PROCESSED],
+    )
+    samples = source_sensor_window_at(source, offset_seconds)
+    if samples is None:
+        raise HttpError(404, "finestra sensori non disponibile per l'offset")
+    return {"samples": samples}
 
 
 def _reload_client_session_id(user_id: int, source_trip_id: int, request_id: str) -> str:
@@ -782,8 +994,8 @@ def _source_timeline(
     return source_points, source_transitions, source_start, source_end
 
 
-def _reloadable_source_or_409(trip_id: int) -> Trip:
-    source = get_object_or_404(Trip, id=trip_id)
+def _reloadable_source_or_409(user_id: int, trip_id: int) -> Trip:
+    source = get_object_or_404(Trip, id=trip_id, user_id=user_id)
     if not source.is_reloadable or source.status not in [
         Trip.Status.CLOSED,
         Trip.Status.PROCESSED,
@@ -886,7 +1098,7 @@ def list_reload_slots(
     step_minutes: int = 15,
     limit: int = 100,
 ):
-    source = _reloadable_source_or_409(trip_id)
+    source = _reloadable_source_or_409(request.auth.user_id, trip_id)
     if not _source_has_raw_sensor_evidence(source):
         raise HttpError(409, "telemetrie sorgente non disponibili")
     _, _, source_start, source_end = _source_timeline(source)
@@ -918,7 +1130,7 @@ def reload_trip(request, trip_id: int, payload: TripReloadIn):
     if _active_ingestions(request.auth.user_id).exists():
         raise HttpError(409, "viaggio in corso attivo")
 
-    source = get_object_or_404(Trip, id=trip_id)
+    source = get_object_or_404(Trip, id=trip_id, user_id=request.auth.user_id)
     client_session_id = _reload_client_session_id(
         request.auth.user_id,
         source.id,
