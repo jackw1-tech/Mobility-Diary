@@ -25,6 +25,18 @@ class GeocodingPlace {
   const GeocodingPlace({required this.label, required this.location});
 }
 
+class RouteAssistantRoute {
+  final List<ll.LatLng> points;
+  final double distanceMeters;
+  final double durationSeconds;
+
+  const RouteAssistantRoute({
+    required this.points,
+    required this.distanceMeters,
+    required this.durationSeconds,
+  });
+}
+
 /// Errore delle chiamate Mapbox (geocoding / directions).
 class RouteAssistantException implements Exception {
   final String message;

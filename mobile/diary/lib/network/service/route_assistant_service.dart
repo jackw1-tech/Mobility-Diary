@@ -9,11 +9,12 @@ import 'package:latlong2/latlong.dart' as ll;
 abstract class RouteAssistantService {
   /// Cerca luoghi per testo libero. `proximity` ordina i risultati vicino a un
   /// punto (tipicamente la posizione corrente).
-  Future<List<GeocodingPlace>> searchPlaces(String query, {ll.LatLng? proximity});
+  Future<List<GeocodingPlace>> searchPlaces(String query,
+      {ll.LatLng? proximity});
 
   /// Percorso da `from` a `to` col profilo della modalita' scelta. Restituisce
-  /// i vertici della geometria (lon/lat), gia' pronti da disegnare sulla mappa.
-  Future<List<ll.LatLng>> fetchRoute({
+  /// geometria e metadati Mapbox gia' pronti per mappa e riepilogo.
+  Future<RouteAssistantRoute> fetchRoute({
     required ll.LatLng from,
     required ll.LatLng to,
     required RouteMode mode,
@@ -60,7 +61,7 @@ class MapboxRouteAssistantService implements RouteAssistantService {
   }
 
   @override
-  Future<List<ll.LatLng>> fetchRoute({
+  Future<RouteAssistantRoute> fetchRoute({
     required ll.LatLng from,
     required ll.LatLng to,
     required RouteMode mode,
@@ -81,14 +82,31 @@ class MapboxRouteAssistantService implements RouteAssistantService {
     if (routes is! List || routes.isEmpty) {
       throw const RouteAssistantException('Nessun percorso trovato');
     }
-    final coordinates = routes.first['geometry']?['coordinates'];
+    final route = routes.first;
+    if (route is! Map) {
+      throw const RouteAssistantException('Percorso non valido');
+    }
+    final distance = route['distance'];
+    final duration = route['duration'];
+    if (distance is! num || duration is! num) {
+      throw const RouteAssistantException('Dati percorso non validi');
+    }
+    final coordinates = route['geometry']?['coordinates'];
     if (coordinates is! List) {
       throw const RouteAssistantException('Geometria percorso non valida');
     }
-    return coordinates
+    final points = coordinates
         .map(_latLngFromCoordinate)
         .whereType<ll.LatLng>()
         .toList(growable: false);
+    if (points.length < 2) {
+      throw const RouteAssistantException('Geometria percorso non valida');
+    }
+    return RouteAssistantRoute(
+      points: points,
+      distanceMeters: distance.toDouble(),
+      durationSeconds: duration.toDouble(),
+    );
   }
 
   GeocodingPlace? _placeFromFeature(dynamic feature) {

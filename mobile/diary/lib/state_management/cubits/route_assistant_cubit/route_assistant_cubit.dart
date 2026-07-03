@@ -8,8 +8,9 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:latlong2/latlong.dart' as ll;
 
 /// Assistente di percorso, completamente separato dall'AcquisitionCubit.
-/// Il punto A e' la posizione GPS corrente (via `_locationProvider`); il punto
-/// B arriva dal geocoding. Il percorso e' effimero: chiudendo si azzera tutto.
+/// Il punto A e' la posizione attiva della sessione, quando disponibile, oppure
+/// la posizione GPS corrente (via `_locationProvider`); il punto B arriva dal
+/// geocoding. Il percorso e' effimero: chiudendo si azzera tutto.
 ///
 /// In modalita' Live la modalita' di mobilita' e' riconosciuta ogni
 /// [_tickInterval] classificando la finestra sensori di `_sensorWindowProvider`.
@@ -17,20 +18,26 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
   final RouteAssistantService _service;
   final RouteClassifierService _classifier;
   final Future<ll.LatLng?> Function() _locationProvider;
+  final ll.LatLng? Function()? _activeLocationProvider;
   final Future<List<List<double>>> Function() _sensorWindowProvider;
   final Duration _tickInterval;
   int _searchGeneration = 0;
   int _routeGeneration = 0;
   Timer? _liveTimer;
+  bool _passiveModeDetectionEnabled = false;
+  RouteMode? _lastDetectedMode;
+  bool _hasLastDetectedModeResult = false;
 
   RouteAssistantCubit(
     this._service, {
     required RouteClassifierService classifier,
     required Future<ll.LatLng?> Function() locationProvider,
+    ll.LatLng? Function()? activeLocationProvider,
     required Future<List<List<double>>> Function() sensorWindowProvider,
     Duration tickInterval = const Duration(seconds: 15),
   })  : _classifier = classifier,
         _locationProvider = locationProvider,
+        _activeLocationProvider = activeLocationProvider,
         _sensorWindowProvider = sensorWindowProvider,
         _tickInterval = tickInterval,
         super(const RouteAssistantState());
@@ -41,13 +48,18 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
 
   Future<void> search(String query) async {
     if (query.trim().isEmpty) {
-      emit(state.copyWith(searchResults: const [], isSearching: false));
+      _searchGeneration++;
+      emit(state.copyWith(
+        searchResults: const [],
+        isSearching: false,
+        clearError: true,
+      ));
       return;
     }
     final generation = ++_searchGeneration;
     emit(state.copyWith(isSearching: true, clearError: true));
     try {
-      final proximity = await _locationProvider();
+      final proximity = await _currentOrigin();
       final results = await _service.searchPlaces(query, proximity: proximity);
       if (isClosed || generation != _searchGeneration) return;
       emit(state.copyWith(searchResults: results, isSearching: false));
@@ -63,7 +75,10 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
   /// "Vai": chiude la ricerca e calcola il percorso verso la destinazione.
   Future<void> confirmDestination() async {
     if (state.destination == null) return;
-    emit(state.copyWith(isSearchOpen: false));
+    emit(state.copyWith(
+      isSearchOpen: false,
+      mode: _initialRouteMode(),
+    ));
     await _fetchRoute();
   }
 
@@ -90,26 +105,51 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
     _liveTimer = Timer.periodic(_tickInterval, (_) => _tick());
   }
 
+  void setPassiveModeDetectionEnabled(bool enabled) {
+    if (_passiveModeDetectionEnabled == enabled) return;
+    _passiveModeDetectionEnabled = enabled;
+    if (enabled) {
+      _emitPassiveModeSeed();
+      _ensureTimer();
+      unawaited(_tick());
+    } else {
+      if (!state.isActive) emit(state.copyWith(clearDetected: true));
+      _stopTimerIfIdle();
+    }
+  }
+
+  void clearDetectedModePrediction() {
+    _lastDetectedMode = null;
+    _hasLastDetectedModeResult = false;
+    if (state.detectedMode != null || state.hasDetectedModeResult) {
+      emit(state.copyWith(clearDetected: true));
+    }
+  }
+
   /// Tick periodico: se Live e' ON classifica prima e aggiorna il profilo;
   /// poi ricalcola sempre il percorso per seguire il movimento dell'utente.
   Future<void> _tick() async {
-    if (isClosed || !state.isActive) return;
+    if (isClosed) return;
+    final shouldClassifyForLive = state.isActive && state.isLive;
+    final shouldClassifyForIndicator =
+        _passiveModeDetectionEnabled && !state.isActive;
+    final shouldFetchRoute = state.isActive;
+    if (!shouldClassifyForLive &&
+        !shouldClassifyForIndicator &&
+        !shouldFetchRoute) {
+      _stopTimerIfIdle();
+      return;
+    }
     try {
-      if (state.isLive) {
-        final samples = await _sensorWindowProvider();
-        if (isClosed || !state.isActive) return;
-        if (samples.isNotEmpty) {
-          final detected = await _classifier.classify(samples);
-          if (isClosed || !state.isActive) return;
-          if (detected != null) {
-            emit(state.copyWith(detectedMode: detected, mode: detected));
-          }
-        }
+      if (shouldClassifyForLive || shouldClassifyForIndicator) {
+        await _classifyCurrentMode(updateRouteMode: shouldClassifyForLive);
       }
-      if (isClosed || !state.isActive) return;
-      await _fetchRoute();
+      if (isClosed || !shouldFetchRoute) return;
+      if (state.isActive) await _fetchRoute();
     } catch (_) {
       // ignora: il prossimo tick riprovera'
+    } finally {
+      _stopTimerIfIdle();
     }
   }
 
@@ -118,6 +158,7 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
   void dismiss() {
     _liveTimer?.cancel();
     _liveTimer = null;
+    _passiveModeDetectionEnabled = false;
     _searchGeneration++;
     _routeGeneration++;
     emit(const RouteAssistantState());
@@ -126,6 +167,7 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
   @override
   Future<void> close() {
     _liveTimer?.cancel();
+    _passiveModeDetectionEnabled = false;
     return super.close();
   }
 
@@ -135,7 +177,7 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
     // Una nuova richiesta (o un dismiss) invalida quelle in volo: cosi' una
     // risposta tardiva non riattiva l'assistente dopo la chiusura.
     final generation = ++_routeGeneration;
-    final from = await _locationProvider();
+    final from = await _currentOrigin();
     if (isClosed || generation != _routeGeneration) return;
     if (from == null) {
       emit(state.copyWith(
@@ -146,17 +188,92 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
     }
     emit(state.copyWith(isRouting: true, clearError: true));
     try {
-      final points = await _service.fetchRoute(
+      final route = await _service.fetchRoute(
         from: from,
         to: destination.location,
         mode: state.mode,
       );
       if (isClosed || generation != _routeGeneration) return;
-      emit(state.copyWith(routePoints: points, isRouting: false));
+      emit(state.copyWith(
+        route: route,
+        routeUpdatedAt: DateTime.now(),
+        isRouting: false,
+      ));
       _ensureTimer(); // avvia il tick periodico al primo percorso calcolato
     } catch (error) {
       if (isClosed || generation != _routeGeneration) return;
       emit(state.copyWith(isRouting: false, errorMessage: error.toString()));
     }
+  }
+
+  Future<ll.LatLng?> _currentOrigin() async {
+    return _activeLocationProvider?.call() ?? await _locationProvider();
+  }
+
+  RouteMode _initialRouteMode() {
+    if (state.isActive || !state.hasDetectedModeResult) return state.mode;
+    return state.detectedMode ?? state.mode;
+  }
+
+  void _emitPassiveModeSeed() {
+    if (!_hasLastDetectedModeResult) {
+      emit(state.copyWith(clearDetected: true));
+      return;
+    }
+    if (_lastDetectedMode == null) {
+      emit(state.copyWith(
+        clearDetected: true,
+        hasDetectedModeResult: true,
+      ));
+      return;
+    }
+    emit(state.copyWith(
+      detectedMode: _lastDetectedMode,
+      hasDetectedModeResult: true,
+    ));
+  }
+
+  Future<void> _classifyCurrentMode({required bool updateRouteMode}) async {
+    final samples = await _sensorWindowProvider();
+    if (isClosed ||
+        samples.isEmpty ||
+        !_classificationStillRelevant(
+          updateRouteMode,
+        )) {
+      return;
+    }
+    final detected = await _classifier.classify(samples);
+    if (isClosed || !_classificationStillRelevant(updateRouteMode)) return;
+    if (detected == null) {
+      _rememberDetectedMode(null);
+      emit(state.copyWith(
+        clearDetected: true,
+        hasDetectedModeResult: true,
+      ));
+      return;
+    }
+    _rememberDetectedMode(detected);
+    emit(state.copyWith(
+      detectedMode: detected,
+      hasDetectedModeResult: true,
+      mode: updateRouteMode ? detected : null,
+    ));
+  }
+
+  void _rememberDetectedMode(RouteMode? detected) {
+    _lastDetectedMode = detected;
+    _hasLastDetectedModeResult = true;
+  }
+
+  bool _classificationStillRelevant(bool updateRouteMode) {
+    return updateRouteMode
+        ? state.isActive && state.isLive
+        : _passiveModeDetectionEnabled && !state.isActive;
+  }
+
+  void _stopTimerIfIdle() {
+    if (_passiveModeDetectionEnabled || state.isActive) return;
+    _liveTimer?.cancel();
+    _liveTimer = null;
   }
 }

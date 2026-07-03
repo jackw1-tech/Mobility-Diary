@@ -18,13 +18,17 @@ class _FakeService implements RouteAssistantService {
       const [];
 
   @override
-  Future<List<ll.LatLng>> fetchRoute({
+  Future<RouteAssistantRoute> fetchRoute({
     required ll.LatLng from,
     required ll.LatLng to,
     required RouteMode mode,
   }) async {
     lastMode = mode;
-    return route;
+    return RouteAssistantRoute(
+      points: route,
+      distanceMeters: 1200,
+      durationSeconds: 600,
+    );
   }
 }
 
@@ -44,6 +48,7 @@ Future<RouteAssistantCubit> _activeCubit(_FakeService service) async {
     const GeocodingPlace(label: 'Duomo', location: ll.LatLng(45.46, 9.19)),
   );
   await cubit.confirmDestination();
+  addTearDown(cubit.dismiss);
   return cubit;
 }
 
@@ -66,6 +71,27 @@ Future<void> _pump(
   );
 }
 
+Future<void> _pumpIndicator(
+  WidgetTester tester, {
+  required RouteMode? mode,
+  required bool hasResult,
+}) {
+  return tester.pumpWidget(
+    MaterialApp(
+      home: Scaffold(
+        body: Stack(
+          children: [
+            RouteDetectedModeIndicator(
+              mode: mode,
+              hasResult: hasResult,
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
 void main() {
   testWidgets('non mostra nulla senza percorso attivo', (tester) async {
     final cubit = RouteAssistantCubit(
@@ -80,6 +106,35 @@ void main() {
     expect(find.byIcon(Icons.close), findsNothing);
   });
 
+  testWidgets('pallino rilevamento mostra stato in attesa', (tester) async {
+    await _pumpIndicator(tester, mode: null, hasResult: false);
+
+    expect(find.byIcon(Icons.more_horiz), findsOneWidget);
+    expect(find.byIcon(Icons.pause), findsNothing);
+  });
+
+  testWidgets('pallino rilevamento mostra fermo', (tester) async {
+    await _pumpIndicator(tester, mode: null, hasResult: true);
+
+    expect(find.byIcon(Icons.pause), findsOneWidget);
+  });
+
+  testWidgets('pallino rilevamento mostra icona della modalita',
+      (tester) async {
+    await _pumpIndicator(tester, mode: RouteMode.cycling, hasResult: true);
+
+    expect(find.byIcon(Icons.directions_bike), findsOneWidget);
+    final material = tester
+        .widgetList<Material>(
+          find.descendant(
+            of: find.byType(RouteDetectedModeIndicator),
+            matching: find.byType(Material),
+          ),
+        )
+        .singleWhere((material) => material.shape is CircleBorder);
+    expect(material.color, Colors.white);
+  });
+
   testWidgets('mostra i selettori con un percorso attivo', (tester) async {
     final cubit = await _activeCubit(_FakeService());
     await _pump(tester, cubit);
@@ -89,6 +144,7 @@ void main() {
     expect(find.byIcon(Icons.directions_walk), findsOneWidget);
     expect(find.byIcon(Icons.directions_bike), findsOneWidget);
     expect(find.byIcon(Icons.directions_car), findsOneWidget);
+    cubit.dismiss();
   });
 
   testWidgets('tap su Auto cambia modalita e ricalcola', (tester) async {
@@ -101,6 +157,7 @@ void main() {
 
     expect(cubit.state.mode, RouteMode.driving);
     expect(service.lastMode, RouteMode.driving);
+    cubit.dismiss();
   });
 
   testWidgets('tap su X chiude e rimuove i selettori', (tester) async {
@@ -128,6 +185,7 @@ void main() {
     await _pump(tester, cubit, liveEnabled: false);
 
     expect(iconButton(tester, Icons.bolt).onPressed, isNull);
+    cubit.dismiss();
   });
 
   testWidgets('Live abilitato con un viaggio in corso', (tester) async {
@@ -135,6 +193,7 @@ void main() {
     await _pump(tester, cubit, liveEnabled: true);
 
     expect(iconButton(tester, Icons.bolt).onPressed, isNotNull);
+    cubit.dismiss();
   });
 
   testWidgets('con Live attivo i chip manuali sono disabilitati',
@@ -147,6 +206,26 @@ void main() {
 
     expect(cubit.state.isLive, isTrue);
     expect(iconButton(tester, Icons.directions_car).onPressed, isNull);
+    cubit.dismiss();
+  });
+
+  testWidgets('Live attivo resta spegnibile quando il viaggio si ferma',
+      (tester) async {
+    final cubit = await _activeCubit(_FakeService());
+    await _pump(tester, cubit, liveEnabled: true);
+    await tester.tap(find.byIcon(Icons.bolt));
+    await tester.pump();
+
+    await _pump(tester, cubit, liveEnabled: false);
+
+    expect(cubit.state.isLive, isTrue);
+    expect(iconButton(tester, Icons.bolt).onPressed, isNotNull);
+
+    await tester.tap(find.byIcon(Icons.bolt));
+    await tester.pump();
+
+    expect(cubit.state.isLive, isFalse);
+    expect(iconButton(tester, Icons.directions_car).onPressed, isNotNull);
     cubit.dismiss();
   });
 }

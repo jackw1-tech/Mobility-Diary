@@ -7,7 +7,8 @@ class RouteAssistantState {
   final List<GeocodingPlace> searchResults;
   final bool isSearching;
   final GeocodingPlace? destination;
-  final List<ll.LatLng> routePoints;
+  final RouteAssistantRoute? route;
+  final DateTime? routeUpdatedAt;
   final bool isRouting;
   final String? errorMessage;
 
@@ -16,6 +17,7 @@ class RouteAssistantState {
 
   /// Ultima modalita' rilevata dal classificatore (evidenziata in giallo).
   final RouteMode? detectedMode;
+  final bool hasDetectedModeResult;
 
   const RouteAssistantState({
     this.isSearchOpen = false,
@@ -23,15 +25,19 @@ class RouteAssistantState {
     this.searchResults = const [],
     this.isSearching = false,
     this.destination,
-    this.routePoints = const [],
+    this.route,
+    this.routeUpdatedAt,
     this.isRouting = false,
     this.errorMessage,
     this.isLive = false,
     this.detectedMode,
+    this.hasDetectedModeResult = false,
   });
 
   /// Pallini e selettori sono visibili solo con un percorso calcolato.
   bool get isActive => routePoints.isNotEmpty;
+
+  List<ll.LatLng> get routePoints => route?.points ?? const [];
 
   RouteAssistantState copyWith({
     bool? isSearchOpen,
@@ -39,12 +45,15 @@ class RouteAssistantState {
     List<GeocodingPlace>? searchResults,
     bool? isSearching,
     GeocodingPlace? destination,
-    List<ll.LatLng>? routePoints,
+    RouteAssistantRoute? route,
+    DateTime? routeUpdatedAt,
     bool? isRouting,
     String? errorMessage,
     bool? isLive,
     RouteMode? detectedMode,
+    bool? hasDetectedModeResult,
     bool clearDestination = false,
+    bool clearRoute = false,
     bool clearError = false,
     bool clearDetected = false,
   }) {
@@ -54,11 +63,15 @@ class RouteAssistantState {
       searchResults: searchResults ?? this.searchResults,
       isSearching: isSearching ?? this.isSearching,
       destination: clearDestination ? null : (destination ?? this.destination),
-      routePoints: routePoints ?? this.routePoints,
+      route: clearRoute ? null : (route ?? this.route),
+      routeUpdatedAt:
+          clearRoute ? null : (routeUpdatedAt ?? this.routeUpdatedAt),
       isRouting: isRouting ?? this.isRouting,
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
       isLive: isLive ?? this.isLive,
       detectedMode: clearDetected ? null : (detectedMode ?? this.detectedMode),
+      hasDetectedModeResult: hasDetectedModeResult ??
+          (clearDetected ? false : this.hasDetectedModeResult),
     );
   }
 }

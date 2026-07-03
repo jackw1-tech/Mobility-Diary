@@ -11,7 +11,18 @@ from django.conf import settings
 from django.contrib.gis.db.models.functions import AsGeoJSON, Length
 from django.contrib.gis.geos import Point
 from django.db import transaction
-from django.db.models import BooleanField, Case, Count, Exists, OuterRef, Q, Value, When
+from django.db.models import (
+    BooleanField,
+    Case,
+    Count,
+    Exists,
+    Max,
+    Min,
+    OuterRef,
+    Q,
+    Value,
+    When,
+)
 from django.http import StreamingHttpResponse
 from django.shortcuts import aget_object_or_404, get_object_or_404
 from django.utils import timezone
@@ -1273,7 +1284,6 @@ _CATEGORY_BY_ACTIVITY = {
     "MOVING_VEHICLE": "in_auto",
 }
 _MOBILITY_CATEGORIES = ["fermo", "a_piedi", "corsa", "in_bici", "in_auto"]
-_ITALIAN_WEEKDAYS = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"]
 
 
 def _analytics_zone(tz: str):
@@ -1288,6 +1298,15 @@ def _analytics_zone(tz: str):
         return ZoneInfo("UTC")
 
 
+# Tetto di sicurezza sull'estensione reale coperta dalla Finestra Analitica:
+# un MobilitySegment con un timestamp anomalo (clock del device sballato, bug
+# di ingestion/replay, riga residua) non deve far generare milioni di bucket.
+# Oltre il tetto, i bucket piu' vecchi restano fuori dalla Finestra Analitica
+# ma continuano a contare per heatmap, Percorsi Frequenti e modalita' prevalente,
+# che restano cumulativi su tutta la storia.
+_ANALYTICS_MAX_SPAN = timedelta(days=3650)
+
+
 def _bucket_start_of(local_date, granularity: str):
     """Inizio del bucket (lunedi' per la settimana, il giorno stesso altrimenti)."""
     if granularity == "week":
@@ -1296,12 +1315,32 @@ def _bucket_start_of(local_date, granularity: str):
 
 
 def _analytics_buckets(user_id: int, granularity: str, zone: ZoneInfo):
-    is_week = granularity == "week"
-    today = timezone.now().astimezone(zone).date()
-    step = timedelta(weeks=1) if is_week else timedelta(days=1)
-    count = 8 if is_week else 7
-    anchor = _bucket_start_of(today, granularity)
-    starts = [anchor - step * i for i in range(count - 1, -1, -1)]
+    """Finestra Analitica sull'intera storia dell'utente: dal Viaggio meno
+    recente al piu' recente, un bucket per ogni giorno/settimana del range
+    (anche senza attivita'), fino a _ANALYTICS_MAX_SPAN. Il front end pagina
+    questi bucket a botte di 7 con uno slider (ADR 0030). Il range e' calcolato
+    sui MobilitySegment (non su Trip.started_at) cosi' da coprire sempre tutta
+    l'attivita' registrata, senza perderne ai bordi."""
+    step = timedelta(weeks=1) if granularity == "week" else timedelta(days=1)
+
+    span = MobilitySegment.objects.filter(trip__user_id=user_id).aggregate(
+        first=Min("start_timestamp"), last=Max("start_timestamp")
+    )
+    if span["first"] is None:
+        return []
+
+    first_start = _bucket_start_of(span["first"].astimezone(zone).date(), granularity)
+    last_start = _bucket_start_of(span["last"].astimezone(zone).date(), granularity)
+    earliest_allowed = _bucket_start_of(last_start - _ANALYTICS_MAX_SPAN, granularity)
+    if first_start < earliest_allowed:
+        first_start = earliest_allowed
+
+    starts = []
+    cursor = first_start
+    while cursor <= last_start:
+        starts.append(cursor)
+        cursor += step
+
     index_by_start = {start: i for i, start in enumerate(starts)}
     totals = [{c: [0.0, 0.0] for c in _MOBILITY_CATEGORIES} for _ in starts]
 
@@ -1323,9 +1362,10 @@ def _analytics_buckets(user_id: int, granularity: str, zone: ZoneInfo):
 
     return [
         AnalyticsBucketOut(
-            label=start.strftime("%d/%m")
-            if granularity == "week"
-            else _ITALIAN_WEEKDAYS[start.weekday()],
+            # Anno incluso: la Finestra Analitica ora copre piu' storia di un
+            # anno, "%d/%m" da solo genererebbe etichette ambigue (12/05 di
+            # anni diversi mostrerebbe la stessa label).
+            label=start.strftime("%d/%m/%y"),
             categories=[
                 AnalyticsCategorySliceOut(
                     category=c, seconds=cell[c][0], distance_meters=cell[c][1]
@@ -1494,9 +1534,11 @@ def _frequent_routes(user_id: int, limit: int = 5) -> list[AnalyticsRouteOut]:
 def get_personal_analytics(request, granularity: str = "day", tz: str = "UTC"):
     """Analitiche Personali aggregate cross-Viaggio dell'utente (ADR 0030).
 
-    `granularity` (Finestra Analitica): day = ultimi 7 giorni, week = ultime 8
-    settimane. `tz` e' il fuso locale del dispositivo per il bucketing. Modalita'
-    prevalente, Percorsi Frequenti e heatmap sono cumulativi su tutta la storia.
+    `granularity` (Finestra Analitica): day = un bucket per ogni giorno, week =
+    un bucket per ogni settimana, dal Viaggio meno recente dell'utente al piu'
+    recente (bucket vuoti inclusi). `tz` e' il fuso locale del dispositivo per
+    il bucketing. Modalita' prevalente, Percorsi Frequenti e heatmap sono
+    cumulativi su tutta la storia.
     """
     user_id = request.auth.user_id
     granularity = granularity if granularity in {"day", "week"} else "day"

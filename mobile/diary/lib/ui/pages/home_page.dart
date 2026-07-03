@@ -1,5 +1,6 @@
 import 'package:auto_route/auto_route.dart';
 import 'package:diary/features/acquisition/domain/acquisition_domain.dart';
+import 'package:diary/features/route_assistant/domain/route_assistant_domain.dart';
 import 'package:diary/network/service/privacy_settings_service.dart';
 import 'package:diary/repositories/acquisition_repository.dart';
 import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubit.dart';
@@ -7,6 +8,8 @@ import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubi
 import 'package:diary/state_management/cubits/auth_cubit/auth_cubit.dart';
 import 'package:diary/state_management/cubits/auth_cubit/auth_cubit_state.dart';
 import 'package:diary/state_management/cubits/privacy_settings_cubit/privacy_settings_cubit.dart';
+import 'package:diary/state_management/cubits/route_assistant_cubit/route_assistant_cubit.dart';
+import 'package:diary/state_management/cubits/route_assistant_cubit/route_assistant_cubit_state.dart';
 import 'package:diary/routers/app_router.dart';
 import 'package:diary/theme/Dimensions.dart';
 import 'package:diary/theme/color_palette.dart';
@@ -127,16 +130,28 @@ class _AuthenticatedHomePageState extends State<_AuthenticatedHomePage> {
                 return Stack(
                   children: [
                     const Positioned.fill(child: LiveMap()),
-                    if (replaySecondsRemaining != null)
-                      Positioned(
-                        left: Dimensions.paddingMedium,
-                        right: Dimensions.paddingMedium,
-                        bottom: constraints.maxHeight * _sheetExtent +
-                            Dimensions.paddingSmall,
-                        child: _ReplayCountdownPill(
-                          seconds: replaySecondsRemaining,
-                        ),
-                      ),
+                    BlocBuilder<RouteAssistantCubit, RouteAssistantState>(
+                      buildWhen: (previous, current) =>
+                          previous.route != current.route ||
+                          previous.routeUpdatedAt != current.routeUpdatedAt,
+                      builder: (context, assistantState) {
+                        if (assistantState.route == null &&
+                            replaySecondsRemaining == null) {
+                          return const SizedBox.shrink();
+                        }
+                        return Positioned(
+                          left: Dimensions.paddingMedium,
+                          right: Dimensions.paddingMedium,
+                          bottom: constraints.maxHeight * _sheetExtent +
+                              Dimensions.paddingSmall,
+                          child: _MapBottomOverlays(
+                            route: assistantState.route,
+                            routeUpdatedAt: assistantState.routeUpdatedAt,
+                            replaySecondsRemaining: replaySecondsRemaining,
+                          ),
+                        );
+                      },
+                    ),
                     NotificationListener<DraggableScrollableNotification>(
                       onNotification: (notification) {
                         if ((notification.extent - _sheetExtent).abs() >
@@ -221,6 +236,182 @@ class _AuthLoadingPage extends StatelessWidget {
       body: Center(
         child: CircularProgressIndicator(),
       ),
+    );
+  }
+}
+
+String _arrivalTimeLabel(double durationSeconds, DateTime routeUpdatedAt) {
+  final arrival = routeUpdatedAt.add(
+    Duration(seconds: durationSeconds.round()),
+  );
+  final hour = arrival.hour.toString().padLeft(2, '0');
+  final minute = arrival.minute.toString().padLeft(2, '0');
+  return '$hour:$minute';
+}
+
+String _distanceLabel(double distanceMeters) {
+  if (distanceMeters < 1000) {
+    return '${distanceMeters.round()} m';
+  }
+  return '${(distanceMeters / 1000).toStringAsFixed(1)} km';
+}
+
+String _durationLabel(double durationSeconds) {
+  final minutes = (durationSeconds / 60).ceil();
+  if (minutes < 60) return '$minutes min';
+  final hours = minutes ~/ 60;
+  final remainingMinutes = minutes % 60;
+  if (remainingMinutes == 0) return '${hours}h';
+  return '${hours}h ${remainingMinutes}m';
+}
+
+class _MapBottomOverlays extends StatelessWidget {
+  final RouteAssistantRoute? route;
+  final DateTime? routeUpdatedAt;
+  final int? replaySecondsRemaining;
+
+  const _MapBottomOverlays({
+    required this.route,
+    required this.routeUpdatedAt,
+    required this.replaySecondsRemaining,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (route != null)
+          _RouteSummaryPanel(
+            route: route!,
+            routeUpdatedAt: routeUpdatedAt ?? DateTime.now(),
+          ),
+        if (route != null && replaySecondsRemaining != null)
+          const SizedBox(height: Dimensions.paddingSmall),
+        if (replaySecondsRemaining != null)
+          _ReplayCountdownPill(seconds: replaySecondsRemaining!),
+      ],
+    );
+  }
+}
+
+class _RouteSummaryPanel extends StatelessWidget {
+  final RouteAssistantRoute route;
+  final DateTime routeUpdatedAt;
+
+  const _RouteSummaryPanel({
+    required this.route,
+    required this.routeUpdatedAt,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: ColorPalette.surface,
+            borderRadius: BorderRadius.circular(Dimensions.borderRadiusLarge),
+            border: Border.all(color: ColorPalette.hairline),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.12),
+                blurRadius: 14,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Dimensions.paddingMedium,
+              vertical: Dimensions.paddingSmall,
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _RouteSummaryItem(
+                    icon: Icons.flag_outlined,
+                    label: 'Arrivo',
+                    value: _arrivalTimeLabel(
+                      route.durationSeconds,
+                      routeUpdatedAt,
+                    ),
+                    color: ColorPalette.primary,
+                  ),
+                ),
+                const SizedBox(width: Dimensions.paddingSmall),
+                Expanded(
+                  child: _RouteSummaryItem(
+                    icon: Icons.straighten,
+                    label: 'Mancano',
+                    value: _distanceLabel(route.distanceMeters),
+                    color: ColorPalette.info,
+                  ),
+                ),
+                const SizedBox(width: Dimensions.paddingSmall),
+                Expanded(
+                  child: _RouteSummaryItem(
+                    icon: Icons.schedule,
+                    label: 'Tempo',
+                    value: _durationLabel(route.durationSeconds),
+                    color: ColorPalette.accent,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RouteSummaryItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+
+  const _RouteSummaryItem({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, color: color, size: 18),
+        const SizedBox(width: Dimensions.paddingSmall),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: ColorPalette.textSecondary,
+                    ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

@@ -16,6 +16,12 @@ final List<BlocProvider> blocs = [
       context.read<RouteAssistantService>(),
       classifier: context.read<RouteClassifierService>(),
       locationProvider: currentDeviceLocation,
+      activeLocationProvider: () {
+        final acquisitionState = context.read<AcquisitionCubit>().state;
+        return acquisitionState.isTracking
+            ? acquisitionState.latestPosition
+            : null;
+      },
       sensorWindowProvider:
           context.read<AcquisitionRepository>().currentSensorWindow,
     ),

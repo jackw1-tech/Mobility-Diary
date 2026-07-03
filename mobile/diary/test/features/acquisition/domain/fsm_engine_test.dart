@@ -199,6 +199,262 @@ void main() {
       expect(decision.state, TrackingState.movement);
       expect(decision.didTransition, isFalse);
     });
+
+    test(
+        'a single noisy reading while settling does not reset the grace '
+        'countdown', () {
+      final fsm = AcquisitionFsm(initialState: TrackingState.movement);
+      final now = DateTime.utc(2026, 1, 1);
+
+      fsm.apply(
+        GpsFixReceived(
+          timestamp: now,
+          speedMetersPerSecond: 0,
+          accuracyMeters: 10,
+        ),
+      );
+      // Singolo fix rumoroso isolato (es. rumore Doppler indoor): non deve
+      // azzerare il countdown verso stationary.
+      final blip = fsm.apply(
+        GpsFixReceived(
+          timestamp: now.add(const Duration(seconds: 60)),
+          speedMetersPerSecond: 3,
+          accuracyMeters: 10,
+        ),
+      );
+      fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: now.add(const Duration(seconds: 61)),
+          sigma: 0.05,
+          sampleCount: 500,
+        ),
+      );
+      final decision = fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: now.add(const Duration(minutes: 2, seconds: 1)),
+          sigma: 0.04,
+          sampleCount: 500,
+        ),
+      );
+
+      expect(blip.state, TrackingState.movement);
+      expect(blip.didTransition, isFalse);
+      expect(decision.state, TrackingState.stationary);
+      expect(
+        decision.transition?.reason,
+        'gps_and_motion_stationary_for_grace_period',
+      );
+    });
+
+    test(
+        'two consecutive reliable GPS readings are not enough to reset the '
+        'grace countdown (GPS needs three)', () {
+      final fsm = AcquisitionFsm(initialState: TrackingState.movement);
+      final now = DateTime.utc(2026, 1, 1);
+
+      fsm.apply(
+        GpsFixReceived(
+          timestamp: now,
+          speedMetersPerSecond: 0,
+          accuracyMeters: 10,
+        ),
+      );
+      fsm.apply(
+        GpsFixReceived(
+          timestamp: now.add(const Duration(seconds: 60)),
+          speedMetersPerSecond: 3,
+          accuracyMeters: 10,
+        ),
+      );
+      fsm.apply(
+        GpsFixReceived(
+          timestamp: now.add(const Duration(seconds: 61)),
+          speedMetersPerSecond: 3,
+          accuracyMeters: 10,
+        ),
+      );
+      final decision = fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: now.add(const Duration(minutes: 2, seconds: 1)),
+          sigma: 0.04,
+          sampleCount: 500,
+        ),
+      );
+
+      expect(decision.state, TrackingState.stationary);
+    });
+
+    test(
+        'three consecutive reliable GPS readings reset the grace countdown',
+        () {
+      final fsm = AcquisitionFsm(initialState: TrackingState.movement);
+      final now = DateTime.utc(2026, 1, 1);
+
+      fsm.apply(
+        GpsFixReceived(
+          timestamp: now,
+          speedMetersPerSecond: 0,
+          accuracyMeters: 10,
+        ),
+      );
+      fsm.apply(
+        GpsFixReceived(
+          timestamp: now.add(const Duration(seconds: 60)),
+          speedMetersPerSecond: 3,
+          accuracyMeters: 10,
+        ),
+      );
+      fsm.apply(
+        GpsFixReceived(
+          timestamp: now.add(const Duration(seconds: 61)),
+          speedMetersPerSecond: 3,
+          accuracyMeters: 10,
+        ),
+      );
+      // Terza lettura affidabile consecutiva: ora e' evidenza sostenuta, il
+      // countdown riparte da qui.
+      fsm.apply(
+        GpsFixReceived(
+          timestamp: now.add(const Duration(seconds: 62)),
+          speedMetersPerSecond: 3,
+          accuracyMeters: 10,
+        ),
+      );
+      fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: now.add(const Duration(seconds: 63)),
+          sigma: 0.05,
+          sampleCount: 500,
+        ),
+      );
+      final decision = fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: now.add(const Duration(minutes: 2, seconds: 1)),
+          sigma: 0.04,
+          sampleCount: 500,
+        ),
+      );
+
+      expect(decision.state, TrackingState.movement);
+      expect(decision.didTransition, isFalse);
+    });
+
+    test(
+        'two consecutive loud sigma readings reset the grace countdown '
+        '(sigma keeps priority over GPS)', () {
+      final fsm = AcquisitionFsm(initialState: TrackingState.movement);
+      final now = DateTime.utc(2026, 1, 1);
+
+      fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: now,
+          sigma: 0.05,
+          sampleCount: 500,
+        ),
+      );
+      fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: now.add(const Duration(seconds: 60)),
+          sigma: 1.5,
+          sampleCount: 500,
+        ),
+      );
+      // Seconda finestra rumorosa consecutiva: per il sigma bastano due,
+      // stessa soglia dell'ingresso.
+      fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: now.add(const Duration(seconds: 65)),
+          sigma: 1.5,
+          sampleCount: 500,
+        ),
+      );
+      fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: now.add(const Duration(seconds: 70)),
+          sigma: 0.04,
+          sampleCount: 500,
+        ),
+      );
+      final decision = fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: now.add(const Duration(minutes: 2, seconds: 1)),
+          sigma: 0.04,
+          sampleCount: 500,
+        ),
+      );
+
+      expect(decision.state, TrackingState.movement);
+      expect(decision.didTransition, isFalse);
+    });
+
+    test(
+        'five consecutive unreliable GPS readings reset the grace countdown, '
+        'four is not enough', () {
+      final fsm = AcquisitionFsm(initialState: TrackingState.movement);
+      final now = DateTime.utc(2026, 1, 1);
+
+      fsm.apply(
+        GpsFixReceived(
+          timestamp: now,
+          speedMetersPerSecond: 0,
+          accuracyMeters: 60,
+        ),
+      );
+      for (var i = 0; i < 4; i += 1) {
+        fsm.apply(
+          GpsFixReceived(
+            timestamp: now.add(Duration(seconds: 60 + i)),
+            speedMetersPerSecond: 3,
+            accuracyMeters: 60,
+          ),
+        );
+      }
+      // Con solo quattro letture inaffidabili consecutive il countdown non
+      // si e' ancora azzerato.
+      final beforeFifth = fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: now.add(const Duration(minutes: 2, seconds: 1)),
+          sigma: 0.04,
+          sampleCount: 500,
+        ),
+      );
+      expect(beforeFifth.state, TrackingState.stationary);
+
+      final fsm2 = AcquisitionFsm(initialState: TrackingState.movement);
+      fsm2.apply(
+        GpsFixReceived(
+          timestamp: now,
+          speedMetersPerSecond: 0,
+          accuracyMeters: 60,
+        ),
+      );
+      for (var i = 0; i < 5; i += 1) {
+        fsm2.apply(
+          GpsFixReceived(
+            timestamp: now.add(Duration(seconds: 60 + i)),
+            speedMetersPerSecond: 3,
+            accuracyMeters: 60,
+          ),
+        );
+      }
+      fsm2.apply(
+        MotionWindowEvaluated(
+          timestamp: now.add(const Duration(seconds: 66)),
+          sigma: 0.05,
+          sampleCount: 500,
+        ),
+      );
+      final afterFifth = fsm2.apply(
+        MotionWindowEvaluated(
+          timestamp: now.add(const Duration(minutes: 2, seconds: 1)),
+          sigma: 0.04,
+          sampleCount: 500,
+        ),
+      );
+
+      expect(afterFifth.state, TrackingState.movement);
+      expect(afterFifth.didTransition, isFalse);
+    });
   });
 }
 

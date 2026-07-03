@@ -71,6 +71,37 @@ void main() {
       expect(speed, 0);
     });
 
+    test('ignores small platform speed reports below the usable threshold',
+        () {
+      final estimator = GpsSpeedEstimator();
+      final now = DateTime.utc(2026);
+
+      // Rumore Doppler/multipath tipico da fermo (es. indoor): una velocita'
+      // di piattaforma piccola ma diversa da zero non deve passare cosi'
+      // com'e', e senza un vero spostamento anche il fallback a distanza
+      // resta sotto la dead zone.
+      estimator.add(
+        GpsSpeedFix(
+          timestamp: now,
+          latitude: 44.49491,
+          longitude: 11.34261,
+          accuracyMeters: 8,
+          platformSpeedMetersPerSecond: 0.3,
+        ),
+      );
+      final speed = estimator.add(
+        GpsSpeedFix(
+          timestamp: now.add(const Duration(seconds: 10)),
+          latitude: 44.49491,
+          longitude: 11.34261,
+          accuracyMeters: 8,
+          platformSpeedMetersPerSecond: 0.3,
+        ),
+      );
+
+      expect(speed, 0);
+    });
+
     test('ignores impossible speed spikes', () {
       final estimator = GpsSpeedEstimator();
       final now = DateTime.utc(2026);

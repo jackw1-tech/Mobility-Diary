@@ -96,12 +96,23 @@ def test_analytics_empty_history_is_well_formed(user):
     payload = response.json()
     assert payload["has_data"] is False
     assert payload["granularity"] == "day"
-    assert len(payload["buckets"]) == 7
-    assert all(c["seconds"] == 0 for b in payload["buckets"] for c in b["categories"])
+    assert payload["buckets"] == []
     assert payload["prevalent_mode"] is None
     assert payload["frequent_routes"] == []
     assert payload["heatmap"] == []
     assert payload["weekly_heatmaps"] == []
+
+
+@pytest.mark.django_db
+def test_buckets_are_empty_without_segments_even_if_a_trip_exists(user):
+    # has_data guarda i Trip, i bucket guardano i MobilitySegment: un Trip
+    # non ancora processato non deve inventare un bucket vuoto.
+    Trip.objects.create(user=user, device_id="d", client_session_id="s")
+
+    payload = get_analytics(user).json()
+
+    assert payload["has_data"] is True
+    assert payload["buckets"] == []
 
 
 @pytest.mark.django_db
@@ -163,7 +174,8 @@ def test_day_buckets_aggregate_seconds_and_distance_per_category(user):
 
     buckets = get_analytics(user, granularity="day", tz="UTC").json()["buckets"]
 
-    assert len(buckets) == 7
+    # Un solo giorno di attivita': un solo bucket, non piu' una finestra fissa.
+    assert len(buckets) == 1
     today = buckets[-1]
     assert [c["category"] for c in today["categories"]] == [
         "fermo",
@@ -179,15 +191,77 @@ def test_day_buckets_aggregate_seconds_and_distance_per_category(user):
 
 
 @pytest.mark.django_db
-def test_week_granularity_returns_eight_buckets_with_current_week_last(user):
+def test_day_buckets_span_the_full_history_including_empty_days(user):
+    trip = Trip.objects.create(user=user, device_id="d", client_session_id="s")
+    noon = timezone.now().replace(hour=12, minute=0, second=0, microsecond=0)
+    add_segment(trip, noon - timedelta(days=9), 10, "WALKING", distance=1200)
+    add_segment(trip, noon, 20, "BIKING", distance=500)
+
+    buckets = get_analytics(user, granularity="day", tz="UTC").json()["buckets"]
+
+    # Dal viaggio meno recente al piu' recente: 10 giorni, bucket vuoti inclusi.
+    assert len(buckets) == 10
+    assert seconds_for(buckets[0], "a_piedi") == 600
+    assert seconds_for(buckets[-1], "in_bici") == 1200
+    assert all(c["seconds"] == 0 for b in buckets[1:-1] for c in b["categories"])
+
+
+@pytest.mark.django_db
+def test_week_granularity_returns_one_bucket_for_a_single_active_week(user):
     trip = Trip.objects.create(user=user, device_id="d", client_session_id="s")
     noon = timezone.now().replace(hour=12, minute=0, second=0, microsecond=0)
     add_segment(trip, noon, 10, "BIKING", distance=500)
 
     buckets = get_analytics(user, granularity="week", tz="UTC").json()["buckets"]
 
-    assert len(buckets) == 8
+    assert len(buckets) == 1
     assert seconds_for(buckets[-1], "in_bici") == 600
+
+
+@pytest.mark.django_db
+def test_week_buckets_span_the_full_history_including_empty_weeks(user):
+    trip = Trip.objects.create(user=user, device_id="d", client_session_id="s")
+    noon = timezone.now().replace(hour=12, minute=0, second=0, microsecond=0)
+    add_segment(trip, noon - timedelta(weeks=3), 10, "WALKING", distance=1200)
+    add_segment(trip, noon, 20, "BIKING", distance=500)
+
+    buckets = get_analytics(user, granularity="week", tz="UTC").json()["buckets"]
+
+    assert len(buckets) == 4
+    assert seconds_for(buckets[0], "a_piedi") == 600
+    assert seconds_for(buckets[-1], "in_bici") == 1200
+    assert all(c["seconds"] == 0 for b in buckets[1:-1] for c in b["categories"])
+
+
+@pytest.mark.django_db
+def test_day_buckets_are_capped_against_a_runaway_timestamp(user):
+    # Un timestamp anomalo (clock del device sballato, bug di ingestion) non
+    # deve far generare bucket per decenni: la Finestra Analitica si ferma a
+    # _ANALYTICS_MAX_SPAN dal bucket piu' recente.
+    trip = Trip.objects.create(user=user, device_id="d", client_session_id="s")
+    noon = timezone.now().replace(hour=12, minute=0, second=0, microsecond=0)
+    add_segment(trip, noon, 10, "WALKING", distance=1200)
+    add_segment(trip, noon - timedelta(days=20 * 365), 5, "BIKING", distance=50)
+
+    buckets = get_analytics(user, granularity="day", tz="UTC").json()["buckets"]
+
+    assert len(buckets) <= 3651
+    assert seconds_for(buckets[-1], "a_piedi") == 600
+    # Il bucket vecchio di 20 anni resta fuori dalla Finestra Analitica.
+    assert all(seconds_for(b, "in_bici") == 0 for b in buckets)
+
+
+@pytest.mark.django_db
+def test_week_buckets_are_capped_against_a_runaway_timestamp(user):
+    trip = Trip.objects.create(user=user, device_id="d", client_session_id="s")
+    noon = timezone.now().replace(hour=12, minute=0, second=0, microsecond=0)
+    add_segment(trip, noon, 10, "WALKING", distance=1200)
+    add_segment(trip, noon - timedelta(days=20 * 365), 5, "BIKING", distance=50)
+
+    buckets = get_analytics(user, granularity="week", tz="UTC").json()["buckets"]
+
+    assert len(buckets) <= 523
+    assert seconds_for(buckets[-1], "a_piedi") == 600
 
 
 @pytest.mark.django_db
@@ -206,19 +280,25 @@ def test_segments_are_bucketed_by_local_day_boundary(user):
 
 @pytest.mark.django_db
 def test_unknown_timezone_falls_back_without_error(user):
+    trip = Trip.objects.create(user=user, device_id="d", client_session_id="s")
+    add_segment(trip, timezone.now(), 10, "WALKING")
+
     response = get_analytics(user, granularity="day", tz="Not/AZone")
 
     assert response.status_code == 200
-    assert len(response.json()["buckets"]) == 7
+    assert len(response.json()["buckets"]) == 1
 
 
 @pytest.mark.django_db
 def test_numeric_offset_timezone_is_accepted(user):
     # Il mobile invia l'offset locale in minuti (es. +120 = CEST), non un nome IANA.
+    trip = Trip.objects.create(user=user, device_id="d", client_session_id="s")
+    add_segment(trip, timezone.now(), 10, "WALKING")
+
     response = get_analytics(user, granularity="day", tz="120")
 
     assert response.status_code == 200
-    assert len(response.json()["buckets"]) == 7
+    assert len(response.json()["buckets"]) == 1
 
 
 @pytest.mark.django_db

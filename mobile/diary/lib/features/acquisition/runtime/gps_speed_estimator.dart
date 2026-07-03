@@ -23,6 +23,11 @@ class GpsSpeedEstimator {
   static const double _accuracyDeadZoneFactor = 0.35;
   static const double _maximumDeadZoneMeters = 12;
   static const double _maximumReasonableSpeedMetersPerSecond = 80;
+  // Sotto questa soglia trattiamo la velocita' riportata dalla piattaforma
+  // (rumore Doppler/multipath, tipico indoor) come non attendibile, invece di
+  // prenderla per buona. E' comunque sotto la soglia di movimento della FSM
+  // (2 km/h), quindi non nasconde un vero spostamento lento.
+  static const double _minimumUsableSpeedMetersPerSecond = 0.5;
   static const Duration _maxSpeedLookback = Duration(minutes: 2);
 
   final List<GpsSpeedFix> _fixes = [];
@@ -53,7 +58,7 @@ class GpsSpeedEstimator {
   }
 
   bool _isUsableSpeed(double speedMetersPerSecond) {
-    return speedMetersPerSecond > 0 &&
+    return speedMetersPerSecond > _minimumUsableSpeedMetersPerSecond &&
         speedMetersPerSecond <= _maximumReasonableSpeedMetersPerSecond;
   }
 

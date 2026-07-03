@@ -11,6 +11,9 @@ class FsmConfig {
   final double reliableGpsAccuracyMeters;
   final Duration stationaryDeepAfter;
   final Duration movementStationaryGracePeriod;
+  final int requiredConsecutiveMotionWindowsToHoldMovement;
+  final int requiredReliableGpsReadingsToHoldMovement;
+  final int requiredUnreliableGpsReadingsToHoldMovement;
 
   const FsmConfig({
     this.movementSigmaThreshold = 1,
@@ -21,6 +24,15 @@ class FsmConfig {
     this.reliableGpsAccuracyMeters = 35,
     this.stationaryDeepAfter = const Duration(minutes: 10),
     this.movementStationaryGracePeriod = const Duration(minutes: 2),
+    // Nel ramo movement -> stationary il sigma ha priorita': basta la stessa
+    // soglia dell'ingresso. Il GPS invece deve insistere piu' a lungo, e
+    // ancora di piu' se il fix e' impreciso (rumore Doppler/multipath tipico
+    // indoor) — stessa filosofia "affidabile vs inaffidabile" gia' usata in
+    // ingresso, ma tarata piu' stretta perche' qui il rischio e' restare
+    // bloccati in movement, non perdere l'inizio di un movimento reale.
+    this.requiredConsecutiveMotionWindowsToHoldMovement = 2,
+    this.requiredReliableGpsReadingsToHoldMovement = 3,
+    this.requiredUnreliableGpsReadingsToHoldMovement = 5,
   });
 }
 
@@ -57,6 +69,8 @@ class AcquisitionFsm {
 
   TrackingState _state;
   int _consecutiveMotionWindows = 0;
+  int _movementReliableGpsMotionFixes = 0;
+  int _movementUnreliableGpsMotionFixes = 0;
   int _stationaryReliableGpsMotionFixes = 0;
   int _stationaryUnreliableGpsMotionFixes = 0;
   double _latestSigma = 0;
@@ -111,12 +125,32 @@ class AcquisitionFsm {
 
   FsmDecision _onGpsFix(GpsFixReceived event) {
     _latestSpeedMetersPerSecond = event.speedMetersPerSecond;
+    _updateMovementGpsEvidence(event);
 
     if (_state == TrackingState.stationary) {
       return _onStationaryGpsFix(event);
     }
 
     return _evaluateMovementStationaryEvidence(event.timestamp);
+  }
+
+  // Tiene traccia, indipendentemente dallo stato, di quante letture GPS
+  // consecutive indicano moto, separando affidabili e inaffidabili — usato
+  // dal ramo movement -> stationary per decidere se fidarsi del GPS.
+  void _updateMovementGpsEvidence(GpsFixReceived event) {
+    if (!_isMovementSpeed(event.speedMetersPerSecond)) {
+      _movementReliableGpsMotionFixes = 0;
+      _movementUnreliableGpsMotionFixes = 0;
+      return;
+    }
+
+    if (_isReliableGpsFix(event)) {
+      _movementReliableGpsMotionFixes += 1;
+      _movementUnreliableGpsMotionFixes = 0;
+    } else {
+      _movementUnreliableGpsMotionFixes += 1;
+      _movementReliableGpsMotionFixes = 0;
+    }
   }
 
   FsmDecision _onStationaryGpsFix(GpsFixReceived event) {
@@ -154,8 +188,25 @@ class AcquisitionFsm {
   }
 
   FsmDecision _evaluateMovementStationaryEvidence(DateTime timestamp) {
-    if (_isMovementSpeed(_latestSpeedMetersPerSecond) ||
-        _isMotion(_latestSigma)) {
+    // Ogni canale ha il proprio contatore di letture "in moto" consecutive
+    // (aggiornato solo da eventi dello stesso tipo, in _onMotionWindow /
+    // _onGpsFix). Una singola lettura rumorosa isolata su un canale (rumore
+    // Doppler/multipath GPS, uno spike accelerometrico) non basta da sola:
+    // serve che ALMENO UN canale mostri una sequenza consecutiva propria per
+    // essere considerata moto reale sostenuta, non solo il valore piu'
+    // recente (possibilmente stantio) dell'altro canale.
+    //
+    // Il sigma ha priorita': gli basta la stessa soglia dell'ingresso (2). Il
+    // GPS deve insistere di piu' per essere creduto qui, ed e' pesato per
+    // affidabilita' del fix, come gia' avviene in ingresso.
+    final sustainedMotion = _consecutiveMotionWindows >=
+            config.requiredConsecutiveMotionWindowsToHoldMovement ||
+        _movementReliableGpsMotionFixes >=
+            config.requiredReliableGpsReadingsToHoldMovement ||
+        _movementUnreliableGpsMotionFixes >=
+            config.requiredUnreliableGpsReadingsToHoldMovement;
+
+    if (sustainedMotion) {
       _stationaryEvidenceStartedAt = null;
       return _stay(timestamp);
     }
@@ -183,6 +234,8 @@ class AcquisitionFsm {
     final previousState = _state;
     _state = nextState;
     _consecutiveMotionWindows = 0;
+    _movementReliableGpsMotionFixes = 0;
+    _movementUnreliableGpsMotionFixes = 0;
     _stationaryEvidenceStartedAt = null;
     _resetStationaryGpsEvidence();
 

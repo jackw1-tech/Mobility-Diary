@@ -8,6 +8,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 const Color routeAssistantRouteColor = Color(0xFF7C4DFF); // viola percorso
 const Color _selectedManualColor = Color(0xFF4FC3F7); // azzurrino manuale
 const Color _detectedColor = Color(0xFFFFD54F); // giallo modalita' rilevata
+const IconData _stationaryModeIcon = Icons.pause;
 
 /// Stack verticale di selettori in alto a sinistra, visibile solo con un
 /// percorso attivo. `liveEnabled` gate del pulsante Live (calcolato dal parent
@@ -37,15 +38,21 @@ class RouteAssistantControls extends StatelessWidget {
                 ),
                 _ControlButton(
                   icon: Icons.bolt,
-                  tooltip: liveEnabled
-                      ? 'Live'
-                      : 'Live (serve un viaggio in corso)',
+                  tooltip: state.isLive
+                      ? 'Spegni Live'
+                      : liveEnabled
+                          ? 'Live'
+                          : 'Live (serve un viaggio in corso)',
                   background: state.isLive ? _selectedManualColor : null,
-                  onPressed: liveEnabled ? cubit.toggleLive : null,
+                  onPressed:
+                      state.isLive || liveEnabled ? cubit.toggleLive : null,
                 ),
-                _modeButton(cubit, state, RouteMode.walking, Icons.directions_walk),
-                _modeButton(cubit, state, RouteMode.cycling, Icons.directions_bike),
-                _modeButton(cubit, state, RouteMode.driving, Icons.directions_car),
+                _modeButton(
+                    cubit, state, RouteMode.walking, Icons.directions_walk),
+                _modeButton(
+                    cubit, state, RouteMode.cycling, Icons.directions_bike),
+                _modeButton(
+                    cubit, state, RouteMode.driving, Icons.directions_car),
               ],
             ),
           ),
@@ -73,6 +80,72 @@ class RouteAssistantControls extends StatelessWidget {
       background: background,
       onPressed: state.isLive ? null : () => cubit.setMode(mode),
     );
+  }
+}
+
+class RouteDetectedModeIndicator extends StatelessWidget {
+  final RouteMode? mode;
+  final bool hasResult;
+
+  const RouteDetectedModeIndicator({
+    required this.mode,
+    required this.hasResult,
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      left: 8,
+      top: 8,
+      child: SafeArea(
+        child: Tooltip(
+          message: _tooltip,
+          child: Material(
+            color: Colors.white,
+            shape: const CircleBorder(),
+            elevation: 2,
+            child: SizedBox.square(
+              dimension: 48,
+              child: Icon(
+                _icon,
+                color: Colors.black87,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  IconData get _icon {
+    if (!hasResult) return Icons.more_horiz;
+    switch (mode) {
+      case RouteMode.walking:
+        return Icons.directions_walk;
+      case RouteMode.cycling:
+        return Icons.directions_bike;
+      case RouteMode.driving:
+        return Icons.directions_car;
+      case null:
+        // Il classifier restituisce null per idle: nel pallino passivo lo
+        // mostriamo come modalita' "fermo", distinta dall'attesa iniziale.
+        return _stationaryModeIcon;
+    }
+  }
+
+  String get _tooltip {
+    if (!hasResult) return 'Modalità in rilevamento';
+    switch (mode) {
+      case RouteMode.walking:
+        return 'A piedi';
+      case RouteMode.cycling:
+        return 'Bici';
+      case RouteMode.driving:
+        return 'Auto';
+      case null:
+        return 'Fermo';
+    }
   }
 }
 

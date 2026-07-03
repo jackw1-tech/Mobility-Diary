@@ -39,6 +39,7 @@ class _LiveMapState extends State<LiveMap> {
   bool _styleReady = false;
   bool _replayMarkerReady = false;
   bool _assistantRouteReady = false;
+  RouteAssistantCubit? _routeAssistantCubit;
 
   /// Se true la camera insegue automaticamente la posizione corrente.
   bool _followUser = true;
@@ -47,6 +48,21 @@ class _LiveMapState extends State<LiveMap> {
   void initState() {
     super.initState();
     _resolveInitialCenter();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _syncPassiveModeDetection();
+    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _routeAssistantCubit = context.read<RouteAssistantCubit>();
+  }
+
+  @override
+  void dispose() {
+    _routeAssistantCubit?.setPassiveModeDetectionEnabled(false);
+    super.dispose();
   }
 
   Future<void> _resolveInitialCenter() async {
@@ -271,10 +287,22 @@ class _LiveMapState extends State<LiveMap> {
     _redrawRoute(state.routePoints);
     _syncNativePuck(state);
     _updateReplayMarker(state);
+    _syncPassiveModeDetection();
     final latest = state.latestPosition;
     if (latest != null && state.isTracking) {
       _followTo(latest);
     }
+  }
+
+  void _syncPassiveModeDetection() {
+    final acquisitionState = context.read<AcquisitionCubit>().state;
+    final assistant = context.read<RouteAssistantCubit>();
+    if (!acquisitionState.isTracking) {
+      assistant.clearDetectedModePrediction();
+    }
+    assistant.setPassiveModeDetectionEnabled(
+      acquisitionState.isTracking && !assistant.state.isActive,
+    );
   }
 
   @override
@@ -299,8 +327,10 @@ class _LiveMapState extends State<LiveMap> {
         BlocListener<RouteAssistantCubit, RouteAssistantState>(
           listenWhen: (previous, current) =>
               previous.routePoints != current.routePoints,
-          listener: (context, state) =>
-              _updateAssistantRoute(state.routePoints),
+          listener: (context, state) {
+            _updateAssistantRoute(state.routePoints);
+            _syncPassiveModeDetection();
+          },
         ),
       ],
       child: Stack(
@@ -317,6 +347,27 @@ class _LiveMapState extends State<LiveMap> {
             onStyleLoadedListener: _onStyleLoaded,
             onScrollListener: _pauseFollowForGesture,
             onZoomListener: _pauseFollowForGesture,
+          ),
+          BlocBuilder<AcquisitionCubit, AcquisitionCubitState>(
+            buildWhen: (previous, current) =>
+                previous.isTracking != current.isTracking,
+            builder: (context, acquisitionState) =>
+                BlocBuilder<RouteAssistantCubit, RouteAssistantState>(
+              buildWhen: (previous, current) =>
+                  previous.isActive != current.isActive ||
+                  previous.detectedMode != current.detectedMode ||
+                  previous.hasDetectedModeResult !=
+                      current.hasDetectedModeResult,
+              builder: (context, assistantState) {
+                if (!acquisitionState.isTracking || assistantState.isActive) {
+                  return const SizedBox.shrink();
+                }
+                return RouteDetectedModeIndicator(
+                  mode: assistantState.detectedMode,
+                  hasResult: assistantState.hasDetectedModeResult,
+                );
+              },
+            ),
           ),
           BlocBuilder<AcquisitionCubit, AcquisitionCubitState>(
             buildWhen: (previous, current) =>

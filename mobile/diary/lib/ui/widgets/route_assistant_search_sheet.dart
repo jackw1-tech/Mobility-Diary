@@ -36,8 +36,13 @@ class _RouteAssistantSearchSheetState extends State<RouteAssistantSearchSheet> {
   }
 
   Future<void> _confirm() async {
-    await context.read<RouteAssistantCubit>().confirmDestination();
-    if (mounted) Navigator.of(context).pop();
+    final cubit = context.read<RouteAssistantCubit>();
+    await cubit.confirmDestination();
+    if (!mounted) return;
+    final state = cubit.state;
+    if (state.errorMessage == null && state.routePoints.isNotEmpty) {
+      Navigator.of(context).pop();
+    }
   }
 
   @override
@@ -48,7 +53,8 @@ class _RouteAssistantSearchSheetState extends State<RouteAssistantSearchSheet> {
         left: Dimensions.paddingMedium,
         right: Dimensions.paddingMedium,
         top: Dimensions.paddingMedium,
-        bottom: MediaQuery.of(context).viewInsets.bottom + Dimensions.paddingMedium,
+        bottom:
+            MediaQuery.of(context).viewInsets.bottom + Dimensions.paddingMedium,
       ),
       child: BlocBuilder<RouteAssistantCubit, RouteAssistantState>(
         builder: (context, state) {
@@ -76,10 +82,20 @@ class _RouteAssistantSearchSheetState extends State<RouteAssistantSearchSheet> {
               ),
               const SizedBox(height: Dimensions.paddingSmall),
               ..._results(cubit, state),
+              if (state.errorMessage != null) ...[
+                const SizedBox(height: Dimensions.paddingSmall),
+                Text(
+                  state.errorMessage!,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                ),
+              ],
               const SizedBox(height: Dimensions.paddingSmall),
               FilledButton.icon(
-                onPressed:
-                    state.destination == null || state.isRouting ? null : _confirm,
+                onPressed: state.destination == null || state.isRouting
+                    ? null
+                    : _confirm,
                 icon: state.isRouting
                     ? const SizedBox.square(
                         dimension: 18,
