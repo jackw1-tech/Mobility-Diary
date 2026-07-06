@@ -535,6 +535,36 @@ select:focus {
   border-top-style: dashed;
 }
 
+.legend-dot {
+  width: 12px;
+  height: 12px;
+  display: inline-block;
+  border-radius: 999px;
+}
+
+.stop-dot {
+  background: #ffffff;
+  border: 2px solid #525252;
+}
+
+.place-dot {
+  background: #0f766e;
+  border: 2px solid #0f766e;
+}
+
+.map-tooltip-detail {
+  display: grid;
+  gap: 2px;
+}
+
+.map-tooltip-detail strong {
+  margin-bottom: 2px;
+}
+
+.map-tooltip-detail span {
+  white-space: nowrap;
+}
+
 .trip-map {
   min-height: 800px;
   height: 100%;
@@ -627,6 +657,19 @@ select:focus {
 
 .day-jump-control {
   min-width: 220px;
+}
+
+.daily-dashboard-section {
+  display: grid;
+  gap: var(--space-lg);
+  padding-top: var(--space-lg);
+  border-top: 1px solid var(--color-hairline);
+}
+
+.daily-heading-actions {
+  display: flex;
+  align-items: end;
+  gap: var(--space-md);
 }
 
 .link-button.disabled {
@@ -842,6 +885,11 @@ select:focus {
   }
 
   .filters-actions {
+    flex-direction: column;
+  }
+
+  .daily-heading-actions {
+    align-items: stretch;
     flex-direction: column;
   }
 

@@ -8,6 +8,7 @@ import 'package:diary/theme/dimensions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:share_plus/share_plus.dart';
 
 /// Apre il preview testuale dell'export privacy-aware del viaggio.
 ///
@@ -82,11 +83,16 @@ class _ReadyView extends StatelessWidget {
             Expanded(
               child: Text(
                 'Export diario',
-                style: textTheme.titleLarge
-                    ?.copyWith(fontWeight: FontWeight.w700),
+                style:
+                    textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
               ),
             ),
             _ProtectionChip(isProtected: export.isProtected),
+            IconButton(
+              tooltip: 'Chiudi',
+              onPressed: () => Navigator.of(context).maybePop(),
+              icon: const Icon(Icons.close),
+            ),
           ],
         ),
         const SizedBox(height: Dimensions.paddingSmall),
@@ -137,19 +143,39 @@ class _ReadyView extends StatelessWidget {
         const SizedBox(height: Dimensions.paddingMedium),
         Row(
           children: [
+            Expanded(child: _CopyButton(text: export.text)),
+            const SizedBox(width: Dimensions.paddingSmall),
             Expanded(
-              child: OutlinedButton.icon(
-                onPressed: () => Navigator.of(context).maybePop(),
-                icon: const Icon(Icons.close),
-                label: const Text('Chiudi'),
+              child: FilledButton.icon(
+                onPressed: () => _shareExport(context, export),
+                icon: const Icon(Icons.ios_share),
+                label: const Text('Condividi'),
               ),
             ),
-            const SizedBox(width: Dimensions.paddingSmall),
-            Expanded(child: _CopyButton(text: export.text)),
           ],
         ),
       ],
     );
+  }
+
+  Future<void> _shareExport(
+    BuildContext context,
+    TripPrivacyExportDto export,
+  ) async {
+    try {
+      await SharePlus.instance.share(
+        ShareParams(
+          title: 'Export diario viaggio #${export.tripId}',
+          subject: 'Export diario viaggio #${export.tripId}',
+          text: export.text,
+        ),
+      );
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Condivisione non disponibile')),
+      );
+    }
   }
 }
 

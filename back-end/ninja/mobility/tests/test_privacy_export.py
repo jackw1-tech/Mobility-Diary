@@ -140,6 +140,10 @@ def test_privacy_export_uses_saved_level_and_masks_non_precise(user):
     assert stop["title"] == "Sosta significativa in area approssimata"
 
     text = payload["text"]
+    assert f"Diario viaggio #{trip.id}" in text
+    assert "Privacy level: approximate" in text
+    assert "Cell size: 150 m" in text
+    assert "Coordinate approssimate: non sono letture GPS originali." in text
     assert "spostamento a piedi" in text
     # No sensitive label and no coordinate leaks into the export text.
     assert "universita" not in text

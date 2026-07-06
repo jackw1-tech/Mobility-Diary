@@ -296,11 +296,11 @@ function drawPrivacyPlaces(visiblePoints: LatLngTuple[]) {
     // The label is already masked server-side for non-precise levels, so the
     // tooltip never leaks a sensitive place name.
     L.circleMarker(position, {
-      color: '#111111',
-      fillColor: '#111111',
-      fillOpacity: 0.78,
-      radius: 7,
-      weight: 2,
+      color: '#0f766e',
+      fillColor: '#0f766e',
+      fillOpacity: 0.88,
+      radius: 10,
+      weight: 3,
     })
       .bindTooltip(place.label || 'Sosta significativa')
       .addTo(leafletMap);
@@ -319,15 +319,35 @@ function drawStopMarkers(
     const position: LatLngTuple = [lat, lon];
     visiblePoints.push(position);
     L.circleMarker(position, {
-      color: '#111111',
-      fillColor: '#111111',
-      fillOpacity: 0.78,
-      radius: 7,
+      color: '#525252',
+      fillColor: '#ffffff',
+      fillOpacity: 0.92,
+      radius: 6,
       weight: 2,
     })
-      .bindTooltip(segment.place?.label || 'Sosta rilevata')
+      .bindTooltip(stopTooltipContent(segment))
       .addTo(leafletMap);
   }
+}
+
+function stopTooltipContent(segment: DashboardSegment): string {
+  return [
+    '<div class="map-tooltip-detail">',
+    `<strong>${escapeHtml(segment.place?.label || 'Sosta rilevata')}</strong>`,
+    `<span>Inizio: ${escapeHtml(formatDateTime(segment.start_timestamp))}</span>`,
+    `<span>Fine: ${escapeHtml(formatDateTime(segment.end_timestamp))}</span>`,
+    `<span>Durata: ${escapeHtml(formatDuration(segmentSeconds(segment)))}</span>`,
+    '</div>',
+  ].join('');
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
 
 function destroyMap() {
@@ -547,6 +567,8 @@ onBeforeUnmount(destroyMap);
         <div class="map-legend">
           <span><i class="legend-line private-line"></i>Privata</span>
           <span><i class="legend-line privacy-line"></i>Privacy-aware</span>
+          <span><i class="legend-dot stop-dot"></i>Sosta</span>
+          <span><i class="legend-dot place-dot"></i>Luogo significativo</span>
           <strong>{{ dashboard.privacy_aware.level }}</strong>
         </div>
         <div ref="mapElement" class="trip-map"></div>

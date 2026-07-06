@@ -550,9 +550,24 @@ def _adjacent_stop_title(
     return neighbour.title if neighbour.kind == MobilitySegment.Kind.STOP else None
 
 
-def _export_text(segments: list[PrivacyExportSegmentOut]) -> str:
+def _export_text(
+    *,
+    trip_id: int,
+    level: str,
+    cell_size_meters: int | None,
+    segments: list[PrivacyExportSegmentOut],
+) -> str:
     # Le etichette privacy-aware delle soste arrivano gia' filtrate da _export_segment.
-    lines = []
+    lines = [
+        f"Diario viaggio #{trip_id}",
+        f"Privacy level: {level}",
+    ]
+    if cell_size_meters is not None:
+        lines.append(f"Cell size: {cell_size_meters} m")
+        lines.append("Coordinate approssimate: non sono letture GPS originali.")
+    else:
+        lines.append("Coordinate precise: export non protetto.")
+    lines.append("")
     for index, segment in enumerate(segments):
         time_range = f"{segment.start_label}–{segment.end_label}"
         if segment.kind == MobilitySegment.Kind.MOVE:
@@ -620,7 +635,12 @@ def get_trip_privacy_export(request, trip_id: int):
         protected=level != UserPrivacySettings.Level.PRECISE,
         approximated_coordinates=privacy_cell_size_meters(level) is not None,
         cell_size_meters=privacy_cell_size_meters(level),
-        text=_export_text(segments),
+        text=_export_text(
+            trip_id=trip.id,
+            level=level,
+            cell_size_meters=privacy_cell_size_meters(level),
+            segments=segments,
+        ),
         segments=segments,
     )
 
