@@ -4,6 +4,7 @@ import DashboardShell from './views/DashboardShell.vue';
 import UsersListView from './views/UsersListView.vue';
 import UserTripsView from './views/UserTripsView.vue';
 import TripDashboardView from './views/TripDashboardView.vue';
+import DailyDashboardView from './views/DailyDashboardView.vue';
 import { authSession } from './services/authSession';
 
 export const router = createRouter({
@@ -35,6 +36,11 @@ export const router = createRouter({
           path: 'users/:userId/trips/:tripId',
           name: 'trip-dashboard',
           component: TripDashboardView,
+        },
+        {
+          path: 'users/:userId/days/:day',
+          name: 'daily-dashboard',
+          component: DailyDashboardView,
         },
       ],
     },

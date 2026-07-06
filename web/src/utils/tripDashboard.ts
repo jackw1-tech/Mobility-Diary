@@ -49,12 +49,18 @@ export type SegmentFilters = {
   activities?: string[];
   from?: string;
   to?: string;
+  place?: string;
 };
 
 export type ActivityFilterOption = {
   value: string;
   label: string;
   color: string;
+};
+
+export type PlaceFilterOption = {
+  value: string;
+  label: string;
 };
 
 export function isStopSegment(segment: DashboardSegment): boolean {
@@ -95,22 +101,37 @@ export function activityFilterOptions(
   return [...options.values()];
 }
 
+export function placeFilterOptions(
+  segments: DashboardSegment[],
+): PlaceFilterOption[] {
+  const options = new Map<string, PlaceFilterOption>();
+  for (const segment of orderedSegments(segments)) {
+    const label = segment.place?.label;
+    if (!label) continue;
+    options.set(label, { value: label, label });
+  }
+  return [...options.values()];
+}
+
 export function filterSegments(
   segments: DashboardSegment[],
   filters: SegmentFilters,
 ): DashboardSegment[] {
   const activities = new Set(filters.activities ?? []);
+  const place = filters.place ?? '';
   const from = filterTimestamp(filters.from);
   const to = filterTimestamp(filters.to);
+  if (from != null && to != null && from > to) return [];
 
-  return orderedSegments(segments).filter((segment) => {
+  return orderedSegments(segments).flatMap((segment) => {
     const startsAt = Date.parse(segment.start_timestamp);
     const endsAt = Date.parse(segment.end_timestamp);
-    return (
-      (activities.size === 0 || activities.has(segment.activity_label)) &&
-      (from == null || endsAt >= from) &&
-      (to == null || startsAt <= to)
-    );
+    if (activities.size > 0 && !activities.has(segment.activity_label)) return [];
+    if (place && segment.place?.label !== place) return [];
+    if (from != null && endsAt <= from) return [];
+    if (to != null && startsAt >= to) return [];
+
+    return [clipSegmentToWindow(segment, from, to)];
   });
 }
 
@@ -168,6 +189,115 @@ export function stopLabel(segment: DashboardSegment): string {
 
 function secondsBetween(start: string, end: string): number {
   return Math.max(0, (Date.parse(end) - Date.parse(start)) / 1000);
+}
+
+function clipSegmentToWindow(
+  segment: DashboardSegment,
+  from: number | null,
+  to: number | null,
+): DashboardSegment {
+  const startsAt = Date.parse(segment.start_timestamp);
+  const endsAt = Date.parse(segment.end_timestamp);
+  const clippedStart = from == null ? startsAt : Math.max(startsAt, from);
+  const clippedEnd = to == null ? endsAt : Math.min(endsAt, to);
+  if (clippedStart === startsAt && clippedEnd === endsAt) return segment;
+  const originalDuration = Math.max(0, endsAt - startsAt);
+  const startFraction = originalDuration === 0
+    ? 0
+    : (clippedStart - startsAt) / originalDuration;
+  const endFraction = originalDuration === 0
+    ? 1
+    : (clippedEnd - startsAt) / originalDuration;
+
+  return {
+    ...segment,
+    start_timestamp: new Date(clippedStart).toISOString(),
+    end_timestamp: new Date(clippedEnd).toISOString(),
+    distance_meters: proratedDistance(segment, startsAt, endsAt, clippedStart, clippedEnd),
+    path_geojson: segment.kind === 'MOVE'
+      ? clipLineString(segment.path_geojson, startFraction, endFraction)
+      : segment.path_geojson,
+  };
+}
+
+function clipLineString(
+  line: DashboardLineString | null | undefined,
+  startFraction: number,
+  endFraction: number,
+): DashboardLineString | null | undefined {
+  if (!line || line.coordinates.length < 2) return line;
+  const start = clampFraction(startFraction);
+  const end = clampFraction(endFraction);
+  if (start <= 0 && end >= 1) return line;
+  if (start >= end) return null;
+
+  const maxIndex = line.coordinates.length - 1;
+  const startPosition = start * maxIndex;
+  const endPosition = end * maxIndex;
+  const coordinates: [number, number][] = [
+    interpolateCoordinate(line.coordinates, startPosition),
+  ];
+
+  for (
+    let index = Math.floor(startPosition) + 1;
+    index <= Math.floor(endPosition);
+    index += 1
+  ) {
+    if (index > 0 && index < maxIndex) {
+      coordinates.push(line.coordinates[index]);
+    }
+  }
+
+  coordinates.push(interpolateCoordinate(line.coordinates, endPosition));
+  return {
+    ...line,
+    coordinates: dedupeAdjacentCoordinates(coordinates),
+  };
+}
+
+function interpolateCoordinate(
+  coordinates: [number, number][],
+  position: number,
+): [number, number] {
+  const lower = Math.floor(position);
+  const upper = Math.ceil(position);
+  if (lower === upper) return coordinates[lower];
+  const fraction = position - lower;
+  const [leftLon, leftLat] = coordinates[lower];
+  const [rightLon, rightLat] = coordinates[upper];
+  return [
+    leftLon + (rightLon - leftLon) * fraction,
+    leftLat + (rightLat - leftLat) * fraction,
+  ];
+}
+
+function dedupeAdjacentCoordinates(
+  coordinates: [number, number][],
+): [number, number][] {
+  return coordinates.filter((coordinate, index) => (
+    index === 0 ||
+    coordinate[0] !== coordinates[index - 1][0] ||
+    coordinate[1] !== coordinates[index - 1][1]
+  ));
+}
+
+function clampFraction(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(1, Math.max(0, value));
+}
+
+function proratedDistance(
+  segment: DashboardSegment,
+  startsAt: number,
+  endsAt: number,
+  clippedStart: number,
+  clippedEnd: number,
+): number {
+  if (segment.kind !== 'MOVE') return segment.distance_meters;
+  const originalDuration = endsAt - startsAt;
+  if (originalDuration <= 0) return 0;
+  const visibleDuration = Math.max(0, clippedEnd - clippedStart);
+  return segment.distance_meters * (visibleDuration / originalDuration);
 }
 
 function filterTimestamp(value?: string): number | null {

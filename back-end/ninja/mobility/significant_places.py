@@ -31,8 +31,9 @@ MAX_GAP_SECONDS = MIN_STAY_SECONDS
 MAX_ACCURACY_METERS = 100.0    # i punti piu' imprecisi di cosi' vengono ignorati
 
 # Clustering DBSCAN delle visite -> Luoghi Candidati (ADR 0022).
-CLUSTER_EPS_METERS = STAY_RADIUS_METERS  # soglia spaziale fra centroidi di visite
-CLUSTER_MIN_VISITS = 2                    # un one-off isolato resta visita, non luogo
+CLUSTER_EPS_METERS = 100.0                # soglia spaziale fra centroidi di visite
+CLUSTER_MIN_VISITS = 3                    # cluster spaziale minimo per un luogo
+MIN_CANDIDATE_DISTINCT_DAYS = 2           # un candidato richiede ritorno in piu' giorni
 AUTO_CONFIRM_DISTINCT_DAYS = 3            # auto-conferma con evidenza su >= 3 giorni
 # Proiezione metrica usata solo in query per il clustering spaziale lato PostGIS.
 # ETRS89 / LAEA Europe mantiene un errore contenuto su scala europea senza
@@ -191,15 +192,19 @@ def _cluster_into_places(user_id: int, visits: list, manual_places: list) -> int
     visit_by_id = {visit.pk: visit for visit in visits}
     clusters = _postgis_visit_clusters(visits)
     visits_to_update = []
+    place_count = 0
     for cluster_visit_ids in clusters:
         cluster_visits = [visit_by_id[visit_id] for visit_id in cluster_visit_ids]
         place = _place_for_cluster(user_id, cluster_visits, manual_places)
+        if place is None:
+            continue
+        place_count += 1
         for visit in cluster_visits:
             visit.place = place
         visits_to_update.extend(cluster_visits)
     if visits_to_update:
         CandidateVisit.objects.bulk_update(visits_to_update, ["place"])
-    return len(clusters)
+    return place_count
 
 
 def _postgis_visit_clusters(visits: list) -> list[list[int]]:
@@ -263,7 +268,7 @@ def _python_visit_clusters(visits: list) -> list[list[int]]:
     return [[visits[index].pk for index in members] for members in clusters]
 
 
-def _place_for_cluster(user_id: int, visits: list, manual_places: list) -> HabitualPlace:
+def _place_for_cluster(user_id: int, visits: list, manual_places: list) -> HabitualPlace | None:
     """Riusa un luogo manuale vicino (reattach) o crea un nuovo Luogo automatico."""
     lats = [v.center.y for v in visits]
     lons = [v.center.x for v in visits]
@@ -278,6 +283,9 @@ def _place_for_cluster(user_id: int, visits: list, manual_places: list) -> Habit
         existing.distinct_days = distinct_days
         existing.save(update_fields=["visit_count", "distinct_days", "updated_at"])
         return existing
+
+    if distinct_days < MIN_CANDIDATE_DISTINCT_DAYS:
+        return None
 
     radius = max(
         haversine_meters(center_lat, center_lon, lat, lon)

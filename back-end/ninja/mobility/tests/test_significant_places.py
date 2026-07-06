@@ -255,7 +255,7 @@ def test_dbscan_merges_compatible_visits_and_isolates_far_ones():
         (45.4599, 9.1902),
         (45.5000, 9.2500),  # ~5 km piu' in la': one-off, rumore
     ]
-    clusters = _dbscan(coords, eps_meters=75, min_samples=2)
+    clusters = _dbscan(coords, eps_meters=100, min_samples=3)
     assert len(clusters) == 1
     assert sorted(clusters[0]) == [0, 1, 2]
 
@@ -263,15 +263,17 @@ def test_dbscan_merges_compatible_visits_and_isolates_far_ones():
 def test_dbscan_keeps_unrelated_areas_separate():
     coords = [
         (45.4600, 9.1900),
-        (45.4601, 9.1901),  # area A
+        (45.4601, 9.1901),
+        (45.4599, 9.1902),  # area A
         (45.5000, 9.2500),
-        (45.5001, 9.2501),  # area B
+        (45.5001, 9.2501),
+        (45.4999, 9.2502),  # area B
     ]
-    assert len(_dbscan(coords, eps_meters=75, min_samples=2)) == 2
+    assert len(_dbscan(coords, eps_meters=100, min_samples=3)) == 2
 
 
 def test_dbscan_single_visit_is_noise():
-    assert _dbscan([(45.46, 9.19)], eps_meters=75, min_samples=2) == []
+    assert _dbscan([(45.46, 9.19)], eps_meters=100, min_samples=3) == []
 
 
 @pytest.mark.django_db
@@ -291,18 +293,36 @@ def test_recurring_visits_on_three_distinct_days_auto_confirm(user):
 
 
 @pytest.mark.django_db
-def test_repeated_visits_on_a_single_day_stay_candidate(user):
+def test_repeated_visits_on_a_single_day_do_not_create_a_place(user):
     base = timezone.now().replace(hour=8, minute=0)
     trip = Trip.objects.create(user=user, client_session_id="a", device_id="d")
     _stay(trip, base, 45.46, 9.19)
-    _stay(trip, base + timedelta(hours=3), 45.46, 9.19)  # stesso giorno, 2 visite
+    _stay(trip, base + timedelta(hours=3), 45.46, 9.19)
+    _stay(trip, base + timedelta(hours=6), 45.46, 9.19)
 
-    mine_user_significant_places(user.id)
+    result = mine_user_significant_places(user.id)
 
+    assert result["visits"] == 3
+    assert result["places"] == 0
+    assert HabitualPlace.objects.filter(user=user).count() == 0
+    assert CandidateVisit.objects.filter(user=user, place__isnull=True).count() == 3
+
+
+@pytest.mark.django_db
+def test_three_visits_on_two_distinct_days_create_candidate(user):
+    base = timezone.now().replace(hour=8, minute=0)
+    trip = Trip.objects.create(user=user, client_session_id="a", device_id="d")
+    _stay(trip, base, 45.46, 9.19)
+    _stay(trip, base + timedelta(hours=3), 45.46, 9.19)
+    _stay(trip, base + timedelta(days=1), 45.46, 9.19)
+
+    result = mine_user_significant_places(user.id)
+
+    assert result["places"] == 1
     place = HabitualPlace.objects.get(user=user)
     assert place.state == HabitualPlace.State.CANDIDATE
-    assert place.distinct_days == 1
-    assert place.visit_count == 2
+    assert place.distinct_days == 2
+    assert place.visit_count == 3
 
 
 @pytest.mark.django_db
@@ -325,6 +345,8 @@ def test_distinct_areas_become_distinct_places_and_link_their_visits(user):
     for day in range(2):
         _stay(trip, base + timedelta(days=day), 45.46, 9.19)
         _stay(trip, base + timedelta(days=day, hours=5), 45.50, 9.25)
+    _stay(trip, base + timedelta(days=1, hours=8), 45.46, 9.19)
+    _stay(trip, base + timedelta(days=1, hours=13), 45.50, 9.25)
 
     result = mine_user_significant_places(user.id)
 
@@ -332,7 +354,7 @@ def test_distinct_areas_become_distinct_places_and_link_their_visits(user):
     assert HabitualPlace.objects.filter(user=user).count() == 2
     # Ogni luogo conserva le sue visite come evidenza; nessuna visita orfana.
     for place in HabitualPlace.objects.filter(user=user):
-        assert place.visits.count() == 2
+        assert place.visits.count() == 3
     assert CandidateVisit.objects.filter(user=user, place__isnull=True).count() == 0
 
 
@@ -363,9 +385,10 @@ def test_match_confirmed_place_returns_none_when_all_too_far():
 # --------------------------------------------------------------------------- #
 
 
-def _confirmed_two_day_place(user, trip, base):
+def _candidate_two_day_place(user, trip, base):
     for day in range(2):
         _stay(trip, base + timedelta(days=day), 45.46, 9.19)
+    _stay(trip, base + timedelta(days=1, hours=3), 45.46, 9.19)
     mine_user_significant_places(user.id)
     return HabitualPlace.objects.get(user=user)
 
@@ -374,7 +397,7 @@ def _confirmed_two_day_place(user, trip, base):
 def test_rejected_place_stays_frozen_and_does_not_resurface(user):
     base = timezone.now().replace(hour=8, minute=0)
     trip = Trip.objects.create(user=user, client_session_id="a", device_id="d")
-    place = _confirmed_two_day_place(user, trip, base)
+    place = _candidate_two_day_place(user, trip, base)
     place.state = HabitualPlace.State.REJECTED
     place.manually_reviewed = True
     place.save(update_fields=["state", "manually_reviewed"])
@@ -392,7 +415,7 @@ def test_rejected_place_stays_frozen_and_does_not_resurface(user):
 def test_manual_label_and_confirmation_survive_recompute(user):
     base = timezone.now().replace(hour=8, minute=0)
     trip = Trip.objects.create(user=user, client_session_id="a", device_id="d")
-    place = _confirmed_two_day_place(user, trip, base)
+    place = _candidate_two_day_place(user, trip, base)
     place.category = "universita"
     place.custom_name = "Bicocca"
     place.state = HabitualPlace.State.CONFIRMED
@@ -410,7 +433,7 @@ def test_manual_label_and_confirmation_survive_recompute(user):
     assert refreshed.custom_name == "Bicocca"
     assert refreshed.state == HabitualPlace.State.CONFIRMED
     assert refreshed.distinct_days == 3  # evidenza aggiornata dal reattach
-    assert refreshed.visits.count() == 3
+    assert refreshed.visits.count() == 4
 
 
 # --------------------------------------------------------------------------- #
@@ -438,7 +461,7 @@ def test_overlay_picks_closest_when_not_effectively_tied():
 def test_repeated_recompute_keeps_manual_curation_stable(user):
     base = timezone.now().replace(hour=8, minute=0)
     trip = Trip.objects.create(user=user, client_session_id="a", device_id="d")
-    place = _confirmed_two_day_place(user, trip, base)
+    place = _candidate_two_day_place(user, trip, base)
     place.category = "casa"
     place.state = HabitualPlace.State.CONFIRMED
     place.manually_reviewed = True

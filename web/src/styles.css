@@ -458,7 +458,7 @@ select:focus {
 .map-panel {
   grid-column: 1 / -1;
   position: relative;
-  min-height: 620px;
+  min-height: 800px;
   overflow: hidden;
 }
 
@@ -536,7 +536,7 @@ select:focus {
 }
 
 .trip-map {
-  min-height: 620px;
+  min-height: 800px;
   height: 100%;
 }
 
@@ -600,8 +600,38 @@ select:focus {
   border-radius: var(--radius-pill);
 }
 
-.timeline-panel {
+.timeline-panel,
+.diary-table-panel {
   grid-column: 1 / -1;
+}
+
+.diary-table-panel {
+  display: grid;
+  gap: var(--space-lg);
+  padding: var(--space-2xl);
+  background: var(--color-canvas);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-xl);
+}
+
+.diary-segment-row {
+  grid-template-columns:
+    minmax(150px, 1.1fr)
+    minmax(150px, 1.1fr)
+    minmax(90px, 0.7fr)
+    minmax(80px, 0.6fr)
+    minmax(120px, 0.9fr)
+    minmax(160px, 1.1fr)
+    minmax(100px, 0.7fr);
+}
+
+.day-jump-control {
+  min-width: 220px;
+}
+
+.link-button.disabled {
+  pointer-events: none;
+  opacity: 0.55;
 }
 
 .privacy-panel {
@@ -838,6 +868,10 @@ select:focus {
   }
 
   .table-row.trips-row {
+    width: 1040px;
+  }
+
+  .table-row.diary-segment-row {
     width: 1040px;
   }
 }

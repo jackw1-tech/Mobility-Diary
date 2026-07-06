@@ -4,6 +4,7 @@ import {
   activityFilterOptions,
   filterSegments,
   orderedSegments,
+  placeFilterOptions,
   stopLabel,
   summarizeTrip,
 } from '../.tmp-tests/src/utils/tripDashboard.js';
@@ -30,6 +31,26 @@ test('activityFilterOptions returns labels present in the open trip', () => {
   );
 });
 
+test('placeFilterOptions returns places present in the filtered diary', () => {
+  const placeSegments = [
+    segment('STOP', 'IDLE', '2026-06-24T08:10:00.000Z', '2026-06-24T08:20:00.000Z', 0, {
+      label: 'casa',
+      center_geojson: { type: 'Point', coordinates: [9.2, 45.47] },
+      radius_meters: 35,
+    }),
+    segment('STOP', 'IDLE', '2026-06-24T08:30:00.000Z', '2026-06-24T08:40:00.000Z', 0, {
+      label: 'lavoro',
+      center_geojson: { type: 'Point', coordinates: [9.3, 45.48] },
+      radius_meters: 35,
+    }),
+  ];
+
+  assert.deepEqual(placeFilterOptions(placeSegments).map((option) => option.label), [
+    'casa',
+    'lavoro',
+  ]);
+});
+
 test('filterSegments filters by activity and overlapping time interval', () => {
   assert.deepEqual(
     filterSegments(segments, { activities: ['BIKING'] }).map((item) => item.activity_label),
@@ -43,6 +64,76 @@ test('filterSegments filters by activity and overlapping time interval', () => {
     }).map((item) => item.activity_label),
     ['WALKING', 'IDLE'],
   );
+});
+
+test('filterSegments filters by significant place label', () => {
+  const placeSegments = [
+    segment('MOVE', 'WALKING', '2026-06-24T08:00:00.000Z', '2026-06-24T08:10:00.000Z', 500),
+    segment('STOP', 'IDLE', '2026-06-24T08:10:00.000Z', '2026-06-24T08:20:00.000Z', 0, {
+      label: 'casa',
+      center_geojson: { type: 'Point', coordinates: [9.2, 45.47] },
+      radius_meters: 35,
+    }),
+    segment('STOP', 'IDLE', '2026-06-24T08:30:00.000Z', '2026-06-24T08:40:00.000Z', 0, {
+      label: 'lavoro',
+      center_geojson: { type: 'Point', coordinates: [9.3, 45.48] },
+      radius_meters: 35,
+    }),
+  ];
+
+  assert.deepEqual(
+    filterSegments(placeSegments, { place: 'casa' }).map((item) => item.place?.label),
+    ['casa'],
+  );
+});
+
+test('filterSegments clips segments to the selected active time window', () => {
+  const visible = filterSegments(segments, {
+    from: '2026-06-24T08:05:00.000Z',
+    to: '2026-06-24T08:20:00.000Z',
+  });
+
+  assert.deepEqual(visible.map((item) => item.start_timestamp), [
+    '2026-06-24T08:05:00.000Z',
+    '2026-06-24T08:10:00.000Z',
+  ]);
+  assert.deepEqual(visible.map((item) => item.end_timestamp), [
+    '2026-06-24T08:10:00.000Z',
+    '2026-06-24T08:20:00.000Z',
+  ]);
+  assert.equal(visible[0].distance_meters, 250);
+
+  const stats = summarizeTrip(trip, visible, { durationMode: 'segments' });
+  assert.equal(stats.totalDurationSeconds, 900);
+  assert.equal(stats.movementSeconds, 300);
+  assert.equal(stats.stoppedSeconds, 600);
+});
+
+test('filterSegments clips move paths with the selected time window', () => {
+  const [visible] = filterSegments([
+    {
+      ...segment('MOVE', 'WALKING', '2026-06-24T08:00:00.000Z', '2026-06-24T08:40:00.000Z', 400),
+      path_geojson: {
+        type: 'LineString',
+        coordinates: [
+          [0, 45],
+          [1, 45],
+          [2, 45],
+          [3, 45],
+          [4, 45],
+        ],
+      },
+    },
+  ], {
+    from: '2026-06-24T08:10:00.000Z',
+    to: '2026-06-24T08:30:00.000Z',
+  });
+
+  assert.deepEqual(visible.path_geojson.coordinates, [
+    [1, 45],
+    [2, 45],
+    [3, 45],
+  ]);
 });
 
 test('summarizeTrip can summarize the currently visible subset', () => {

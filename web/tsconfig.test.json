@@ -8,5 +8,11 @@
     "outDir": ".tmp-tests",
     "rootDir": "."
   },
-  "include": ["src/utils/tripDashboard.ts", "src/utils/privacyDashboard.ts"]
+  "include": [
+    "src/services/apiClient.ts",
+    "src/services/authSession.ts",
+    "src/utils/tripDashboard.ts",
+    "src/utils/privacyDashboard.ts",
+    "src/vite-env.d.ts"
+  ]
 }

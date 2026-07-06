@@ -32,6 +32,7 @@ import {
   activityLabel,
   type DashboardSegment,
   filterSegments,
+  placeFilterOptions,
   stopLabel,
   segmentSeconds,
   summarizeTrip,
@@ -52,6 +53,7 @@ const mapElement = ref<HTMLElement | null>(null);
 const visibleMapLayer = ref<'private' | 'privacy-aware' | 'both'>('both');
 const filters = reactive({
   activities: [] as string[],
+  place: '',
   from: '',
   to: '',
 });
@@ -71,38 +73,36 @@ const stopSegments = computed(() => (
   visibleSegments.value.filter((segment) => segment.kind === 'STOP')
 ));
 const activityOptions = computed(() => (
-  activityFilterOptions(dashboard.value?.diary.segments ?? [])
+  activityFilterOptions(timeWindowSegments.value)
+));
+const placeOptions = computed(() => (
+  placeFilterOptions(timeWindowSegments.value)
+));
+const hasActivityFilters = computed(() => filters.activities.length > 0);
+const hasPlaceFilter = computed(() => Boolean(filters.place));
+const hasTimeWindowFilter = computed(() => (
+  filters.from !== tripStartInput.value ||
+  filters.to !== tripEndInput.value
 ));
 const hasLocalFilters = computed(() => (
-  filters.activities.length > 0 || Boolean(filters.from || filters.to)
+  hasActivityFilters.value || hasPlaceFilter.value || hasTimeWindowFilter.value
+));
+const showFullTripGhost = computed(() => (
+  hasActivityFilters.value && !hasTimeWindowFilter.value
+));
+const timeWindowSegments = computed(() => (
+  filterSegments(dashboard.value?.diary.segments ?? [], {
+    from: filters.from,
+    to: filters.to,
+  })
 ));
 const visibleSegments = computed(() => (
   filterSegments(dashboard.value?.diary.segments ?? [], filters)
 ));
-const stats = computed(() => (
-  dashboard.value
-    ? summarizeTrip(dashboard.value.trip, visibleSegments.value, {
-      durationMode: hasLocalFilters.value ? 'segments' : 'trip',
-    })
-    : null
-));
-const statCards = computed(() => {
-  if (!stats.value) return [];
-  return [
-    { icon: Clock, label: 'Durata totale', value: formatDuration(stats.value.totalDurationSeconds) },
-    { icon: RouteIcon, label: 'Movimento', value: formatDuration(stats.value.movementSeconds) },
-    {
-      icon: MapPinned,
-      label: 'Soste',
-      value: `${stats.value.stopCount} · ${formatDuration(stats.value.stoppedSeconds)}`,
-    },
-    { icon: BarChart3, label: 'Distanza movimento', value: formatDistance(stats.value.movementDistanceMeters) },
-  ];
-});
 const tripStartInput = computed(() => formatDateTimeInput(dashboard.value?.trip.started_at));
 const tripEndInput = computed(() => formatDateTimeInput(dashboard.value?.trip.ended_at));
 const hasVisibleMapGeometry = computed(() => Boolean(
-  dashboard.value?.track.geojson ||
+  (!hasLocalFilters.value && dashboard.value?.track.geojson) ||
   moveSegments.value.some((segment) => segment.path_geojson) ||
   stopSegments.value.some((segment) => segment.place?.center_geojson) ||
   visiblePrivacyStops.value.some((segment) => segment.place?.center_geojson),
@@ -123,8 +123,39 @@ const hasPrivateLayer = computed(() => (
 const hasPrivacyAwareLayer = computed(() => (
   visibleMapLayer.value === 'privacy-aware' || visibleMapLayer.value === 'both'
 ));
+const activeTimelineSegments = computed(() => (
+  hasPrivacyAwareLayer.value ? visiblePrivacySegments.value : visibleSegments.value
+));
+const activeTimelineLabel = computed(() => (
+  hasPrivacyAwareLayer.value
+    ? `Privacy-aware · ${privacyLevelLabel(dashboard.value?.privacy_aware.level ?? 'precise')}`
+    : 'Privata'
+));
+const stats = computed(() => (
+  dashboard.value
+    ? summarizeTrip(dashboard.value.trip, activeTimelineSegments.value, {
+      durationMode: hasLocalFilters.value ? 'segments' : 'trip',
+    })
+    : null
+));
+const statCards = computed(() => {
+  if (!stats.value) return [];
+  return [
+    { icon: Clock, label: 'Durata totale', value: formatDuration(stats.value.totalDurationSeconds) },
+    { icon: RouteIcon, label: 'Movimento', value: formatDuration(stats.value.movementSeconds) },
+    {
+      icon: MapPinned,
+      label: 'Soste',
+      value: `${stats.value.stopCount} · ${formatDuration(stats.value.stoppedSeconds)}`,
+    },
+    { icon: BarChart3, label: 'Distanza movimento', value: formatDistance(stats.value.movementDistanceMeters) },
+  ];
+});
 const privacyAware = computed(() => dashboard.value?.privacy_aware ?? null);
 const privacyPlaces = computed(() => privacyAware.value?.significant_places ?? []);
+const visiblePrivacyPlaces = computed(() => (
+  hasLocalFilters.value ? [] : privacyPlaces.value
+));
 const privacyMetricList = computed(() => (
   privacyAware.value
     ? privacyMetricCards(privacyAware.value.metrics, privacyAware.value.level)
@@ -178,7 +209,11 @@ function renderMap() {
 
   const visiblePoints: LatLngTuple[] = [];
   if (hasPrivateLayer.value) {
-    drawLine(dashboard.value.track.geojson, '#000000', 5, 0.45, visiblePoints);
+    if (!hasLocalFilters.value) {
+      drawLine(dashboard.value.track.geojson, '#000000', 5, 0.45, visiblePoints);
+    } else if (showFullTripGhost.value) {
+      drawLine(dashboard.value.track.geojson, '#000000', 3, 0.06, visiblePoints, undefined, false);
+    }
     for (const segment of moveSegments.value) {
       drawLine(
         segment.path_geojson ?? null,
@@ -192,14 +227,26 @@ function renderMap() {
   }
 
   if (hasPrivacyAwareLayer.value) {
-    drawLine(
-      dashboard.value.privacy_aware.track.geojson,
-      '#0f766e',
-      4,
-      0.9,
-      visiblePoints,
-      '8 8',
-    );
+    if (!hasLocalFilters.value) {
+      drawLine(
+        dashboard.value.privacy_aware.track.geojson,
+        '#0f766e',
+        4,
+        0.9,
+        visiblePoints,
+        '8 8',
+      );
+    } else if (showFullTripGhost.value) {
+      drawLine(
+        dashboard.value.privacy_aware.track.geojson,
+        '#0f766e',
+        3,
+        0.07,
+        visiblePoints,
+        '8 8',
+        false,
+      );
+    }
     for (const segment of visiblePrivacyMoves.value) {
       drawLine(
         segment.path_geojson ?? null,
@@ -228,16 +275,19 @@ function drawLine(
   opacity: number,
   visiblePoints: LatLngTuple[],
   dashArray?: string,
+  includeInBounds = true,
 ) {
   if (!geojson?.coordinates.length || !leafletMap) return;
   const points = geojson.coordinates.map(([lon, lat]) => [lat, lon] as LatLngTuple);
-  visiblePoints.push(...points);
+  if (includeInBounds) {
+    visiblePoints.push(...points);
+  }
   L.polyline(points, { color, dashArray, opacity, weight }).addTo(leafletMap);
 }
 
 function drawPrivacyPlaces(visiblePoints: LatLngTuple[]) {
   if (!leafletMap || !dashboard.value) return;
-  for (const place of dashboard.value.privacy_aware.significant_places) {
+  for (const place of visiblePrivacyPlaces.value) {
     const coordinates = place.center_geojson?.coordinates;
     if (!coordinates) continue;
     const [lon, lat] = coordinates;
@@ -287,14 +337,66 @@ function destroyMap() {
 
 function clearLocalFilters() {
   filters.activities = [];
-  filters.from = '';
-  filters.to = '';
+  filters.place = '';
+  resetTimeFilters();
+}
+
+function resetTimeFilters() {
+  filters.from = tripStartInput.value;
+  filters.to = tripEndInput.value;
+}
+
+function clampFromFilter() {
+  filters.from = clampDateTimeValue(
+    filters.from,
+    tripStartInput.value,
+    filters.to || tripEndInput.value,
+  );
+}
+
+function clampToFilter() {
+  filters.to = clampDateTimeValue(
+    filters.to,
+    filters.from || tripStartInput.value,
+    tripEndInput.value,
+  );
+}
+
+function clampDateTimeValue(value: string, min: string, max: string): string {
+  let current = value || min || max;
+  if (min && current < min) current = min;
+  if (max && current > max) current = max;
+  return current;
 }
 
 watch([userId, tripId], loadDashboard, { immediate: true });
-watch(dashboard, clearLocalFilters);
+watch(dashboard, () => {
+  filters.activities = [];
+  filters.place = '';
+  resetTimeFilters();
+});
+watch(activityOptions, (options) => {
+  const available = new Set(options.map((option) => option.value));
+  const selected = filters.activities.filter((activity) => available.has(activity));
+  if (selected.length !== filters.activities.length) {
+    filters.activities = selected;
+  }
+});
+watch(placeOptions, (options) => {
+  if (filters.place && !options.some((option) => option.value === filters.place)) {
+    filters.place = '';
+  }
+});
 watch(
-  [dashboard, moveSegments, stopSegments, visiblePrivacyMoves, visiblePrivacyStops, visibleMapLayer],
+  [
+    dashboard,
+    moveSegments,
+    stopSegments,
+    visiblePrivacyMoves,
+    visiblePrivacyStops,
+    visiblePrivacyPlaces,
+    visibleMapLayer,
+  ],
   () => nextTick(renderMap),
   { flush: 'post' },
 );
@@ -355,7 +457,8 @@ onBeforeUnmount(destroyMap);
               v-model="filters.from"
               type="datetime-local"
               :min="tripStartInput"
-              :max="tripEndInput || undefined"
+              :max="filters.to || tripEndInput || undefined"
+              @change="clampFromFilter"
             />
           </label>
           <label>
@@ -363,8 +466,9 @@ onBeforeUnmount(destroyMap);
             <input
               v-model="filters.to"
               type="datetime-local"
-              :min="tripStartInput"
+              :min="filters.from || tripStartInput"
               :max="tripEndInput || undefined"
+              @change="clampToFilter"
             />
           </label>
         </div>
@@ -388,6 +492,20 @@ onBeforeUnmount(destroyMap);
             Nessuna attività disponibile.
           </span>
         </fieldset>
+
+        <label>
+          Luogo significativo
+          <select v-model="filters.place" :disabled="placeOptions.length === 0">
+            <option value="">Tutti</option>
+            <option
+              v-for="place in placeOptions"
+              :key="place.value"
+              :value="place.value"
+            >
+              {{ place.label }}
+            </option>
+          </select>
+        </label>
 
         <div class="filters-actions">
           <button
@@ -514,10 +632,10 @@ onBeforeUnmount(destroyMap);
           </div>
         </div>
 
-        <div v-if="privacyPlaces.length > 0" class="privacy-places">
+        <div v-if="visiblePrivacyPlaces.length > 0" class="privacy-places">
           <p class="eyebrow">Luoghi significativi privacy-aware</p>
           <ul>
-            <li v-for="(place, index) in privacyPlaces" :key="index">
+            <li v-for="(place, index) in visiblePrivacyPlaces" :key="index">
               <span class="activity-dot privacy-place-dot"></span>
               <span>{{ place.label }}</span>
               <small>{{ formatDuration(place.dwell_seconds) }}</small>
@@ -531,11 +649,12 @@ onBeforeUnmount(destroyMap);
           <div>
             <p class="eyebrow">Diario</p>
             <h2 id="timeline-title">Timeline</h2>
+            <p>{{ activeTimelineLabel }}</p>
           </div>
-          <span class="muted-text">{{ visibleSegments.length }} segmenti</span>
+          <span class="muted-text">{{ activeTimelineSegments.length }} segmenti</span>
         </div>
 
-        <div v-if="visibleSegments.length === 0" class="message-panel state-panel">
+        <div v-if="activeTimelineSegments.length === 0" class="message-panel state-panel">
           <strong>
             {{ hasLocalFilters ? 'Nessun segmento corrisponde ai filtri.' : 'Diario non ancora disponibile.' }}
           </strong>
@@ -552,7 +671,7 @@ onBeforeUnmount(destroyMap);
         </div>
         <ol v-else class="timeline-list">
           <li
-            v-for="segment in visibleSegments"
+            v-for="segment in activeTimelineSegments"
             :key="`${segment.start_timestamp}-${segment.kind}`"
             class="timeline-item"
           >
@@ -578,6 +697,46 @@ onBeforeUnmount(destroyMap);
             </div>
           </li>
         </ol>
+      </section>
+
+      <section class="diary-table-panel" aria-labelledby="diary-table-title">
+        <div class="section-heading compact-heading">
+          <div>
+            <p class="eyebrow">Diario tabellare</p>
+            <h2 id="diary-table-title">Segmenti</h2>
+            <p>{{ activeTimelineLabel }}</p>
+          </div>
+          <span class="muted-text">{{ activeTimelineSegments.length }} righe</span>
+        </div>
+
+        <div v-if="activeTimelineSegments.length === 0" class="message-panel state-panel">
+          Nessun segmento da mostrare.
+        </div>
+        <div v-else class="data-table diary-segments-table" role="table" aria-label="Segmenti del diario">
+          <div class="table-row diary-segment-row table-header" role="row">
+            <span>Inizio</span>
+            <span>Fine</span>
+            <span>Durata</span>
+            <span>Tipo</span>
+            <span>Attività</span>
+            <span>Luogo</span>
+            <span>Distanza</span>
+          </div>
+          <div
+            v-for="segment in activeTimelineSegments"
+            :key="`${segment.start_timestamp}-${segment.end_timestamp}-${segment.kind}-table`"
+            class="table-row diary-segment-row"
+            role="row"
+          >
+            <span>{{ formatDateTime(segment.start_timestamp) }}</span>
+            <span>{{ formatDateTime(segment.end_timestamp) }}</span>
+            <span>{{ formatDuration(segmentSeconds(segment)) }}</span>
+            <span>{{ segment.kind }}</span>
+            <span>{{ activityLabel(segment.activity_label) }}</span>
+            <span>{{ segment.place ? stopLabel(segment) : '-' }}</span>
+            <span>{{ segment.kind === 'MOVE' ? formatDistance(segment.distance_meters) : '-' }}</span>
+          </div>
+        </div>
       </section>
     </div>
   </section>

@@ -27,6 +27,7 @@ const emptyFilters: Required<WebTripFilters> = {
   has_track: '',
 };
 const filters = reactive({ ...emptyFilters });
+const selectedDay = ref(new Date().toISOString().slice(0, 10));
 
 const userId = computed(() => {
   const value = route.params.userId;
@@ -41,6 +42,7 @@ const ownerTitle = computed(() => {
 });
 
 const hasActiveFilters = computed(() => Object.values(filters).some(Boolean));
+const canOpenDailyDashboard = computed(() => Boolean(selectedDay.value));
 const emptyMessage = computed(() => (
   hasActiveFilters.value
     ? 'Nessun viaggio corrisponde ai filtri applicati.'
@@ -64,6 +66,13 @@ async function loadTrips() {
 
 function clearFilters() {
   Object.assign(filters, emptyFilters);
+  void loadTrips();
+}
+
+function applyDayFilter() {
+  if (!selectedDay.value) return;
+  filters.from = `${selectedDay.value}T00:00`;
+  filters.to = `${selectedDay.value}T23:59`;
   void loadTrips();
 }
 
@@ -96,6 +105,10 @@ watch(userId, () => {
 
     <form class="filters-panel" @submit.prevent="loadTrips">
       <div class="filters-grid">
+        <label>
+          Giorno
+          <input v-model="selectedDay" type="date" />
+        </label>
         <label>
           Da
           <input v-model="filters.from" type="datetime-local" />
@@ -132,6 +145,20 @@ watch(userId, () => {
       </div>
 
       <div class="filters-actions">
+        <button class="button-subtle" type="button" :disabled="loading || !selectedDay" @click="applyDayFilter">
+          <Search :size="18" />
+          <span>Filtra giorno</span>
+        </button>
+        <RouterLink
+          class="button-subtle link-button"
+          :class="{ disabled: !canOpenDailyDashboard }"
+          :to="canOpenDailyDashboard
+            ? { name: 'daily-dashboard', params: { userId, day: selectedDay } }
+            : { name: 'user-trips', params: { userId } }"
+        >
+          <RouteIcon :size="18" />
+          <span>Dashboard giorno</span>
+        </RouterLink>
         <button class="button-primary" type="submit" :disabled="loading">
           <Search :size="18" />
           <span>Applica</span>

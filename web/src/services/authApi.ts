@@ -1,5 +1,5 @@
-import { sendJson } from './apiClient';
-import { authSession } from './authSession';
+import { sendJson } from './apiClient.js';
+import { authSession } from './authSession.js';
 
 export type WebUser = {
   id: number;
