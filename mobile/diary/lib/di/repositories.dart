@@ -7,30 +7,6 @@ List<RepositoryProvider> buildRepositories({
       RepositoryProvider<AuthRepository>(
         create: (_) => authRepository ?? AuthRepositoryImpl(),
       ),
-      RepositoryProvider<AcquisitionRepository>(
-        create: (context) {
-          final database = AcquisitionLocalDatabase();
-          final auth = context.read<AuthRepository>();
-          Future<String?> tokenProvider() async => auth.accessToken;
-          final deviceIdentityStore = DeviceIdentityStore();
-          final ingestionApi =
-              TripIngestionHttpApi(tokenProvider: tokenProvider);
-          final syncQueue = TripSyncQueueImpl(
-            dao: database.acquisitionDao,
-            builder: TripPackageBuilder(dao: database.acquisitionDao),
-            api: ingestionApi,
-            tokenProvider: tokenProvider,
-          );
-          return AcquisitionRepositoryImpl(
-            database: database,
-            syncQueue: syncQueue,
-            ingestionApi: ingestionApi,
-            deviceIdProvider: deviceIdentityStore.getOrCreateDeviceId,
-            observeAppLifecycle: true,
-          );
-        },
-        dispose: (repository) => repository.dispose(),
-      ),
       RepositoryProvider<TripTrackService>(
         create: (context) {
           final auth = context.read<AuthRepository>();
@@ -46,6 +22,35 @@ List<RepositoryProvider> buildRepositories({
             tokenProvider: () async => auth.accessToken,
           );
         },
+      ),
+      // Deve stare dopo TripsService: la coda di sync la usa per eliminare
+      // anche il Trip lato backend (se il core era gia' andato a buon fine)
+      // quando scarta in automatico un viaggio la cui sync e' fallita in modo
+      // definitivo, non solo il residuo locale.
+      RepositoryProvider<AcquisitionRepository>(
+        create: (context) {
+          final database = AcquisitionLocalDatabase();
+          final auth = context.read<AuthRepository>();
+          Future<String?> tokenProvider() async => auth.accessToken;
+          final deviceIdentityStore = DeviceIdentityStore();
+          final ingestionApi =
+              TripIngestionHttpApi(tokenProvider: tokenProvider);
+          final syncQueue = TripSyncQueueImpl(
+            dao: database.acquisitionDao,
+            builder: TripPackageBuilder(dao: database.acquisitionDao),
+            api: ingestionApi,
+            tokenProvider: tokenProvider,
+            tripsService: context.read<TripsService>(),
+          );
+          return AcquisitionRepositoryImpl(
+            database: database,
+            syncQueue: syncQueue,
+            ingestionApi: ingestionApi,
+            deviceIdProvider: deviceIdentityStore.getOrCreateDeviceId,
+            observeAppLifecycle: true,
+          );
+        },
+        dispose: (repository) => repository.dispose(),
       ),
       RepositoryProvider<PlacesService>(
         create: (context) {

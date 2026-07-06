@@ -30,6 +30,15 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
   final Duration _heartbeatInterval;
   final HeartbeatTimerFactory _heartbeatTimerFactory;
   final bool _observesAppLifecycle;
+  // Se, riprendendo una sessione aperta, l'ultimo dato registrato e' piu'
+  // vecchio di questa soglia (es. telefono spento per ore), la sessione viene
+  // considerata stantia: si chiude al momento dell'ultimo dato noto invece di
+  // continuare a registrare come se il buco non fosse mai successo.
+  final Duration _staleSessionThreshold;
+  // Iniettabile per i test: senza, il controllo di staleness userebbe
+  // DateTime.now() reale, rendendo i test dipendenti da quando vengono
+  // eseguiti rispetto a timestamp fissi nei fixture.
+  final DateTime Function() _now;
   final StreamController<AcquisitionSnapshot> _snapshotController =
       StreamController<AcquisitionSnapshot>.broadcast();
 
@@ -68,6 +77,8 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     TripSyncQueue? syncQueue,
     TripIngestionApi? ingestionApi,
     Duration heartbeatInterval = const Duration(minutes: 5),
+    Duration staleSessionThreshold = const Duration(minutes: 30),
+    DateTime Function()? now,
     HeartbeatTimerFactory? heartbeatTimerFactory,
     Stream<AppLifecycleState>? lifecycleEvents,
     bool observeAppLifecycle = false,
@@ -79,6 +90,8 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
         _ingestionApi = ingestionApi,
         _syncQueue = syncQueue,
         _heartbeatInterval = heartbeatInterval,
+        _staleSessionThreshold = staleSessionThreshold,
+        _now = now ?? DateTime.now,
         _heartbeatTimerFactory = heartbeatTimerFactory ??
             ((duration, callback) => Timer.periodic(
                   duration,
@@ -106,6 +119,18 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
       _scheduleSyncRetry(snapshot);
       return snapshot;
     });
+  }
+
+  @override
+  Future<void> purgeLocalDataForRemoteTrip(int tripId) async {
+    final sessionId = await _dao.localSessionIdForRemoteTrip(tripId);
+    if (sessionId == null || sessionId == _currentSessionId) {
+      // Nessuna riga locale, oppure (in teoria impossibile: un remoteTripId
+      // esiste solo dopo che il core e' completato, quindi mai sulla
+      // sessione ancora in tracking) e' la sessione attiva: non toccarla.
+      return;
+    }
+    await _dao.purgeSyncedSession(sessionId);
   }
 
   @override
@@ -747,7 +772,19 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
 
     final localSession = await _dao.findOpenSession(active.clientSessionId);
     if (localSession != null) {
-      await _resumeSession(localSession, remoteIngestionId: active.ingestionId);
+      final resumed = await _resumeSession(
+        localSession,
+        remoteIngestionId: active.ingestionId,
+      );
+      if (!resumed) {
+        // La sessione era stantia: e' stata chiusa e messa in coda di sync,
+        // ma il backend continua a considerarla attiva finche' il suo core
+        // non arriva (non possiamo abbandonarla: perderemmo i dati raccolti
+        // prima del buco, il backend rifiuta il core di un'ingestion
+        // abbandonata). L'utente deve attendere che quella sync completi,
+        // come per qualunque altro sync pendente.
+        throw const PendingTripSyncException();
+      }
       return true;
     }
 
@@ -823,6 +860,11 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
   void _handleLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       unawaited(_sendHeartbeatIfTracking());
+      // Se la sync era ferma perche' l'app era chiusa/in background senza
+      // rete, il ritorno in primo piano e' spesso anche il momento in cui
+      // torna la connessione: ne approfittiamo per ritentare, invece di
+      // aspettare solo il prossimo avvio a freddo.
+      unawaited(_syncQueue?.kick() ?? Future<void>.value());
     }
   }
 
@@ -896,12 +938,30 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     await _resumeSession(session);
   }
 
-  Future<void> _resumeSession(
+  /// Riprende una sessione locale ancora aperta. Ritorna `false` (senza
+  /// riprendere la registrazione) se l'ultimo dato noto e' piu' vecchio di
+  /// [_staleSessionThreshold] — es. il telefono si e' spento per ore: in tal
+  /// caso la sessione viene chiusa al momento dell'ultimo dato registrato
+  /// (non "ora", che includerebbe il buco) e messa in coda di sync, invece di
+  /// continuare a registrare come se il buco non fosse mai successo.
+  Future<bool> _resumeSession(
     AcquisitionSession session, {
     int? remoteIngestionId,
   }) async {
     final latestTransition = await _dao.latestTransitionForSession(session.id);
     final latestGpsPoint = await _dao.latestGpsPointForSession(session.id);
+
+    final lastKnownAt = _latestKnownEventAt(
+      session,
+      latestTransition,
+      latestGpsPoint,
+    );
+    if (_now().toUtc().difference(lastKnownAt) >=
+        _staleSessionThreshold) {
+      await _closeStaleSession(session.id, lastKnownAt);
+      return false;
+    }
+
     final trackingState = _trackingStateFromWire(
       latestTransition?.toState,
     );
@@ -947,6 +1007,37 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
       onHarWindow: _persistHarWindowIfActive,
     );
     _restartHeartbeat();
+    return true;
+  }
+
+  DateTime _latestKnownEventAt(
+    AcquisitionSession session,
+    StateTransition? latestTransition,
+    GpsPoint? latestGpsPoint,
+  ) {
+    var latest = session.startedAt;
+    final transitionAt = latestTransition?.timestamp;
+    if (transitionAt != null && transitionAt.isAfter(latest)) {
+      latest = transitionAt;
+    }
+    final gpsAt = latestGpsPoint?.timestamp;
+    if (gpsAt != null && gpsAt.isAfter(latest)) {
+      latest = gpsAt;
+    }
+    return latest;
+  }
+
+  /// Chiude localmente una sessione stantia al momento dell'ultimo dato noto
+  /// (non "ora") e la mette in coda di sync — lo stesso percorso di uno stop
+  /// esplicito, solo innescato automaticamente invece che dall'utente.
+  Future<void> _closeStaleSession(
+    String sessionId,
+    DateTime lastKnownAt,
+  ) async {
+    await _dao.endSession(id: sessionId, endedAt: lastKnownAt);
+    await _dao.createSyncJobIfAbsent(sessionId);
+    unawaited(_syncQueue?.kick() ?? Future<void>.value());
+    _emit(AcquisitionSnapshot.idle());
   }
 
   TrackingState _trackingStateFromWire(String? wireName) {

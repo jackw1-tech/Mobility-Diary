@@ -2,6 +2,7 @@ import 'package:auto_route/auto_route.dart';
 import 'package:diary/network/dto/trip_list_item_dto.dart';
 import 'package:diary/network/dto/trip_reload_slots_dto.dart';
 import 'package:diary/network/service/trips_service.dart';
+import 'package:diary/repositories/acquisition_repository.dart';
 import 'package:diary/routers/app_router.dart';
 import 'package:diary/state_management/cubits/trips_list_cubit/trips_list_cubit.dart';
 import 'package:diary/state_management/cubits/trips_list_cubit/trips_list_cubit_state.dart';
@@ -20,7 +21,10 @@ class TripsDrawer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BlocProvider(
-      create: (context) => TripsListCubit(context.read<TripsService>())..load(),
+      create: (context) => TripsListCubit(
+        context.read<TripsService>(),
+        acquisitionRepository: context.read<AcquisitionRepository>(),
+      )..load(),
       child: const Drawer(child: SafeArea(child: _TripsDrawerBody())),
     );
   }

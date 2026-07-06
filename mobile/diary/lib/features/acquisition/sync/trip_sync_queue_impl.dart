@@ -2,16 +2,22 @@ import 'package:diary/features/acquisition/data/acquisition_local_database.dart'
 import 'package:diary/features/acquisition/sync/trip_ingestion_api.dart';
 import 'package:diary/features/acquisition/sync/trip_package_builder.dart';
 import 'package:diary/features/acquisition/sync/trip_sync_queue.dart';
+import 'package:diary/network/service/trips_service.dart';
 import 'package:drift/drift.dart' show Value;
 
 /// Processore opportunistico dei SyncJob: per ogni job pronto esegue
 /// packaging -> POST core inline -> raw presigned, con retry/backoff. Tutta la
 /// sequenza e' idempotente lato backend, quindi un job interrotto puo'
 /// riprendere senza duplicare.
+///
+/// Un fallimento definitivo (core o raw) non resta mai in attesa di un'azione
+/// dell'utente: viene scartato in automatico (Trip lato backend eliminato se
+/// gia' esistente, dati locali cancellati) — vedi [_discardJob].
 class TripSyncQueueImpl implements TripSyncQueue {
   final AcquisitionDao _dao;
   final TripPackageBuilder _builder;
   final TripIngestionApi _api;
+  final TripsService? _tripsService;
   final AccessTokenProvider _tokenProvider;
   final List<Duration> _backoff;
   final int _maxAttempts;
@@ -23,12 +29,14 @@ class TripSyncQueueImpl implements TripSyncQueue {
     required TripPackageBuilder builder,
     required TripIngestionApi api,
     required AccessTokenProvider tokenProvider,
+    TripsService? tripsService,
     List<Duration>? backoff,
     int maxAttempts = 5,
     Duration pollDelay = const Duration(seconds: 15),
   })  : _dao = dao,
         _builder = builder,
         _api = api,
+        _tripsService = tripsService,
         _tokenProvider = tokenProvider,
         _maxAttempts = maxAttempts,
         _pollDelay = pollDelay,
@@ -79,22 +87,14 @@ class TripSyncQueueImpl implements TripSyncQueue {
       if (!coreAlreadyCompleted &&
           package.corePayload == null &&
           package.rawParts.isEmpty) {
-        // Sessione senza dati da caricare: niente da fare.
-        await _dao.updateSyncJob(
-          job.id,
-          coreStatus: syncJobCompleted,
-          rawStatus: syncJobCompleted,
-        );
+        // Sessione senza dati da caricare: niente da fare, ma non deve
+        // restare in giro per sempre — pulizia locale come un successo vuoto.
         await _deletePackageDirectory(package);
+        await _dao.purgeSyncedSession(job.localSessionId);
         return;
       }
       if (!coreAlreadyCompleted && package.corePayload == null) {
-        await _dao.updateSyncJob(
-          job.id,
-          coreStatus: syncJobFailedFinal,
-          rawStatus: syncJobFailedFinal,
-          lastError: const Value('nessuna evidenza core da sincronizzare'),
-        );
+        await _discardJob(job);
         return;
       }
 
@@ -124,11 +124,7 @@ class TripSyncQueueImpl implements TripSyncQueue {
       }
 
       if (status.isCoreFailedFinal) {
-        await _dao.updateSyncJob(
-          job.id,
-          coreStatus: syncJobFailedFinal,
-          lastError: const Value('elaborazione core backend fallita'),
-        );
+        await _discardJob(job);
         return;
       }
       if (status.isCoreBackendProcessing) {
@@ -153,11 +149,7 @@ class TripSyncQueueImpl implements TripSyncQueue {
           return;
         }
         if (status.isRawFailedFinal) {
-          await _dao.updateSyncJob(
-            job.id,
-            rawStatus: syncJobFailedFinal,
-            lastError: const Value('raw sensor ingestion fallita'),
-          );
+          await _discardJob(job, remoteTripId: status.tripId);
           return;
         }
         if (status.isRawBackendProcessing) {
@@ -183,11 +175,7 @@ class TripSyncQueueImpl implements TripSyncQueue {
             return;
           }
           if (status.isRawFailedFinal) {
-            await _dao.updateSyncJob(
-              job.id,
-              rawStatus: syncJobFailedFinal,
-              lastError: const Value('raw sensor ingestion fallita'),
-            );
+            await _discardJob(job, remoteTripId: status.tripId);
             return;
           }
           if (status.isRawBackendProcessing) {
@@ -207,11 +195,7 @@ class TripSyncQueueImpl implements TripSyncQueue {
             return;
           }
           if (status.isRawFailedFinal) {
-            await _dao.updateSyncJob(
-              job.id,
-              rawStatus: syncJobFailedFinal,
-              lastError: const Value('raw sensor ingestion fallita'),
-            );
+            await _discardJob(job, remoteTripId: status.tripId);
             return;
           }
           if (status.isRawBackendProcessing) {
@@ -300,8 +284,9 @@ class TripSyncQueueImpl implements TripSyncQueue {
     );
     await _deletePackageDirectory(package);
     // Backend ha confermato core+raw COMPLETED: il telefono non e' piu'
-    // l'unica copia, i dati locali della sessione possono essere liberati.
-    await _dao.deleteSessionData(job.localSessionId);
+    // l'unica copia. Cancella tutto il locale (dati grezzi, SyncJob, riga
+    // sessione), non solo la mole.
+    await _dao.purgeSyncedSession(job.localSessionId);
   }
 
   Future<void> _deletePackageDirectory(TripPackage package) async {
@@ -338,13 +323,7 @@ class TripSyncQueueImpl implements TripSyncQueue {
     final coreCompleted = currentJob.coreStatus == syncJobCompleted;
     final attempts = currentJob.attempts + 1;
     if (attempts >= _maxAttempts) {
-      await _dao.updateSyncJob(
-        job.id,
-        coreStatus: coreCompleted ? null : syncJobFailedFinal,
-        rawStatus: syncJobFailedFinal,
-        attempts: attempts,
-        lastError: Value(error.toString()),
-      );
+      await _discardJob(currentJob);
       return;
     }
     final delay = _backoff[
@@ -357,5 +336,23 @@ class TripSyncQueueImpl implements TripSyncQueue {
       nextRetryAt: Value(DateTime.now().toUtc().add(delay)),
       lastError: Value(error.toString()),
     );
+  }
+
+  /// Un viaggio la cui sincronizzazione e' fallita in modo definitivo (core o
+  /// raw, esauriti i tentativi) viene scartato subito, senza nessuna azione
+  /// dell'utente: se il core era gia' riuscito (Trip gia' visibile nel
+  /// diario, [remoteTripId] valorizzato), lo elimina anche li' — best-effort,
+  /// un errore nell'eliminazione remota non deve impedire la pulizia locale.
+  /// Poi cancella sempre dati grezzi, SyncJob e riga sessione in locale.
+  Future<void> _discardJob(SyncJob job, {int? remoteTripId}) async {
+    final tripId = remoteTripId ?? job.remoteTripId;
+    if (tripId != null) {
+      try {
+        await _tripsService?.deleteTrip(tripId);
+      } catch (_) {
+        // Best-effort: non deve impedire la pulizia locale automatica.
+      }
+    }
+    await _dao.purgeSyncedSession(job.localSessionId);
   }
 }

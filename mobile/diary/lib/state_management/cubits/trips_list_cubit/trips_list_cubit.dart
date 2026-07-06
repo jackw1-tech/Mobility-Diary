@@ -1,18 +1,24 @@
+import 'dart:async';
+
 import 'package:diary/network/dto/trip_list_item_dto.dart';
 import 'package:diary/network/service/trips_service.dart';
+import 'package:diary/repositories/acquisition_repository.dart';
 import 'package:diary/state_management/cubits/trips_list_cubit/trips_list_cubit_state.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 class TripsListCubit extends Cubit<TripsListCubitState> {
   final TripsService _service;
+  final AcquisitionRepository? _acquisitionRepository;
   final String Function() _reloadRequestIdFactory;
   final Map<int, String> _reloadRequestIdsBySource = {};
   int _loadGeneration = 0;
 
   TripsListCubit(
     this._service, {
+    AcquisitionRepository? acquisitionRepository,
     String Function()? reloadRequestIdFactory,
-  })  : _reloadRequestIdFactory =
+  })  : _acquisitionRepository = acquisitionRepository,
+        _reloadRequestIdFactory =
             reloadRequestIdFactory ?? _defaultReloadRequestId,
         super(const TripsListCubitState.initial());
 
@@ -32,6 +38,10 @@ class TripsListCubit extends Cubit<TripsListCubitState> {
     );
     try {
       await _service.deleteTrip(tripId);
+      // Best-effort: la cancellazione remota e' gia' andata a buon fine, un
+      // eventuale residuo locale (raw fallito in modo definitivo prima della
+      // cancellazione) non deve far fallire l'operazione per l'utente.
+      unawaited(_purgeLocalDataIfAny(tripId));
       final trips = state.trips.where((trip) => trip.id != tripId).toList();
       emit(
         TripsListCubitState(
@@ -53,6 +63,14 @@ class TripsListCubit extends Cubit<TripsListCubitState> {
         ),
       );
       return false;
+    }
+  }
+
+  Future<void> _purgeLocalDataIfAny(int tripId) async {
+    try {
+      await _acquisitionRepository?.purgeLocalDataForRemoteTrip(tripId);
+    } catch (_) {
+      // Best-effort: vedi commento in deleteTrip.
     }
   }
 

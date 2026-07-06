@@ -86,6 +86,7 @@ void main() {
       final repository = AcquisitionRepositoryImpl(
         database: database,
         enableRuntime: false,
+        now: () => startedAt.add(const Duration(minutes: 10)),
       );
       final cubit = AcquisitionCubit(repository);
       addTearDown(repository.dispose);

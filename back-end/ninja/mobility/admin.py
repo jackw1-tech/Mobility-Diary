@@ -52,17 +52,52 @@ class SensorWindowAdmin(admin.ModelAdmin):
 
 @admin.register(HabitualPlace)
 class HabitualPlaceAdmin(admin.ModelAdmin):
-    list_display = ("id", "user", "state", "category", "custom_name", "visit_count", "distinct_days")
+    list_display = (
+        "id",
+        "user",
+        "state",
+        "category",
+        "custom_name",
+        "latitude",
+        "longitude",
+        "visit_count",
+        "distinct_days",
+    )
     list_filter = ("state", "category")
     search_fields = ("id", "user__email", "custom_name")
+
+    @admin.display(description="Lat")
+    def latitude(self, obj):
+        return obj.center.y
+
+    @admin.display(description="Lon")
+    def longitude(self, obj):
+        return obj.center.x
 
 
 @admin.register(CandidateVisit)
 class CandidateVisitAdmin(admin.ModelAdmin):
-    list_display = ("id", "user", "place", "started_at", "ended_at", "point_count")
+    list_display = (
+        "id",
+        "user",
+        "place",
+        "latitude",
+        "longitude",
+        "started_at",
+        "ended_at",
+        "point_count",
+    )
     list_filter = ("started_at", "ended_at")
     search_fields = ("id", "user__email", "place__custom_name")
     raw_id_fields = ("user", "place")
+
+    @admin.display(description="Lat")
+    def latitude(self, obj):
+        return obj.center.y
+
+    @admin.display(description="Lon")
+    def longitude(self, obj):
+        return obj.center.x
 
 
 @admin.register(MobilitySegment)

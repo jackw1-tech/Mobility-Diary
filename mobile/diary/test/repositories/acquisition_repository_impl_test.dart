@@ -5,8 +5,10 @@ import 'package:diary/features/acquisition/data/acquisition_local_database.dart'
 import 'package:diary/features/acquisition/domain/acquisition_domain.dart';
 import 'package:diary/features/acquisition/runtime/acquisition_sensor_runtime.dart';
 import 'package:diary/features/acquisition/sync/trip_ingestion_api.dart';
+import 'package:diary/features/acquisition/sync/trip_sync_queue.dart';
 import 'package:diary/repositories/acquisition_repository.dart';
 import 'package:diary/repositories/impl/acquisition_repository_impl.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -165,6 +167,26 @@ void main() {
       expect(api.heartbeatCalls.single.ingestionId, 42);
     });
 
+    test('kicks the sync queue when app returns to foreground', () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final syncQueue = _FakeTripSyncQueue();
+      final lifecycle = StreamController<AppLifecycleState>();
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        enableRuntime: false,
+        syncQueue: syncQueue,
+        lifecycleEvents: lifecycle.stream,
+      );
+      addTearDown(repository.dispose);
+      addTearDown(lifecycle.close);
+
+      final kicksBeforeResume = syncQueue.kickCount;
+      lifecycle.add(AppLifecycleState.resumed);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(syncQueue.kickCount, greaterThan(kicksBeforeResume));
+    });
+
     test('heartbeat failure does not stop local tracking', () async {
       final database = AcquisitionLocalDatabase(NativeDatabase.memory());
       final api = _FakeTripIngestionApi(
@@ -227,6 +249,7 @@ void main() {
         runtime: runtime,
         ingestionApi: api,
         deviceIdProvider: () async => 'stable-device',
+        now: () => DateTime.utc(2026, 1, 1, 8, 5),
       );
       addTearDown(repository.dispose);
       await database.acquisitionDao.createSession(
@@ -242,6 +265,50 @@ void main() {
       expect(runtime.latestProfile, const SamplingProfile.stationary());
       expect(await database.acquisitionDao.countSessions(), 1);
       expect(api.abandonedIngestionIds, isEmpty);
+    });
+
+    test(
+        'start conflict on a stale same-device session closes it without '
+        'abandoning it, and blocks the new start', () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final api = _FakeTripIngestionApi(
+        conflictActive: _active(
+          clientSessionId: 'stale-remote-session',
+          deviceId: 'stable-device',
+        ),
+      );
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        enableRuntime: false,
+        ingestionApi: api,
+        deviceIdProvider: () async => 'stable-device',
+      );
+      addTearDown(repository.dispose);
+      final startedAt =
+          _truncatedNowUtc().subtract(const Duration(hours: 2));
+      await database.acquisitionDao.createSession(
+        id: 'stale-remote-session',
+        deviceId: 'stable-device',
+        startedAt: startedAt,
+        remoteIngestionId: 7,
+      );
+
+      // Abbandonare l'ingestion qui perderebbe per sempre i dati raccolti
+      // prima del buco: il backend rifiuta il core payload di un'ingestion
+      // abbandonata ("viaggio abbandonato"). Deve restare in coda di sync.
+      await expectLater(
+        repository.startTracking(),
+        throwsA(isA<PendingTripSyncException>()),
+      );
+
+      expect(repository.currentSnapshot.isTracking, isFalse);
+      expect(api.abandonedIngestionIds, isEmpty);
+      final session =
+          await database.acquisitionDao.findSession('stale-remote-session');
+      expect(session!.endedAt, startedAt);
+      final job = await database.acquisitionDao
+          .syncJobForSession('stale-remote-session');
+      expect(job, isNotNull);
     });
 
     test('start conflict abandons same-device remote lock without SQLite',
@@ -589,15 +656,16 @@ void main() {
     test('resumeSync restores an open local tracking session', () async {
       final database = AcquisitionLocalDatabase(NativeDatabase.memory());
       final runtime = _FakeAcquisitionSensorRuntime();
-      final repository = AcquisitionRepositoryImpl(
-        database: database,
-        runtime: runtime,
-      );
-      addTearDown(repository.dispose);
-      final dao = database.acquisitionDao;
       final startedAt = DateTime.utc(2026, 1, 1, 8);
       final transitionAt = startedAt.add(const Duration(minutes: 5));
       final gpsAt = startedAt.add(const Duration(minutes: 6));
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        runtime: runtime,
+        now: () => gpsAt.add(const Duration(minutes: 4)),
+      );
+      addTearDown(repository.dispose);
+      final dao = database.acquisitionDao;
 
       await dao.createSession(
         id: 'open-session',
@@ -640,8 +708,43 @@ void main() {
       expect(job, isNotNull);
     });
 
-    test('currentSessionRoute returns the recorded path after a resume',
+    test(
+        'resumeSync closes a stale open session instead of resuming it',
         () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final runtime = _FakeAcquisitionSensorRuntime();
+      final syncQueue = _FakeTripSyncQueue();
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        runtime: runtime,
+        syncQueue: syncQueue,
+      );
+      addTearDown(repository.dispose);
+      final dao = database.acquisitionDao;
+      // Nessun dato registrato da 2 ore: ben oltre la soglia di default (30
+      // minuti) — simula un telefono spento per un po'.
+      final startedAt = _truncatedNowUtc().subtract(const Duration(hours: 2));
+
+      await dao.createSession(
+        id: 'stale-session',
+        deviceId: 'dev',
+        startedAt: startedAt,
+      );
+
+      await repository.resumeSync();
+
+      expect(repository.currentSnapshot.isTracking, isFalse);
+      expect(runtime.latestProfile, isNull);
+      final session = await dao.findSession('stale-session');
+      expect(session!.endedAt, startedAt);
+      final job = await dao.syncJobForSession('stale-session');
+      expect(job, isNotNull);
+      expect(syncQueue.kickCount, greaterThan(0));
+    });
+
+    test(
+        'resumeSync closes a stale session at the last known event, not at '
+        'the moment of resume', () async {
       final database = AcquisitionLocalDatabase(NativeDatabase.memory());
       final repository = AcquisitionRepositoryImpl(
         database: database,
@@ -649,7 +752,64 @@ void main() {
       );
       addTearDown(repository.dispose);
       final dao = database.acquisitionDao;
+      final startedAt = _truncatedNowUtc().subtract(const Duration(hours: 3));
+      final lastGpsAt = startedAt.add(const Duration(minutes: 5));
+
+      await dao.createSession(
+        id: 'stale-with-gps',
+        deviceId: 'dev',
+        startedAt: startedAt,
+      );
+      await dao.insertGpsPoint(
+        sessionId: 'stale-with-gps',
+        latitude: 44.0,
+        longitude: 11.0,
+        timestamp: lastGpsAt,
+        speedMps: 0,
+      );
+
+      await repository.resumeSync();
+
+      final session = await dao.findSession('stale-with-gps');
+      expect(session!.endedAt, lastGpsAt);
+    });
+
+    test('resumeSync does not touch a session inside the stale threshold',
+        () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final runtime = _FakeAcquisitionSensorRuntime();
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        runtime: runtime,
+      );
+      addTearDown(repository.dispose);
+      final dao = database.acquisitionDao;
+      final startedAt = _truncatedNowUtc().subtract(const Duration(minutes: 5));
+
+      await dao.createSession(
+        id: 'recent-session',
+        deviceId: 'dev',
+        startedAt: startedAt,
+      );
+
+      await repository.resumeSync();
+
+      expect(repository.currentSnapshot.isTracking, isTrue);
+      final session = await dao.findSession('recent-session');
+      expect(session!.endedAt, isNull);
+    });
+
+    test('currentSessionRoute returns the recorded path after a resume',
+        () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
       final startedAt = DateTime.utc(2026, 1, 1, 8);
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        enableRuntime: false,
+        now: () => startedAt.add(const Duration(minutes: 10)),
+      );
+      addTearDown(repository.dispose);
+      final dao = database.acquisitionDao;
 
       await dao.createSession(
         id: 'route-session',
@@ -735,6 +895,51 @@ void main() {
       await repository.startTracking();
 
       expect(repository.currentSnapshot.isTracking, isTrue);
+    });
+
+    test(
+        'purgeLocalDataForRemoteTrip removes the leftover session behind a '
+        'deleted Trip', () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final dao = database.acquisitionDao;
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        enableRuntime: false,
+      );
+      addTearDown(repository.dispose);
+      // Caso raro ma possibile: core riuscito (Trip visibile) ma raw fallito
+      // in modo definitivo, quindi la riga locale non e' mai stata ripulita.
+      await dao.createSession(
+        id: 'leftover-session',
+        deviceId: 'dev',
+        startedAt: DateTime.utc(2026, 1, 1),
+      );
+      final job = await dao.createSyncJobIfAbsent('leftover-session');
+      await dao.updateSyncJob(
+        job.id,
+        coreStatus: syncJobCompleted,
+        rawStatus: syncJobFailedFinal,
+        remoteTripId: const Value(321),
+      );
+
+      await repository.purgeLocalDataForRemoteTrip(321);
+
+      expect(await dao.findSession('leftover-session'), isNull);
+      expect(await dao.syncJobForSession('leftover-session'), isNull);
+    });
+
+    test('purgeLocalDataForRemoteTrip is a no-op for an unknown trip',
+        () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        enableRuntime: false,
+      );
+      addTearDown(repository.dispose);
+
+      await repository.purgeLocalDataForRemoteTrip(4242);
+
+      expect(await database.acquisitionDao.countSessions(), 0);
     });
 
     test('createSyncJobIfAbsent is idempotent per session', () async {
@@ -1039,6 +1244,15 @@ class _FakeAcquisitionSensorRuntime extends AcquisitionSensorRuntime {
   }
 }
 
+class _FakeTripSyncQueue implements TripSyncQueue {
+  int kickCount = 0;
+
+  @override
+  Future<void> kick() async {
+    kickCount += 1;
+  }
+}
+
 class _FakeTripIngestionApi implements TripIngestionApi {
   final int ingestionId;
   final bool shouldFailStart;
@@ -1223,6 +1437,22 @@ class _ManualTimer implements Timer {
 
   @override
   int get tick => _tick;
+}
+
+// NativeDatabase persiste i DateTime come secondi Unix (intero): senza
+// questo troncamento, un valore atteso calcolato da DateTime.now() (che
+// include millisecondi/microsecondi) non risulterebbe mai uguale al valore
+// riletto dal DB.
+DateTime _truncatedNowUtc() {
+  final now = DateTime.now().toUtc();
+  return DateTime.utc(
+    now.year,
+    now.month,
+    now.day,
+    now.hour,
+    now.minute,
+    now.second,
+  );
 }
 
 ActiveIngestion _active({

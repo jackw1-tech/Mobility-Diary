@@ -4,9 +4,25 @@ import 'package:diary/network/dto/trip_list_item_dto.dart';
 import 'package:diary/network/dto/trip_reload_dto.dart';
 import 'package:diary/network/dto/trip_reload_slots_dto.dart';
 import 'package:diary/network/service/trips_service.dart';
+import 'package:diary/repositories/acquisition_repository.dart';
 import 'package:diary/state_management/cubits/trips_list_cubit/trips_list_cubit.dart';
 import 'package:diary/state_management/cubits/trips_list_cubit/trips_list_cubit_state.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+class _FakeAcquisitionRepository implements AcquisitionRepository {
+  int? purgedTripId;
+  Object? purgeError;
+
+  @override
+  Future<void> purgeLocalDataForRemoteTrip(int tripId) async {
+    purgedTripId = tripId;
+    final failure = purgeError;
+    if (failure != null) throw failure;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
 
 class FakeTripsService implements TripsService {
   List<TripListItemDto>? result;
@@ -203,6 +219,54 @@ void main() {
       expect(deleted, isTrue);
       expect(service.deletedTripId, 1);
       expect(cubit.state.trips.map((trip) => trip.id), [2]);
+      expect(cubit.state.mutationError, isNull);
+    });
+
+    test(
+        'purges leftover local data for the deleted trip via the '
+        'acquisition repository', () async {
+      final service = FakeTripsService();
+      final acquisitionRepository = _FakeAcquisitionRepository();
+      final cubit = TripsListCubit(
+        service,
+        acquisitionRepository: acquisitionRepository,
+      );
+      addTearDown(cubit.close);
+      cubit.emit(
+        TripsListCubitState(
+          status: TripsListStatus.loaded,
+          trips: [_trip(1), _trip(2)],
+        ),
+      );
+
+      await cubit.deleteTrip(1);
+      // La pulizia locale e' fire-and-forget (best-effort): lascia respirare
+      // l'event loop prima di verificarla.
+      await Future<void>.delayed(Duration.zero);
+
+      expect(acquisitionRepository.purgedTripId, 1);
+    });
+
+    test('delete still succeeds even if purging local data fails', () async {
+      final service = FakeTripsService();
+      final acquisitionRepository = _FakeAcquisitionRepository()
+        ..purgeError = Exception('drift error');
+      final cubit = TripsListCubit(
+        service,
+        acquisitionRepository: acquisitionRepository,
+      );
+      addTearDown(cubit.close);
+      cubit.emit(
+        TripsListCubitState(
+          status: TripsListStatus.loaded,
+          trips: [_trip(1)],
+        ),
+      );
+
+      final deleted = await cubit.deleteTrip(1);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(deleted, isTrue);
       expect(cubit.state.mutationError, isNull);
     });
 

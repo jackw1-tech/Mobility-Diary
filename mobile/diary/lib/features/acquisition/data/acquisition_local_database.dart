@@ -424,13 +424,16 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
     return query.map((row) => row.read(count) ?? 0).getSingle();
   }
 
-  /// Cancella la mole di dati grezzi di una sessione (punti GPS, finestre
-  /// sensori, transizioni) una volta che il backend ha confermato core+raw
-  /// COMPLETED: da quel momento il telefono non e' piu' l'unica copia.
-  /// La riga di [AcquisitionSessions] e quella di [SyncJobs] restano (sono
-  /// poche righe, non la mole) perche' alimentano ancora lo stato di sync
-  /// mostrato in UI (mappa disponibile, remoteTripId dell'ultimo viaggio).
-  Future<void> deleteSessionData(String sessionId) {
+  /// Cancella del tutto una sessione ormai sincronizzata: dati grezzi (punti
+  /// GPS, finestre sensori, transizioni), il SyncJob e la riga sessione
+  /// stessa. Da chiamare solo dopo che il backend ha confermato core+raw
+  /// COMPLETED: da quel momento il telefono non e' piu' l'unica copia, e lo
+  /// stato di sync mostrato in UI (mappa disponibile, navigazione al viaggio
+  /// appena sincronizzato) reagisce alla transizione a COMPLETED prima che
+  /// questa riga sparisca, non dopo — cancellarla subito non perde nulla.
+  /// L'ordine di cancellazione rispetta le foreign key verso
+  /// [AcquisitionSessions] (le tabelle figlie prima, la sessione per ultima).
+  Future<void> purgeSyncedSession(String sessionId) {
     return transaction(() async {
       await (delete(stateTransitions)
             ..where((t) => t.sessionId.equals(sessionId)))
@@ -439,7 +442,21 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
           .go();
       await (delete(sensorWindows)..where((w) => w.sessionId.equals(sessionId)))
           .go();
+      await (delete(syncJobs)..where((j) => j.localSessionId.equals(sessionId)))
+          .go();
+      await (delete(acquisitionSessions)..where((s) => s.id.equals(sessionId)))
+          .go();
     });
+  }
+
+  /// Sessione locale che ha prodotto un dato Trip remoto, se ancora presente
+  /// sul device (es. core riuscito ma raw fallito in modo definitivo: la riga
+  /// resta per permettere un retry manuale anche se il Trip e' gia' visibile).
+  Future<String?> localSessionIdForRemoteTrip(int tripId) async {
+    final job = await (select(syncJobs)
+          ..where((j) => j.remoteTripId.equals(tripId)))
+        .getSingleOrNull();
+    return job?.localSessionId;
   }
 
   // --- SyncJob ---------------------------------------------------------- //
