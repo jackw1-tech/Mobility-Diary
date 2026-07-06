@@ -291,6 +291,13 @@ def _segment_path_geojson(segment: MobilitySegment, *, level: str | None) -> dic
     return line_geojson(cloak_linestring(segment.path, level=level))
 
 
+def _segment_distance_meters(segment: MobilitySegment, *, level: str | None) -> float:
+    if level is None or segment.kind != MobilitySegment.Kind.MOVE or segment.path is None:
+        return segment.distance_meters
+    cloaked_line = cloak_linestring(segment.path, level=level)
+    return cloaked_line.distance_meters if cloaked_line is not None else 0.0
+
+
 def _diary_out(trip: Trip, *, level: str | None = None) -> WebDiaryOut:
     persisted_segments = list(trip.segments.all())
     virtual_stop_intervals = list(trip.virtual_stop_intervals.all())
@@ -316,7 +323,7 @@ def _diary_out(trip: Trip, *, level: str | None = None) -> WebDiaryOut:
                 start_timestamp=segment.start_timestamp,
                 end_timestamp=segment.end_timestamp,
                 activity_label=segment.activity_label,
-                distance_meters=segment.distance_meters,
+                distance_meters=_segment_distance_meters(segment, level=level),
                 path_geojson=_segment_path_geojson(segment, level=level),
                 place=_segment_place_out_cached(
                     segment,

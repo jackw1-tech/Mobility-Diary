@@ -17,7 +17,7 @@ from mobility.models import (
     Trip,
     VirtualStopInterval,
 )
-from mobility.privacy import PRIVACY_AWARE_STOP_LABEL
+from mobility.privacy import PRIVACY_AWARE_STOP_LABEL, cloak_linestring
 
 
 @pytest.fixture
@@ -395,6 +395,13 @@ def test_web_trip_dashboard_returns_privacy_aware_geometry(staff_user):
     assert privacy_move["activity_label"] == private_move["activity_label"]
     assert privacy_move["path_geojson"]["type"] == "LineString"
     assert privacy_move["path_geojson"] != private_move["path_geojson"]
+    assert privacy_move["distance_meters"] != private_move["distance_meters"]
+    assert privacy_move["distance_meters"] == pytest.approx(
+        cloak_linestring(
+            trip.segments.get(kind=MobilitySegment.Kind.MOVE).path,
+            level=UserPrivacySettings.Level.APPROXIMATE,
+        ).distance_meters
+    )
 
 
 @pytest.mark.django_db
