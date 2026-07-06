@@ -17,9 +17,11 @@ dai GpsPoint grezzi dopo l'arricchimento finale (vedi ADR 0029).
 from __future__ import annotations
 
 import statistics
+import time
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from django.contrib.gis.geos import LineString
 from django.db import transaction
@@ -32,6 +34,13 @@ from .preprocessing import normalize_window
 STOP_STATE = "STATIONARY"
 MIN_ISOLATED_LABEL_SECONDS = 60
 MIN_VIRTUAL_STOP_SECONDS = 120
+
+
+def _add_elapsed_ms(timings: dict[str, Any] | None, key: str, start: float) -> None:
+    if timings is None:
+        return
+    elapsed = (time.perf_counter() - start) * 1000
+    timings[key] = round(float(timings.get(key, 0.0)) + elapsed, 2)
 
 
 @dataclass(frozen=True)
@@ -306,7 +315,11 @@ def run_pipeline(
     trip: Trip,
     *,
     sensor_windows: list[PipelineSensorWindow] | None = None,
+    timings: dict[str, Any] | None = None,
 ) -> dict:
+    pipeline_start = time.perf_counter()
+
+    load_inputs_start = time.perf_counter()
     windows = (
         list(trip.sensor_windows.order_by("start_timestamp"))
         if sensor_windows is None
@@ -314,27 +327,40 @@ def run_pipeline(
     )
     gps = list(trip.gps_points.order_by("timestamp"))
     transitions = list(trip.state_transitions.order_by("timestamp"))
+    _add_elapsed_ms(timings, "pipeline_load_inputs_ms", load_inputs_start)
 
     # 1. normalizzazione reale (grezzo -> pronto per il modello/fallback).
+    normalize_start = time.perf_counter()
     all_windows_have_matrix = all(w.matrix is not None for w in windows)
     _normalized = [
         normalize_window(w.matrix) for w in windows if w.matrix is not None
     ]
+    _add_elapsed_ms(timings, "pipeline_normalize_ms", normalize_start)
 
     # 2-4. velocita per finestra, classificazione, fusione GPS.
+    speed_start = time.perf_counter()
     win_speed = [_window_speed(w, gps) for w in windows]
+    _add_elapsed_ms(timings, "pipeline_window_speed_ms", speed_start)
+
+    classify_start = time.perf_counter()
     classification = classify_windows(
         _normalized,
         win_speed,
         raw_windows=windows if all_windows_have_matrix else None,
     )
+    _add_elapsed_ms(timings, "pipeline_classify_ms", classify_start)
+
+    correction_start = time.perf_counter()
     labels = classification.labels
     labels = correct_idle_with_gps(labels, win_speed)
+    _add_elapsed_ms(timings, "pipeline_gps_correction_ms", correction_start)
+
     classifier_summary = {
         **classification.summary,
         "final_label_distribution": dict(Counter(labels)),
     }
 
+    segment_start = time.perf_counter()
     with transaction.atomic():
         # Riscrittura idempotente del diario.
         trip.segments.all().delete()
@@ -350,8 +376,10 @@ def run_pipeline(
 
         trip.status = Trip.Status.PROCESSED
         trip.save(update_fields=["status", "updated_at"])
+    _add_elapsed_ms(timings, "pipeline_segment_db_ms", segment_start)
 
-    return {
+    counts_start = time.perf_counter()
+    result = {
         "windows": len(windows),
         "gps_points": len(gps),
         "transitions": len(transitions),
@@ -359,3 +387,6 @@ def run_pipeline(
         "virtual_stop_intervals": trip.virtual_stop_intervals.count(),
         **classifier_summary,
     }
+    _add_elapsed_ms(timings, "pipeline_result_counts_ms", counts_start)
+    _add_elapsed_ms(timings, "pipeline_total_ms", pipeline_start)
+    return result

@@ -1,5 +1,8 @@
 import gzip
+import inspect
 import json
+import logging
+import time
 from typing import Any
 
 from celery import shared_task
@@ -28,6 +31,8 @@ from .models import (
 from .ml.pipeline import PipelineSensorWindow, run_pipeline
 from .significant_places import mine_user_significant_places
 
+logger = logging.getLogger(__name__)
+
 
 class InvalidRawSensorPayload(ValueError):
     """Il blob raw e leggibile dallo storage ma non rispetta il contratto HAR."""
@@ -51,6 +56,81 @@ _PLACE_MINING_PENDING_FIELDS = [
     "error_message",
     "rerun_requested",
 ]
+_HAR_TIMING_FIELDS = [
+    "claim_ms",
+    "raw_parts_query_ms",
+    "raw_s3_read_ms",
+    "raw_gzip_ms",
+    "raw_json_ms",
+    "raw_window_parse_ms",
+    "raw_sort_ms",
+    "raw_load_total_ms",
+    "pipeline_load_inputs_ms",
+    "pipeline_normalize_ms",
+    "pipeline_window_speed_ms",
+    "pipeline_classify_ms",
+    "pipeline_gps_correction_ms",
+    "pipeline_segment_db_ms",
+    "pipeline_result_counts_ms",
+    "pipeline_total_ms",
+    "success_update_ms",
+    "total_ms",
+]
+
+
+def _add_elapsed_ms(timings: dict[str, Any] | None, key: str, start: float) -> None:
+    if timings is None:
+        return
+    elapsed = (time.perf_counter() - start) * 1000
+    timings[key] = round(float(timings.get(key, 0.0)) + elapsed, 2)
+
+
+def _log_har_timing(
+    *,
+    ingestion_id: int,
+    job_id: int,
+    trip_id: int,
+    timings: dict[str, Any],
+    result: dict | None = None,
+) -> None:
+    values = [
+        f"{field}={timings[field]}"
+        for field in _HAR_TIMING_FIELDS
+        if field in timings
+    ]
+    logger.info(
+        "HAR_TIMING ingestion_id=%s job_id=%s trip_id=%s raw_parts=%s "
+        "windows=%s %s",
+        ingestion_id,
+        job_id,
+        trip_id,
+        timings.get("raw_parts", 0),
+        (result or {}).get("windows", timings.get("raw_windows", 0)),
+        " ".join(values),
+    )
+
+
+def _run_pipeline_with_timings(
+    trip: Trip,
+    *,
+    sensor_windows: list[PipelineSensorWindow],
+    timings: dict[str, Any],
+) -> dict:
+    try:
+        parameters = inspect.signature(run_pipeline).parameters
+    except (TypeError, ValueError):
+        parameters = {}
+    if "timings" in parameters:
+        return run_pipeline(
+            trip,
+            sensor_windows=sensor_windows,
+            timings=timings,
+        )
+
+    pipeline_start = time.perf_counter()
+    result = run_pipeline(trip, sensor_windows=sensor_windows)
+    _add_elapsed_ms(timings, "pipeline_total_ms", pipeline_start)
+    return result
 
 
 def _skip_result(phase: str, status: str) -> dict:
@@ -249,11 +329,20 @@ def process_trip_har(self, job_id: int) -> dict:
 # --------------------------------------------------------------------------- #
 
 
-def _load_json_gz(object_key: str) -> dict:
+def _load_json_gz(object_key: str, timings: dict[str, Any] | None = None) -> dict:
     """Scarica e decomprime un blob .json.gz dallo storage."""
+    read_start = time.perf_counter()
     raw = storage.read_object(object_key)
+    _add_elapsed_ms(timings, "raw_s3_read_ms", read_start)
     try:
-        return json.loads(gzip.decompress(raw).decode("utf-8"))
+        gzip_start = time.perf_counter()
+        decompressed = gzip.decompress(raw)
+        _add_elapsed_ms(timings, "raw_gzip_ms", gzip_start)
+
+        json_start = time.perf_counter()
+        payload = json.loads(decompressed.decode("utf-8"))
+        _add_elapsed_ms(timings, "raw_json_ms", json_start)
+        return payload
     except (gzip.BadGzipFile, EOFError, UnicodeDecodeError) as exc:
         raise InvalidRawSensorPayload("payload raw sensor gzip non valido") from exc
     except json.JSONDecodeError as exc:
@@ -330,19 +419,37 @@ def _parse_sensor_window(raw_window: dict) -> PipelineSensorWindow:
     )
 
 
-def _load_raw_sensor_windows(ingestion: TripIngestion) -> list[PipelineSensorWindow]:
-    parts = ingestion.parts.filter(
-        kind=PartKind.SENSOR_WINDOWS,
-        received_at__isnull=False,
-    ).order_by("sequence")
+def _load_raw_sensor_windows(
+    ingestion: TripIngestion,
+    timings: dict[str, Any] | None = None,
+) -> list[PipelineSensorWindow]:
+    parts_start = time.perf_counter()
+    parts = list(
+        ingestion.parts.filter(
+            kind=PartKind.SENSOR_WINDOWS,
+            received_at__isnull=False,
+        ).order_by("sequence")
+    )
+    _add_elapsed_ms(timings, "raw_parts_query_ms", parts_start)
+    if timings is not None:
+        timings["raw_parts"] = len(parts)
+
     windows: list[PipelineSensorWindow] = []
     for part in parts:
-        payload = _load_json_gz(part.object_key)
+        payload = _load_json_gz(part.object_key, timings=timings)
         raw_windows = payload.get("windows") if isinstance(payload, dict) else payload
         if not isinstance(raw_windows, list):
             raise InvalidRawSensorPayload("payload raw sensor senza lista windows")
+        parse_start = time.perf_counter()
         windows.extend(_parse_sensor_window(raw_window) for raw_window in raw_windows)
-    return sorted(windows, key=lambda window: window.start_timestamp)
+        _add_elapsed_ms(timings, "raw_window_parse_ms", parse_start)
+
+    sort_start = time.perf_counter()
+    sorted_windows = sorted(windows, key=lambda window: window.start_timestamp)
+    _add_elapsed_ms(timings, "raw_sort_ms", sort_start)
+    if timings is not None:
+        timings["raw_windows"] = len(sorted_windows)
+    return sorted_windows
 
 
 def _materialize_gps(trip: Trip, ingestion: TripIngestion) -> int:
@@ -529,6 +636,9 @@ def process_trip_ingestion(self, ingestion_id: int) -> dict:
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
 def process_trip_har_final(self, job_id: int, ingestion_id: int) -> dict:
     """Elabora i raw sensori dal bucket e rigenera il Diario della Mobilita."""
+    timings: dict[str, Any] = {}
+    total_start = time.perf_counter()
+    claim_start = time.perf_counter()
     with transaction.atomic():
         ingestion = (
             TripIngestion.objects.select_for_update()
@@ -565,11 +675,19 @@ def process_trip_har_final(self, job_id: int, ingestion_id: int) -> dict:
         job.status = HarJob.Status.STARTED
         job.error = ""
         job.save(update_fields=["status", "error", "updated_at"])
+    _add_elapsed_ms(timings, "claim_ms", claim_start)
 
     try:
-        sensor_windows = _load_raw_sensor_windows(ingestion)
+        raw_load_start = time.perf_counter()
+        sensor_windows = _load_raw_sensor_windows(ingestion, timings=timings)
+        _add_elapsed_ms(timings, "raw_load_total_ms", raw_load_start)
         with transaction.atomic():
-            result = run_pipeline(trip, sensor_windows=sensor_windows)
+            result = _run_pipeline_with_timings(
+                trip,
+                sensor_windows=sensor_windows,
+                timings=timings,
+            )
+            success_update_start = time.perf_counter()
             ingestion.raw_status = TripIngestion.PhaseStatus.COMPLETED
             ingestion.error_message = ""
             ingestion.completed_at = timezone.now()
@@ -588,6 +706,15 @@ def process_trip_har_final(self, job_id: int, ingestion_id: int) -> dict:
             job.error = ""
             job.save(update_fields=["status", "result", "error", "updated_at"])
             _after_har_success(trip)
+            _add_elapsed_ms(timings, "success_update_ms", success_update_start)
+        _add_elapsed_ms(timings, "total_ms", total_start)
+        _log_har_timing(
+            ingestion_id=ingestion.id,
+            job_id=job.id,
+            trip_id=trip.id,
+            timings=timings,
+            result=result,
+        )
     except InvalidRawSensorPayload as exc:
         ingestion.raw_status = TripIngestion.PhaseStatus.FAILED_FINAL
         ingestion.error_message = str(exc)
