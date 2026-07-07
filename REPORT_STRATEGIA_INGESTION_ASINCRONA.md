@@ -370,7 +370,7 @@ A questa scala i problemi reali sono solo due, e sono indipendenti:
 
 ```text
 1. VOLUME a riposo
-   Le matrici 500x9 finiscono in Postgres (JSONField).
+   Nel vecchio flusso le matrici 500x9 finivano in Postgres (JSONField).
    1000 utenti x ~4 viaggi/giorno x ~360 window x 4500 float
    = ~1,44M window/giorno => decine di GB/giorno di TOAST e bloat.
    Questo distrugge il database transazionale.
@@ -1344,26 +1344,28 @@ process_trip_ingestion(ingestion_id):
        ingestion.trip = Trip
        core_status -> COMPLETED
      COMMIT
-  5. (in futuro) enqueue process_trip_har_final se raw_status=RECEIVED.
-     PER ORA NON invocato.
+  5. il Raw resta fase separata: viene accodata da complete-raw.
 
-process_trip_har_final(trip_id, ingestion_id):   [CONGELATO — predisposto, non attivo]
-  1. legge i blob sensor_windows da object storage
-  2. esegue HAR finale -> label / MobilitySegment
-  3. scrive su PostGIS
-  4. on SUCCESS:
-       (in futuro) cancella i blob raw dell'ingestion
-       raw_status -> COMPLETED
-  5. on FAILURE:
+process_trip_har_final(job_id, ingestion_id):
+  1. claim idempotente di TripIngestion + HarJob
+  2. raw_status -> PROCESSING
+  3. legge le parti sensor_windows da object storage
+  4. gunzip
+  5. decodifica MDHARW1 in finestre 500x6 float32
+  6. esegue pipeline HAR finale:
+       CNN extractor -> GRU batchata -> correzione GPS -> segmentazione
+  7. scrive MobilitySegment e VirtualStopInterval
+  8. Trip.status -> PROCESSED
+  9. raw_status -> COMPLETED
+  10. accoda mining luoghi significativi
+  11. cleanup raw solo se HAR_CLEANUP_ENABLED=true
+  12. on FAILURE:
        salva error, raw_status -> FAILED_RETRYABLE / FAILED_FINAL
-       NON cancella i blob (servono al retry)
-
-PER ORA: il task e' predisposto come stub/interfaccia ma non viene invocato,
-e in nessun caso cancella i blob raw.
+       NON cancella i blob (servono al retry/debug)
 ```
 
-Le matrici grezze restano in object storage a tempo indeterminato finche' HAR
-non sara' operativo. A quel punto si attivera' la cancellazione post-HAR (D9).
+Le matrici grezze restano in object storage finche' la policy di retention non
+abilita il cleanup event-driven post-HAR (D9).
 
 ### Atomicita E Retry Del Worker
 
@@ -1380,10 +1382,8 @@ acknowledgare il task. Per questo:
 ```
 
 La transazione atomica deve contenere solo operazioni DB leggere. Il download da
-object storage e la decompressione possono avvenire prima o fuori dalla parte
-critica quando il formato diventera' piu' grande; oggi i blob letti dal worker
-sono GPS e transizioni, quindi il rischio e' contenuto. Le sensor window non
-vengono scaricate dal task corrente.
+object storage, la decompressione e la decodifica raw avvengono fuori dalla
+parte critica. Le sensor window non entrano nel database transazionale.
 
 Errori retryable tipici:
 
@@ -1660,20 +1660,16 @@ la catena completa:
 2. Durante tracking vengono scritti GpsPoints, StateTransitions e SensorWindows.
 3. Stop valorizza endedAt e crea un SyncJob PENDING.
 4. resume/kick porta il job a PACKAGING.
-5. La directory temporanea contiene file .json.gz con sha256 e size coerenti.
-6. POST /api/ingestion/trips crea TripIngestion con expected_core_parts e
-   expected_raw_parts corretti.
-7. Le parti Core hanno presign, PUT e confirm.
-8. GET status mostra missing_core_parts vuoto.
-9. complete-core porta core_status a QUEUED.
-10. Celery porta core_status a PROCESSING e poi COMPLETED.
-11. Trip esiste, appartiene all'utente giusto e ha client_session_id corretto.
-12. GpsPoint e StateTransition sono presenti senza duplicati.
-13. Solo dopo Core COMPLETED, le parti Raw hanno presign, PUT e confirm.
-14. complete-raw porta raw_status a RECEIVED o COMPLETED.
-15. Le sensor window raw sono presenti nel bucket.
-16. SensorWindow.matrix non viene popolato dal nuovo flusso.
-17. Il SyncJob locale diventa COMPLETED quando Core e Raw sono chiusi.
+5. La directory temporanea contiene file .bin.gz raw con sha256 e size coerenti.
+6. POST /api/ingestion/trips/core materializza il Core inline.
+7. Trip esiste, appartiene all'utente giusto e ha client_session_id corretto.
+8. GpsPoint e StateTransition sono presenti senza duplicati.
+9. Solo dopo Core COMPLETED, le parti Raw hanno presign, PUT e confirm.
+10. complete-raw porta raw_status a QUEUED.
+11. Celery porta raw_status a PROCESSING e poi COMPLETED.
+12. Le sensor window raw sono presenti nel bucket.
+13. Le matrici raw non vengono salvate in Postgres.
+14. Il SyncJob locale diventa COMPLETED quando Core e Raw sono chiusi.
 ```
 
 Test negativi essenziali:
@@ -1748,91 +1744,26 @@ else token disponibile
     TripSyncQueue->TripPackageBuilder: build(localSessionId)
     TripPackageBuilder->SQLite: findSession + gps + transitions + sensor windows
     SQLite-->TripPackageBuilder: dati locali del viaggio
-    TripPackageBuilder->FileSystem: write gps_points.json.gz
-    TripPackageBuilder->FileSystem: write state_transitions.json.gz
-    TripPackageBuilder->FileSystem: write sensor_windows_part_N.json.gz
+    TripPackageBuilder->FileSystem: write sensor_windows_part_N.bin.gz
     FileSystem-->TripPackageBuilder: file gzip + sha256 + sizeBytes
-    TripPackageBuilder-->TripSyncQueue: TripPackage(coreParts, rawParts, expectedCoreParts, expectedRawParts)
+    TripPackageBuilder-->TripSyncQueue: TripPackage(corePayload inline, rawParts, expectedRawParts)
 
     alt pacchetto vuoto
       TripSyncQueue->SQLite: updateSyncJob(core_status=COMPLETED, raw_status=COMPLETED)
-    else nessuna parte Core
+    else nessun Core payload
       TripSyncQueue->SQLite: updateSyncJob(core_status=FAILED_FINAL, lastError)
-    else pacchetto con parti
-      TripSyncQueue->TripIngestionHttpApi: createIngestion(clientSessionId, expectedCoreParts, expectedRawParts)
-      TripIngestionHttpApi->DjangoIngestionApi: POST /api/ingestion/trips
+    else pacchetto con Core
+      TripSyncQueue->SQLite: updateSyncJob(core_status=UPLOADING)
+      TripSyncQueue->TripIngestionHttpApi: postCoreInline(corePayload)
+      TripIngestionHttpApi->DjangoIngestionApi: POST /api/ingestion/trips/core
       DjangoIngestionApi->Postgres: get_or_create TripIngestion(user, client_session_id)
-      Postgres-->DjangoIngestionApi: ingestion_id + core_status + raw_status
-      DjangoIngestionApi-->TripIngestionHttpApi: 200 ingestion_id + phase statuses
-      TripIngestionHttpApi-->TripSyncQueue: ingestionId
-      TripSyncQueue->SQLite: updateSyncJob(core_status=UPLOADING, remoteIngestionId)
-
-      TripSyncQueue->TripIngestionHttpApi: getStatus(ingestionId)
-      TripIngestionHttpApi->DjangoIngestionApi: GET /api/ingestion/trips/{ingestion_id}
-      DjangoIngestionApi->Postgres: load TripIngestion + confirmed parts
-      Postgres-->DjangoIngestionApi: core_status/raw_status + missing_core/raw
-      DjangoIngestionApi-->TripIngestionHttpApi: phase status payload
-      TripIngestionHttpApi-->TripSyncQueue: IngestionStatus
-
-      alt Core gia COMPLETED
-        TripSyncQueue->SQLite: updateSyncJob(core_status=COMPLETED)
-      else Core QUEUED, PROCESSING o FAILED_RETRYABLE
-        TripSyncQueue->SQLite: updateSyncJob(core_status=WAITING_PROCESSING, nextRetryAt)
-      else Core puo ricevere parti
-        loop per ogni parte Core mancante
-          TripSyncQueue->TripIngestionHttpApi: presignPart(kind, sequence, sha256, size)
-          TripIngestionHttpApi->DjangoIngestionApi: POST /api/ingestion/trips/{id}/parts/presign
-          DjangoIngestionApi->Postgres: verifica parte dichiarata in expected_core_parts
-          DjangoIngestionApi->Postgres: get_or_create TripIngestionPart
-          DjangoIngestionApi->ObjectStorage: generate presigned PUT URL
-          ObjectStorage-->DjangoIngestionApi: upload_url
-          DjangoIngestionApi-->TripIngestionHttpApi: object_key + upload_url + headers
-          TripIngestionHttpApi->FileSystem: read gzip bytes
-          FileSystem-->TripIngestionHttpApi: bytes
-          TripIngestionHttpApi->ObjectStorage: PUT upload_url (bytes + metadata sha256)
-          ObjectStorage-->TripIngestionHttpApi: 2xx
-          TripIngestionHttpApi->DjangoIngestionApi: POST /api/ingestion/trips/{id}/parts/confirm
-          DjangoIngestionApi->ObjectStorage: HEAD object_key
-          ObjectStorage-->DjangoIngestionApi: ContentLength + metadata sha256
-          DjangoIngestionApi->Postgres: set TripIngestionPart.received_at
-          DjangoIngestionApi->Postgres: se tutte le Core parts ricevute, core_status=RECEIVED
-          Postgres-->DjangoIngestionApi: part confirmed
-          DjangoIngestionApi-->TripIngestionHttpApi: RECEIVED or ALREADY_RECEIVED
-          TripIngestionHttpApi-->TripSyncQueue: parte confermata
-        end
-
-        TripSyncQueue->TripIngestionHttpApi: completeCoreIngestion(ingestionId, totalParts)
-        TripIngestionHttpApi->DjangoIngestionApi: POST /api/ingestion/trips/{id}/complete-core
-        DjangoIngestionApi->Postgres: verifica tutte le parti Core confermate
-        DjangoIngestionApi->Postgres: core_status=QUEUED, queued_at=now
-        DjangoIngestionApi->CeleryBroker: enqueue process_trip_ingestion(ingestion_id)
-        DjangoIngestionApi-->TripIngestionHttpApi: 202 core_status=QUEUED
-        TripIngestionHttpApi-->TripSyncQueue: complete-core accettata
-        TripSyncQueue->SQLite: updateSyncJob(core_status=WAITING_PROCESSING)
-      end
+      DjangoIngestionApi->Postgres: materializza Trip + GPS + transizioni + path
+      DjangoIngestionApi-->TripIngestionHttpApi: ingestion_id + trip_id + core_status=COMPLETED
+      TripIngestionHttpApi-->TripSyncQueue: InlineCoreResult
+      TripSyncQueue->SQLite: updateSyncJob(core_status=COMPLETED, remoteTripId)
     end
   end
 end
-
-note over CeleryBroker,CeleryWorker: Da qui in poi il mobile non deve ricaricare blob Core.
-CeleryWorker->CeleryBroker: consume process_trip_ingestion(ingestion_id)
-CeleryWorker->Postgres: load TripIngestion + user + parts
-Postgres-->CeleryWorker: ingestion metadata
-CeleryWorker->Postgres: core_status=PROCESSING, started_processing_at=now
-CeleryWorker->ObjectStorage: GET gps_points.json.gz
-ObjectStorage-->CeleryWorker: gzip bytes
-CeleryWorker->ObjectStorage: GET state_transitions.json.gz
-ObjectStorage-->CeleryWorker: gzip bytes
-CeleryWorker->CeleryWorker: decompress + parse JSON
-CeleryWorker->Postgres: BEGIN transaction
-CeleryWorker->Postgres: get_or_create Trip(client_session_id)
-CeleryWorker->Postgres: bulk_create GpsPoint(ignore_conflicts)
-CeleryWorker->Postgres: bulk_create StateTransition(ignore_conflicts)
-CeleryWorker->Postgres: link ingestion.trip, core_status=COMPLETED
-CeleryWorker->Postgres: COMMIT
-Postgres-->CeleryWorker: trip materializzato
-
-note over ObjectStorage,CeleryWorker: Sensor windows restano blob raw. HAR finale e cleanup sono congelati.
 
 TripSyncQueue->TripIngestionHttpApi: getStatus(ingestionId) dopo nextRetryAt
 TripIngestionHttpApi->DjangoIngestionApi: GET /api/ingestion/trips/{ingestion_id}
@@ -1863,7 +1794,7 @@ else Raw ancora da caricare
     DjangoIngestionApi->ObjectStorage: HEAD object_key
     ObjectStorage-->DjangoIngestionApi: ContentLength + metadata sha256
     DjangoIngestionApi->Postgres: set TripIngestionPart.received_at
-    DjangoIngestionApi->Postgres: se tutte le Raw parts ricevute, raw_status=RECEIVED
+    DjangoIngestionApi->Postgres: registra Raw part confermata
     DjangoIngestionApi-->TripIngestionHttpApi: RECEIVED or ALREADY_RECEIVED
     TripIngestionHttpApi-->TripSyncQueue: raw part confermata
   end
@@ -1872,9 +1803,17 @@ else Raw ancora da caricare
   TripIngestionHttpApi->DjangoIngestionApi: POST /api/ingestion/trips/{id}/complete-raw
   DjangoIngestionApi->Postgres: verifica core_status=COMPLETED
   DjangoIngestionApi->Postgres: verifica tutte le parti Raw confermate
-  DjangoIngestionApi->Postgres: raw_status=RECEIVED
-  DjangoIngestionApi-->TripIngestionHttpApi: 202 raw_status=RECEIVED
-  TripIngestionHttpApi-->TripSyncQueue: raw ricevuto
+  DjangoIngestionApi->Postgres: raw_status=QUEUED + crea HarJob
+  DjangoIngestionApi->CeleryBroker: enqueue process_trip_har_final
+  DjangoIngestionApi-->TripIngestionHttpApi: 202 raw_status=QUEUED
+  TripIngestionHttpApi-->TripSyncQueue: raw accodato
+  TripSyncQueue->SQLite: updateSyncJob(raw_status=WAITING_PROCESSING)
+  CeleryWorker->CeleryBroker: consume process_trip_har_final
+  CeleryWorker->ObjectStorage: GET sensor_windows_part_N.bin.gz
+  CeleryWorker->CeleryWorker: gunzip + decode MDHARW1 + CNN/GRU
+  CeleryWorker->Postgres: scrive segmenti, Trip.status=PROCESSED, raw_status=COMPLETED
+  TripSyncQueue->TripIngestionHttpApi: getStatus(ingestionId)
+  TripIngestionHttpApi-->TripSyncQueue: raw_status=COMPLETED
   TripSyncQueue->SQLite: updateSyncJob(raw_status=COMPLETED)
   TripSyncQueue->FileSystem: delete temp package directory
   HomePage-->Utente: UI mostra viaggio sincronizzato
@@ -1913,15 +1852,14 @@ Fattibile mantenendo gli endpoint attuali.
 - il Trip nasce qui
 ```
 
-### Fase 4 — HAR su blob + cleanup event-driven [CONGELATA]
+### Fase 4 — HAR su blob + cleanup event-driven
 
 ```text
-PREDISPORRE ora (interfacce/stub), ATTIVARE in futuro:
-- process_trip_har legge i blob da object storage
-- cancellazione raw dopo HAR success      <-- DISATTIVATA finche' HAR non e' integrato
-Finche' HAR non e' operativo:
-- HAR finale non viene invocato
-- i blob raw NON vengono mai cancellati (retention illimitata)
+- process_trip_har_final legge i blob da object storage
+- decodifica raw binario MDHARW1
+- esegue pipeline CNN+GRU
+- scrive segmenti e porta raw_status=COMPLETED
+- cancellazione raw dopo HAR success      <-- DISATTIVATA finche' HAR_CLEANUP_ENABLED=false
 ```
 
 ### Fase 5 — Background upload vero (solo se diventa requisito)

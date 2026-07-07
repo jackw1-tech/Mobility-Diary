@@ -134,9 +134,19 @@ class AcquisitionFsm {
     return _evaluateMovementStationaryEvidence(event.timestamp);
   }
 
-  // Tiene traccia, indipendentemente dallo stato, di quante letture GPS
-  // consecutive indicano moto, separando affidabili e inaffidabili — usato
-  // dal ramo movement -> stationary per decidere se fidarsi del GPS.
+  // Tiene traccia, indipendentemente dallo stato, di quante letture GPS "in
+  // moto" si sono accumulate dall'ultimo vero calo di velocita', separando
+  // affidabili e inaffidabili — usato dal ramo movement -> stationary per
+  // decidere se fidarsi del GPS.
+  //
+  // NON azzeriamo il contatore dell'altra categoria quando cambia solo la
+  // classe di affidabilita' del fix: mentre ci si muove davvero l'accuratezza
+  // GPS oscilla di continuo intorno alla soglia (35m), quindi i fix passano
+  // spesso da affidabili a inaffidabili e viceversa. Se ogni oscillazione
+  // resettasse l'altro contatore, nessuno dei due raggiungerebbe mai la
+  // soglia e l'FSM ricadrebbe erroneamente in stationary (percorso live che
+  // "si ferma"). Solo un fix SOTTO la soglia di movimento — cioe' una
+  // decelerazione reale — azzera l'evidenza.
   void _updateMovementGpsEvidence(GpsFixReceived event) {
     if (!_isMovementSpeed(event.speedMetersPerSecond)) {
       _movementReliableGpsMotionFixes = 0;
@@ -146,10 +156,8 @@ class AcquisitionFsm {
 
     if (_isReliableGpsFix(event)) {
       _movementReliableGpsMotionFixes += 1;
-      _movementUnreliableGpsMotionFixes = 0;
     } else {
       _movementUnreliableGpsMotionFixes += 1;
-      _movementReliableGpsMotionFixes = 0;
     }
   }
 
@@ -188,13 +196,14 @@ class AcquisitionFsm {
   }
 
   FsmDecision _evaluateMovementStationaryEvidence(DateTime timestamp) {
-    // Ogni canale ha il proprio contatore di letture "in moto" consecutive
-    // (aggiornato solo da eventi dello stesso tipo, in _onMotionWindow /
-    // _onGpsFix). Una singola lettura rumorosa isolata su un canale (rumore
-    // Doppler/multipath GPS, uno spike accelerometrico) non basta da sola:
-    // serve che ALMENO UN canale mostri una sequenza consecutiva propria per
-    // essere considerata moto reale sostenuta, non solo il valore piu'
-    // recente (possibilmente stantio) dell'altro canale.
+    // Ogni canale ha il proprio contatore di letture "in moto" (sigma sopra
+    // soglia in _onMotionWindow; velocita' sopra soglia in _onGpsFix),
+    // azzerato solo da una lettura dello stesso canale che NON indica moto.
+    // Una singola lettura rumorosa isolata su un canale (rumore Doppler/
+    // multipath GPS, uno spike accelerometrico) non basta da sola: serve che
+    // ALMENO UN canale accumuli abbastanza evidenza propria per essere
+    // considerata moto reale sostenuta, non solo il valore piu' recente
+    // (possibilmente stantio) dell'altro canale.
     //
     // Il sigma ha priorita': gli basta la stessa soglia dell'ingresso (2). Il
     // GPS deve insistere di piu' per essere creduto qui, ed e' pesato per

@@ -775,7 +775,11 @@ def create_core_inline(request, payload: InlineCoreIn):
         return _inline_core_response(ingestion)
 
 
-@router.post("/trips", response=IngestionCreateOut, auth=mobile_bearer_auth)
+@router.post(
+    "/trips",
+    response={200: IngestionCreateOut, 409: dict},
+    auth=mobile_bearer_auth,
+)
 def create_ingestion(request, payload: IngestionCreateIn):
     user_id = request.auth.user_id
     expected_core_parts = _validate_expected_parts(
@@ -788,30 +792,88 @@ def create_ingestion(request, payload: IngestionCreateIn):
         _RAW_KINDS,
         "raw",
     )
-    raw_status = (
-        TripIngestion.PhaseStatus.PENDING
-        if expected_raw_parts
-        else TripIngestion.PhaseStatus.COMPLETED
-    )
-    ingestion, created = TripIngestion.objects.get_or_create(
-        user_id=user_id,
-        client_session_id=payload.client_session_id,
-        defaults={
-            "device_id": payload.device_id,
-            "schema_version": payload.schema_version,
-            "expected_core_parts": expected_core_parts,
-            "expected_raw_parts": expected_raw_parts,
-            "raw_status": raw_status,
-            "started_at": payload.started_at,
-            "ended_at": payload.ended_at,
-            "timezone": payload.timezone,
-            "app_version": payload.app_version,
-            "device_platform": payload.device_platform,
-        },
-    )
-    if not ingestion.raw_base_path:
-        ingestion.raw_base_path = f"ingestions/{ingestion.id}/"
-        ingestion.save(update_fields=["raw_base_path", "updated_at"])
+
+    with transaction.atomic():
+        ingestion, created = (
+            TripIngestion.objects.select_for_update().get_or_create(
+                user_id=user_id,
+                client_session_id=payload.client_session_id,
+                defaults={
+                    "device_id": payload.device_id,
+                    "schema_version": payload.schema_version,
+                    "started_at": payload.started_at,
+                },
+            )
+        )
+        if not ingestion.raw_base_path:
+            ingestion.raw_base_path = f"ingestions/{ingestion.id}/"
+            ingestion.save(update_fields=["raw_base_path", "updated_at"])
+
+        # `start_ingestion` crea gia' la riga per ogni viaggio, con manifest
+        # vuoto: qui e' dove il manifest viene davvero dichiarato/aggiornato,
+        # non solo alla creazione. Senza questo, get_or_create ignorerebbe
+        # silenziosamente expected_core_parts/expected_raw_parts su una riga
+        # preesistente (che e' il caso comune, non l'eccezione) e ogni
+        # presign successivo fallirebbe con "parte non dichiarata".
+        if not created:
+            if ingestion.core_status == TripIngestion.PhaseStatus.FAILED_FINAL:
+                _release_active_lock_for_failed_final(
+                    ingestion, now=timezone.now()
+                )
+                return _core_failed_final_status()
+            if ingestion.core_status == TripIngestion.PhaseStatus.COMPLETED:
+                return IngestionCreateOut(
+                    ingestion_id=ingestion.id,
+                    core_status=ingestion.core_status,
+                    raw_status=ingestion.raw_status,
+                    already_exists=True,
+                )
+            if ingestion.core_status in _INLINE_PASSIVE_STATES:
+                return IngestionCreateOut(
+                    ingestion_id=ingestion.id,
+                    core_status=ingestion.core_status,
+                    raw_status=ingestion.raw_status,
+                    already_exists=True,
+                )
+            if ingestion.core_status not in _INLINE_REPROCESS_STATES:
+                raise HttpError(
+                    409, f"stato core non gestibile: {ingestion.core_status}"
+                )
+
+        raw_status = (
+            TripIngestion.PhaseStatus.PENDING
+            if expected_raw_parts
+            else TripIngestion.PhaseStatus.COMPLETED
+        )
+        ingestion.expected_core_parts = expected_core_parts
+        ingestion.expected_raw_parts = expected_raw_parts
+        ingestion.raw_status = raw_status
+        ingestion.core_ingestion_mode = TripIngestion.CoreIngestionMode.LEGACY_PARTS
+        ingestion.device_id = payload.device_id
+        ingestion.schema_version = payload.schema_version
+        ingestion.started_at = payload.started_at
+        ingestion.ended_at = payload.ended_at
+        ingestion.timezone = payload.timezone
+        ingestion.app_version = payload.app_version
+        ingestion.device_platform = payload.device_platform
+        ingestion.error_message = ""
+        ingestion.save(
+            update_fields=[
+                "expected_core_parts",
+                "expected_raw_parts",
+                "raw_status",
+                "core_ingestion_mode",
+                "device_id",
+                "schema_version",
+                "started_at",
+                "ended_at",
+                "timezone",
+                "app_version",
+                "device_platform",
+                "error_message",
+                "updated_at",
+            ]
+        )
 
     return IngestionCreateOut(
         ingestion_id=ingestion.id,

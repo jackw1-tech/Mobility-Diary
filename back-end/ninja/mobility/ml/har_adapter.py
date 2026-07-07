@@ -173,48 +173,37 @@ def predict_activity_windows(
             f"{embeddings.shape}"
         )
 
+    labels_idx = np.zeros(len(windows), dtype=int)
+    all_probs = np.zeros((len(windows), len(MODEL_CLASS_NAMES)), dtype=np.float32)
     sequence_length = model_bundle.sequence_length
 
-    sequence_segments = []
-    sequence_lengths = []
     for start in range(0, len(windows), sequence_length):
         segment = embeddings[start : start + sequence_length]
         current_length = len(segment)
-        sequence_lengths.append(current_length)
         if current_length < sequence_length:
             padding = np.zeros(
                 (sequence_length - current_length, embeddings.shape[1]),
                 dtype=embeddings.dtype,
             )
             segment = np.concatenate([segment, padding])
-        sequence_segments.append(segment)
 
-    batched_segments = np.stack(sequence_segments)
-    prediction = np.asarray(
-        _predict(model_bundle.gru, batched_segments),
-        dtype=np.float32,
-    )
-    if prediction.shape != (
-        len(sequence_segments),
-        sequence_length,
-        len(MODEL_CLASS_NAMES),
-    ):
-        raise ValueError(
-            "modello GRU HAR ha prodotto probabilita con shape inattesa: "
-            f"{prediction.shape}"
+        prediction = np.asarray(
+            _predict(model_bundle.gru, np.expand_dims(segment, axis=0)),
+            dtype=np.float32,
         )
+        if prediction.shape != (
+            1,
+            sequence_length,
+            len(MODEL_CLASS_NAMES),
+        ):
+            raise ValueError(
+                "modello GRU HAR ha prodotto probabilita con shape inattesa: "
+                f"{prediction.shape}"
+            )
 
-    labels_idx = np.zeros(len(windows), dtype=int)
-    all_probs = np.zeros((len(windows), len(MODEL_CLASS_NAMES)), dtype=np.float32)
-    output_start = 0
-    for sequence_index, current_length in enumerate(sequence_lengths):
-        valid = prediction[sequence_index, :current_length]
-        labels_idx[output_start : output_start + current_length] = np.argmax(
-            valid,
-            axis=1,
-        )
-        all_probs[output_start : output_start + current_length] = valid
-        output_start += current_length
+        valid = prediction[0, :current_length]
+        labels_idx[start : start + current_length] = np.argmax(valid, axis=1)
+        all_probs[start : start + current_length] = valid
 
     model_classes = [MODEL_CLASS_NAMES[idx] for idx in labels_idx]
     labels = [MODEL_TO_ACTIVITY_LABEL[name].value for name in model_classes]

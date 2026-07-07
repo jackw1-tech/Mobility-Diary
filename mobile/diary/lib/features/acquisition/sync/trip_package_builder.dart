@@ -77,12 +77,21 @@ class TripPackage {
     required this.parts,
   });
 
-  /// Il core inline non dichiara piu' parti presigned.
-  Map<String, int> get expectedCoreParts => const {};
+  /// Parti core (gps_points/state_transitions) pronte per l'upload presigned:
+  /// fallback usato solo quando il core inline viene rifiutato per dimensione
+  /// (vedi [TripSyncQueueImpl]).
+  Map<String, int> get expectedCoreParts => _expectedParts(coreParts);
 
   Map<String, int> get expectedRawParts => _expectedParts(rawParts);
 
-  List<TripPackagePart> get coreParts => const [];
+  List<TripPackagePart> get coreParts {
+    return parts
+        .where(
+          (part) =>
+              part.kind == 'gps_points' || part.kind == 'state_transitions',
+        )
+        .toList(growable: false);
+  }
 
   List<TripPackagePart> get rawParts {
     return parts
@@ -135,6 +144,16 @@ class TripPackageBuilder {
             'state_transitions': transitions,
             'timezone': '',
           });
+    // Costruite sempre insieme al payload inline (costo minimo): se il core
+    // inline viene rifiutato per dimensione, la coda di sync le usa come
+    // fallback a parti presigned invece di perdere il viaggio.
+    parts.addAll(
+      await _buildCoreParts(
+        directory,
+        gpsPoints: gpsPoints,
+        transitions: transitions,
+      ),
+    );
 
     return TripPackage(
       localSessionId: localSessionId,
@@ -188,6 +207,34 @@ class TripPackageBuilder {
           'to_state': t.toState,
         }
     ];
+  }
+
+  /// Stessi punti/transizioni del payload inline, incapsulati come parte
+  /// gzip presigned (fallback per core troppo grande per l'inline).
+  Future<List<TripPackagePart>> _buildCoreParts(
+    Directory directory, {
+    required List<Map<String, dynamic>> gpsPoints,
+    required List<Map<String, dynamic>> transitions,
+  }) async {
+    final parts = <TripPackagePart>[];
+    if (gpsPoints.isNotEmpty) {
+      final json = jsonEncode({'points': gpsPoints});
+      parts.add(
+        await _writeGzipPart(directory, 'gps_points', 1, utf8.encode(json)),
+      );
+    }
+    if (transitions.isNotEmpty) {
+      final json = jsonEncode({'transitions': transitions});
+      parts.add(
+        await _writeGzipPart(
+          directory,
+          'state_transitions',
+          1,
+          utf8.encode(json),
+        ),
+      );
+    }
+    return parts;
   }
 
   Future<List<TripPackagePart>> _buildSensorWindowParts(

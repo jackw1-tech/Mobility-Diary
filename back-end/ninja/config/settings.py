@@ -189,8 +189,10 @@ S3_PRESIGN_EXPIRES_SECONDS = int(os.getenv("S3_PRESIGN_EXPIRES_SECONDS", "900"))
 # Limite dimensione per singola parte caricata (byte). Default 25 MB.
 INGESTION_MAX_PART_BYTES = int(os.getenv("INGESTION_MAX_PART_BYTES", str(25 * 1024 * 1024)))
 # Limite del payload Core inline: il core deve restare piccolo e sincrono.
+# Sopra questa soglia il client passa al percorso a parti presigned (stessa
+# strada delle sensor window) invece di essere respinto senza alternativa.
 INGESTION_INLINE_CORE_MAX_BYTES = int(
-    os.getenv("INGESTION_INLINE_CORE_MAX_BYTES", str(1 * 1024 * 1024))
+    os.getenv("INGESTION_INLINE_CORE_MAX_BYTES", str(8 * 1024 * 1024))
 )
 
 # CONGELATO: la cancellazione dei blob raw dopo HAR e' predisposta ma disattivata
