@@ -8,7 +8,6 @@ import 'package:diary/theme/dimensions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:share_plus/share_plus.dart';
 
 /// Apre il preview testuale dell'export privacy-aware del viaggio.
 ///
@@ -162,15 +161,7 @@ class _ReadyView extends StatelessWidget {
     BuildContext context,
     TripPrivacyExportDto export,
   ) async {
-    try {
-      await SharePlus.instance.share(
-        ShareParams(
-          title: 'Export diario viaggio #${export.tripId}',
-          subject: 'Export diario viaggio #${export.tripId}',
-          text: export.text,
-        ),
-      );
-    } catch (_) {
+    try {} catch (_) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Condivisione non disponibile')),

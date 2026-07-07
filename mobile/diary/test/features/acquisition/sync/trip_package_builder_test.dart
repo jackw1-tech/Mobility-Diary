@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:diary/features/acquisition/data/acquisition_local_database.dart';
+import 'package:diary/features/acquisition/domain/sensor_matrix_blob.dart';
 import 'package:diary/features/acquisition/sync/trip_package_builder.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -59,7 +61,9 @@ void main() {
         endTimestamp: DateTime.utc(2026, 6, 12, 10, 2, i * 5 + 5),
         sampleCount: 1,
         frequencyHz: 100,
-        matrixJson: '[[0.1,0.2,9.7,0.01,0.02,0.03,20.1,12.2,40.0]]',
+        matrixBlob: encodeSensorMatrixJsonToBlob(
+          '[[0.1,0.2,9.7,0.01,0.02,0.03,20.1,12.2,40.0]]',
+        ),
       );
     }
   }
@@ -79,7 +83,10 @@ void main() {
 
     final pkg = await builder().build('s1');
 
-    expect(pkg.expectedCoreParts, isEmpty);
+    // Le parti core (gps_points/state_transitions) sono sempre costruite
+    // insieme al payload inline: fallback per quando il core e' troppo
+    // grande per l'inline (413) — vedi TripSyncQueueImpl.
+    expect(pkg.expectedCoreParts, {'gps_points': 1, 'state_transitions': 1});
     expect(pkg.expectedRawParts, {'sensor_windows': 1});
     expect(pkg.startedAt, DateTime.utc(2026, 6, 12, 10));
     expect(pkg.endedAt, DateTime.utc(2026, 6, 12, 10, 35));
@@ -101,17 +108,40 @@ void main() {
     expect(
         pkg.corePayload!.sizeBytes, utf8.encode(jsonEncode(coreBody)).length);
 
-    expect(pkg.parts.where((part) => part.kind == 'gps_points'), isEmpty);
-    expect(
-        pkg.parts.where((part) => part.kind == 'state_transitions'), isEmpty);
+    // Le parti core rispecchiano esattamente il contenuto del payload
+    // inline, solo incapsulate come blob gzip per l'upload presigned.
+    final gpsPart = pkg.coreParts.singleWhere((p) => p.kind == 'gps_points');
+    expect(gpsPart.file.path, endsWith('gps_points.json.gz'));
+    final gpsDecoded = jsonDecode(
+      utf8.decode(gzip.decode(await gpsPart.file.readAsBytes())),
+    ) as Map<String, dynamic>;
+    expect(gpsDecoded['points'], points);
+
+    final transitionsPart =
+        pkg.coreParts.singleWhere((p) => p.kind == 'state_transitions');
+    expect(transitionsPart.file.path, endsWith('state_transitions.json.gz'));
+    final transitionsDecoded = jsonDecode(
+      utf8.decode(gzip.decode(await transitionsPart.file.readAsBytes())),
+    ) as Map<String, dynamic>;
+    expect(transitionsDecoded['transitions'], transitions);
 
     final sensor = pkg.parts.singleWhere((p) => p.kind == 'sensor_windows');
+    expect(sensor.file.path, endsWith('.bin.gz'));
     final bytes = await sensor.file.readAsBytes();
     expect(sensor.sizeBytes, bytes.length);
     expect(sensor.sha256, sha256.convert(bytes).toString());
-    final decoded =
-        jsonDecode(utf8.decode(gzip.decode(bytes))) as Map<String, dynamic>;
-    expect(decoded['windows'] as List<dynamic>, hasLength(1));
+    final decoded = _decodeSensorWindowPart(bytes);
+    expect(decoded, hasLength(1));
+    expect(decoded.single.sampleRateHz, 100);
+    expect(decoded.single.samples, hasLength(1));
+    expect(decoded.single.samples.single, [
+      closeTo(0.1, 0.000001),
+      closeTo(0.2, 0.000001),
+      closeTo(9.7, 0.000001),
+      closeTo(0.01, 0.000001),
+      closeTo(0.02, 0.000001),
+      closeTo(0.03, 0.000001),
+    ]);
   });
 
   test('builds the same inline core hash for the same local evidence',
@@ -138,12 +168,10 @@ void main() {
     expect(sensorParts.map((p) => p.sequence).toList(), [1, 2, 3, 4, 5]);
     expect(pkg.expectedRawParts['sensor_windows'], 5);
 
-    // Ogni parte e' un JSON valido con una finestra.
+    // Ogni parte e' un binario valido con una finestra.
     for (final part in sensorParts) {
-      final decoded =
-          jsonDecode(utf8.decode(gzip.decode(await part.file.readAsBytes())))
-              as Map<String, dynamic>;
-      expect((decoded['windows'] as List<dynamic>), hasLength(1));
+      final decoded = _decodeSensorWindowPart(await part.file.readAsBytes());
+      expect(decoded, hasLength(1));
     }
   });
 
@@ -162,4 +190,62 @@ void main() {
     expect(pkg.expectedCoreParts, isEmpty);
     expect(pkg.expectedRawParts, isEmpty);
   });
+}
+
+const List<int> _sensorWindowsBinaryMagic = [
+  0x4d,
+  0x44,
+  0x48,
+  0x41,
+  0x52,
+  0x57,
+  0x31,
+  0x00,
+];
+const int _binaryHeaderBytes = 12;
+const int _binaryWindowHeaderBytes = 28;
+const int _sensorChannelCount = 6;
+
+({int sampleRateHz, List<List<double>> samples}) _decodeWindow(
+  ByteData data,
+  int start,
+) {
+  final sampleRateHz = data.getUint32(start + 16, Endian.little);
+  final sampleCount = data.getUint32(start + 20, Endian.little);
+  final channelCount = data.getUint32(start + 24, Endian.little);
+  expect(channelCount, _sensorChannelCount);
+
+  var cursor = start + _binaryWindowHeaderBytes;
+  final samples = <List<double>>[];
+  for (var sample = 0; sample < sampleCount; sample += 1) {
+    final row = <double>[];
+    for (var channel = 0; channel < channelCount; channel += 1) {
+      row.add(data.getFloat32(cursor, Endian.little));
+      cursor += Float32List.bytesPerElement;
+    }
+    samples.add(row);
+  }
+  return (sampleRateHz: sampleRateHz, samples: samples);
+}
+
+List<({int sampleRateHz, List<List<double>> samples})> _decodeSensorWindowPart(
+  List<int> gzipped,
+) {
+  final bytes = Uint8List.fromList(gzip.decode(gzipped));
+  expect(bytes.sublist(0, _sensorWindowsBinaryMagic.length),
+      _sensorWindowsBinaryMagic);
+  final data = ByteData.sublistView(bytes);
+  final windowCount = data.getUint32(8, Endian.little);
+  var cursor = _binaryHeaderBytes;
+  final windows = <({int sampleRateHz, List<List<double>> samples})>[];
+  for (var i = 0; i < windowCount; i += 1) {
+    final window = _decodeWindow(data, cursor);
+    windows.add(window);
+    cursor += _binaryWindowHeaderBytes +
+        (window.samples.length *
+            _sensorChannelCount *
+            Float32List.bytesPerElement);
+  }
+  expect(cursor, bytes.length);
+  return windows;
 }

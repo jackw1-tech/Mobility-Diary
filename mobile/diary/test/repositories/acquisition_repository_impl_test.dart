@@ -1,8 +1,8 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:diary/features/acquisition/data/acquisition_local_database.dart';
 import 'package:diary/features/acquisition/domain/acquisition_domain.dart';
+import 'package:diary/features/acquisition/domain/sensor_matrix_blob.dart';
 import 'package:diary/features/acquisition/runtime/acquisition_sensor_runtime.dart';
 import 'package:diary/features/acquisition/sync/trip_ingestion_api.dart';
 import 'package:diary/features/acquisition/sync/trip_sync_queue.dart';
@@ -284,8 +284,7 @@ void main() {
         deviceIdProvider: () async => 'stable-device',
       );
       addTearDown(repository.dispose);
-      final startedAt =
-          _truncatedNowUtc().subtract(const Duration(hours: 2));
+      final startedAt = _truncatedNowUtc().subtract(const Duration(hours: 2));
       await database.acquisitionDao.createSession(
         id: 'stale-remote-session',
         deviceId: 'stable-device',
@@ -536,13 +535,19 @@ void main() {
       final windows = await database.acquisitionDao.sensorWindowsForSession(
         sessions.single.id,
       );
-      final matrix = jsonDecode(windows.single.matrixJson) as List<dynamic>;
+      final matrix = decodeSensorMatrixBlob(
+        windows.single.matrixBlob,
+        sampleCount: windows.single.sampleCount,
+      );
 
       expect(windows, hasLength(1));
       expect(windows.single.sampleCount, 500);
       expect(windows.single.frequencyHz, 100);
       expect(matrix, hasLength(500));
-      expect(matrix.first as List<dynamic>, hasLength(9));
+      expect(matrix.first, hasLength(6));
+      expect(windows.single.matrixBlob.lengthInBytes, 500 * 6 * 4);
+      expect(matrix.first.first, closeTo(0, 0.000001));
+      expect(matrix.last.last, closeTo(10, 0.000001));
     });
 
     test('persists new HAR windows while movement tracking is running',
@@ -708,8 +713,7 @@ void main() {
       expect(job, isNotNull);
     });
 
-    test(
-        'resumeSync closes a stale open session instead of resuming it',
+    test('resumeSync closes a stale open session instead of resuming it',
         () async {
       final database = AcquisitionLocalDatabase(NativeDatabase.memory());
       final runtime = _FakeAcquisitionSensorRuntime();
@@ -1174,7 +1178,7 @@ HarSensorWindow _harWindow({required DateTime startedAt}) {
     endedAt: startedAt.add(HarSensorWindow.targetDuration),
     accelerometerHz: HarSensorWindow.targetSamplingHz,
     gyroscopeHz: HarSensorWindow.targetSamplingHz,
-    magnetometerHz: HarSensorWindow.targetSamplingHz,
+    magnetometerHz: 0,
     samples: [
       _harSample(startedAt: startedAt, value: 0),
       _harSample(
@@ -1197,9 +1201,6 @@ HarSensorSample _harSample({
     gyrX: value,
     gyrY: value,
     gyrZ: value,
-    magX: value,
-    magY: value,
-    magZ: value,
   );
 }
 

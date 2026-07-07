@@ -58,7 +58,7 @@ void main() {
       expect(decision.state, TrackingState.movement);
       expect(decision.samplingProfile.accelerometerHz, 100);
       expect(decision.samplingProfile.gyroscopeHz, 100);
-      expect(decision.samplingProfile.magnetometerHz, 100);
+      expect(decision.samplingProfile.magnetometerHz, 0);
       expect(decision.samplingProfile.gpsInterval, const Duration(seconds: 2));
       expect(decision.samplingProfile.gpsDistanceFilterMeters, 3);
       expect(decision.samplingProfile.persistSensorWindows, isTrue);
@@ -284,8 +284,7 @@ void main() {
       expect(decision.state, TrackingState.stationary);
     });
 
-    test(
-        'three consecutive reliable GPS readings reset the grace countdown',
+    test('three consecutive reliable GPS readings reset the grace countdown',
         () {
       final fsm = AcquisitionFsm(initialState: TrackingState.movement);
       final now = DateTime.utc(2026, 1, 1);
@@ -454,6 +453,33 @@ void main() {
 
       expect(afterFifth.state, TrackingState.movement);
       expect(afterFifth.didTransition, isFalse);
+    });
+
+    test(
+        'stays in movement while genuinely moving even if GPS accuracy keeps '
+        'flipping reliable/unreliable', () {
+      // Regressione: guida reale continua (~8 m/s) con l'accuratezza GPS che
+      // oscilla intorno alla soglia di affidabilita' (tipico in citta'), phone
+      // fermo sul supporto -> nessuna finestra accelerometrica di moto. Prima
+      // del fix ogni oscillazione affidabile<->inaffidabile azzerava il
+      // contatore opposto, nessuno raggiungeva la soglia e dopo il grace
+      // period l'FSM ricadeva in stationary (percorso live che si "ferma").
+      final fsm = AcquisitionFsm(initialState: TrackingState.movement);
+      final now = DateTime.utc(2026, 1, 1);
+
+      FsmDecision? decision;
+      for (var i = 0; i < 90; i += 1) {
+        decision = fsm.apply(
+          GpsFixReceived(
+            timestamp: now.add(Duration(seconds: i * 2)),
+            speedMetersPerSecond: 8,
+            accuracyMeters: i.isEven ? 20 : 45, // alterna reliable/unreliable
+          ),
+        );
+      }
+
+      expect(decision!.state, TrackingState.movement);
+      expect(decision.didTransition, isFalse);
     });
   });
 }
