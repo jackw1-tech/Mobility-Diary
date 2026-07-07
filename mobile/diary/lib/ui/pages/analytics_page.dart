@@ -1,6 +1,6 @@
 import 'package:auto_route/auto_route.dart';
-import 'package:diary/network/dto/analytics_dto.dart';
-import 'package:diary/network/service/analytics_service.dart';
+import 'package:diary/features/analytics/domain/analytics.dart';
+import 'package:diary/repositories/analytics_repository.dart';
 import 'package:diary/state_management/cubits/analytics_cubit/analytics_cubit.dart';
 import 'package:diary/state_management/cubits/analytics_cubit/analytics_cubit_state.dart';
 import 'package:diary/theme/color_palette.dart';
@@ -23,7 +23,7 @@ class AnalyticsPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocProvider(
       create: (context) =>
-          AnalyticsCubit(context.read<AnalyticsService>())..load(),
+          AnalyticsCubit(context.read<AnalyticsRepository>())..load(),
       child: Scaffold(
         appBar: AppBar(centerTitle: true, title: const Text('Statistiche')),
         body: const SafeArea(child: _AnalyticsBody()),
@@ -128,7 +128,7 @@ class _GranularityToggle extends StatelessWidget {
 /// / settimana corrente). La selezione e' solo stato di UI: i dati di ogni
 /// bucket sono gia' nel DTO, non serve richiamare il backend.
 class _TrendSection extends StatefulWidget {
-  final AnalyticsDto data;
+  final Analytics data;
 
   const _TrendSection({required this.data, super.key});
 
@@ -570,7 +570,7 @@ class _DotStatRow extends StatelessWidget {
 }
 
 class _WeeklyHeatmapsContent extends StatelessWidget {
-  final List<AnalyticsWeeklyHeatmap> weeks;
+  final List<AnalyticsWeeklyHeatmapViewModel> weeks;
 
   const _WeeklyHeatmapsContent({required this.weeks});
 
@@ -589,7 +589,7 @@ class _WeeklyHeatmapsContent extends StatelessWidget {
 }
 
 class _WeeklyHeatmapCard extends StatelessWidget {
-  final AnalyticsWeeklyHeatmap week;
+  final AnalyticsWeeklyHeatmapViewModel week;
 
   const _WeeklyHeatmapCard({required this.week});
 

@@ -1,17 +1,18 @@
 import 'dart:async';
 
-import 'package:diary/network/service/trip_track_service.dart';
+import 'package:diary/features/trips/domain/diary_event.dart';
+import 'package:diary/repositories/trip_track_repository.dart';
 import 'package:diary/state_management/cubits/trip_track_cubit/trip_track_cubit_state.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 class TripTrackCubit extends Cubit<TripTrackCubitState> {
-  final TripTrackService _service;
+  final TripTrackRepository _repository;
   StreamSubscription<DiaryEvent>? _diaryEventSubscription;
   int? _tripId;
   bool _sawEnrichmentFailureThisSession = false;
   String? _enrichmentFailureReasonCode;
 
-  TripTrackCubit(this._service) : super(const TripTrackCubitState.initial());
+  TripTrackCubit(this._repository) : super(const TripTrackCubitState.initial());
 
   Future<void> load(int tripId) async {
     _tripId = tripId;
@@ -41,7 +42,12 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
       emit(const TripTrackCubitState(status: TripTrackStatus.loading));
     }
     try {
-      final diary = await _service.fetchDiary(tripId);
+      final diaryResult = await _repository.fetchDiary(tripId);
+      final diaryFailure = diaryResult.failure;
+      if (diaryFailure != null) {
+        throw diaryFailure;
+      }
+      final diary = diaryResult.requireValue;
       if (diary.processed) _clearEnrichmentFailure();
       final enrichmentFailed =
           !diary.processed && _sawEnrichmentFailureThisSession;
@@ -78,7 +84,12 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
         return;
       }
 
-      final track = await _service.fetchTrack(tripId);
+      final trackResult = await _repository.fetchTrack(tripId);
+      final trackFailure = trackResult.failure;
+      if (trackFailure != null) {
+        throw trackFailure;
+      }
+      final track = trackResult.requireValue;
       final points = track.points;
       emit(
         TripTrackCubitState(
@@ -122,7 +133,7 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
     if (_diaryEventSubscription != null) return;
 
     late final StreamSubscription<DiaryEvent> subscription;
-    subscription = _service.watchDiaryEvents(tripId).listen(
+    subscription = _repository.watchDiaryEvents(tripId).listen(
       (event) {
         if (event.tripId != null && event.tripId != tripId) return;
         if (event.status == DiaryEventStatus.enriched) {

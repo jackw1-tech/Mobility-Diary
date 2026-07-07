@@ -1,4 +1,4 @@
-import 'package:diary/network/dto/trip_track_dto.dart';
+import 'package:diary/features/trips/domain/trip_track.dart';
 import 'package:latlong2/latlong.dart';
 
 enum TripTrackStatus {
@@ -13,7 +13,7 @@ class TripTrackCubitState {
   final TripTrackStatus status;
   final List<LatLng> points;
   final List<TripTrackSegmentState> segments;
-  final List<TripDiarySegmentDto> diarySegments;
+  final List<TripDiarySegment> diarySegments;
   final double distanceMeters;
   final bool enrichmentPending;
   final bool enrichmentFailed;

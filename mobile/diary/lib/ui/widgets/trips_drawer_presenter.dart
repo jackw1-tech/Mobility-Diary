@@ -1,19 +1,19 @@
-import 'package:diary/network/dto/trip_list_item_dto.dart';
+import 'package:diary/features/trips/domain/trip_list_item.dart';
 
 const kMinTripsPerDayGroup = 1;
 
 class TripDayGroup {
   final DateTime day;
-  final List<TripListItemDto> trips;
+  final List<TripListItem> trips;
 
   const TripDayGroup({required this.day, required this.trips});
 }
 
 List<TripDayGroup> groupTrackTripsByLocalDay(
-  List<TripListItemDto> trips, {
+  List<TripListItem> trips, {
   int minTrips = kMinTripsPerDayGroup,
 }) {
-  final byDay = <DateTime, List<TripListItemDto>>{};
+  final byDay = <DateTime, List<TripListItem>>{};
   for (final trip in trips) {
     if (!trip.hasTrack) continue;
     final local = trip.startedAt.toLocal();
@@ -30,11 +30,11 @@ List<TripDayGroup> groupTrackTripsByLocalDay(
   return List.unmodifiable(groups);
 }
 
-List<TripListItemDto> sameLocalDayTrackTrips(
-  List<TripListItemDto> trips,
+List<TripListItem> sameLocalDayTrackTrips(
+  List<TripListItem> trips,
   int tripId,
 ) {
-  TripListItemDto? selected;
+  TripListItem? selected;
   for (final trip in trips) {
     if (trip.id == tripId) {
       selected = trip;

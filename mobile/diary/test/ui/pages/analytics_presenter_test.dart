@@ -1,23 +1,22 @@
-import 'package:diary/network/dto/analytics_dto.dart';
+import 'package:diary/features/analytics/domain/analytics.dart';
 import 'package:diary/ui/pages/analytics_presenter.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-AnalyticsCategorySliceDto _slice(
-        String category, double seconds, double meters) =>
-    AnalyticsCategorySliceDto(
+AnalyticsCategorySlice _slice(String category, double seconds, double meters) =>
+    AnalyticsCategorySlice(
       category: category,
       seconds: seconds,
       distanceMeters: meters,
     );
 
-AnalyticsDto _data(
-  List<AnalyticsBucketDto> buckets, {
-  List<AnalyticsHeatPointDto> heatmap = const [],
-  List<AnalyticsWeeklyHeatmapDto> weeklyHeatmaps = const [],
+Analytics _data(
+  List<AnalyticsBucket> buckets, {
+  List<AnalyticsHeatPoint> heatmap = const [],
+  List<AnalyticsWeeklyHeatmap> weeklyHeatmaps = const [],
   String? prevalentMode,
-  List<AnalyticsRouteDto> routes = const [],
+  List<AnalyticsRoute> routes = const [],
 }) =>
-    AnalyticsDto(
+    Analytics(
       granularity: 'day',
       hasData: true,
       buckets: buckets,
@@ -35,11 +34,11 @@ double _categoryTime(AnalyticsSummary summary, String key) =>
         .toDouble();
 
 final _twoBuckets = [
-  AnalyticsBucketDto(
+  AnalyticsBucket(
     label: 'Lun',
     categories: [_slice('a_piedi', 600, 1200), _slice('fermo', 300, 0)],
   ),
-  AnalyticsBucketDto(
+  AnalyticsBucket(
     label: 'Mar',
     categories: [_slice('in_bici', 900, 2500), _slice('in_auto', 1200, 8000)],
   ),
@@ -107,8 +106,8 @@ void main() {
   group('buildAnalyticsHeatmap', () {
     test('keeps the points and tracks the max weight', () {
       final heatmap = buildAnalyticsHeatmap(_data(const [], heatmap: const [
-        AnalyticsHeatPointDto(lat: 45.47, lon: 9.20, weight: 12),
-        AnalyticsHeatPointDto(lat: 45.46, lon: 9.10, weight: 4),
+        AnalyticsHeatPoint(lat: 45.47, lon: 9.20, weight: 12),
+        AnalyticsHeatPoint(lat: 45.46, lon: 9.10, weight: 4),
       ]));
 
       expect(heatmap.isEmpty, isFalse);
@@ -129,12 +128,12 @@ void main() {
       final weeks = buildWeeklyHeatmaps(_data(
         const [],
         weeklyHeatmaps: const [
-          AnalyticsWeeklyHeatmapDto(
+          AnalyticsWeeklyHeatmap(
             label: '22/06',
             tripIds: [10, 11],
             habitualPlaces: [
-              AnalyticsHeatPointDto(lat: 45.47, lon: 9.20, weight: 2),
-              AnalyticsHeatPointDto(lat: 45.46, lon: 9.10, weight: 1),
+              AnalyticsHeatPoint(lat: 45.47, lon: 9.20, weight: 2),
+              AnalyticsHeatPoint(lat: 45.46, lon: 9.10, weight: 1),
             ],
           ),
         ],
@@ -154,7 +153,7 @@ void main() {
         const [],
         prevalentMode: 'in_bici',
         routes: const [
-          AnalyticsRouteDto(
+          AnalyticsRoute(
             originLabel: 'Casa',
             destinationLabel: 'Universita',
             tripCount: 2,

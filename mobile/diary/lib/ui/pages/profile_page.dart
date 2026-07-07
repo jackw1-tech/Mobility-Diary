@@ -1,7 +1,7 @@
 import 'package:auto_route/auto_route.dart';
 import 'package:diary/features/auth/domain/auth_user.dart';
 import 'package:diary/features/privacy/domain/privacy_level.dart';
-import 'package:diary/network/service/privacy_settings_service.dart';
+import 'package:diary/repositories/privacy_settings_repository.dart';
 import 'package:diary/state_management/cubits/auth_cubit/auth_cubit.dart';
 import 'package:diary/state_management/cubits/auth_cubit/auth_cubit_state.dart';
 import 'package:diary/state_management/cubits/privacy_settings_cubit/privacy_settings_cubit.dart';
@@ -18,7 +18,8 @@ class ProfilePage extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocProvider(
       create: (context) =>
-          PrivacySettingsCubit(context.read<PrivacySettingsService>())..load(),
+          PrivacySettingsCubit(context.read<PrivacySettingsRepository>())
+            ..load(),
       child: Scaffold(
         backgroundColor: ColorPalette.background,
         appBar: AppBar(title: const Text('Profilo')),

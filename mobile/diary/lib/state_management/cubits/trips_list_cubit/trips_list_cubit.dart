@@ -1,30 +1,18 @@
-import 'dart:async';
-
-import 'package:diary/network/dto/trip_list_item_dto.dart';
-import 'package:diary/network/service/trips_service.dart';
-import 'package:diary/repositories/acquisition_repository.dart';
+import 'package:diary/features/common/domain/app_result.dart';
+import 'package:diary/features/trips/domain/trip_list_item.dart';
+import 'package:diary/repositories/trips_repository.dart';
 import 'package:diary/state_management/cubits/trips_list_cubit/trips_list_cubit_state.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 class TripsListCubit extends Cubit<TripsListCubitState> {
-  final TripsService _service;
-  final AcquisitionRepository? _acquisitionRepository;
-  final String Function() _reloadRequestIdFactory;
-  final Map<int, String> _reloadRequestIdsBySource = {};
+  final TripsRepository _repository;
   int _loadGeneration = 0;
 
-  TripsListCubit(
-    this._service, {
-    AcquisitionRepository? acquisitionRepository,
-    String Function()? reloadRequestIdFactory,
-  })  : _acquisitionRepository = acquisitionRepository,
-        _reloadRequestIdFactory =
-            reloadRequestIdFactory ?? _defaultReloadRequestId,
-        super(const TripsListCubitState.initial());
+  TripsListCubit(this._repository) : super(const TripsListCubitState.initial());
 
-  Future<void> load() => _load(_service.fetchTrips);
+  Future<void> load() => _load(_repository.fetchTrips);
 
-  Future<void> loadReloadable() => _load(_service.fetchReloadableTrips);
+  Future<void> loadReloadable() => _load(_repository.fetchReloadableTrips);
 
   Future<bool> deleteTrip(int tripId) async {
     emit(
@@ -36,48 +24,36 @@ class TripsListCubit extends Cubit<TripsListCubitState> {
         mutatingTripId: tripId,
       ),
     );
-    try {
-      await _service.deleteTrip(tripId);
-      // Best-effort: la cancellazione remota e' gia' andata a buon fine, un
-      // eventuale residuo locale (raw fallito in modo definitivo prima della
-      // cancellazione) non deve far fallire l'operazione per l'utente.
-      unawaited(_purgeLocalDataIfAny(tripId));
-      final trips = state.trips.where((trip) => trip.id != tripId).toList();
-      emit(
-        TripsListCubitState(
-          status: trips.isEmpty ? TripsListStatus.empty : state.status,
-          trips: trips,
-          error: state.error,
-          reloadingTripId: state.reloadingTripId,
-        ),
-      );
-      return true;
-    } catch (error) {
+    final result = await _repository.deleteTrip(tripId);
+    final failure = result.failure;
+    if (failure != null) {
       emit(
         TripsListCubitState(
           status: state.status,
           trips: state.trips,
           error: state.error,
           reloadingTripId: state.reloadingTripId,
-          mutationError: error.toString(),
+          mutationError: failure.message,
         ),
       );
       return false;
     }
-  }
-
-  Future<void> _purgeLocalDataIfAny(int tripId) async {
-    try {
-      await _acquisitionRepository?.purgeLocalDataForRemoteTrip(tripId);
-    } catch (_) {
-      // Best-effort: vedi commento in deleteTrip.
-    }
+    final trips = state.trips.where((trip) => trip.id != tripId).toList();
+    emit(
+      TripsListCubitState(
+        status: trips.isEmpty ? TripsListStatus.empty : state.status,
+        trips: trips,
+        error: state.error,
+        reloadingTripId: state.reloadingTripId,
+      ),
+    );
+    return true;
   }
 
   Future<bool> setTripReloadable(int tripId, bool isReloadable) async {
     return _updateTrip(
       tripId,
-      () => _service.setTripReloadable(
+      () => _repository.setTripReloadable(
         tripId: tripId,
         isReloadable: isReloadable,
       ),
@@ -87,13 +63,13 @@ class TripsListCubit extends Cubit<TripsListCubitState> {
   Future<bool> updateTripNote(int tripId, String note) async {
     return _updateTrip(
       tripId,
-      () => _service.updateTripNote(tripId: tripId, note: note),
+      () => _repository.updateTripNote(tripId: tripId, note: note),
     );
   }
 
   Future<bool> _updateTrip(
     int tripId,
-    Future<TripListItemDto> Function() update,
+    Future<AppResult<TripListItem>> Function() update,
   ) async {
     emit(
       TripsListCubitState(
@@ -104,8 +80,10 @@ class TripsListCubit extends Cubit<TripsListCubitState> {
         mutatingTripId: tripId,
       ),
     );
-    try {
-      final updated = await update();
+    final result = await update();
+    final failure = result.failure;
+    if (failure == null) {
+      final updated = result.requireValue;
       emit(
         TripsListCubitState(
           status: state.status,
@@ -118,26 +96,21 @@ class TripsListCubit extends Cubit<TripsListCubitState> {
         ),
       );
       return true;
-    } catch (error) {
-      emit(
-        TripsListCubitState(
-          status: state.status,
-          trips: state.trips,
-          error: state.error,
-          reloadingTripId: state.reloadingTripId,
-          mutationError: error.toString(),
-        ),
-      );
-      return false;
     }
+    emit(
+      TripsListCubitState(
+        status: state.status,
+        trips: state.trips,
+        error: state.error,
+        reloadingTripId: state.reloadingTripId,
+        mutationError: failure.message,
+      ),
+    );
+    return false;
   }
 
   Future<int?> reloadTrip(int sourceTripId,
       {DateTime? scheduledStartAt}) async {
-    final reloadRequestId = _reloadRequestIdsBySource.putIfAbsent(
-      sourceTripId,
-      _reloadRequestIdFactory,
-    );
     emit(
       TripsListCubitState(
         status: state.status,
@@ -148,13 +121,12 @@ class TripsListCubit extends Cubit<TripsListCubitState> {
         mutationError: state.mutationError,
       ),
     );
-    try {
-      final result = await _service.reloadTrip(
-        sourceTripId: sourceTripId,
-        reloadRequestId: reloadRequestId,
-        scheduledStartAt: scheduledStartAt,
-      );
-      _reloadRequestIdsBySource.remove(sourceTripId);
+    final result = await _repository.reloadTrip(
+      sourceTripId: sourceTripId,
+      scheduledStartAt: scheduledStartAt,
+    );
+    final failure = result.failure;
+    if (failure == null) {
       emit(
         TripsListCubitState(
           status: state.status,
@@ -164,28 +136,39 @@ class TripsListCubit extends Cubit<TripsListCubitState> {
           mutationError: state.mutationError,
         ),
       );
-      return result.tripId;
-    } catch (error) {
-      emit(
-        TripsListCubitState(
-          status: state.status,
-          trips: state.trips,
-          error: state.error,
-          reloadError: error.toString(),
-          mutatingTripId: state.mutatingTripId,
-          mutationError: state.mutationError,
-        ),
-      );
-      return null;
+      return result.requireValue.tripId;
     }
+    emit(
+      TripsListCubitState(
+        status: state.status,
+        trips: state.trips,
+        error: state.error,
+        reloadError: failure.message,
+        mutatingTripId: state.mutatingTripId,
+        mutationError: state.mutationError,
+      ),
+    );
+    return null;
   }
 
-  Future<void> _load(Future<List<TripListItemDto>> Function() fetch) async {
+  Future<void> _load(
+      Future<AppResult<List<TripListItem>>> Function() fetch) async {
     final generation = ++_loadGeneration;
     emit(const TripsListCubitState(status: TripsListStatus.loading));
     try {
-      final trips = await fetch();
+      final result = await fetch();
       if (isClosed || generation != _loadGeneration) return;
+      final failure = result.failure;
+      if (failure != null) {
+        emit(
+          TripsListCubitState(
+            status: TripsListStatus.error,
+            error: failure.message,
+          ),
+        );
+        return;
+      }
+      final trips = result.requireValue;
       emit(
         TripsListCubitState(
           status:
@@ -204,6 +187,3 @@ class TripsListCubit extends Cubit<TripsListCubitState> {
     }
   }
 }
-
-String _defaultReloadRequestId() =>
-    'mobile-${DateTime.now().microsecondsSinceEpoch}';

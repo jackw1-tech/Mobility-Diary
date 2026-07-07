@@ -1,8 +1,8 @@
 import 'package:auto_route/auto_route.dart';
 import 'package:diary/features/acquisition/domain/acquisition_domain.dart';
 import 'package:diary/features/route_assistant/domain/route_assistant_domain.dart';
-import 'package:diary/network/service/privacy_settings_service.dart';
 import 'package:diary/repositories/acquisition_repository.dart';
+import 'package:diary/repositories/privacy_settings_repository.dart';
 import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubit.dart';
 import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubit_state.dart';
 import 'package:diary/state_management/cubits/auth_cubit/auth_cubit.dart';
@@ -40,7 +40,7 @@ class HomePage extends StatelessWidget {
 
         return BlocProvider<PrivacySettingsCubit>(
           create: (context) => PrivacySettingsCubit(
-            context.read<PrivacySettingsService>(),
+            context.read<PrivacySettingsRepository>(),
           )..load(),
           child: _AuthenticatedHomePage(userLabel: authState.user?.displayName),
         );

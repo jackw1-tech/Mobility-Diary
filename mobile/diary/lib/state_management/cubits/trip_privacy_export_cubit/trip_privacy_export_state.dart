@@ -9,7 +9,7 @@ enum TripPrivacyExportStatus {
 
 class TripPrivacyExportState {
   final TripPrivacyExportStatus status;
-  final TripPrivacyExportDto? export;
+  final TripPrivacyExport? export;
   final String? error;
 
   const TripPrivacyExportState({
@@ -29,7 +29,7 @@ class TripPrivacyExportState {
 
   TripPrivacyExportState copyWith({
     TripPrivacyExportStatus? status,
-    TripPrivacyExportDto? export,
+    TripPrivacyExport? export,
     String? error,
     bool clearError = false,
   }) {

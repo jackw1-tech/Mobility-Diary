@@ -36,20 +36,10 @@ class StartRequiresConnectionException implements Exception {
   String toString() => message;
 }
 
-class ReplayStopResult {
-  final int? tripId;
-
-  const ReplayStopResult({required this.tripId});
-}
-
-abstract class AcquisitionRepository {
+abstract class AcquisitionTrackingRepository {
   Stream<AcquisitionSnapshot> get snapshots;
 
-  Stream<AcquisitionSyncSnapshot> get syncSnapshots;
-
   AcquisitionSnapshot get currentSnapshot;
-
-  AcquisitionSyncSnapshot get currentSyncSnapshot;
 
   Future<void> startTracking();
 
@@ -65,18 +55,6 @@ abstract class AcquisitionRepository {
 
   Future<void> ingestEvent(TrackingEvent event);
 
-  /// Riprende in modo opportunistico la sincronizzazione dei SyncJob pendenti
-  /// (es. all'avvio app). Non blocca: la coda lavora in background.
-  Future<void> resumeSync();
-
-  /// Ripulisce l'eventuale sessione locale residua di un Trip appena
-  /// eliminato dal backend. Normalmente non c'e' nulla da fare (un fallimento
-  /// definitivo si scarta gia' da solo, una sync riuscita pulisce gia' tutto),
-  /// ma l'utente puo' eliminare un Trip mentre il suo raw e' ancora in coda
-  /// (non ancora fallito ne' completato): in quel caso va ripulita anche
-  /// quella. No-op se non esiste nessuna sessione locale per quel Trip.
-  Future<void> purgeLocalDataForRemoteTrip(int tripId);
-
   /// Percorso GPS accettato della sessione di tracking attualmente ripristinata,
   /// in ordine cronologico. Vuoto se non si sta tracciando. Serve a ridisegnare
   /// subito la polyline sulla mappa quando si riapre l'app su un viaggio in corso.
@@ -89,3 +67,29 @@ abstract class AcquisitionRepository {
 
   void dispose();
 }
+
+abstract class AcquisitionSyncRepository {
+  Stream<AcquisitionSyncSnapshot> get syncSnapshots;
+
+  AcquisitionSyncSnapshot get currentSyncSnapshot;
+
+  /// Riprende in modo opportunistico la sincronizzazione dei SyncJob pendenti
+  /// (es. all'avvio app). Non blocca: la coda lavora in background.
+  Future<void> resumeSync();
+}
+
+abstract class AcquisitionLocalTripPurger {
+  /// Ripulisce l'eventuale sessione locale residua di un Trip appena
+  /// eliminato dal backend. Normalmente non c'e' nulla da fare (un fallimento
+  /// definitivo si scarta gia' da solo, una sync riuscita pulisce gia' tutto),
+  /// ma l'utente puo' eliminare un Trip mentre il suo raw e' ancora in coda
+  /// (non ancora fallito ne' completato): in quel caso va ripulita anche
+  /// quella. No-op se non esiste nessuna sessione locale per quel Trip.
+  Future<void> purgeLocalDataForRemoteTrip(int tripId);
+}
+
+abstract class AcquisitionRepository
+    implements
+        AcquisitionTrackingRepository,
+        AcquisitionSyncRepository,
+        AcquisitionLocalTripPurger {}

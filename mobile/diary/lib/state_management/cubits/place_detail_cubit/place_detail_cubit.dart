@@ -1,52 +1,57 @@
-import 'package:diary/network/dto/place_review_dto.dart';
-import 'package:diary/network/service/places_service.dart';
+import 'package:diary/features/common/domain/app_result.dart';
+import 'package:diary/features/places/domain/place_mining_status.dart';
+import 'package:diary/features/places/domain/place_review.dart';
+import 'package:diary/repositories/places_repository.dart';
 import 'package:diary/state_management/cubits/place_detail_cubit/place_detail_state.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 /// Gestisce le azioni manuali su un singolo luogo (conferma, rifiuto, riattiva,
 /// etichetta). Ogni azione restituisce il luogo aggiornato dal backend.
 class PlaceDetailCubit extends Cubit<PlaceDetailState> {
-  final PlacesService _service;
+  final PlacesRepository _repository;
 
-  PlaceDetailCubit(this._service, PlaceReviewDto place)
+  PlaceDetailCubit(this._repository, PlaceReview place)
       : super(PlaceDetailState(place: place));
 
   Future<void> loadReviewStatus() async {
-    try {
-      final placeStatus = await _service.fetchPlacesStatus();
+    final result = await _repository.fetchPlacesStatus();
+    final failure = result.failure;
+    if (failure == null) {
+      final placeStatus = result.requireValue;
       emit(
         PlaceDetailState(
           place: state.place,
           canReview: placeStatus.isActionable,
         ),
       );
-    } catch (_) {
-      emit(
-        PlaceDetailState(
-          place: state.place,
-          canReview: state.canReview,
-          error: 'Impossibile verificare lo stato della review dei luoghi',
-        ),
-      );
+      return;
     }
+    emit(
+      PlaceDetailState(
+        place: state.place,
+        canReview: state.canReview,
+        error: 'Impossibile verificare lo stato della review dei luoghi',
+      ),
+    );
   }
 
-  Future<void> confirm() => _run(() => _service.confirmPlace(state.place.id));
+  Future<void> confirm() =>
+      _run(() => _repository.confirmPlace(state.place.id));
 
-  Future<void> reject() => _run(() => _service.rejectPlace(state.place.id));
+  Future<void> reject() => _run(() => _repository.rejectPlace(state.place.id));
 
   Future<void> reactivate() =>
-      _run(() => _service.reactivatePlace(state.place.id));
+      _run(() => _repository.reactivatePlace(state.place.id));
 
   Future<void> label(String category, String customName) => _run(
-        () => _service.labelPlace(
+        () => _repository.labelPlace(
           state.place.id,
           category: category,
           customName: customName,
         ),
       );
 
-  Future<void> _run(Future<PlaceReviewDto> Function() action) async {
+  Future<void> _run(Future<AppResult<PlaceReview>> Function() action) async {
     if (!state.canReview) {
       emit(
         PlaceDetailState(
@@ -59,24 +64,29 @@ class PlaceDetailCubit extends Cubit<PlaceDetailState> {
     }
     emit(PlaceDetailState(
         place: state.place, busy: true, canReview: state.canReview));
-    try {
-      emit(PlaceDetailState(place: await action(), canReview: true));
-    } on PlaceMutationBlockedException catch (error) {
+    final result = await action();
+    final failure = result.failure;
+    if (failure == null) {
+      emit(PlaceDetailState(place: result.requireValue, canReview: true));
+      return;
+    }
+    final blocked = failure.cause;
+    if (blocked is PlaceReviewBlockedException) {
       emit(
         PlaceDetailState(
           place: state.place,
           canReview: false,
-          error: error.message,
+          error: blocked.message,
         ),
       );
-    } catch (error) {
-      emit(
-        PlaceDetailState(
-          place: state.place,
-          canReview: state.canReview,
-          error: error.toString(),
-        ),
-      );
+      return;
     }
+    emit(
+      PlaceDetailState(
+        place: state.place,
+        canReview: state.canReview,
+        error: failure.message,
+      ),
+    );
   }
 }

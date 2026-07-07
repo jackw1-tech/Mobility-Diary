@@ -1,11 +1,14 @@
+import 'package:diary/features/common/domain/app_result.dart';
 import 'package:diary/features/privacy/domain/privacy_level.dart';
+import 'package:diary/features/privacy/domain/trip_privacy_export.dart';
+import 'package:diary/mappers/trip_privacy_export_mapper.dart';
 import 'package:diary/network/dto/trip_privacy_export_dto.dart';
-import 'package:diary/network/service/trip_privacy_export_service.dart';
+import 'package:diary/repositories/trip_privacy_export_repository.dart';
 import 'package:diary/state_management/cubits/trip_privacy_export_cubit/trip_privacy_export_cubit.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-class FakeTripPrivacyExportService implements TripPrivacyExportService {
-  TripPrivacyExportDto response;
+class FakeTripPrivacyExportService implements TripPrivacyExportRepository {
+  TripPrivacyExport response;
   Object? error;
   int fetchCalls = 0;
   int? requestedTripId;
@@ -13,17 +16,23 @@ class FakeTripPrivacyExportService implements TripPrivacyExportService {
   FakeTripPrivacyExportService(this.response);
 
   @override
-  Future<TripPrivacyExportDto> fetchExport(int tripId) async {
+  Future<AppResult<TripPrivacyExport>> fetchExport(int tripId) async {
     fetchCalls += 1;
     requestedTripId = tripId;
     final failure = error;
-    if (failure != null) throw failure;
-    return response;
+    if (failure != null) return AppResult.failure(toAppFailure(failure));
+    return AppResult.success(response);
   }
 }
 
-TripPrivacyExportDto approximateExport() {
-  return TripPrivacyExportDto.fromJson(const {
+final _mapper = TripPrivacyExportMapper();
+
+TripPrivacyExport _exportFromJson(Map<String, dynamic> json) {
+  return _mapper.mapExport(TripPrivacyExportDto.fromJson(json));
+}
+
+TripPrivacyExport approximateExport() {
+  return _exportFromJson(const {
     'trip_id': 7,
     'level': 'approximate',
     'protected': true,
@@ -88,7 +97,8 @@ void main() {
       expect(cubit.state.export!.text, contains('Privacy level: approximate'));
     });
 
-    test('non-precise preview never leaks precise geometry or labels', () async {
+    test('non-precise preview never leaks precise geometry or labels',
+        () async {
       final service = FakeTripPrivacyExportService(approximateExport());
       final cubit = TripPrivacyExportCubit(service);
       addTearDown(cubit.close);

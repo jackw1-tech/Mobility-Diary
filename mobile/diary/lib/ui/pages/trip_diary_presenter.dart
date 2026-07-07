@@ -1,4 +1,4 @@
-import 'package:diary/network/dto/trip_track_dto.dart';
+import 'package:diary/features/trips/domain/trip_track.dart';
 
 class TripStats {
   final Duration duration;
@@ -17,7 +17,7 @@ class TripStats {
     this.activities,
   );
 
-  factory TripStats.fromSegments(List<TripDiarySegmentDto> segments) {
+  factory TripStats.fromSegments(List<TripDiarySegment> segments) {
     final ordered = [...segments]
       ..sort((a, b) => a.startTimestamp.compareTo(b.startTimestamp));
     if (ordered.isEmpty) {
@@ -82,10 +82,10 @@ const _activityLabels = {
 
 String activityLabelText(String label) => _activityLabels[label] ?? label;
 
-bool isStopSegment(TripDiarySegmentDto segment) => segment.kind == 'STOP';
+bool isStopSegment(TripDiarySegment segment) => segment.kind == 'STOP';
 
-List<TripDiarySegmentDto> placedStopSegments(
-  List<TripDiarySegmentDto> segments,
+List<TripDiarySegment> placedStopSegments(
+  List<TripDiarySegment> segments,
 ) {
   return [
     for (final segment in segments)
@@ -93,7 +93,7 @@ List<TripDiarySegmentDto> placedStopSegments(
   ];
 }
 
-String segmentTitle(TripDiarySegmentDto segment) {
+String segmentTitle(TripDiarySegment segment) {
   if (isStopSegment(segment)) {
     final label = segment.place?.label;
     return label == null || label.isEmpty ? 'Sosta rilevata' : label;
@@ -101,7 +101,7 @@ String segmentTitle(TripDiarySegmentDto segment) {
   return activityLabelText(segment.activityLabel);
 }
 
-Duration segmentDuration(TripDiarySegmentDto segment) {
+Duration segmentDuration(TripDiarySegment segment) {
   final duration = segment.endTimestamp.difference(segment.startTimestamp);
   return duration.isNegative ? Duration.zero : duration;
 }
@@ -121,7 +121,7 @@ String formatDuration(Duration duration) {
       : '$hours h ${rest.toString().padLeft(2, '0')} min';
 }
 
-String formatTimeRange(TripDiarySegmentDto segment) {
+String formatTimeRange(TripDiarySegment segment) {
   return '${_clock(segment.startTimestamp)} - ${_clock(segment.endTimestamp)}';
 }
 

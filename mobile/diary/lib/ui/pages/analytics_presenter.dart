@@ -1,4 +1,4 @@
-import 'package:diary/network/dto/analytics_dto.dart';
+import 'package:diary/features/analytics/domain/analytics.dart';
 import 'package:flutter/material.dart';
 
 /// Categoria di Mobilita mostrata nel grafico, in ordine di stack. I colori
@@ -59,41 +59,41 @@ MobilityCategory? categoryByKey(String? key) {
 /// Abitudini di sempre: modalita' prevalente + Percorsi Frequenti, cumulativi.
 class AnalyticsHabits {
   final MobilityCategory? prevalentMode;
-  final List<AnalyticsRouteDto> routes;
+  final List<AnalyticsRoute> routes;
   const AnalyticsHabits(this.prevalentMode, this.routes);
 
   bool get isEmpty => prevalentMode == null && routes.isEmpty;
 }
 
-AnalyticsHabits buildAnalyticsHabits(AnalyticsDto data) =>
+AnalyticsHabits buildAnalyticsHabits(Analytics data) =>
     AnalyticsHabits(categoryByKey(data.prevalentMode), data.frequentRoutes);
 
 /// Mappa di Frequentazione: Luoghi Significativi pesati per visite, cumulativi.
 class AnalyticsHeatmap {
-  final List<AnalyticsHeatPointDto> points;
+  final List<AnalyticsHeatPoint> points;
   final double maxWeight;
   const AnalyticsHeatmap(this.points, this.maxWeight);
 
   bool get isEmpty => points.isEmpty;
 }
 
-class AnalyticsWeeklyHeatmap {
+class AnalyticsWeeklyHeatmapViewModel {
   final String label;
   final List<int> tripIds;
   final AnalyticsHeatmap heatmap;
 
-  const AnalyticsWeeklyHeatmap({
+  const AnalyticsWeeklyHeatmapViewModel({
     required this.label,
     required this.tripIds,
     required this.heatmap,
   });
 }
 
-AnalyticsHeatmap buildAnalyticsHeatmap(AnalyticsDto data) {
+AnalyticsHeatmap buildAnalyticsHeatmap(Analytics data) {
   return buildHeatmapFromPoints(data.heatmap);
 }
 
-AnalyticsHeatmap buildHeatmapFromPoints(List<AnalyticsHeatPointDto> points) {
+AnalyticsHeatmap buildHeatmapFromPoints(List<AnalyticsHeatPoint> points) {
   final maxWeight = points.fold<double>(
     0,
     (max, point) => point.weight > max ? point.weight : max,
@@ -101,9 +101,9 @@ AnalyticsHeatmap buildHeatmapFromPoints(List<AnalyticsHeatPointDto> points) {
   return AnalyticsHeatmap(points, maxWeight);
 }
 
-List<AnalyticsWeeklyHeatmap> buildWeeklyHeatmaps(AnalyticsDto data) => [
+List<AnalyticsWeeklyHeatmapViewModel> buildWeeklyHeatmaps(Analytics data) => [
       for (final week in data.weeklyHeatmaps)
-        AnalyticsWeeklyHeatmap(
+        AnalyticsWeeklyHeatmapViewModel(
           label: week.label,
           tripIds: week.tripIds,
           heatmap: buildHeatmapFromPoints(week.habitualPlaces),
@@ -111,7 +111,7 @@ List<AnalyticsWeeklyHeatmap> buildWeeklyHeatmaps(AnalyticsDto data) => [
     ];
 
 /// Una barra per bucket: secondi per categoria, allineati a kMobilityCategories.
-List<AnalyticsBar> analyticsBars(AnalyticsDto data) {
+List<AnalyticsBar> analyticsBars(Analytics data) {
   return [
     for (final bucket in data.buckets)
       AnalyticsBar(bucket.label, [
@@ -154,7 +154,7 @@ List<T> analyticsWindow<T>(
   return items.sublist(safeStart, end);
 }
 
-double _sliceSeconds(AnalyticsBucketDto bucket, String key) {
+double _sliceSeconds(AnalyticsBucket bucket, String key) {
   for (final slice in bucket.categories) {
     if (slice.category == key) return slice.seconds;
   }
@@ -163,7 +163,7 @@ double _sliceSeconds(AnalyticsBucketDto bucket, String key) {
 
 /// Aggrega uno o piu' bucket (l'intera finestra, o il singolo giorno/settimana
 /// selezionato) in tempo per categoria, tempo "In movimento" e distanza totale.
-AnalyticsSummary summarizeBuckets(Iterable<AnalyticsBucketDto> buckets) {
+AnalyticsSummary summarizeBuckets(Iterable<AnalyticsBucket> buckets) {
   final seconds = {for (final c in kMobilityCategories) c.key: 0.0};
   final meters = {for (final c in kMobilityCategories) c.key: 0.0};
 

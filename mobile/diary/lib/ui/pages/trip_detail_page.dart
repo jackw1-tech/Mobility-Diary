@@ -1,7 +1,7 @@
 import 'package:auto_route/auto_route.dart';
-import 'package:diary/network/dto/trip_list_item_dto.dart';
-import 'package:diary/network/service/trip_track_service.dart';
-import 'package:diary/network/service/trips_service.dart';
+import 'package:diary/features/trips/domain/trip_list_item.dart';
+import 'package:diary/repositories/trip_track_repository.dart';
+import 'package:diary/repositories/trips_repository.dart';
 import 'package:diary/state_management/cubits/trip_track_cubit/trip_track_cubit.dart';
 import 'package:diary/theme/color_palette.dart';
 import 'package:diary/theme/dimensions.dart';
@@ -27,7 +27,7 @@ class TripDetailPage extends StatefulWidget {
 
 class _TripDetailPageState extends State<TripDetailPage> {
   late int _currentTripId;
-  List<TripListItemDto> _trips = const [];
+  List<TripListItem> _trips = const [];
   bool _didLoadTrips = false;
 
   @override
@@ -47,8 +47,8 @@ class _TripDetailPageState extends State<TripDetailPage> {
   @override
   Widget build(BuildContext context) {
     return BlocProvider(
-      create: (context) =>
-          TripTrackCubit(context.read<TripTrackService>())..load(widget.tripId),
+      create: (context) => TripTrackCubit(context.read<TripTrackRepository>())
+        ..load(widget.tripId),
       child: Builder(
         builder: (context) {
           final sameDayTrips = sameLocalDayTrackTrips(_trips, _currentTripId);
@@ -97,16 +97,12 @@ class _TripDetailPageState extends State<TripDetailPage> {
   }
 
   Future<void> _loadTrips() async {
-    try {
-      final trips = await context.read<TripsService>().fetchTrips();
-      if (!mounted) return;
-      setState(() => _trips = trips);
-    } catch (_) {
-      // Il dettaglio viaggio resta utilizzabile anche senza selettore giornaliero.
-    }
+    final result = await context.read<TripsRepository>().fetchTrips();
+    if (!mounted || result.isFailure) return;
+    setState(() => _trips = result.requireValue);
   }
 
-  void _selectTrip(BuildContext context, TripListItemDto trip) {
+  void _selectTrip(BuildContext context, TripListItem trip) {
     if (trip.id == _currentTripId) return;
     setState(() => _currentTripId = trip.id);
     context.read<TripTrackCubit>().load(trip.id);
@@ -114,9 +110,9 @@ class _TripDetailPageState extends State<TripDetailPage> {
 }
 
 class _SameDayTripSelector extends StatefulWidget {
-  final List<TripListItemDto> trips;
+  final List<TripListItem> trips;
   final int selectedTripId;
-  final ValueChanged<TripListItemDto> onSelectTrip;
+  final ValueChanged<TripListItem> onSelectTrip;
 
   const _SameDayTripSelector({
     required this.trips,

@@ -71,8 +71,7 @@ void main() {
       expect(speed, 0);
     });
 
-    test('ignores small platform speed reports below the usable threshold',
-        () {
+    test('ignores small platform speed reports below the usable threshold', () {
       final estimator = GpsSpeedEstimator();
       final now = DateTime.utc(2026);
 

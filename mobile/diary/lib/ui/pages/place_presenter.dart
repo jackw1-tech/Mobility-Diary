@@ -1,11 +1,11 @@
-import 'package:diary/network/dto/place_mining_status_dto.dart';
-import 'package:diary/network/dto/place_review_dto.dart';
+import 'package:diary/features/places/domain/place_mining_status.dart';
+import 'package:diary/features/places/domain/place_review.dart';
 import 'package:diary/theme/color_palette.dart';
 import 'package:flutter/material.dart';
 
 /// Helper di presentazione condivisi fra la lista e il dettaglio dei luoghi.
 
-Color placeStateColor(PlaceReviewDto place) {
+Color placeStateColor(PlaceReview place) {
   switch (place.state) {
     case 'CONFIRMED':
       return ColorPalette.success;
@@ -16,7 +16,7 @@ Color placeStateColor(PlaceReviewDto place) {
   }
 }
 
-IconData placeStateIcon(PlaceReviewDto place) {
+IconData placeStateIcon(PlaceReview place) {
   switch (place.state) {
     case 'CONFIRMED':
       return Icons.verified_outlined;
@@ -39,7 +39,7 @@ String placeStateLabel(String state) {
 }
 
 /// "3 visite · 2 giorni": il contesto che spiega l'evidenza del luogo.
-String placeEvidenceSummary(PlaceReviewDto place) {
+String placeEvidenceSummary(PlaceReview place) {
   final visits =
       place.visitCount == 1 ? '1 visita' : '${place.visitCount} visite';
   final days =
@@ -48,7 +48,7 @@ String placeEvidenceSummary(PlaceReviewDto place) {
 }
 
 /// Frase che spiega perche' un luogo e' stato proposto o confermato.
-String placeWhyProposed(PlaceReviewDto place) {
+String placeWhyProposed(PlaceReview place) {
   final summary = placeEvidenceSummary(place);
   return place.isConfirmed
       ? 'Confermato come luogo abituale ($summary).'
@@ -69,14 +69,14 @@ String placeCategoryLabel(String category) {
   return category[0].toUpperCase() + category.substring(1);
 }
 
-String placeMiningStatusTitle(PlaceMiningStatusDto status) {
+String placeMiningStatusTitle(PlaceMiningStatus status) {
   if (status.isRunning) return 'Analisi dei luoghi in corso';
   if (status.isPending) return 'Analisi dei luoghi in attesa';
   if (status.isFailed) return 'Analisi dei luoghi non completata';
   return 'Luoghi aggiornati';
 }
 
-String placeMiningStatusMessage(PlaceMiningStatusDto status) {
+String placeMiningStatusMessage(PlaceMiningStatus status) {
   if (status.isRunning) {
     return 'Puoi leggere l’ultimo snapshot salvato, ma le azioni di review restano bloccate finche\' il ricalcolo non finisce.';
   }

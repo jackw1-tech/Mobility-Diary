@@ -1,6 +1,6 @@
 import 'package:auto_route/auto_route.dart';
-import 'package:diary/network/dto/place_review_dto.dart';
-import 'package:diary/network/service/places_service.dart';
+import 'package:diary/features/places/domain/place_review.dart';
+import 'package:diary/repositories/places_repository.dart';
 import 'package:diary/routers/app_router.dart';
 import 'package:diary/state_management/cubits/places_cubit/places_cubit.dart';
 import 'package:diary/state_management/cubits/places_cubit/places_cubit_state.dart';
@@ -19,7 +19,8 @@ class PlacesPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BlocProvider(
-      create: (context) => PlacesCubit(context.read<PlacesService>())..load(),
+      create: (context) =>
+          PlacesCubit(context.read<PlacesRepository>())..load(),
       child: Scaffold(
         appBar: AppBar(centerTitle: true, title: const Text('I miei luoghi')),
         body: const SafeArea(child: _PlacesBody()),
@@ -118,7 +119,7 @@ class _PlaceMiningBanner extends StatelessWidget {
 
 class _PlaceSection extends StatelessWidget {
   final String title;
-  final List<PlaceReviewDto> places;
+  final List<PlaceReview> places;
 
   const _PlaceSection({required this.title, required this.places});
 
@@ -146,7 +147,7 @@ class _PlaceSection extends StatelessWidget {
 }
 
 class _PlaceCard extends StatelessWidget {
-  final PlaceReviewDto place;
+  final PlaceReview place;
 
   const _PlaceCard({required this.place});
 

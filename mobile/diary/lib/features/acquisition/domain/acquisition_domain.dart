@@ -1,5 +1,6 @@
 export 'acquisition_route_point.dart';
 export 'acquisition_snapshot.dart';
+export 'acquisition_stop_result.dart';
 export 'acquisition_sync_snapshot.dart';
 export 'fsm_engine.dart';
 export 'har_sensor_window.dart';

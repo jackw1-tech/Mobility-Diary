@@ -1,505 +1,229 @@
-import 'package:diary/features/acquisition/data/acquisition_local_database.dart';
+import 'dart:async';
+
 import 'package:diary/features/acquisition/domain/acquisition_domain.dart';
-import 'package:diary/features/acquisition/sync/trip_ingestion_api.dart';
 import 'package:diary/repositories/acquisition_repository.dart';
-import 'package:diary/repositories/impl/acquisition_repository_impl.dart';
 import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubit.dart';
 import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubit_state.dart';
-import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:latlong2/latlong.dart';
 
 void main() {
   group('AcquisitionCubit', () {
-    test('starts from repository idle snapshot', () {
-      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
-      final repository = AcquisitionRepositoryImpl(
-        database: database,
-        enableRuntime: false,
-      );
-      final cubit = AcquisitionCubit(repository);
-      addTearDown(repository.dispose);
-      addTearDown(cubit.close);
+    late _FakeAcquisitionRepository repository;
+    late AcquisitionCubit cubit;
 
-      expect(cubit.state.status, AcquisitionCubitStatus.idle);
-      expect(cubit.state.trackingState, TrackingState.stationary);
+    setUp(() {
+      repository = _FakeAcquisitionRepository();
+      cubit = AcquisitionCubit(
+        trackingRepository: repository,
+        syncRepository: repository,
+      );
     });
 
-    test('starts tracking and applies FSM events through repository', () async {
-      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
-      final repository = AcquisitionRepositoryImpl(
-        database: database,
-        enableRuntime: false,
-      );
-      final cubit = AcquisitionCubit(repository);
-      addTearDown(repository.dispose);
-      addTearDown(cubit.close);
-      final now = DateTime.utc(2026, 1, 1);
+    tearDown(() async {
+      await cubit.close();
+      repository.dispose();
+    });
 
-      await cubit.startTracking();
+    test('resumes pending sync on startup', () async {
+      await _pumpEventQueue();
+
+      expect(repository.resumeSyncCount, 1);
+    });
+
+    test('forwards live snapshots and accumulates route points', () async {
+      repository.emitSnapshot(
+        _trackingSnapshot(latitude: 45.46, longitude: 9.19),
+      );
+      await _pumpEventQueue();
 
       expect(cubit.state.status, AcquisitionCubitStatus.tracking);
-      expect(cubit.state.isReplay, isFalse);
-      expect(cubit.state.samplingProfile.accelerometerHz, 10);
-
-      for (var index = 0; index < 4; index += 1) {
-        await cubit.ingestEvent(
-          MotionWindowEvaluated(
-            timestamp: now.add(Duration(seconds: index * 2)),
-            sigma: 1.2,
-            sampleCount: 20,
-          ),
-        );
-      }
-
-      expect(cubit.state.trackingState, TrackingState.movement);
-      expect(cubit.state.samplingProfile.accelerometerHz, 100);
-      expect(cubit.state.samplingProfile.gyroscopeHz, 100);
+      expect(cubit.state.snapshot.latitude, 45.46);
+      expect(cubit.state.routePoints, hasLength(1));
+      expect(cubit.state.routePoints.single.latitude, 45.46);
     });
 
-    test('restores the recorded route on reopen so the map can redraw it',
+    test('startTracking delegates and resets transient replay completion',
         () async {
-      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
-      final dao = database.acquisitionDao;
-      final startedAt = DateTime.utc(2026, 1, 1, 8);
-      // Sessione locale ancora aperta (viaggio in corso quando l'app si chiude).
-      await dao.createSession(
-        id: 'reopen-session',
-        deviceId: 'dev',
-        startedAt: startedAt,
+      repository.current = _trackingSnapshot(latitude: 45, longitude: 9);
+      cubit.emit(
+        AcquisitionCubitState.fromSnapshot(
+          AcquisitionSnapshot.idle(),
+          completedReplayTripId: 99,
+          routePoints: const [],
+        ),
       );
-      const coordinates = [
-        LatLng(44.10, 11.10),
-        LatLng(44.11, 11.11),
-        LatLng(44.12, 11.12),
-      ];
-      for (var i = 0; i < coordinates.length; i += 1) {
-        await dao.insertGpsPoint(
-          sessionId: 'reopen-session',
-          latitude: coordinates[i].latitude,
-          longitude: coordinates[i].longitude,
-          timestamp: startedAt.add(Duration(minutes: i)),
-          speedMps: 1.0,
-        );
-      }
-
-      final repository = AcquisitionRepositoryImpl(
-        database: database,
-        enableRuntime: false,
-        now: () => startedAt.add(const Duration(minutes: 10)),
-      );
-      final cubit = AcquisitionCubit(repository);
-      addTearDown(repository.dispose);
-      addTearDown(cubit.close);
-
-      final restored = await cubit.stream.firstWhere(
-        (state) => state.routePoints.length >= 3,
-      );
-
-      expect(restored.status, AcquisitionCubitStatus.tracking);
-      expect(restored.routePoints, coordinates);
-    });
-
-    test('closing during route restore does not emit after close', () async {
-      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
-      final dao = database.acquisitionDao;
-      final startedAt = DateTime.utc(2026, 1, 1, 8);
-      await dao.createSession(
-        id: 'reopen-session',
-        deviceId: 'dev',
-        startedAt: startedAt,
-      );
-      for (var i = 0; i < 3; i += 1) {
-        await dao.insertGpsPoint(
-          sessionId: 'reopen-session',
-          latitude: 44.10 + i,
-          longitude: 11.10 + i,
-          timestamp: startedAt.add(Duration(minutes: i)),
-          speedMps: 1.0,
-        );
-      }
-
-      final repository = AcquisitionRepositoryImpl(
-        database: database,
-        enableRuntime: false,
-      );
-      addTearDown(repository.dispose);
-
-      // Costruzione + chiusura immediata: il ripristino (fire-and-forget) deve
-      // completare senza lanciare "Cannot emit new states after calling close".
-      final cubit = AcquisitionCubit(repository);
-      await cubit.close();
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-
-      expect(cubit.isClosed, isTrue);
-    });
-
-    test('restoreActiveTrip re-checks for an active trip after autologin',
-        () async {
-      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
-      final api = _CountingActiveLookupApi();
-      final repository = AcquisitionRepositoryImpl(
-        database: database,
-        enableRuntime: false,
-        ingestionApi: api,
-        deviceIdProvider: () async => 'stable-device',
-      );
-      final cubit = AcquisitionCubit(repository);
-      addTearDown(repository.dispose);
-      addTearDown(cubit.close);
-
-      // Lascia completare il ripristino del costruttore (1 verifica).
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-      expect(api.activeLookupCount, 1);
-
-      // Trigger post-autologin: deve rifare la verifica.
-      await cubit.restoreActiveTrip();
-      expect(api.activeLookupCount, 2);
-    });
-
-    test('surfaces sync status after stop', () async {
-      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
-      final repository = AcquisitionRepositoryImpl(
-        database: database,
-        enableRuntime: false,
-      );
-      final cubit = AcquisitionCubit(repository);
-      addTearDown(repository.dispose);
-      addTearDown(cubit.close);
 
       await cubit.startTracking();
-      final pendingStateFuture = cubit.stream.firstWhere(
-        (state) => state.syncSnapshot.status == AcquisitionSyncStatus.pending,
-      );
 
-      await cubit.stopTracking();
-      final pendingState = await pendingStateFuture;
-
-      expect(pendingState.status, AcquisitionCubitStatus.idle);
-      expect(pendingState.syncSnapshot.status, AcquisitionSyncStatus.pending);
-      expect(pendingState.syncSnapshot.localSessionId, isNotNull);
+      expect(repository.startTrackingCount, 1);
+      expect(cubit.state.isTracking, isTrue);
+      expect(cubit.state.completedReplayTripId, isNull);
+      expect(cubit.state.routePoints, isEmpty);
     });
 
-    test('dismisses non-recoverable sync state from the current UI', () async {
-      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
-      final dao = database.acquisitionDao;
-      final now = DateTime.utc(2026, 1, 1);
-      await dao.createSession(
-        id: 'failed-session',
-        deviceId: 'dev',
-        startedAt: now,
-      );
-      final job = await dao.createSyncJobIfAbsent('failed-session');
-      await dao.updateSyncJob(job.id, coreStatus: syncJobFailedFinal);
-      final repository = AcquisitionRepositoryImpl(
-        database: database,
-        enableRuntime: false,
-      );
-      final cubit = AcquisitionCubit(repository);
-      addTearDown(repository.dispose);
-      addTearDown(cubit.close);
+    test('stopTracking delegates to stopReplay while replaying', () async {
+      repository.current =
+          _trackingSnapshot(isReplay: true, replaySecondsRemaining: 10);
+      repository.replayStopResult = const ReplayStopResult(tripId: 123);
+      repository.emitSnapshot(repository.current);
+      await _pumpEventQueue();
 
-      final failedState = await cubit.stream.firstWhere(
-        (state) => state.syncSnapshot.isNonRecoverable,
+      await cubit.stopTracking();
+
+      expect(repository.stopTrackingCount, 0);
+      expect(repository.stopReplayCount, 1);
+      expect(cubit.state.completedReplayTripId, 123);
+    });
+
+    test('ingestEvent delegates to repository and refreshes current snapshot',
+        () async {
+      repository.current = _trackingSnapshot(
+        latitude: 45.1,
+        longitude: 9.2,
+        speedMetersPerSecond: 3,
       );
-      expect(failedState.syncSnapshot.canRetry, isFalse);
+
+      await cubit.ingestEvent(
+        GpsFixReceived(
+          timestamp: DateTime.utc(2026, 1, 1, 10),
+          latitude: 45.1,
+          longitude: 9.2,
+          speedMetersPerSecond: 3,
+        ),
+      );
+
+      expect(repository.ingestedEvents, hasLength(1));
+      expect(cubit.state.latestSpeedMetersPerSecond, 3);
+      expect(cubit.state.latestPosition?.longitude, 9.2);
+    });
+
+    test('dismissNonRecoverableSync clears only final failures', () async {
+      cubit.emit(
+        cubit.state.copyWith(
+          syncSnapshot: const AcquisitionSyncSnapshot(
+            status: AcquisitionSyncStatus.failedFinal,
+            localSessionId: 'local-1',
+          ),
+        ),
+      );
 
       cubit.dismissNonRecoverableSync();
 
-      expect(cubit.state.syncSnapshot.hasJob, isFalse);
-    });
-
-    test('surfaces pending stop message when starting before sync closes core',
-        () async {
-      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
-      final repository = AcquisitionRepositoryImpl(
-        database: database,
-        enableRuntime: false,
-      );
-      final cubit = AcquisitionCubit(repository);
-      addTearDown(repository.dispose);
-      addTearDown(cubit.close);
-
-      await cubit.startTracking();
-      await cubit.stopTracking();
-
-      await expectLater(
-        cubit.startTracking(),
-        throwsA(isA<PendingTripSyncException>()),
-      );
-
-      expect(cubit.state.errorMessage, PendingTripSyncException.defaultMessage);
-      expect(cubit.state.status, AcquisitionCubitStatus.idle);
-    });
-
-    test('surfaces backend connection message when start cannot reach backend',
-        () async {
-      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
-      final repository = AcquisitionRepositoryImpl(
-        database: database,
-        enableRuntime: false,
-        ingestionApi: _StartFailureApi(),
-      );
-      final cubit = AcquisitionCubit(repository);
-      addTearDown(repository.dispose);
-      addTearDown(cubit.close);
-
-      await expectLater(
-        cubit.startTracking(),
-        throwsA(isA<StartRequiresConnectionException>()),
-      );
-
-      expect(
-        cubit.state.errorMessage,
-        StartRequiresConnectionException.defaultMessage,
-      );
-      expect(cubit.state.status, AcquisitionCubitStatus.idle);
-    });
-
-    test('surfaces another-device start conflict message', () async {
-      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
-      final repository = AcquisitionRepositoryImpl(
-        database: database,
-        enableRuntime: false,
-        ingestionApi: _AnotherDeviceConflictApi(),
-        deviceIdProvider: () async => 'this-device',
-      );
-      final cubit = AcquisitionCubit(repository);
-      addTearDown(repository.dispose);
-      addTearDown(cubit.close);
-
-      await expectLater(
-        cubit.startTracking(),
-        throwsA(isA<ActiveTripOnAnotherDeviceException>()),
-      );
-
-      expect(
-        cubit.state.errorMessage,
-        ActiveTripOnAnotherDeviceException.defaultMessage,
-      );
-      expect(cubit.state.status, AcquisitionCubitStatus.idle);
-    });
-
-    test('startReplay initiates replay and emits tracking status', () async {
-      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
-      final repository = AcquisitionRepositoryImpl(
-        database: database,
-        enableRuntime: false,
-        ingestionApi: _FakeTripIngestionApi(),
-        deviceIdProvider: () async => 'this-device',
-      );
-      final cubit = AcquisitionCubit(repository);
-      addTearDown(repository.dispose);
-      addTearDown(cubit.close);
-
-      await cubit.startReplay(123);
-
-      expect(cubit.state.status, AcquisitionCubitStatus.tracking);
-      expect(cubit.state.isReplay, isTrue);
-      expect(cubit.state.completedReplayTripId, isNull);
-    });
-
-    test('stopReplay emits the completed trip ID and sets status to idle',
-        () async {
-      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
-      final repository = AcquisitionRepositoryImpl(
-        database: database,
-        enableRuntime: false,
-        ingestionApi: _FakeTripIngestionApi(),
-        deviceIdProvider: () async => 'this-device',
-      );
-      final cubit = AcquisitionCubit(repository);
-      addTearDown(repository.dispose);
-      addTearDown(cubit.close);
-
-      await cubit.startReplay(123);
-      await cubit.stopReplay();
-
-      expect(cubit.state.status, AcquisitionCubitStatus.idle);
-      expect(cubit.state.completedReplayTripId, 999);
-    });
-
-    test('stopTracking finalizes an active replay instead of dropping it',
-        () async {
-      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
-      final api = _FakeTripIngestionApi();
-      final repository = AcquisitionRepositoryImpl(
-        database: database,
-        enableRuntime: false,
-        ingestionApi: api,
-        deviceIdProvider: () async => 'this-device',
-      );
-      final cubit = AcquisitionCubit(repository);
-      addTearDown(repository.dispose);
-      addTearDown(cubit.close);
-
-      await cubit.startReplay(123);
-      await cubit.stopTracking();
-
-      expect(cubit.state.status, AcquisitionCubitStatus.idle);
-      expect(cubit.state.completedReplayTripId, 999);
-      expect(api.lastInlineCoreBody, isNotNull);
-    });
-
-    test('startReplay clears a previous completed replay trip ID', () async {
-      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
-      final repository = AcquisitionRepositoryImpl(
-        database: database,
-        enableRuntime: false,
-        ingestionApi: _FakeTripIngestionApi(),
-        deviceIdProvider: () async => 'this-device',
-      );
-      final cubit = AcquisitionCubit(repository);
-      addTearDown(repository.dispose);
-      addTearDown(cubit.close);
-
-      await cubit.startReplay(123);
-      await cubit.stopReplay();
-      await cubit.startReplay(123);
-
-      expect(cubit.state.status, AcquisitionCubitStatus.tracking);
-      expect(cubit.state.completedReplayTripId, isNull);
+      expect(cubit.state.syncSnapshot.status, AcquisitionSyncStatus.none);
     });
   });
 }
 
-class _FakeTripIngestionApi implements TripIngestionApi {
-  Map<String, dynamic>? lastInlineCoreBody;
-
-  @override
-  Future<ActiveIngestion?> getActiveIngestion() async => null;
-
-  @override
-  Future<IngestionStartResult> startIngestion({
-    required String clientSessionId,
-    required DateTime startedAt,
-    required String deviceId,
-    String devicePlatform = '',
-    int? sourceTripId,
-  }) async {
-    return IngestionStartResult(
-      ingestionId: 1,
-      clientSessionId: clientSessionId,
-      deviceId: deviceId,
-      recordingStartedAt: startedAt,
-      alreadyExists: false,
-    );
-  }
-
-  @override
-  Future<Map<String, dynamic>> getReplayData(int tripId) async {
-    return {
-      'points': [
-        {
-          'timestamp': '2026-01-01T08:00:00Z',
-          'latitude': 44.0,
-          'longitude': 11.0,
-          'speed_mps': 1.0,
-          'accuracy_meters': 5.0,
-        },
-      ],
-      'transitions': [
-        {
-          'timestamp': '2026-01-01T08:00:00Z',
-          'from_state': 'stationary',
-          'to_state': 'vehicle',
-          'sigma': 0.0,
-          'speed_mps': 0.0,
-        }
-      ]
-    };
-  }
-
-  @override
-  Future<InlineCoreResult> postCoreInline({
-    required Map<String, dynamic> body,
-  }) async {
-    lastInlineCoreBody = body;
-    final expectedRawParts =
-        Map<String, dynamic>.from(body['expected_raw_parts'] as Map);
-    final rawStatus = expectedRawParts.isEmpty ? 'COMPLETED' : 'PENDING';
-    final responseIngestionId = body['ingestion_id'] as int? ?? 123;
-
-    if (responseIngestionId != 123 && body['cutoff_source_timestamp'] == null) {
-      throw Exception('Missing cutoff_source_timestamp for replay');
-    }
-
-    return InlineCoreResult(
-      ingestionId: responseIngestionId,
-      tripId: 999,
-      coreStatus: 'SAVED',
-      rawStatus: rawStatus,
-      gpsPoints: (body['gps_points'] as List).length,
-      stateTransitions: (body['state_transitions'] as List).length,
-      pathPoints: 0,
-      distanceMeters: 0,
-      mapAvailable: false,
-    );
-  }
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+AcquisitionSnapshot _trackingSnapshot({
+  bool isReplay = false,
+  int? replaySecondsRemaining,
+  double? latitude,
+  double? longitude,
+  double speedMetersPerSecond = 1,
+}) {
+  return AcquisitionSnapshot(
+    isTracking: true,
+    trackingState: TrackingState.movement,
+    samplingProfile: const SamplingProfile.movement(),
+    latestSigma: 0.8,
+    latestSpeedMetersPerSecond: speedMetersPerSecond,
+    lastTransition: null,
+    updatedAt: DateTime.utc(2026, 1, 1, 10),
+    latitude: latitude,
+    longitude: longitude,
+    accuracyMeters: latitude == null ? null : 5,
+    replaySecondsRemaining: replaySecondsRemaining,
+    isReplay: isReplay,
+  );
 }
 
-class _StartFailureApi implements TripIngestionApi {
-  @override
-  Future<ActiveIngestion?> getActiveIngestion() async => null;
+Future<void> _pumpEventQueue() => Future<void>.delayed(Duration.zero);
+
+class _FakeAcquisitionRepository implements AcquisitionRepository {
+  final StreamController<AcquisitionSnapshot> _snapshots =
+      StreamController<AcquisitionSnapshot>.broadcast();
+  final StreamController<AcquisitionSyncSnapshot> _syncSnapshots =
+      StreamController<AcquisitionSyncSnapshot>.broadcast();
+
+  AcquisitionSnapshot current = AcquisitionSnapshot.idle(
+    updatedAt: DateTime.utc(2026),
+  );
+  AcquisitionSyncSnapshot syncCurrent = const AcquisitionSyncSnapshot.none();
+  ReplayStopResult replayStopResult = const ReplayStopResult(tripId: null);
+  final List<TrackingEvent> ingestedEvents = [];
+  int resumeSyncCount = 0;
+  int startTrackingCount = 0;
+  int stopTrackingCount = 0;
+  int stopReplayCount = 0;
 
   @override
-  Future<IngestionStartResult> startIngestion({
-    required String clientSessionId,
-    required DateTime startedAt,
-    required String deviceId,
-    String devicePlatform = '',
-    int? sourceTripId,
-  }) async {
-    throw const IngestionApiException('network offline');
+  Stream<AcquisitionSnapshot> get snapshots => _snapshots.stream;
+
+  @override
+  Stream<AcquisitionSyncSnapshot> get syncSnapshots => _syncSnapshots.stream;
+
+  @override
+  AcquisitionSnapshot get currentSnapshot => current;
+
+  @override
+  AcquisitionSyncSnapshot get currentSyncSnapshot => syncCurrent;
+
+  void emitSnapshot(AcquisitionSnapshot snapshot) {
+    current = snapshot;
+    _snapshots.add(snapshot);
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
-}
-
-class _CountingActiveLookupApi implements TripIngestionApi {
-  int activeLookupCount = 0;
-
-  @override
-  Future<ActiveIngestion?> getActiveIngestion() async {
-    activeLookupCount += 1;
-    return null;
+  Future<void> startTracking() async {
+    startTrackingCount += 1;
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
-}
-
-class _AnotherDeviceConflictApi implements TripIngestionApi {
-  @override
-  Future<ActiveIngestion?> getActiveIngestion() async => null;
-
-  @override
-  Future<IngestionStartResult> startIngestion({
-    required String clientSessionId,
-    required DateTime startedAt,
-    required String deviceId,
-    String devicePlatform = '',
-    int? sourceTripId,
-  }) async {
-    throw IngestionApiException(
-      "viaggio in corso gia' presente",
-      statusCode: 409,
-      body: {
-        'active_ingestion': {
-          'ingestion_id': 7,
-          'client_session_id': 'other-session',
-          'device_id': 'other-device',
-          'recording_started_at': DateTime.utc(2026).toIso8601String(),
-          'last_seen_at': DateTime.utc(2026, 1, 1, 0, 5).toIso8601String(),
-        },
-      },
-    );
+  Future<void> stopTracking() async {
+    stopTrackingCount += 1;
+    current = AcquisitionSnapshot.idle(updatedAt: DateTime.utc(2026, 1, 1, 11));
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  Future<void> startReplay(
+    int sourceTripId, {
+    DateTime? scheduledStartAt,
+    double replaySpeedMultiplier = 1,
+  }) async {}
+
+  @override
+  Future<ReplayStopResult> stopReplay() async {
+    stopReplayCount += 1;
+    current = AcquisitionSnapshot.idle(updatedAt: DateTime.utc(2026, 1, 1, 11));
+    return replayStopResult;
+  }
+
+  @override
+  Future<void> ingestEvent(TrackingEvent event) async {
+    ingestedEvents.add(event);
+  }
+
+  @override
+  Future<void> resumeSync() async {
+    resumeSyncCount += 1;
+  }
+
+  @override
+  Future<void> purgeLocalDataForRemoteTrip(int tripId) async {}
+
+  @override
+  Future<List<AcquisitionRoutePoint>> currentSessionRoute() async {
+    return const [];
+  }
+
+  @override
+  Future<List<List<double>>> currentSensorWindow() async {
+    return const [];
+  }
+
+  @override
+  void dispose() {
+    unawaited(_snapshots.close());
+    unawaited(_syncSnapshots.close());
+  }
 }

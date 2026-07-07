@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:diary/di/dependency_injector.dart';
+import 'package:diary/features/auth/data/secure_auth_session_store.dart';
+import 'package:diary/features/auth/domain/auth_session_store.dart';
 import 'package:diary/repositories/auth_repository.dart';
 import 'package:diary/repositories/impl/auth_repository_impl.dart';
 import 'package:diary/routers/app_router.dart';
@@ -25,21 +27,27 @@ void main() {
 
 class DiaryApp extends StatelessWidget {
   final AuthRepository? authRepository;
+  final AuthSessionStore? authSessionStore;
 
   const DiaryApp({
     this.authRepository,
+    this.authSessionStore,
     super.key,
   });
 
   @override
   Widget build(BuildContext context) {
-    final resolvedAuthRepository = authRepository ?? AuthRepositoryImpl();
+    final resolvedAuthSessionStore =
+        authSessionStore ?? const SecureAuthSessionStore();
+    final resolvedAuthRepository = authRepository ??
+        AuthRepositoryImpl(sessionStore: resolvedAuthSessionStore);
     final appRouter = AppRouter(
       authGuard: AuthGuard(resolvedAuthRepository),
     );
 
     return DependencyInjector(
       authRepository: resolvedAuthRepository,
+      authSessionStore: resolvedAuthSessionStore,
       // A ogni avvio autenticato (incluso l'autologin di AuthCubit.initialize)
       // verifichiamo se c'e' un viaggio in corso da riprendere su questo
       // dispositivo. Il check e' idempotente e gira anche dopo un login manuale.

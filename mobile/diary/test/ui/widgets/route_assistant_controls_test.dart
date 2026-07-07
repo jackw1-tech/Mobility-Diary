@@ -1,6 +1,6 @@
+import 'package:diary/features/common/domain/app_result.dart';
 import 'package:diary/features/route_assistant/domain/route_assistant_domain.dart';
-import 'package:diary/network/service/route_assistant_service.dart';
-import 'package:diary/network/service/route_classifier_service.dart';
+import 'package:diary/repositories/route_assistant_repository.dart';
 import 'package:diary/state_management/cubits/route_assistant_cubit/route_assistant_cubit.dart';
 import 'package:diary/ui/widgets/route_assistant_controls.dart';
 import 'package:flutter/material.dart';
@@ -8,39 +8,39 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart' as ll;
 
-class _FakeService implements RouteAssistantService {
+class _FakeService implements RouteAssistantRepository {
   List<ll.LatLng> route = const [ll.LatLng(45.0, 9.0), ll.LatLng(45.5, 9.2)];
   RouteMode? lastMode;
 
   @override
-  Future<List<GeocodingPlace>> searchPlaces(String query,
+  Future<AppResult<List<GeocodingPlace>>> searchPlaces(String query,
           {ll.LatLng? proximity}) async =>
-      const [];
+      const AppResult.success([]);
 
   @override
-  Future<RouteAssistantRoute> fetchRoute({
+  Future<AppResult<RouteAssistantRoute>> fetchRoute({
     required ll.LatLng from,
     required ll.LatLng to,
     required RouteMode mode,
   }) async {
     lastMode = mode;
-    return RouteAssistantRoute(
-      points: route,
-      distanceMeters: 1200,
-      durationSeconds: 600,
+    return AppResult.success(
+      RouteAssistantRoute(
+        points: route,
+        distanceMeters: 1200,
+        durationSeconds: 600,
+      ),
     );
   }
-}
 
-class _NoopClassifier implements RouteClassifierService {
   @override
-  Future<RouteMode?> classify(List<List<double>> samples) async => null;
+  Future<AppResult<RouteMode?>> classify(List<List<double>> samples) async =>
+      const AppResult.success(null);
 }
 
 Future<RouteAssistantCubit> _activeCubit(_FakeService service) async {
   final cubit = RouteAssistantCubit(
     service,
-    classifier: _NoopClassifier(),
     locationProvider: () async => const ll.LatLng(45.0, 9.0),
     sensorWindowProvider: () async => const [],
   );
@@ -96,7 +96,6 @@ void main() {
   testWidgets('non mostra nulla senza percorso attivo', (tester) async {
     final cubit = RouteAssistantCubit(
       _FakeService(),
-      classifier: _NoopClassifier(),
       locationProvider: () async => const ll.LatLng(45.0, 9.0),
       sensorWindowProvider: () async => const [],
     );

@@ -29,7 +29,8 @@ class RouteClassifierHttpService implements RouteClassifierService {
     if (token == null || token.isEmpty) {
       throw const RouteAssistantException('Sessione non disponibile');
     }
-    final request = await _client.postUrl(_uri('/mobility/route-assistant/classify'));
+    final request =
+        await _client.postUrl(_uri('/mobility/route-assistant/classify'));
     request.headers.contentType = ContentType.json;
     request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
     final encoded = utf8.encode(jsonEncode({'samples': samples}));

@@ -1,37 +1,43 @@
-import 'package:diary/network/dto/place_mining_status_dto.dart';
-import 'package:diary/network/dto/place_review_dto.dart';
-import 'package:diary/network/service/places_service.dart';
+import 'package:diary/features/common/domain/app_result.dart';
+import 'package:diary/features/places/domain/place_enums.dart';
+import 'package:diary/features/places/domain/place_mining_status.dart';
+import 'package:diary/features/places/domain/place_review.dart';
+import 'package:diary/repositories/places_repository.dart';
 import 'package:diary/state_management/cubits/places_cubit/places_cubit.dart';
 import 'package:diary/state_management/cubits/places_cubit/places_cubit_state.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-class FakePlacesService implements PlacesService {
-  PlaceMiningStatusDto statusResult =
-      const PlaceMiningStatusDto(status: 'SUCCEEDED');
-  List<PlaceReviewDto>? result;
+class FakePlacesService implements PlacesRepository {
+  PlaceMiningStatus statusResult =
+      const PlaceMiningStatus(status: PlaceMiningState.succeeded);
+  List<PlaceReview>? result;
   Object? error;
 
   @override
-  Future<PlaceMiningStatusDto> fetchPlacesStatus() async => statusResult;
+  Future<AppResult<PlaceMiningStatus>> fetchPlacesStatus() async =>
+      AppResult.success(statusResult);
 
   @override
-  Future<List<PlaceReviewDto>> fetchPlaces() async {
+  Future<AppResult<List<PlaceReview>>> fetchPlaces() async {
     final failure = error;
-    if (failure != null) throw failure;
-    return result!;
+    if (failure != null) return AppResult.failure(toAppFailure(failure));
+    return AppResult.success(result!);
   }
 
   @override
-  Future<PlaceReviewDto> confirmPlace(int id) => throw UnimplementedError();
+  Future<AppResult<PlaceReview>> confirmPlace(int id) =>
+      throw UnimplementedError();
 
   @override
-  Future<PlaceReviewDto> rejectPlace(int id) => throw UnimplementedError();
+  Future<AppResult<PlaceReview>> rejectPlace(int id) =>
+      throw UnimplementedError();
 
   @override
-  Future<PlaceReviewDto> reactivatePlace(int id) => throw UnimplementedError();
+  Future<AppResult<PlaceReview>> reactivatePlace(int id) =>
+      throw UnimplementedError();
 
   @override
-  Future<PlaceReviewDto> labelPlace(
+  Future<AppResult<PlaceReview>> labelPlace(
     int id, {
     required String category,
     required String customName,
@@ -39,12 +45,12 @@ class FakePlacesService implements PlacesService {
       throw UnimplementedError();
 }
 
-PlaceReviewDto _place(int id, String state) => PlaceReviewDto(
+PlaceReview _place(int id, String state) => PlaceReview(
       id: id,
       latitude: 45.46,
       longitude: 9.19,
       radiusMeters: 0,
-      state: state,
+      state: PlaceReviewState.fromWire(state),
       label: 'luogo',
       category: '',
       customName: '',
@@ -84,7 +90,8 @@ void main() {
 
     test('keeps the screen loaded when mining is still pending', () async {
       final service = FakePlacesService()
-        ..statusResult = const PlaceMiningStatusDto(status: 'PENDING')
+        ..statusResult =
+            const PlaceMiningStatus(status: PlaceMiningState.pending)
         ..result = const [];
       final cubit = PlacesCubit(service);
       addTearDown(cubit.close);

@@ -1,17 +1,18 @@
-import 'package:diary/network/dto/trip_list_item_dto.dart';
+import 'package:diary/features/trips/domain/trip_enums.dart';
+import 'package:diary/features/trips/domain/trip_list_item.dart';
 import 'package:diary/ui/widgets/trips_drawer_presenter.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-TripListItemDto _trip(
+TripListItem _trip(
   int id,
   DateTime startedAt, {
   bool hasTrack = true,
 }) {
-  return TripListItemDto(
+  return TripListItem(
     id: id,
     startedAt: startedAt,
     endedAt: startedAt.add(const Duration(minutes: 20)),
-    status: 'COMPLETED',
+    status: TripStatus.processed,
     distanceMeters: 1200,
     hasTrack: hasTrack,
   );

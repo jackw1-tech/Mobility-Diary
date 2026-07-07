@@ -1,15 +1,29 @@
 import 'dart:async';
 
+import 'package:diary/features/common/domain/app_result.dart';
+import 'package:diary/features/trips/domain/diary_event.dart';
+import 'package:diary/features/trips/domain/trip_track.dart';
+import 'package:diary/mappers/trips_mapper.dart';
 import 'package:diary/network/dto/trip_track_dto.dart';
-import 'package:diary/network/service/trip_track_service.dart';
+import 'package:diary/repositories/trip_track_repository.dart';
 import 'package:diary/state_management/cubits/trip_track_cubit/trip_track_cubit.dart';
 import 'package:diary/state_management/cubits/trip_track_cubit/trip_track_cubit_state.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-class FakeTripTrackService implements TripTrackService {
-  TripTrackDto? result;
-  TripDiaryDto? diary;
-  final List<TripDiaryDto> diaryResults = [];
+final _mapper = TripsMapper();
+
+TripTrack _trackFromJson(Map<String, dynamic> json) {
+  return _mapper.mapTripTrack(TripTrackDto.fromJson(json));
+}
+
+TripDiary _diaryFromJson(Map<String, dynamic> json) {
+  return _mapper.mapTripDiary(TripDiaryDto.fromJson(json));
+}
+
+class FakeTripTrackService implements TripTrackRepository {
+  TripTrack? result;
+  TripDiary? diary;
+  final List<TripDiary> diaryResults = [];
   Object? error;
   int trackCalls = 0;
   int diaryCalls = 0;
@@ -21,29 +35,31 @@ class FakeTripTrackService implements TripTrackService {
   final List<Stream<DiaryEvent>> eventStreams = [];
 
   @override
-  Future<TripTrackDto> fetchTrack(int tripId) async {
+  Future<AppResult<TripTrack>> fetchTrack(int tripId) async {
     trackCalls += 1;
     final failure = error;
-    if (failure != null) throw failure;
-    return result!;
+    if (failure != null) return AppResult.failure(toAppFailure(failure));
+    return AppResult.success(result!);
   }
 
   @override
-  Future<TripDiaryDto> fetchDiary(int tripId) async {
+  Future<AppResult<TripDiary>> fetchDiary(int tripId) async {
     diaryCalls += 1;
     final failure = error;
-    if (failure != null) throw failure;
+    if (failure != null) return AppResult.failure(toAppFailure(failure));
     if (diaryResults.isNotEmpty) {
-      return diaryResults.removeAt(0);
+      return AppResult.success(diaryResults.removeAt(0));
     }
-    return diary ??
-        TripDiaryDto.fromJson({
-          'trip_id': tripId,
-          'status': 'CLOSED',
-          'processed': false,
-          'segments': [],
-          'places': [],
-        });
+    return AppResult.success(
+      diary ??
+          _diaryFromJson({
+            'trip_id': tripId,
+            'status': 'CLOSED',
+            'processed': false,
+            'segments': [],
+            'places': [],
+          }),
+    );
   }
 
   @override
@@ -62,7 +78,7 @@ void main() {
   group('TripTrackCubit', () {
     test('emits loaded when service returns points', () async {
       final service = FakeTripTrackService()
-        ..result = TripTrackDto.fromJson({
+        ..result = _trackFromJson({
           'trip_id': 1,
           'point_count': 2,
           'distance_meters': 900,
@@ -93,7 +109,7 @@ void main() {
     test('emits segmented track when diary has enriched movement geometry',
         () async {
       final service = FakeTripTrackService()
-        ..diary = TripDiaryDto.fromJson({
+        ..diary = _diaryFromJson({
           'trip_id': 1,
           'status': 'PROCESSED',
           'processed': true,
@@ -153,7 +169,7 @@ void main() {
     test('keeps processed diary segments when the map falls back to base track',
         () async {
       final service = FakeTripTrackService()
-        ..diary = TripDiaryDto.fromJson({
+        ..diary = _diaryFromJson({
           'trip_id': 1,
           'status': 'PROCESSED',
           'processed': true,
@@ -177,7 +193,7 @@ void main() {
           ],
           'places': [],
         })
-        ..result = TripTrackDto.fromJson({
+        ..result = _trackFromJson({
           'trip_id': 1,
           'point_count': 2,
           'distance_meters': 120,
@@ -203,14 +219,14 @@ void main() {
     });
 
     test('refetches pending diary after diary enriched event', () async {
-      final pendingDiary = TripDiaryDto.fromJson({
+      final pendingDiary = _diaryFromJson({
         'trip_id': 1,
         'status': 'CLOSED',
         'processed': false,
         'segments': [],
         'places': [],
       });
-      final enrichedDiary = TripDiaryDto.fromJson({
+      final enrichedDiary = _diaryFromJson({
         'trip_id': 1,
         'status': 'PROCESSED',
         'processed': true,
@@ -234,7 +250,7 @@ void main() {
         'places': [],
       });
       final service = FakeTripTrackService()
-        ..result = TripTrackDto.fromJson({
+        ..result = _trackFromJson({
           'trip_id': 1,
           'point_count': 2,
           'distance_meters': 900,
@@ -276,7 +292,7 @@ void main() {
     test('surfaces diary enrichment failure without replacing the base track',
         () async {
       final service = FakeTripTrackService()
-        ..result = TripTrackDto.fromJson({
+        ..result = _trackFromJson({
           'trip_id': 1,
           'point_count': 2,
           'distance_meters': 900,
@@ -328,7 +344,7 @@ void main() {
 
     test('re-watches diary after the SSE stream ends on timeout', () async {
       final service = FakeTripTrackService()
-        ..result = TripTrackDto.fromJson({
+        ..result = _trackFromJson({
           'trip_id': 1,
           'point_count': 2,
           'distance_meters': 900,
@@ -364,7 +380,7 @@ void main() {
 
     test('emits empty when service returns no GeoJSON', () async {
       final service = FakeTripTrackService()
-        ..result = TripTrackDto.fromJson({
+        ..result = _trackFromJson({
           'trip_id': 1,
           'point_count': 1,
           'distance_meters': 0,
@@ -385,7 +401,7 @@ void main() {
     test('manual retry keeps the last base track when the network fails',
         () async {
       final service = FakeTripTrackService()
-        ..result = TripTrackDto.fromJson({
+        ..result = _trackFromJson({
           'trip_id': 1,
           'point_count': 2,
           'distance_meters': 900,
@@ -414,7 +430,7 @@ void main() {
 
     test('closes the diary event stream when disposed', () async {
       final service = FakeTripTrackService()
-        ..result = TripTrackDto.fromJson({
+        ..result = _trackFromJson({
           'trip_id': 1,
           'point_count': 2,
           'distance_meters': 900,

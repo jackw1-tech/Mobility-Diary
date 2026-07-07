@@ -1,26 +1,28 @@
+import 'package:diary/features/common/domain/app_result.dart';
 import 'package:diary/features/privacy/domain/privacy_level.dart';
 import 'package:diary/features/privacy/domain/privacy_settings.dart';
-import 'package:diary/network/service/privacy_settings_service.dart';
+import 'package:diary/repositories/privacy_settings_repository.dart';
 import 'package:diary/state_management/cubits/privacy_settings_cubit/privacy_settings_cubit.dart';
 import 'package:diary/ui/widgets/privacy_onboarding_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-class _FakeService implements PrivacySettingsService {
+class _FakeService implements PrivacySettingsRepository {
   bool isFirstLogin = true;
   int saveCalls = 0;
   PrivacyLevel? savedLevel;
 
   @override
-  Future<PrivacySettings> fetch() async =>
-      (level: PrivacyLevel.precise, isFirstLogin: isFirstLogin);
+  Future<AppResult<PrivacySettings>> fetch() async => AppResult.success(
+        (level: PrivacyLevel.precise, isFirstLogin: isFirstLogin),
+      );
 
   @override
-  Future<PrivacySettings> update(PrivacyLevel level) async {
+  Future<AppResult<PrivacySettings>> update(PrivacyLevel level) async {
     saveCalls += 1;
     savedLevel = level;
-    return (level: level, isFirstLogin: false);
+    return AppResult.success((level: level, isFirstLogin: false));
   }
 }
 

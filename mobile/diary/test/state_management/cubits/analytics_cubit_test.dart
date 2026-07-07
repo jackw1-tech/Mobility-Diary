@@ -1,24 +1,26 @@
-import 'package:diary/network/dto/analytics_dto.dart';
-import 'package:diary/network/service/analytics_service.dart';
+import 'package:diary/features/common/domain/app_result.dart';
+import 'package:diary/features/analytics/domain/analytics.dart';
+import 'package:diary/repositories/analytics_repository.dart';
 import 'package:diary/state_management/cubits/analytics_cubit/analytics_cubit.dart';
 import 'package:diary/state_management/cubits/analytics_cubit/analytics_cubit_state.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-class FakeAnalyticsService implements AnalyticsService {
-  AnalyticsDto? result;
+class FakeAnalyticsService implements AnalyticsRepository {
+  Analytics? result;
   Object? error;
   String? lastGranularity;
 
   @override
-  Future<AnalyticsDto> fetchAnalytics({String granularity = 'day'}) async {
+  Future<AppResult<Analytics>> fetchAnalytics(
+      {String granularity = 'day'}) async {
     lastGranularity = granularity;
     final failure = error;
-    if (failure != null) throw failure;
-    return result!;
+    if (failure != null) return AppResult.failure(toAppFailure(failure));
+    return AppResult.success(result!);
   }
 }
 
-AnalyticsDto _analytics({bool hasData = true}) => AnalyticsDto(
+Analytics _analytics({bool hasData = true}) => Analytics(
       granularity: 'day',
       hasData: hasData,
       buckets: const [],
@@ -41,7 +43,8 @@ void main() {
     });
 
     test('emits empty when the user has no data', () async {
-      final service = FakeAnalyticsService()..result = _analytics(hasData: false);
+      final service = FakeAnalyticsService()
+        ..result = _analytics(hasData: false);
       final cubit = AnalyticsCubit(service);
       addTearDown(cubit.close);
 

@@ -1,18 +1,17 @@
 import 'dart:async';
 
+import 'package:diary/features/common/domain/app_result.dart';
 import 'package:diary/features/route_assistant/domain/route_assistant_domain.dart';
-import 'package:diary/network/service/route_assistant_service.dart';
-import 'package:diary/network/service/route_classifier_service.dart';
+import 'package:diary/repositories/route_assistant_repository.dart';
 import 'package:diary/state_management/cubits/route_assistant_cubit/route_assistant_cubit.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart' as ll;
 
-class FakeClassifierService implements RouteClassifierService {
+class FakeClassifierService {
   RouteMode? result;
   Object? error;
   int calls = 0;
 
-  @override
   Future<RouteMode?> classify(List<List<double>> samples) async {
     calls += 1;
     if (error != null) throw error!;
@@ -20,7 +19,8 @@ class FakeClassifierService implements RouteClassifierService {
   }
 }
 
-class FakeRouteAssistantService implements RouteAssistantService {
+class FakeRouteAssistantService implements RouteAssistantRepository {
+  FakeClassifierService classifier = FakeClassifierService();
   List<GeocodingPlace> places = const [];
   List<ll.LatLng> route = const [];
   double distanceMeters = 1200;
@@ -36,19 +36,21 @@ class FakeRouteAssistantService implements RouteAssistantService {
   Completer<RouteAssistantRoute>? routeGate;
 
   @override
-  Future<List<GeocodingPlace>> searchPlaces(
+  Future<AppResult<List<GeocodingPlace>>> searchPlaces(
     String query, {
     ll.LatLng? proximity,
   }) async {
     lastSearchProximity = proximity;
     final gate = searchGate;
-    if (gate != null) return gate.future;
-    if (searchError != null) throw searchError!;
-    return places;
+    if (gate != null) return AppResult.success(await gate.future);
+    if (searchError != null) {
+      return AppResult.failure(toAppFailure(searchError!));
+    }
+    return AppResult.success(places);
   }
 
   @override
-  Future<RouteAssistantRoute> fetchRoute({
+  Future<AppResult<RouteAssistantRoute>> fetchRoute({
     required ll.LatLng from,
     required ll.LatLng to,
     required RouteMode mode,
@@ -57,13 +59,26 @@ class FakeRouteAssistantService implements RouteAssistantService {
     lastMode = mode;
     lastRouteFrom = from;
     final gate = routeGate;
-    if (gate != null) return gate.future;
-    if (routeError != null) throw routeError!;
-    return RouteAssistantRoute(
-      points: route,
-      distanceMeters: distanceMeters,
-      durationSeconds: durationSeconds,
+    if (gate != null) return AppResult.success(await gate.future);
+    if (routeError != null) {
+      return AppResult.failure(toAppFailure(routeError!));
+    }
+    return AppResult.success(
+      RouteAssistantRoute(
+        points: route,
+        distanceMeters: distanceMeters,
+        durationSeconds: durationSeconds,
+      ),
     );
+  }
+
+  @override
+  Future<AppResult<RouteMode?>> classify(List<List<double>> samples) async {
+    try {
+      return AppResult.success(await classifier.classify(samples));
+    } catch (error) {
+      return AppResult.failure(toAppFailure(error));
+    }
   }
 }
 
@@ -78,13 +93,13 @@ RouteAssistantCubit _cubit(
   FakeRouteAssistantService service, {
   ll.LatLng? location = const ll.LatLng(45.0, 9.0),
   ll.LatLng? activeLocation,
-  RouteClassifierService? classifier,
+  FakeClassifierService? classifier,
   List<List<double>> sensorWindow = const [],
   Duration tickInterval = const Duration(milliseconds: 20),
 }) {
+  service.classifier = classifier ?? FakeClassifierService();
   return RouteAssistantCubit(
     service,
-    classifier: classifier ?? FakeClassifierService(),
     locationProvider: () async => location,
     activeLocationProvider:
         activeLocation == null ? null : () => activeLocation,

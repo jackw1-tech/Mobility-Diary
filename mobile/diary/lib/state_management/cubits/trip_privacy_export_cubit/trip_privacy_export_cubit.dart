@@ -1,13 +1,13 @@
-import 'package:diary/network/dto/trip_privacy_export_dto.dart';
-import 'package:diary/network/service/trip_privacy_export_service.dart';
+import 'package:diary/features/privacy/domain/trip_privacy_export.dart';
+import 'package:diary/repositories/trip_privacy_export_repository.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 part 'trip_privacy_export_state.dart';
 
 class TripPrivacyExportCubit extends Cubit<TripPrivacyExportState> {
-  final TripPrivacyExportService _service;
+  final TripPrivacyExportRepository _repository;
 
-  TripPrivacyExportCubit(this._service)
+  TripPrivacyExportCubit(this._repository)
       : super(const TripPrivacyExportState.initial());
 
   Future<void> load(int tripId) async {
@@ -15,17 +15,18 @@ class TripPrivacyExportCubit extends Cubit<TripPrivacyExportState> {
       status: TripPrivacyExportStatus.loading,
       clearError: true,
     ));
-    try {
-      final export = await _service.fetchExport(tripId);
-      emit(state.copyWith(
-        status: TripPrivacyExportStatus.ready,
-        export: export,
-      ));
-    } catch (error) {
+    final result = await _repository.fetchExport(tripId);
+    final failure = result.failure;
+    if (failure != null) {
       emit(state.copyWith(
         status: TripPrivacyExportStatus.error,
-        error: error.toString(),
+        error: failure.message,
       ));
+      return;
     }
+    emit(state.copyWith(
+      status: TripPrivacyExportStatus.ready,
+      export: result.requireValue,
+    ));
   }
 }

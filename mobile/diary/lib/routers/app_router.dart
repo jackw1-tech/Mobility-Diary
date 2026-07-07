@@ -1,6 +1,6 @@
 import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
-import 'package:diary/network/dto/place_review_dto.dart';
+import 'package:diary/features/places/domain/place_review.dart';
 import 'package:diary/routers/auth_guard.dart';
 import 'package:diary/ui/pages/analytics_page.dart';
 import 'package:diary/ui/pages/detail_page.dart';

@@ -1,53 +1,58 @@
-import 'package:diary/network/dto/place_mining_status_dto.dart';
-import 'package:diary/network/dto/place_review_dto.dart';
-import 'package:diary/network/service/places_service.dart';
+import 'package:diary/features/common/domain/app_result.dart';
+import 'package:diary/features/places/domain/place_enums.dart';
+import 'package:diary/features/places/domain/place_mining_status.dart';
+import 'package:diary/features/places/domain/place_review.dart';
+import 'package:diary/repositories/places_repository.dart';
 import 'package:diary/state_management/cubits/place_detail_cubit/place_detail_cubit.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-class FakePlacesService implements PlacesService {
-  PlaceMiningStatusDto statusResult =
-      const PlaceMiningStatusDto(status: 'SUCCEEDED');
-  PlaceReviewDto? actionResult;
+class FakePlacesService implements PlacesRepository {
+  PlaceMiningStatus statusResult =
+      const PlaceMiningStatus(status: PlaceMiningState.succeeded);
+  PlaceReview? actionResult;
   Object? error;
   final calls = <String>[];
 
   @override
-  Future<PlaceMiningStatusDto> fetchPlacesStatus() async => statusResult;
+  Future<AppResult<PlaceMiningStatus>> fetchPlacesStatus() async =>
+      AppResult.success(statusResult);
 
   @override
-  Future<List<PlaceReviewDto>> fetchPlaces() async => const [];
+  Future<AppResult<List<PlaceReview>>> fetchPlaces() async =>
+      const AppResult.success([]);
 
   @override
-  Future<PlaceReviewDto> confirmPlace(int id) => _result('confirm:$id');
+  Future<AppResult<PlaceReview>> confirmPlace(int id) => _result('confirm:$id');
 
   @override
-  Future<PlaceReviewDto> rejectPlace(int id) => _result('reject:$id');
+  Future<AppResult<PlaceReview>> rejectPlace(int id) => _result('reject:$id');
 
   @override
-  Future<PlaceReviewDto> reactivatePlace(int id) => _result('reactivate:$id');
+  Future<AppResult<PlaceReview>> reactivatePlace(int id) =>
+      _result('reactivate:$id');
 
   @override
-  Future<PlaceReviewDto> labelPlace(
+  Future<AppResult<PlaceReview>> labelPlace(
     int id, {
     required String category,
     required String customName,
   }) =>
       _result('label:$id:$category:$customName');
 
-  Future<PlaceReviewDto> _result(String call) async {
+  Future<AppResult<PlaceReview>> _result(String call) async {
     calls.add(call);
     final failure = error;
-    if (failure != null) throw failure;
-    return actionResult!;
+    if (failure != null) return AppResult.failure(toAppFailure(failure));
+    return AppResult.success(actionResult!);
   }
 }
 
-PlaceReviewDto _place(String state, {String label = 'luogo'}) => PlaceReviewDto(
+PlaceReview _place(String state, {String label = 'luogo'}) => PlaceReview(
       id: 5,
       latitude: 45.46,
       longitude: 9.19,
       radiusMeters: 0,
-      state: state,
+      state: PlaceReviewState.fromWire(state),
       label: label,
       category: '',
       customName: '',
@@ -111,7 +116,8 @@ void main() {
 
     test('blocks actions while review is not actionable', () async {
       final service = FakePlacesService()
-        ..statusResult = const PlaceMiningStatusDto(status: 'PENDING')
+        ..statusResult =
+            const PlaceMiningStatus(status: PlaceMiningState.pending)
         ..actionResult = _place('CONFIRMED');
       final cubit = PlaceDetailCubit(service, _place('CANDIDATE'));
       addTearDown(cubit.close);
@@ -128,10 +134,9 @@ void main() {
         'switches to blocked state when backend returns place-mutation-blocked',
         () async {
       final service = FakePlacesService()
-        ..error = const PlaceMutationBlockedException(
+        ..error = const PlaceReviewBlockedException(
           'Analisi dei luoghi abituali non completata',
-          placeStatus: PlaceMiningStatusDto(status: 'RUNNING'),
-          statusCode: 409,
+          placeStatus: PlaceMiningStatus(status: PlaceMiningState.running),
         );
       final cubit = PlaceDetailCubit(service, _place('CANDIDATE'));
       addTearDown(cubit.close);

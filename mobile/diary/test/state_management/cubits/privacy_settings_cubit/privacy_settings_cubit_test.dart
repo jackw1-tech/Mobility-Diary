@@ -1,10 +1,11 @@
+import 'package:diary/features/common/domain/app_result.dart';
 import 'package:diary/features/privacy/domain/privacy_level.dart';
 import 'package:diary/features/privacy/domain/privacy_settings.dart';
-import 'package:diary/network/service/privacy_settings_service.dart';
+import 'package:diary/repositories/privacy_settings_repository.dart';
 import 'package:diary/state_management/cubits/privacy_settings_cubit/privacy_settings_cubit.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-class FakePrivacySettingsService implements PrivacySettingsService {
+class FakePrivacySettingsService implements PrivacySettingsRepository {
   PrivacyLevel fetched = PrivacyLevel.precise;
   bool fetchedIsFirstLogin = false;
   PrivacyLevel? saved;
@@ -14,20 +15,22 @@ class FakePrivacySettingsService implements PrivacySettingsService {
   int saveCalls = 0;
 
   @override
-  Future<PrivacySettings> fetch() async {
+  Future<AppResult<PrivacySettings>> fetch() async {
     fetchCalls += 1;
     final error = fetchError;
-    if (error != null) throw error;
-    return (level: fetched, isFirstLogin: fetchedIsFirstLogin);
+    if (error != null) return AppResult.failure(toAppFailure(error));
+    return AppResult.success(
+      (level: fetched, isFirstLogin: fetchedIsFirstLogin),
+    );
   }
 
   @override
-  Future<PrivacySettings> update(PrivacyLevel level) async {
+  Future<AppResult<PrivacySettings>> update(PrivacyLevel level) async {
     saveCalls += 1;
     final error = saveError;
-    if (error != null) throw error;
+    if (error != null) return AppResult.failure(toAppFailure(error));
     saved = level;
-    return (level: level, isFirstLogin: false);
+    return AppResult.success((level: level, isFirstLogin: false));
   }
 }
 
@@ -108,8 +111,7 @@ void main() {
     });
 
     test('surfaces isFirstLogin from the backend after loading', () async {
-      final service = FakePrivacySettingsService()
-        ..fetchedIsFirstLogin = true;
+      final service = FakePrivacySettingsService()..fetchedIsFirstLogin = true;
       final cubit = PrivacySettingsCubit(service);
       addTearDown(cubit.close);
 
@@ -121,8 +123,7 @@ void main() {
 
     test('saving on first login clears the flag even with the default level',
         () async {
-      final service = FakePrivacySettingsService()
-        ..fetchedIsFirstLogin = true;
+      final service = FakePrivacySettingsService()..fetchedIsFirstLogin = true;
       final cubit = PrivacySettingsCubit(service);
       addTearDown(cubit.close);
 
@@ -156,8 +157,7 @@ void main() {
     });
 
     test('keeps isFirstLogin unchanged when a later save fails', () async {
-      final service = FakePrivacySettingsService()
-        ..fetchedIsFirstLogin = true;
+      final service = FakePrivacySettingsService()..fetchedIsFirstLogin = true;
       final cubit = PrivacySettingsCubit(service);
       addTearDown(cubit.close);
 
@@ -171,8 +171,7 @@ void main() {
       expect(cubit.state.needsPrivacyOnboarding, isFalse);
     });
 
-    test('skips redundant saves once onboarding is already complete',
-        () async {
+    test('skips redundant saves once onboarding is already complete', () async {
       final service = FakePrivacySettingsService()
         ..fetchedIsFirstLogin = false
         ..fetched = PrivacyLevel.approximate;

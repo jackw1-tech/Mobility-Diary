@@ -1,8 +1,7 @@
 import 'dart:async';
 
 import 'package:diary/features/route_assistant/domain/route_assistant_domain.dart';
-import 'package:diary/network/service/route_assistant_service.dart';
-import 'package:diary/network/service/route_classifier_service.dart';
+import 'package:diary/repositories/route_assistant_repository.dart';
 import 'package:diary/state_management/cubits/route_assistant_cubit/route_assistant_cubit_state.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:latlong2/latlong.dart' as ll;
@@ -15,8 +14,7 @@ import 'package:latlong2/latlong.dart' as ll;
 /// In modalita' Live la modalita' di mobilita' e' riconosciuta ogni
 /// [_tickInterval] classificando la finestra sensori di `_sensorWindowProvider`.
 class RouteAssistantCubit extends Cubit<RouteAssistantState> {
-  final RouteAssistantService _service;
-  final RouteClassifierService _classifier;
+  final RouteAssistantRepository _repository;
   final Future<ll.LatLng?> Function() _locationProvider;
   final ll.LatLng? Function()? _activeLocationProvider;
   final Future<List<List<double>>> Function() _sensorWindowProvider;
@@ -29,14 +27,12 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
   bool _hasLastDetectedModeResult = false;
 
   RouteAssistantCubit(
-    this._service, {
-    required RouteClassifierService classifier,
+    this._repository, {
     required Future<ll.LatLng?> Function() locationProvider,
     ll.LatLng? Function()? activeLocationProvider,
     required Future<List<List<double>>> Function() sensorWindowProvider,
     Duration tickInterval = const Duration(seconds: 15),
-  })  : _classifier = classifier,
-        _locationProvider = locationProvider,
+  })  : _locationProvider = locationProvider,
         _activeLocationProvider = activeLocationProvider,
         _sensorWindowProvider = sensorWindowProvider,
         _tickInterval = tickInterval,
@@ -60,9 +56,21 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
     emit(state.copyWith(isSearching: true, clearError: true));
     try {
       final proximity = await _currentOrigin();
-      final results = await _service.searchPlaces(query, proximity: proximity);
+      final result =
+          await _repository.searchPlaces(query, proximity: proximity);
       if (isClosed || generation != _searchGeneration) return;
-      emit(state.copyWith(searchResults: results, isSearching: false));
+      final failure = result.failure;
+      if (failure != null) {
+        emit(state.copyWith(
+          isSearching: false,
+          errorMessage: failure.message,
+        ));
+        return;
+      }
+      emit(state.copyWith(
+        searchResults: result.requireValue,
+        isSearching: false,
+      ));
     } catch (error) {
       if (isClosed || generation != _searchGeneration) return;
       emit(state.copyWith(isSearching: false, errorMessage: error.toString()));
@@ -188,14 +196,22 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
     }
     emit(state.copyWith(isRouting: true, clearError: true));
     try {
-      final route = await _service.fetchRoute(
+      final result = await _repository.fetchRoute(
         from: from,
         to: destination.location,
         mode: state.mode,
       );
       if (isClosed || generation != _routeGeneration) return;
+      final failure = result.failure;
+      if (failure != null) {
+        emit(state.copyWith(
+          isRouting: false,
+          errorMessage: failure.message,
+        ));
+        return;
+      }
       emit(state.copyWith(
-        route: route,
+        route: result.requireValue,
         routeUpdatedAt: DateTime.now(),
         isRouting: false,
       ));
@@ -242,8 +258,11 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
         )) {
       return;
     }
-    final detected = await _classifier.classify(samples);
+    final result = await _repository.classify(samples);
     if (isClosed || !_classificationStillRelevant(updateRouteMode)) return;
+    final failure = result.failure;
+    if (failure != null) throw failure;
+    final detected = result.value;
     if (detected == null) {
       _rememberDetectedMode(null);
       emit(state.copyWith(

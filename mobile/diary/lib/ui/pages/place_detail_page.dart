@@ -1,6 +1,6 @@
 import 'package:auto_route/auto_route.dart';
-import 'package:diary/network/dto/place_review_dto.dart';
-import 'package:diary/network/service/places_service.dart';
+import 'package:diary/features/places/domain/place_review.dart';
+import 'package:diary/repositories/places_repository.dart';
 import 'package:diary/state_management/cubits/place_detail_cubit/place_detail_cubit.dart';
 import 'package:diary/state_management/cubits/place_detail_cubit/place_detail_state.dart';
 import 'package:diary/theme/color_palette.dart';
@@ -14,7 +14,7 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 /// visite di supporto (evidenza), il contesto, e le azioni manuali di review.
 @RoutePage()
 class PlaceDetailPage extends StatelessWidget {
-  final PlaceReviewDto place;
+  final PlaceReview place;
 
   const PlaceDetailPage({required this.place, super.key});
 
@@ -22,7 +22,7 @@ class PlaceDetailPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocProvider(
       create: (context) =>
-          PlaceDetailCubit(context.read<PlacesService>(), place)
+          PlaceDetailCubit(context.read<PlacesRepository>(), place)
             ..loadReviewStatus(),
       child: const _PlaceDetailView(),
     );
@@ -63,7 +63,7 @@ class _PlaceDetailView extends StatelessWidget {
 }
 
 class _PlaceMap extends StatefulWidget {
-  final PlaceReviewDto place;
+  final PlaceReview place;
 
   const _PlaceMap({required this.place});
 
@@ -149,7 +149,7 @@ class _PlaceMapState extends State<_PlaceMap> {
 }
 
 class _PlaceEvidencePanel extends StatelessWidget {
-  final PlaceReviewDto place;
+  final PlaceReview place;
 
   const _PlaceEvidencePanel({required this.place});
 
@@ -266,7 +266,7 @@ class _PlaceActionBar extends StatelessWidget {
   Future<void> _openLabelDialog(
     BuildContext context,
     PlaceDetailCubit cubit,
-    PlaceReviewDto place,
+    PlaceReview place,
   ) async {
     final result = await showDialog<({String category, String customName})>(
       context: context,
@@ -279,7 +279,7 @@ class _PlaceActionBar extends StatelessWidget {
 }
 
 class _LabelDialog extends StatefulWidget {
-  final PlaceReviewDto place;
+  final PlaceReview place;
 
   const _LabelDialog({required this.place});
 

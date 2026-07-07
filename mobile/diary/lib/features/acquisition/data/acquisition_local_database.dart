@@ -163,10 +163,9 @@ class AcquisitionLocalDatabase extends _$AcquisitionLocalDatabase {
             // table_info) invece di assumere `from == 6`: deve pulire sia chi
             // arriva da versioni precedenti sia chi e' gia' bloccato a 7.
             final columns =
-                await customSelect("PRAGMA table_info('sensor_windows')")
-                    .get();
-            final hasLegacyMatrixJson = columns
-                .any((row) => row.read<String>('name') == 'matrix_json');
+                await customSelect("PRAGMA table_info('sensor_windows')").get();
+            final hasLegacyMatrixJson =
+                columns.any((row) => row.read<String>('name') == 'matrix_json');
             final hasMatrixBlob =
                 columns.any((row) => row.read<String>('name') == 'matrix_blob');
 

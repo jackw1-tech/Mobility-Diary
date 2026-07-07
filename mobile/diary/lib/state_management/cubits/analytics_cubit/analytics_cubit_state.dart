@@ -1,4 +1,4 @@
-import 'package:diary/network/dto/analytics_dto.dart';
+import 'package:diary/features/analytics/domain/analytics.dart';
 
 enum AnalyticsStatus {
   initial,
@@ -10,7 +10,7 @@ enum AnalyticsStatus {
 
 class AnalyticsCubitState {
   final AnalyticsStatus status;
-  final AnalyticsDto? data;
+  final Analytics? data;
   final String granularity;
   final String? error;
 

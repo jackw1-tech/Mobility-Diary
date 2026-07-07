@@ -1,7 +1,7 @@
 import 'dart:async';
 
-import 'package:diary/network/dto/trip_privacy_export_dto.dart';
-import 'package:diary/network/service/trip_privacy_export_service.dart';
+import 'package:diary/features/privacy/domain/trip_privacy_export.dart';
+import 'package:diary/repositories/trip_privacy_export_repository.dart';
 import 'package:diary/state_management/cubits/trip_privacy_export_cubit/trip_privacy_export_cubit.dart';
 import 'package:diary/theme/color_palette.dart';
 import 'package:diary/theme/dimensions.dart';
@@ -14,13 +14,13 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 /// Il diario mobile normale resta privato e preciso: questo foglio usa la
 /// Preferenza Privacy salvata e mostra l'anteprima prima di copiare/condividere.
 Future<void> showTripPrivacyExportSheet(BuildContext context, int tripId) {
-  final service = context.read<TripPrivacyExportService>();
+  final repository = context.read<TripPrivacyExportRepository>();
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
     builder: (_) => BlocProvider<TripPrivacyExportCubit>(
-      create: (_) => TripPrivacyExportCubit(service)..load(tripId),
+      create: (_) => TripPrivacyExportCubit(repository)..load(tripId),
       child: TripPrivacyExportView(tripId: tripId),
     ),
   );
@@ -65,7 +65,7 @@ class TripPrivacyExportView extends StatelessWidget {
 }
 
 class _ReadyView extends StatelessWidget {
-  final TripPrivacyExportDto export;
+  final TripPrivacyExport export;
 
   const _ReadyView({required this.export});
 
@@ -159,7 +159,7 @@ class _ReadyView extends StatelessWidget {
 
   Future<void> _shareExport(
     BuildContext context,
-    TripPrivacyExportDto export,
+    TripPrivacyExport export,
   ) async {
     try {} catch (_) {
       if (!context.mounted) return;

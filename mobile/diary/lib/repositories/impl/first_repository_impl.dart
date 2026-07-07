@@ -1,4 +1,0 @@
-/*
-class FirstRepositoryImpl implements FirstRepository
-{}
-*/

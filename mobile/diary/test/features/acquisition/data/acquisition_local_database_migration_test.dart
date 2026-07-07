@@ -156,7 +156,8 @@ void main() {
 
     // La riga preesistente deve restare intatta (nessuna riconversione
     // spuria: matrix_blob era gia' corretto).
-    final existing = await database.acquisitionDao.sensorWindowsForSession('s1');
+    final existing =
+        await database.acquisitionDao.sensorWindowsForSession('s1');
     expect(existing, hasLength(1));
     expect(existing.single.matrixBlob.lengthInBytes, 1 * 6 * 4);
 

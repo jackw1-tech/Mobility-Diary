@@ -1,4 +1,4 @@
-import 'package:diary/network/dto/trip_list_item_dto.dart';
+import 'package:diary/features/trips/domain/trip_list_item.dart';
 
 enum TripsListStatus {
   initial,
@@ -10,7 +10,7 @@ enum TripsListStatus {
 
 class TripsListCubitState {
   final TripsListStatus status;
-  final List<TripListItemDto> trips;
+  final List<TripListItem> trips;
   final String? error;
   final int? reloadingTripId;
   final String? reloadError;

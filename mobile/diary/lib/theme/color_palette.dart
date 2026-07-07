@@ -19,7 +19,8 @@ class ColorPalette {
   static const Color surface = Color(0xFFFFFFFF); // canvas
   static const Color surfaceSoft = Color(0xFFEFEFEF); // canvas-soft
   static const Color surfaceSofter = Color(0xFFF3F3F3); // canvas-softer
-  static const Color surfacePressed = Color(0xFFE2E2E2); // pressed pill / divider
+  static const Color surfacePressed =
+      Color(0xFFE2E2E2); // pressed pill / divider
   static const Color hairline = Color(0xFFE2E2E2); // bordi flat sulle card
 
   // Testo

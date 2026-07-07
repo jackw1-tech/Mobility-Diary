@@ -1,5 +1,7 @@
 import 'package:diary/features/acquisition/data/acquisition_local_database.dart';
-import 'package:diary/features/acquisition/sync/trip_ingestion_api.dart';
+import 'package:diary/features/acquisition/domain/ingestion_models.dart';
+import 'package:diary/mappers/ingestion_mapper.dart';
+import 'package:diary/network/service/trip_ingestion_service.dart';
 import 'package:diary/features/acquisition/sync/trip_package_builder.dart';
 import 'package:diary/features/acquisition/sync/trip_sync_queue.dart';
 import 'package:diary/network/service/trips_service.dart';
@@ -16,7 +18,8 @@ import 'package:drift/drift.dart' show Value;
 class TripSyncQueueImpl implements TripSyncQueue {
   final AcquisitionDao _dao;
   final TripPackageBuilder _builder;
-  final TripIngestionApi _api;
+  final TripIngestionService _service;
+  final IngestionMapper _mapper;
   final TripsService? _tripsService;
   final AccessTokenProvider _tokenProvider;
   final List<Duration> _backoff;
@@ -29,7 +32,8 @@ class TripSyncQueueImpl implements TripSyncQueue {
   TripSyncQueueImpl({
     required AcquisitionDao dao,
     required TripPackageBuilder builder,
-    required TripIngestionApi api,
+    required TripIngestionService service,
+    required IngestionMapper mapper,
     required AccessTokenProvider tokenProvider,
     TripsService? tripsService,
     List<Duration>? backoff,
@@ -39,7 +43,8 @@ class TripSyncQueueImpl implements TripSyncQueue {
     int rawUploadConcurrency = 3,
   })  : _dao = dao,
         _builder = builder,
-        _api = api,
+        _service = service,
+        _mapper = mapper,
         _tripsService = tripsService,
         _tokenProvider = tokenProvider,
         _maxAttempts = maxAttempts,
@@ -111,7 +116,8 @@ class TripSyncQueueImpl implements TripSyncQueue {
         if (ingestionId == null) {
           throw const IngestionApiException('remote ingestion assente');
         }
-        status = await _api.getStatus(ingestionId);
+        status =
+            _mapper.mapIngestionStatus(await _service.getStatus(ingestionId));
       } else {
         final corePayload = package.corePayload!;
         await _dao.updateSyncJob(
@@ -131,8 +137,8 @@ class TripSyncQueueImpl implements TripSyncQueue {
         // `ingestion_id` e il backend lo gestisce correttamente anche se la
         // riga esiste gia'.
         try {
-          final coreResult = await _api.postCoreInline(
-            body: corePayload.requestBody,
+          final coreResult = _mapper.mapInlineCoreResult(
+            await _service.postCoreInline(body: corePayload.requestBody),
           );
           ingestionId = coreResult.ingestionId;
           status = _statusFromInlineResult(coreResult, package.rawParts);
@@ -200,11 +206,12 @@ class TripSyncQueueImpl implements TripSyncQueue {
             status.missingRawParts,
             uploadAll: status.rawStatus == 'PENDING',
           );
-          await _api.completeRawIngestion(
+          await _service.completeRawIngestion(
             ingestionId,
             totalParts: package.rawParts.length,
           );
-          status = await _api.getStatus(ingestionId);
+          status =
+              _mapper.mapIngestionStatus(await _service.getStatus(ingestionId));
           if (status.isRawDone) {
             await _finalizeAllDone(job, package);
             return;
@@ -224,11 +231,12 @@ class TripSyncQueueImpl implements TripSyncQueue {
           }
         }
         if (status.canCompleteRaw) {
-          await _api.completeRawIngestion(
+          await _service.completeRawIngestion(
             ingestionId,
             totalParts: package.rawParts.length,
           );
-          status = await _api.getStatus(ingestionId);
+          status =
+              _mapper.mapIngestionStatus(await _service.getStatus(ingestionId));
           if (status.isRawDone) {
             await _finalizeAllDone(job, package);
             return;
@@ -274,7 +282,7 @@ class TripSyncQueueImpl implements TripSyncQueue {
     SyncJob job,
     TripPackage package,
   ) async {
-    final id = await _api.createIngestion(
+    final id = await _service.createIngestion(
       clientSessionId: job.localSessionId,
       expectedCoreParts: package.expectedCoreParts,
       expectedRawParts: package.expectedRawParts,
@@ -283,7 +291,7 @@ class TripSyncQueueImpl implements TripSyncQueue {
     );
     await _dao.updateSyncJob(job.id, remoteIngestionId: Value(id));
 
-    var status = await _api.getStatus(id);
+    var status = _mapper.mapIngestionStatus(await _service.getStatus(id));
     if (status.canReceiveCoreParts) {
       await _uploadMissingParts(
         id,
@@ -291,8 +299,9 @@ class TripSyncQueueImpl implements TripSyncQueue {
         status.missingCoreParts,
         uploadAll: status.coreStatus == 'PENDING',
       );
-      await _api.completeCoreIngestion(id, totalParts: package.coreParts.length);
-      status = await _api.getStatus(id);
+      await _service.completeCoreIngestion(id,
+          totalParts: package.coreParts.length);
+      status = _mapper.mapIngestionStatus(await _service.getStatus(id));
     }
     return (ingestionId: id, status: status);
   }
@@ -325,20 +334,20 @@ class TripSyncQueueImpl implements TripSyncQueue {
   }
 
   Future<void> _uploadSinglePart(int ingestionId, TripPackagePart part) async {
-    final presign = await _api.presignPart(
+    final presign = _mapper.mapPresignResult(await _service.presignPart(
       ingestionId,
       kind: part.kind,
       sequence: part.sequence,
       sha256: part.sha256,
       sizeBytes: part.sizeBytes,
-    );
+    ));
     final bytes = await part.file.readAsBytes();
-    await _api.uploadPart(
+    await _service.uploadPart(
       presign.uploadUrl,
       bytes,
       headers: presign.uploadHeaders,
     );
-    await _api.confirmPart(
+    await _service.confirmPart(
       ingestionId,
       kind: part.kind,
       sequence: part.sequence,

@@ -2,11 +2,14 @@ import 'dart:async';
 
 import 'package:diary/features/acquisition/data/acquisition_local_database.dart';
 import 'package:diary/features/acquisition/domain/acquisition_domain.dart';
-import 'package:diary/features/acquisition/domain/sensor_matrix_blob.dart';
+import 'package:diary/features/acquisition/domain/acquisition_strategy.dart';
 import 'package:diary/features/acquisition/runtime/acquisition_sensor_runtime.dart';
-import 'package:diary/features/acquisition/sync/trip_ingestion_api.dart';
-import 'package:diary/features/acquisition/sync/trip_package_builder.dart';
+import 'package:diary/features/acquisition/runtime/live_acquisition_strategy.dart'
+    hide HeartbeatTimerFactory;
+import 'package:diary/features/acquisition/runtime/replay_acquisition_strategy.dart';
 import 'package:diary/features/acquisition/sync/trip_sync_queue.dart';
+import 'package:diary/mappers/ingestion_mapper.dart';
+import 'package:diary/network/service/trip_ingestion_service.dart';
 import 'package:diary/repositories/acquisition_repository.dart';
 import 'package:flutter/widgets.dart';
 import 'package:uuid/uuid.dart';
@@ -24,47 +27,27 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
   final Uuid _uuid;
   final String _deviceId;
   final Future<String> Function()? _deviceIdProvider;
+  final bool _enableRuntime;
   final AcquisitionSensorRuntime? _runtime;
   final TripSyncQueue? _syncQueue;
-  final TripIngestionApi? _ingestionApi;
+  final TripIngestionService? _ingestionService;
   final Duration _heartbeatInterval;
   final HeartbeatTimerFactory _heartbeatTimerFactory;
-  final bool _observesAppLifecycle;
-  // Se, riprendendo una sessione aperta, l'ultimo dato registrato e' piu'
-  // vecchio di questa soglia (es. telefono spento per ore), la sessione viene
-  // considerata stantia: si chiude al momento dell'ultimo dato noto invece di
-  // continuare a registrare come se il buco non fosse mai successo.
   final Duration _staleSessionThreshold;
-  // Iniettabile per i test: senza, il controllo di staleness userebbe
-  // DateTime.now() reale, rendendo i test dipendenti da quando vengono
-  // eseguiti rispetto a timestamp fissi nei fixture.
   final DateTime Function() _now;
-  final StreamController<AcquisitionSnapshot> _snapshotController =
-      StreamController<AcquisitionSnapshot>.broadcast();
+  final Stream<AppLifecycleState>? _lifecycleEvents;
+  final bool _observesAppLifecycle;
 
-  late AcquisitionFsm _fsm;
+  final StreamController<AcquisitionSnapshot> _snapshotController =
+      StreamController<AcquisitionSnapshot>.broadcast(sync: true);
+
+  AcquisitionStrategy? _activeStrategy;
+  StreamSubscription<AcquisitionSnapshot>? _activeStrategySubscription;
+  StreamSubscription<AppLifecycleState>? _lifecycleSubscription;
+  Timer? _syncRetryTimer;
   AcquisitionSnapshot _currentSnapshot = AcquisitionSnapshot.idle();
   AcquisitionSyncSnapshot _currentSyncSnapshot =
       const AcquisitionSyncSnapshot.none();
-  String? _currentSessionId;
-  Timer? _syncRetryTimer;
-  Timer? _heartbeatTimer;
-  StreamSubscription<AppLifecycleState>? _lifecycleSubscription;
-  final Set<String> _persistedSensorWindowKeys = {};
-  int? _currentRemoteIngestionId;
-  String? _currentDeviceId;
-  int? _replaySourceTripId;
-  DateTime? _replayScheduledStartAt;
-  // Wall-clock e velocita' del replay: servono a calcolare l'offset nella
-  // timeline sorgente per la classificazione live dell'assistente di percorso.
-  DateTime? _replayStartWallClock;
-  double _replaySpeed = 1;
-  List<Map<String, dynamic>>? _replayPoints;
-  List<Map<String, dynamic>>? _replayTransitions;
-  double? _latestLatitude;
-  double? _latestLongitude;
-  double? _latestAccuracyMeters;
-  Timer? _replayTimer;
 
   AcquisitionRepositoryImpl({
     FsmConfig config = const FsmConfig(),
@@ -75,7 +58,8 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     bool enableRuntime = true,
     AcquisitionSensorRuntime? runtime,
     TripSyncQueue? syncQueue,
-    TripIngestionApi? ingestionApi,
+    TripIngestionService? ingestionService,
+    IngestionMapper? mapper,
     Duration heartbeatInterval = const Duration(minutes: 5),
     Duration staleSessionThreshold = const Duration(minutes: 30),
     DateTime Function()? now,
@@ -87,21 +71,18 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
         _uuid = uuid ?? const Uuid(),
         _deviceId = deviceId,
         _deviceIdProvider = deviceIdProvider,
-        _ingestionApi = ingestionApi,
+        _enableRuntime = enableRuntime,
+        _runtime = runtime,
         _syncQueue = syncQueue,
+        _ingestionService = ingestionService,
         _heartbeatInterval = heartbeatInterval,
         _staleSessionThreshold = staleSessionThreshold,
         _now = now ?? DateTime.now,
         _heartbeatTimerFactory = heartbeatTimerFactory ??
-            ((duration, callback) => Timer.periodic(
-                  duration,
-                  callback,
-                )),
-        _observesAppLifecycle = observeAppLifecycle && lifecycleEvents == null,
-        _runtime =
-            enableRuntime ? runtime ?? AcquisitionSensorRuntime() : null {
+            ((duration, callback) => Timer.periodic(duration, callback)),
+        _lifecycleEvents = lifecycleEvents,
+        _observesAppLifecycle = observeAppLifecycle && lifecycleEvents == null {
     _dao = _database.acquisitionDao;
-    _fsm = AcquisitionFsm(config: _config);
     _lifecycleSubscription = lifecycleEvents?.listen(_handleLifecycleState);
     if (_observesAppLifecycle) {
       WidgetsBinding.instance.addObserver(this);
@@ -122,18 +103,6 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
   }
 
   @override
-  Future<void> purgeLocalDataForRemoteTrip(int tripId) async {
-    final sessionId = await _dao.localSessionIdForRemoteTrip(tripId);
-    if (sessionId == null || sessionId == _currentSessionId) {
-      // Nessuna riga locale, oppure (in teoria impossibile: un remoteTripId
-      // esiste solo dopo che il core e' completato, quindi mai sulla
-      // sessione ancora in tracking) e' la sessione attiva: non toccarla.
-      return;
-    }
-    await _dao.purgeSyncedSession(sessionId);
-  }
-
-  @override
   AcquisitionSnapshot get currentSnapshot => _currentSnapshot;
 
   @override
@@ -144,67 +113,19 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     if (_currentSnapshot.isTracking) {
       return;
     }
-    if (await _dao.latestUnclosedCoreSyncJob() != null) {
-      throw const PendingTripSyncException();
-    }
+    await _ensureNoUnclosedCoreSyncJob();
 
-    await _startNewTrackingSession(allowConflictRecovery: true);
-  }
-
-  Future<void> _startNewTrackingSession({
-    required bool allowConflictRecovery,
-  }) async {
-    final now = DateTime.now().toUtc();
-    final sessionId = _uuid.v4();
-    final deviceId = await _resolveDeviceId();
-
-    IngestionStartResult? remoteStart;
+    final strategy = _createLiveStrategy();
+    _attachStrategy(strategy);
     try {
-      remoteStart = await _ingestionApi?.startIngestion(
-        clientSessionId: sessionId,
-        startedAt: now,
-        deviceId: deviceId,
-      );
-    } on IngestionApiException catch (error) {
-      if (allowConflictRecovery &&
-          error.statusCode == 409 &&
-          await _recoverFromStartConflict(error, deviceId)) {
-        return;
-      }
-      throw const StartRequiresConnectionException();
+      await strategy.start();
+      _emit(strategy.currentSnapshot);
+      await _enqueuePendingLiveSyncIfNeeded(strategy);
+    } catch (_) {
+      await _disposeActiveStrategy();
+      _emit(AcquisitionSnapshot.idle());
+      rethrow;
     }
-
-    _persistedSensorWindowKeys.clear();
-    _latestLatitude = null;
-    _latestLongitude = null;
-    _latestAccuracyMeters = null;
-    _fsm = AcquisitionFsm(config: _config);
-    await _dao.createSession(
-      id: sessionId,
-      deviceId: deviceId,
-      startedAt: now,
-      remoteIngestionId: remoteStart?.ingestionId,
-    );
-    _currentSessionId = sessionId;
-    _currentRemoteIngestionId = remoteStart?.ingestionId;
-    _currentDeviceId = deviceId;
-    _restartHeartbeat();
-    _emit(
-      AcquisitionSnapshot(
-        isTracking: true,
-        trackingState: TrackingState.stationary,
-        samplingProfile: const SamplingProfile.stationary(),
-        latestSigma: 0,
-        latestSpeedMetersPerSecond: 0,
-        lastTransition: null,
-        updatedAt: now,
-      ),
-    );
-    await _runtime?.start(
-      profile: const SamplingProfile.stationary(),
-      onEvent: ingestEvent,
-      onHarWindow: _persistHarWindowIfActive,
-    );
   }
 
   @override
@@ -216,522 +137,126 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     if (_currentSnapshot.isTracking) {
       return;
     }
-    if (await _dao.latestUnclosedCoreSyncJob() != null) {
-      throw const PendingTripSyncException();
-    }
+    await _ensureNoUnclosedCoreSyncJob();
 
-    final now = DateTime.now().toUtc();
-    final sessionId = _uuid.v4();
-    final deviceId = await _resolveDeviceId();
-
-    IngestionStartResult? remoteStart;
+    final strategy = ReplayAcquisitionStrategy(
+      sourceTripId: sourceTripId,
+      scheduledStartAt: scheduledStartAt,
+      replaySpeedMultiplier: replaySpeedMultiplier,
+      ingestionService: _ingestionService,
+      uuid: _uuid,
+      deviceId: _deviceId,
+      deviceIdProvider: _deviceIdProvider,
+    );
+    _attachStrategy(strategy);
     try {
-      remoteStart = await _ingestionApi?.startIngestion(
-        clientSessionId: sessionId,
-        startedAt: now,
-        deviceId: deviceId,
-        sourceTripId: sourceTripId,
-      );
-    } on IngestionApiException catch (error) {
-      if (error.statusCode == 409) {
-        throw const ActiveTripOnAnotherDeviceException();
-      }
-      throw const StartRequiresConnectionException();
+      await strategy.start();
+      _emit(strategy.currentSnapshot);
+    } catch (_) {
+      await _disposeActiveStrategy();
+      _emit(AcquisitionSnapshot.idle());
+      rethrow;
     }
-
-    final replayData = await _ingestionApi?.getReplayData(sourceTripId);
-    if (replayData == null) {
-      throw const StartRequiresConnectionException(
-          'Failed to load replay data');
-    }
-
-    _persistedSensorWindowKeys.clear();
-    _latestLatitude = null;
-    _latestLongitude = null;
-    _latestAccuracyMeters = null;
-    _fsm = AcquisitionFsm(config: _config);
-
-    // Non crea sessione SQLite.
-    _currentSessionId = sessionId;
-    _currentRemoteIngestionId = remoteStart?.ingestionId;
-    _currentDeviceId = deviceId;
-    _replaySourceTripId = sourceTripId;
-    _replayScheduledStartAt = scheduledStartAt?.toUtc();
-    _restartHeartbeat();
-    _emit(
-      AcquisitionSnapshot(
-        isTracking: true,
-        trackingState: TrackingState.stationary,
-        samplingProfile: const SamplingProfile.stationary(),
-        latestSigma: 0,
-        latestSpeedMetersPerSecond: 0,
-        lastTransition: null,
-        updatedAt: now,
-        isReplay: true,
-      ),
-    );
-
-    _startReplayTimer(
-      replayData,
-      speedMultiplier: _replaySpeedMultiplier(replaySpeedMultiplier),
-    );
-  }
-
-  double _replaySpeedMultiplier(double value) {
-    return value == 2 || value == 5 ? value : 1;
-  }
-
-  void _startReplayTimer(
-    Map<String, dynamic> data, {
-    required double speedMultiplier,
-  }) {
-    // Il backend (`ReplayDataOut`) espone `gps_points` e `state_transitions`.
-    final rawPoints = data['gps_points'] as List<dynamic>? ??
-        data['points'] as List<dynamic>? ??
-        [];
-    final rawTransitions = data['state_transitions'] as List<dynamic>? ??
-        data['transitions'] as List<dynamic>? ??
-        [];
-
-    if (rawPoints.isEmpty && rawTransitions.isEmpty) {
-      stopTracking();
-      return;
-    }
-
-    DateTime pTime(dynamic p) =>
-        DateTime.parse(p['timestamp'] as String).toUtc();
-
-    _replayPoints = List<Map<String, dynamic>>.from(rawPoints)
-      ..sort((a, b) => pTime(a).compareTo(pTime(b)));
-    _replayTransitions = List<Map<String, dynamic>>.from(rawTransitions)
-      ..sort((a, b) => pTime(a).compareTo(pTime(b)));
-
-    final points = _replayPoints!;
-    final transitions = _replayTransitions!;
-
-    final firstPoint = points.isNotEmpty ? pTime(points.first) : null;
-    final firstTransition =
-        transitions.isNotEmpty ? pTime(transitions.first) : null;
-    final lastPoint = points.isNotEmpty ? pTime(points.last) : null;
-    final lastTransition =
-        transitions.isNotEmpty ? pTime(transitions.last) : null;
-
-    DateTime? startTime;
-    if (firstPoint != null && firstTransition != null) {
-      startTime =
-          firstPoint.isBefore(firstTransition) ? firstPoint : firstTransition;
-    } else {
-      startTime = firstPoint ?? firstTransition;
-    }
-
-    DateTime? endTime;
-    if (lastPoint != null && lastTransition != null) {
-      endTime = lastPoint.isAfter(lastTransition) ? lastPoint : lastTransition;
-    } else {
-      endTime = lastPoint ?? lastTransition;
-    }
-
-    if (startTime == null || endTime == null) {
-      stopTracking();
-      return;
-    }
-
-    final initialRemaining = endTime.difference(startTime);
-    _emit(AcquisitionSnapshot(
-      isTracking: true,
-      trackingState: TrackingState.stationary,
-      samplingProfile: const SamplingProfile.stationary(),
-      latestSigma: 0,
-      latestSpeedMetersPerSecond: 0,
-      lastTransition: null,
-      updatedAt: startTime,
-      replaySecondsRemaining: _replaySecondsRemaining(
-        initialRemaining,
-        speedMultiplier,
-      ),
-      isReplay: true,
-    ));
-
-    final startReplayAt = DateTime.now();
-    _replayStartWallClock = startReplayAt;
-    _replaySpeed = speedMultiplier;
-    int nextPointIdx = 0;
-    int nextTransitionIdx = 0;
-    FsmTransition? lastFsmTransition;
-    double latestSpeedMps = 0;
-
-    _replayTimer?.cancel();
-    _replayTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      final elapsed = DateTime.now().difference(startReplayAt);
-      final acceleratedReplayTime = startTime!.add(
-        Duration(
-          microseconds: (elapsed.inMicroseconds * speedMultiplier).round(),
-        ),
-      );
-      final currentReplayTime = acceleratedReplayTime.isAfter(endTime!)
-          ? endTime
-          : acceleratedReplayTime;
-
-      bool updated = false;
-
-      while (nextTransitionIdx < transitions.length &&
-          !pTime(transitions[nextTransitionIdx]).isAfter(currentReplayTime)) {
-        final t = transitions[nextTransitionIdx];
-        final nextState = _trackingStateFromWire(t['to_state'] as String);
-        // Le transizioni di `replay-data` non trasportano sigma/speed: la
-        // velocita' mostrata deriva dai punti GPS, la sigma resta 0.
-        _fsm.forceState(nextState, 0, latestSpeedMps);
-        lastFsmTransition = FsmTransition(
-          from: _trackingStateFromWire(t['from_state'] as String),
-          to: nextState,
-          reason: t['reason'] as String? ?? 'replay',
-          timestamp: pTime(t),
-        );
-        nextTransitionIdx++;
-        updated = true;
-      }
-
-      while (nextPointIdx < points.length &&
-          !pTime(points[nextPointIdx]).isAfter(currentReplayTime)) {
-        final p = points[nextPointIdx];
-        _latestLatitude = (p['latitude'] as num).toDouble();
-        _latestLongitude = (p['longitude'] as num).toDouble();
-        _latestAccuracyMeters = (p['accuracy_meters'] as num?)?.toDouble();
-        latestSpeedMps = (p['speed_mps'] as num?)?.toDouble() ?? 0;
-        nextPointIdx++;
-        updated = true;
-      }
-
-      final remaining = endTime.difference(currentReplayTime);
-      final replaySecondsRemaining = _replaySecondsRemaining(
-        remaining,
-        speedMultiplier,
-      );
-
-      if (updated || replaySecondsRemaining != null) {
-        _emit(AcquisitionSnapshot(
-          isTracking: true,
-          trackingState: _fsm.currentState ?? TrackingState.stationary,
-          samplingProfile: SamplingProfile.forState(
-              _fsm.currentState ?? TrackingState.stationary),
-          latestSigma: _fsm.latestSigma,
-          latestSpeedMetersPerSecond: latestSpeedMps,
-          lastTransition: lastFsmTransition,
-          updatedAt: currentReplayTime,
-          latitude: _latestLatitude,
-          longitude: _latestLongitude,
-          accuracyMeters: _latestAccuracyMeters,
-          replaySecondsRemaining: replaySecondsRemaining,
-          isReplay: true,
-        ));
-      }
-
-      if (remaining <= Duration.zero) {
-        _replayTimer?.cancel();
-      }
-    });
-  }
-
-  int? _replaySecondsRemaining(
-    Duration sourceRemaining,
-    double speedMultiplier,
-  ) {
-    final sourceSeconds = sourceRemaining.inSeconds;
-    if (sourceSeconds > (15 * speedMultiplier).ceil()) return null;
-    if (sourceSeconds <= 0) return 0;
-    return (sourceSeconds / speedMultiplier).ceil();
   }
 
   @override
   Future<void> stopTracking() async {
-    await _runtime?.stop();
-    _heartbeatTimer?.cancel();
-    _replayTimer?.cancel();
-
-    final sessionId = _currentSessionId;
-    final isReplay = _replaySourceTripId != null;
-
-    if (sessionId != null && !isReplay) {
-      await _dao.endSession(
-        id: sessionId,
-        endedAt: DateTime.now().toUtc(),
-      );
+    final strategy = _activeStrategy;
+    if (strategy == null) {
+      _emit(AcquisitionSnapshot.idle());
+      return;
     }
 
-    _currentSessionId = null;
-    _currentRemoteIngestionId = null;
-    _currentDeviceId = null;
-    _replaySourceTripId = null;
-    _replayScheduledStartAt = null;
-    _replayStartWallClock = null;
-    _persistedSensorWindowKeys.clear();
-    _fsm = AcquisitionFsm(config: _config);
-    _emit(AcquisitionSnapshot.idle());
-
-    await _endSessionAndQueueSync(sessionId, isReplay);
+    final result = await strategy.stop();
+    _emit(strategy.currentSnapshot);
+    await _handleStopResult(result);
+    await _disposeActiveStrategy();
   }
 
   @override
   Future<ReplayStopResult> stopReplay() async {
-    final cutoffTimestamp = _currentSnapshot.updatedAt;
-    _replayTimer?.cancel();
-    _heartbeatTimer?.cancel();
-
-    if (_replaySourceTripId == null || _currentSessionId == null) {
-      throw const StartRequiresConnectionException(
-          'Invalid state for stopReplay');
+    final strategy = _activeStrategy;
+    if (strategy == null || !_currentSnapshot.isReplay) {
+      throw const IngestionApiException('Invalid state for stopReplay');
     }
 
-    DateTime pTime(dynamic p) =>
-        DateTime.parse(p['timestamp'] as String).toUtc();
+    final result = await strategy.stop();
+    _emit(strategy.currentSnapshot);
+    await _handleStopResult(result);
+    await _disposeActiveStrategy();
 
-    final filteredPoints = _replayPoints!
-        .where((p) => !pTime(p).isAfter(cutoffTimestamp))
-        .toList();
-    final filteredTransitions = _replayTransitions!
-        .where((t) => !pTime(t).isAfter(cutoffTimestamp))
-        .toList();
-
-    final now = DateTime.now().toUtc();
-    final firstSourceTimestamp = [
-      ...filteredPoints.map(pTime),
-      ...filteredTransitions.map(pTime),
-    ].fold<DateTime?>(null, (earliest, timestamp) {
-      if (earliest == null || timestamp.isBefore(earliest)) return timestamp;
-      return earliest;
-    });
-    final scheduledStart = _replayScheduledStartAt;
-    final shift = scheduledStart != null && firstSourceTimestamp != null
-        ? scheduledStart.difference(firstSourceTimestamp)
-        : now.difference(cutoffTimestamp);
-    final replayEndedAt =
-        scheduledStart != null ? cutoffTimestamp.add(shift) : now;
-
-    String shiftIso(DateTime original) {
-      return _utcIso(original.add(shift));
+    final replayResult = result.replayResult;
+    if (replayResult == null) {
+      throw const IngestionApiException('Invalid state for stopReplay');
     }
-
-    final shiftedPoints = filteredPoints.map((p) {
-      return {
-        ...p,
-        'timestamp': shiftIso(pTime(p)),
-      };
-    }).toList();
-
-    // Il core inline si aspetta i 6 campi di InlineStateTransitionIn: `replay-data`
-    // ne porta 3, quindi completiamo con i default del backend affinche' l'hash
-    // canonico combaci (reason="", sigma/speed_mps null).
-    final shiftedTransitions = filteredTransitions.map((t) {
-      return {
-        'from_state': t['from_state'],
-        'to_state': t['to_state'],
-        'reason': t['reason'] ?? '',
-        'sigma': t['sigma'],
-        'speed_mps': t['speed_mps'],
-        'timestamp': shiftIso(pTime(t)),
-      };
-    }).toList();
-
-    final firstShiftedTs = shiftedPoints.isNotEmpty
-        ? DateTime.parse(shiftedPoints.first['timestamp'] as String).toUtc()
-        : (shiftedTransitions.isNotEmpty
-            ? DateTime.parse(shiftedTransitions.first['timestamp'] as String)
-                .toUtc()
-            : now);
-
-    final payload = {
-      'app_version': '',
-      'client_session_id': _currentSessionId,
-      'device_id': _currentDeviceId ?? '',
-      'device_platform': '',
-      'ended_at': _utcIso(replayEndedAt),
-      'cutoff_source_timestamp': _utcIso(cutoffTimestamp),
-      'expected_raw_parts': const {},
-      'gps_points': shiftedPoints,
-      if (_currentRemoteIngestionId != null)
-        'ingestion_id': _currentRemoteIngestionId,
-      'schema_version': 1,
-      'started_at': _utcIso(firstShiftedTs),
-      'state_transitions': shiftedTransitions,
-      'timezone': '',
-    };
-
-    final corePayload = TripCorePayload(payload);
-    final response =
-        await _ingestionApi?.postCoreInline(body: corePayload.requestBody);
-
-    if (response == null) {
-      throw const StartRequiresConnectionException(
-          'Network error during stopReplay');
-    }
-
-    _currentSessionId = null;
-    _currentRemoteIngestionId = null;
-    _currentDeviceId = null;
-    _replaySourceTripId = null;
-    _replayScheduledStartAt = null;
-    _replayStartWallClock = null;
-    _replayPoints = null;
-    _replayTransitions = null;
-
-    _emit(AcquisitionSnapshot.idle());
-
-    return ReplayStopResult(tripId: response.tripId);
-  }
-
-  String _utcIso(DateTime value) {
-    final utc = value.toUtc();
-    final year = utc.year.toString().padLeft(4, '0');
-    final month = utc.month.toString().padLeft(2, '0');
-    final day = utc.day.toString().padLeft(2, '0');
-    final hour = utc.hour.toString().padLeft(2, '0');
-    final minute = utc.minute.toString().padLeft(2, '0');
-    final second = utc.second.toString().padLeft(2, '0');
-    final fractionMicros = utc.millisecond * 1000 + utc.microsecond;
-    final base = '$year-$month-${day}T$hour:$minute:$second';
-    if (fractionMicros == 0) return '${base}Z';
-    return '$base.${fractionMicros.toString().padLeft(6, '0')}Z';
-  }
-
-  Future<void> _endSessionAndQueueSync(String? sessionId, bool isReplay) async {
-    // STOP non bloccante: si accoda un SyncJob persistente (insert locale veloce)
-    // e si "kicka" la coda senza attendere la rete (REPORT D5).
-    if (sessionId != null && !isReplay) {
-      await _dao.createSyncJobIfAbsent(sessionId);
-      unawaited(_syncQueue?.kick() ?? Future<void>.value());
-    }
+    return replayResult;
   }
 
   @override
   Future<void> ingestEvent(TrackingEvent event) async {
-    if (!_currentSnapshot.isTracking) {
+    final strategy = _activeStrategy;
+    if (strategy == null) {
       return;
     }
-
-    final decision = _fsm.apply(event);
-    final transition = decision.transition;
-    final sessionId = _currentSessionId;
-
-    if (transition != null && sessionId != null) {
-      await _dao.insertTransition(
-        sessionId: sessionId,
-        fromState: transition.from.wireName,
-        toState: transition.to.wireName,
-        reason: transition.reason,
-        timestamp: transition.timestamp,
-        sigma: _fsm.latestSigma,
-        speedMps: _fsm.latestSpeedMetersPerSecond,
-      );
-    }
-
-    if (event is GpsFixReceived &&
-        event.latitude != null &&
-        event.longitude != null) {
-      _latestLatitude = event.latitude;
-      _latestLongitude = event.longitude;
-      _latestAccuracyMeters = event.accuracyMeters;
-
-      if (sessionId != null && decision.samplingProfile.persistGpsPoints) {
-        await _dao.insertGpsPoint(
-          sessionId: sessionId,
-          latitude: event.latitude!,
-          longitude: event.longitude!,
-          timestamp: event.timestamp,
-          speedMps: event.speedMetersPerSecond,
-          accuracyMeters: event.accuracyMeters,
-        );
-      }
-    }
-
-    await _persistCompletedHarWindowsIfNeeded(decision);
-
-    _emit(
-      AcquisitionSnapshot(
-        isTracking: true,
-        trackingState: decision.state,
-        samplingProfile: decision.samplingProfile,
-        latestSigma: _fsm.latestSigma,
-        latestSpeedMetersPerSecond: _fsm.latestSpeedMetersPerSecond,
-        lastTransition: decision.transition,
-        updatedAt: event.timestamp,
-        latitude: _latestLatitude,
-        longitude: _latestLongitude,
-        accuracyMeters: _latestAccuracyMeters,
-      ),
-    );
-    await _runtime?.configure(decision.samplingProfile);
+    await strategy.ingestEvent(event);
+    _emit(strategy.currentSnapshot);
   }
 
   @override
   Future<void> resumeSync() async {
-    await _resumeOpenTrackingSessionIfNeeded();
-    await _reconcileRemoteActiveIngestion();
+    if (_activeStrategy == null) {
+      final liveStrategy = _createLiveStrategy();
+      _attachStrategy(liveStrategy);
+      final result = await liveStrategy.resumeOrReconcile();
+      await _handleStopResult(result);
+      if (liveStrategy.currentSnapshot.isTracking) {
+        _emit(liveStrategy.currentSnapshot);
+      } else {
+        await _disposeActiveStrategy();
+        _emit(AcquisitionSnapshot.idle());
+      }
+    } else if (_activeStrategy is LiveAcquisitionStrategy) {
+      final liveStrategy = _activeStrategy! as LiveAcquisitionStrategy;
+      final result = await liveStrategy.resumeOrReconcile();
+      await _handleStopResult(result);
+      _emit(liveStrategy.currentSnapshot);
+    }
+
     await _syncQueue?.kick();
   }
 
   @override
-  Future<List<AcquisitionRoutePoint>> currentSessionRoute() async {
-    final sessionId = _currentSessionId;
-    if (sessionId == null || !_currentSnapshot.isTracking) {
-      return const [];
+  Future<void> purgeLocalDataForRemoteTrip(int tripId) async {
+    final sessionId = await _dao.localSessionIdForRemoteTrip(tripId);
+    if (sessionId == null) {
+      return;
     }
-    final points = await _dao.gpsPointsForSession(sessionId);
-    return [
-      for (final point in points)
-        AcquisitionRoutePoint(point.latitude, point.longitude),
-    ];
+    await _dao.purgeSyncedSession(sessionId);
+  }
+
+  @override
+  Future<List<AcquisitionRoutePoint>> currentSessionRoute() async {
+    final strategy = _activeStrategy;
+    if (strategy == null) return const [];
+    return strategy.currentSessionRoute();
   }
 
   @override
   Future<List<List<double>>> currentSensorWindow() async {
-    // Riproduzione Live: i sensori non sono su SQLite, si recuperano dal backend
-    // all'offset corrente nella timeline sorgente (elapsed * velocita').
-    final sourceTripId = _replaySourceTripId;
-    if (sourceTripId != null) {
-      final offset = _currentReplayOffsetSeconds();
-      if (offset == null) return const [];
-      try {
-        return await _ingestionApi?.getReplaySensorWindow(
-              sourceTripId,
-              offset,
-            ) ??
-            const [];
-      } on IngestionApiException {
-        return const []; // 404 (offset fuori range) o rete: il tick salta
-      }
-    }
-
-    final sessionId = _currentSessionId;
-    if (sessionId == null || !_currentSnapshot.isTracking) {
-      return const [];
-    }
-    final window = await _dao.latestSensorWindow(sessionId);
-    if (window == null) return const [];
-    return decodeSensorMatrixBlob(
-      window.matrixBlob,
-      sampleCount: window.sampleCount,
-    );
-  }
-
-  /// Secondi trascorsi nella timeline sorgente dall'avvio del replay, scalati
-  /// per la velocita'. Null se non c'e' un replay attivo.
-  int? _currentReplayOffsetSeconds() {
-    final start = _replayStartWallClock;
-    if (start == null) return null;
-    final elapsed = DateTime.now().difference(start);
-    return (elapsed.inMilliseconds * _replaySpeed / 1000).round();
+    final strategy = _activeStrategy;
+    if (strategy == null) return const [];
+    return strategy.currentSensorWindow();
   }
 
   @override
   void dispose() {
     _syncRetryTimer?.cancel();
-    _heartbeatTimer?.cancel();
-    _replayTimer?.cancel();
     _lifecycleSubscription?.cancel();
     if (_observesAppLifecycle) {
       WidgetsBinding.instance.removeObserver(this);
     }
-    _runtime?.dispose();
+    _activeStrategySubscription?.cancel();
+    _activeStrategy?.dispose();
     _snapshotController.close();
     _database.close();
   }
@@ -741,6 +266,63 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     _handleLifecycleState(state);
   }
 
+  LiveAcquisitionStrategy _createLiveStrategy() {
+    return LiveAcquisitionStrategy(
+      config: _config,
+      database: _database,
+      uuid: _uuid,
+      deviceId: _deviceId,
+      deviceIdProvider: _deviceIdProvider,
+      enableRuntime: _enableRuntime,
+      runtime: _runtime,
+      ingestionService: _ingestionService,
+      heartbeatInterval: _heartbeatInterval,
+      staleSessionThreshold: _staleSessionThreshold,
+      now: _now,
+      heartbeatTimerFactory: _heartbeatTimerFactory,
+      lifecycleEvents: _lifecycleEvents,
+      observeAppLifecycle: false,
+    );
+  }
+
+  void _attachStrategy(AcquisitionStrategy strategy) {
+    _activeStrategySubscription?.cancel();
+    _activeStrategy?.dispose();
+    _activeStrategy = strategy;
+    _activeStrategySubscription = strategy.snapshots.listen(_emit);
+  }
+
+  Future<void> _disposeActiveStrategy() async {
+    await _activeStrategySubscription?.cancel();
+    _activeStrategySubscription = null;
+    _activeStrategy?.dispose();
+    _activeStrategy = null;
+  }
+
+  Future<void> _ensureNoUnclosedCoreSyncJob() async {
+    if (await _dao.latestUnclosedCoreSyncJob() != null) {
+      throw const IngestionApiException('Richiesta ingestion fallita');
+    }
+  }
+
+  Future<void> _handleStopResult(AcquisitionStopResult result) async {
+    final syncSessionId = result.syncSessionId;
+    if (syncSessionId == null) {
+      return;
+    }
+    await _dao.createSyncJobIfAbsent(syncSessionId);
+    unawaited(_syncQueue?.kick() ?? Future<void>.value());
+  }
+
+  Future<void> _enqueuePendingLiveSyncIfNeeded(
+    LiveAcquisitionStrategy strategy,
+  ) async {
+    final syncSessionId = strategy.takePendingSyncSessionId();
+    if (syncSessionId != null) {
+      await _handleStopResult(AcquisitionStopResult.syncSession(syncSessionId));
+    }
+  }
+
   void _emit(AcquisitionSnapshot snapshot) {
     _currentSnapshot = snapshot;
     if (!_snapshotController.isClosed) {
@@ -748,158 +330,9 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     }
   }
 
-  Future<String> _resolveDeviceId() async {
-    final provider = _deviceIdProvider;
-    if (provider == null) {
-      return _deviceId;
-    }
-    return provider();
-  }
-
-  Future<bool> _recoverFromStartConflict(
-    IngestionApiException error,
-    String deviceId,
-  ) async {
-    final active = _activeIngestionFromConflict(error);
-    if (active == null) {
-      return false;
-    }
-    if (active.deviceId != deviceId) {
-      throw const ActiveTripOnAnotherDeviceException();
-    }
-
-    final localSession = await _dao.findOpenSession(active.clientSessionId);
-    if (localSession != null) {
-      final resumed = await _resumeSession(
-        localSession,
-        remoteIngestionId: active.ingestionId,
-      );
-      if (!resumed) {
-        // La sessione era stantia: e' stata chiusa e messa in coda di sync,
-        // ma il backend continua a considerarla attiva finche' il suo core
-        // non arriva (non possiamo abbandonarla: perderemmo i dati raccolti
-        // prima del buco, il backend rifiuta il core di un'ingestion
-        // abbandonata). L'utente deve attendere che quella sync completi,
-        // come per qualunque altro sync pendente.
-        throw const PendingTripSyncException();
-      }
-      return true;
-    }
-
-    await _ingestionApi?.abandonIngestion(
-      ingestionId: active.ingestionId,
-      deviceId: deviceId,
-    );
-    await _startNewTrackingSession(allowConflictRecovery: false);
-    return true;
-  }
-
-  ActiveIngestion? _activeIngestionFromConflict(IngestionApiException error) {
-    final active = error.body['active_ingestion'];
-    if (active is Map<String, dynamic>) {
-      return ActiveIngestion.fromJson(active);
-    }
-    if (active is Map) {
-      return ActiveIngestion.fromJson(Map<String, dynamic>.from(active));
-    }
-    return null;
-  }
-
-  Future<void> _reconcileRemoteActiveIngestion() async {
-    final api = _ingestionApi;
-    if (api == null || _currentSnapshot.isTracking) {
-      return;
-    }
-
-    try {
-      final active = await api.getActiveIngestion();
-      if (active == null) {
-        return;
-      }
-
-      final deviceId = await _resolveDeviceId();
-      if (active.deviceId != deviceId) {
-        return;
-      }
-
-      final localSession = await _dao.findOpenSession(active.clientSessionId);
-      if (localSession != null) {
-        await _resumeSession(localSession,
-            remoteIngestionId: active.ingestionId);
-        return;
-      }
-
-      // Una sessione fermata offline ha ``endedAt`` valorizzato (quindi non e'
-      // "open") ma puo' avere ancora un core sync pendente: il backend la vede
-      // attiva perche' ``recording_closed_at`` viene scritto solo all'arrivo del
-      // core. Non dobbiamo abbandonarla, altrimenti la sync successiva fallirebbe
-      // con "viaggio abbandonato" e il viaggio andrebbe perso.
-      if (await _hasPendingCoreSync(active.clientSessionId)) {
-        return;
-      }
-
-      await api.abandonIngestion(
-        ingestionId: active.ingestionId,
-        deviceId: deviceId,
-      );
-    } on IngestionApiException {
-      // La riconciliazione all'avvio non deve bloccare la UI o la sync locale.
-    }
-  }
-
-  Future<bool> _hasPendingCoreSync(String localSessionId) async {
-    final job = await _dao.syncJobForSession(localSessionId);
-    if (job == null) {
-      return false;
-    }
-    return syncJobActiveStatuses.contains(job.coreStatus);
-  }
-
   void _handleLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      unawaited(_sendHeartbeatIfTracking());
-      // Se la sync era ferma perche' l'app era chiusa/in background senza
-      // rete, il ritorno in primo piano e' spesso anche il momento in cui
-      // torna la connessione: ne approfittiamo per ritentare, invece di
-      // aspettare solo il prossimo avvio a freddo.
       unawaited(_syncQueue?.kick() ?? Future<void>.value());
-    }
-  }
-
-  void _restartHeartbeat() {
-    _heartbeatTimer?.cancel();
-    if (_ingestionApi == null ||
-        _currentRemoteIngestionId == null ||
-        _currentSessionId == null ||
-        _currentDeviceId == null) {
-      return;
-    }
-    _heartbeatTimer = _heartbeatTimerFactory(_heartbeatInterval, (_) {
-      unawaited(_sendHeartbeatIfTracking());
-    });
-  }
-
-  Future<void> _sendHeartbeatIfTracking() async {
-    final api = _ingestionApi;
-    final ingestionId = _currentRemoteIngestionId;
-    final clientSessionId = _currentSessionId;
-    final deviceId = _currentDeviceId;
-    if (!_currentSnapshot.isTracking ||
-        api == null ||
-        ingestionId == null ||
-        clientSessionId == null ||
-        deviceId == null) {
-      return;
-    }
-
-    try {
-      await api.heartbeatIngestion(
-        ingestionId: ingestionId,
-        clientSessionId: clientSessionId,
-        deviceId: deviceId,
-      );
-    } catch (_) {
-      // Heartbeat best-effort: non deve mai fermare i sensori locali.
     }
   }
 
@@ -921,130 +354,6 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     _syncRetryTimer = Timer(delay, () {
       unawaited(_syncQueue?.kick() ?? Future<void>.value());
     });
-  }
-
-  Future<void> _resumeOpenTrackingSessionIfNeeded() async {
-    if (_currentSnapshot.isTracking) {
-      return;
-    }
-
-    final session = await _dao.latestOpenSession();
-    if (session == null) {
-      return;
-    }
-
-    await _resumeSession(session);
-  }
-
-  /// Riprende una sessione locale ancora aperta. Ritorna `false` (senza
-  /// riprendere la registrazione) se l'ultimo dato noto e' piu' vecchio di
-  /// [_staleSessionThreshold] — es. il telefono si e' spento per ore: in tal
-  /// caso la sessione viene chiusa al momento dell'ultimo dato registrato
-  /// (non "ora", che includerebbe il buco) e messa in coda di sync, invece di
-  /// continuare a registrare come se il buco non fosse mai successo.
-  Future<bool> _resumeSession(
-    AcquisitionSession session, {
-    int? remoteIngestionId,
-  }) async {
-    final latestTransition = await _dao.latestTransitionForSession(session.id);
-    final latestGpsPoint = await _dao.latestGpsPointForSession(session.id);
-
-    final lastKnownAt = _latestKnownEventAt(
-      session,
-      latestTransition,
-      latestGpsPoint,
-    );
-    if (_now().toUtc().difference(lastKnownAt) >= _staleSessionThreshold) {
-      await _closeStaleSession(session.id, lastKnownAt);
-      return false;
-    }
-
-    final trackingState = _trackingStateFromWire(
-      latestTransition?.toState,
-    );
-    final profile = SamplingProfile.forState(trackingState);
-
-    _persistedSensorWindowKeys.clear();
-    _currentSessionId = session.id;
-    _currentRemoteIngestionId = remoteIngestionId ?? session.remoteIngestionId;
-    _currentDeviceId = session.deviceId;
-    _fsm = AcquisitionFsm(config: _config, initialState: trackingState);
-    _latestLatitude = latestGpsPoint?.latitude;
-    _latestLongitude = latestGpsPoint?.longitude;
-    _latestAccuracyMeters = latestGpsPoint?.accuracyMeters;
-
-    _emit(
-      AcquisitionSnapshot(
-        isTracking: true,
-        trackingState: trackingState,
-        samplingProfile: profile,
-        latestSigma: latestTransition?.sigma ?? 0,
-        latestSpeedMetersPerSecond:
-            latestGpsPoint?.speedMps ?? latestTransition?.speedMps ?? 0,
-        lastTransition: latestTransition == null
-            ? null
-            : FsmTransition(
-                from: _trackingStateFromWire(latestTransition.fromState),
-                to: trackingState,
-                reason: latestTransition.reason,
-                timestamp: latestTransition.timestamp,
-              ),
-        updatedAt: latestGpsPoint?.timestamp ??
-            latestTransition?.timestamp ??
-            session.startedAt,
-        latitude: _latestLatitude,
-        longitude: _latestLongitude,
-        accuracyMeters: _latestAccuracyMeters,
-      ),
-    );
-
-    await _runtime?.start(
-      profile: profile,
-      onEvent: ingestEvent,
-      onHarWindow: _persistHarWindowIfActive,
-    );
-    _restartHeartbeat();
-    return true;
-  }
-
-  DateTime _latestKnownEventAt(
-    AcquisitionSession session,
-    StateTransition? latestTransition,
-    GpsPoint? latestGpsPoint,
-  ) {
-    var latest = session.startedAt;
-    final transitionAt = latestTransition?.timestamp;
-    if (transitionAt != null && transitionAt.isAfter(latest)) {
-      latest = transitionAt;
-    }
-    final gpsAt = latestGpsPoint?.timestamp;
-    if (gpsAt != null && gpsAt.isAfter(latest)) {
-      latest = gpsAt;
-    }
-    return latest;
-  }
-
-  /// Chiude localmente una sessione stantia al momento dell'ultimo dato noto
-  /// (non "ora") e la mette in coda di sync — lo stesso percorso di uno stop
-  /// esplicito, solo innescato automaticamente invece che dall'utente.
-  Future<void> _closeStaleSession(
-    String sessionId,
-    DateTime lastKnownAt,
-  ) async {
-    await _dao.endSession(id: sessionId, endedAt: lastKnownAt);
-    await _dao.createSyncJobIfAbsent(sessionId);
-    unawaited(_syncQueue?.kick() ?? Future<void>.value());
-    _emit(AcquisitionSnapshot.idle());
-  }
-
-  TrackingState _trackingStateFromWire(String? wireName) {
-    switch (wireName) {
-      case 'MOVEMENT':
-        return TrackingState.movement;
-      case 'STATIONARY':
-      default:
-        return TrackingState.stationary;
-    }
   }
 
   AcquisitionSyncSnapshot _syncSnapshotFromJob(SyncJob? job) {
@@ -1085,57 +394,5 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     }
 
     return AcquisitionSyncStatus.none;
-  }
-
-  Future<void> _persistCompletedHarWindowsIfNeeded(
-    FsmDecision decision,
-  ) async {
-    final runtime = _runtime;
-    final sessionId = _currentSessionId;
-    if (!decision.samplingProfile.persistSensorWindows ||
-        runtime == null ||
-        sessionId == null) {
-      return;
-    }
-
-    for (final window in runtime.completedHarWindows.reversed) {
-      await _persistHarWindow(sessionId: sessionId, window: window);
-    }
-  }
-
-  Future<void> _persistHarWindowIfActive(HarSensorWindow window) async {
-    final sessionId = _currentSessionId;
-    if (sessionId == null ||
-        !_currentSnapshot.samplingProfile.persistSensorWindows) {
-      return;
-    }
-
-    await _persistHarWindow(sessionId: sessionId, window: window);
-  }
-
-  Future<void> _persistHarWindow({
-    required String sessionId,
-    required HarSensorWindow window,
-  }) async {
-    final windowKey = _sensorWindowKey(window);
-    if (_persistedSensorWindowKeys.contains(windowKey)) {
-      return;
-    }
-
-    final modelInput = window.modelInputMatrix;
-    await _dao.insertSensorWindow(
-      sessionId: sessionId,
-      startTimestamp: window.startedAt,
-      endTimestamp: window.endedAt,
-      sampleCount: modelInput.length,
-      frequencyHz: HarSensorWindow.targetSamplingHz,
-      matrixBlob: encodeSensorMatrixBlob(modelInput),
-    );
-    _persistedSensorWindowKeys.add(windowKey);
-  }
-
-  String _sensorWindowKey(HarSensorWindow window) {
-    return '${window.startedAt.microsecondsSinceEpoch}-'
-        '${window.endedAt.microsecondsSinceEpoch}';
   }
 }

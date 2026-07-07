@@ -1,13 +1,12 @@
 import 'package:auto_route/auto_route.dart';
-import 'package:diary/network/dto/trip_list_item_dto.dart';
-import 'package:diary/network/dto/trip_reload_slots_dto.dart';
-import 'package:diary/network/service/trips_service.dart';
-import 'package:diary/repositories/acquisition_repository.dart';
+import 'package:diary/features/trips/domain/trip_list_item.dart';
+import 'package:diary/repositories/trips_repository.dart';
 import 'package:diary/routers/app_router.dart';
 import 'package:diary/state_management/cubits/trips_list_cubit/trips_list_cubit.dart';
 import 'package:diary/state_management/cubits/trips_list_cubit/trips_list_cubit_state.dart';
 import 'package:diary/theme/color_palette.dart';
 import 'package:diary/theme/dimensions.dart';
+import 'package:diary/ui/widgets/trip_reload_sheets.dart';
 import 'package:diary/ui/widgets/trips_drawer_presenter.dart';
 import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubit.dart';
 import 'package:flutter/material.dart';
@@ -22,8 +21,7 @@ class TripsDrawer extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocProvider(
       create: (context) => TripsListCubit(
-        context.read<TripsService>(),
-        acquisitionRepository: context.read<AcquisitionRepository>(),
+        context.read<TripsRepository>(),
       )..load(),
       child: const Drawer(child: SafeArea(child: _TripsDrawerBody())),
     );
@@ -185,7 +183,7 @@ class _DrawerModeToggle extends StatelessWidget {
 }
 
 class _TripsListView extends StatelessWidget {
-  final List<TripListItemDto> trips;
+  final List<TripListItem> trips;
   final bool reloadable;
 
   const _TripsListView({
@@ -297,7 +295,7 @@ class _DayTripsView extends StatelessWidget {
 }
 
 class _TripTile extends StatelessWidget {
-  final TripListItemDto trip;
+  final TripListItem trip;
   final bool reloadable;
 
   const _TripTile({
@@ -583,7 +581,7 @@ class _TripTile extends StatelessWidget {
     );
   }
 
-  String _reloadableUnavailableReason(TripListItemDto trip) {
+  String _reloadableUnavailableReason(TripListItem trip) {
     if (trip.isDerived) return 'Non disponibile sui viaggi derivati';
     if (trip.isReloadable) return 'Gia usato come sorgente';
     return 'Richiede telemetrie complete';
@@ -643,45 +641,45 @@ class _TripTile extends StatelessWidget {
   }
 
   Future<DateTime?> _pickReloadStart(BuildContext context) async {
-    try {
-      final slots =
-          await context.read<TripsService>().fetchReloadSlots(trip.id);
-      if (!context.mounted) return null;
-      if (slots.slots.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Nessuno slot libero nel passato')),
+    final result = await context.read<TripsRepository>().fetchReloadSlots(
+          trip.id,
         );
-        return null;
-      }
-      return showModalBottomSheet<DateTime>(
-        context: context,
-        showDragHandle: true,
-        builder: (_) => _ReloadSlotSheet(slots: slots.slots),
+    if (!context.mounted) return null;
+    final failure = result.failure;
+    if (failure != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(failure.message)),
       );
-    } catch (error) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error.toString())),
-        );
-      }
       return null;
     }
+    final slots = result.requireValue;
+    if (slots.slots.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nessuno slot libero nel passato')),
+      );
+      return null;
+    }
+    return showModalBottomSheet<DateTime>(
+      context: context,
+      showDragHandle: true,
+      builder: (_) => ReloadSlotSheet(slots: slots.slots),
+    );
   }
 
   Future<double?> _pickReplaySpeed(BuildContext context) {
     return showModalBottomSheet<double>(
       context: context,
       showDragHandle: true,
-      builder: (_) => const _ReplaySpeedSheet(),
+      builder: (_) => const ReplaySpeedSheet(),
     );
   }
 
-  String _title(TripListItemDto trip) {
+  String _title(TripListItem trip) {
     final note = trip.note.trim();
     return note.isEmpty ? _formatDate(trip.startedAt.toLocal()) : note;
   }
 
-  String _subtitle(TripListItemDto trip) {
+  String _subtitle(TripListItem trip) {
     final prefix = trip.note.trim().isEmpty
         ? ''
         : '${_formatDate(trip.startedAt.toLocal())} - ';
@@ -695,95 +693,6 @@ class _TripTile extends StatelessWidget {
       return '$prefix${(distance / 1000).toStringAsFixed(1)} km';
     }
     return '$prefix${distance.toStringAsFixed(0)} m';
-  }
-}
-
-class _ReloadSlotSheet extends StatelessWidget {
-  final List<TripReloadSlotDto> slots;
-
-  const _ReloadSlotSheet({required this.slots});
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxHeight: 520),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                Dimensions.paddingMedium,
-                0,
-                Dimensions.paddingMedium,
-                Dimensions.paddingSmall,
-              ),
-              child: Text(
-                'Scegli data di inizio',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-              ),
-            ),
-            Flexible(
-              child: ListView.separated(
-                shrinkWrap: true,
-                itemCount: slots.length,
-                separatorBuilder: (_, __) => const Divider(height: 1),
-                itemBuilder: (context, index) {
-                  final slot = slots[index];
-                  return ListTile(
-                    leading: const Icon(Icons.event_available_outlined),
-                    title: Text(_formatDate(slot.startedAt.toLocal())),
-                    subtitle: Text(
-                      'Fine prevista ${_formatDate(slot.endedAt.toLocal())}',
-                    ),
-                    onTap: () => Navigator.of(context).pop(slot.startedAt),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ReplaySpeedSheet extends StatelessWidget {
-  const _ReplaySpeedSheet();
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-              Dimensions.paddingMedium,
-              0,
-              Dimensions.paddingMedium,
-              Dimensions.paddingSmall,
-            ),
-            child: Text(
-              'Velocità replay',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-            ),
-          ),
-          for (final speed in const [1.0, 2.0, 5.0])
-            ListTile(
-              leading: const Icon(Icons.speed_outlined),
-              title: Text('${speed.toStringAsFixed(0)}x'),
-              onTap: () => Navigator.of(context).pop(speed),
-            ),
-        ],
-      ),
-    );
   }
 }
 

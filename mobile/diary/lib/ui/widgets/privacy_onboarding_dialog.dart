@@ -27,7 +27,8 @@ class PrivacyOnboardingDialog extends StatefulWidget {
 }
 
 class _PrivacyOnboardingDialogState extends State<PrivacyOnboardingDialog> {
-  late PrivacyLevel _selected = context.read<PrivacySettingsCubit>().state.level;
+  late PrivacyLevel _selected =
+      context.read<PrivacySettingsCubit>().state.level;
 
   @override
   Widget build(BuildContext context) {
@@ -73,7 +74,8 @@ class _PrivacyOnboardingDialogState extends State<PrivacyOnboardingDialog> {
                 ],
                 if (state.status == PrivacySettingsStatus.error)
                   Padding(
-                    padding: const EdgeInsets.only(top: Dimensions.paddingMedium),
+                    padding:
+                        const EdgeInsets.only(top: Dimensions.paddingMedium),
                     child: Text(
                       state.error ?? 'Salvataggio non riuscito, riprova.',
                       style:

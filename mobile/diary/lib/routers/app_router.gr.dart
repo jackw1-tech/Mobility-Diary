@@ -97,7 +97,7 @@ class HomeRoute extends PageRouteInfo<void> {
 /// [PlaceDetailPage]
 class PlaceDetailRoute extends PageRouteInfo<PlaceDetailRouteArgs> {
   PlaceDetailRoute({
-    required PlaceReviewDto place,
+    required PlaceReview place,
     Key? key,
     List<PageRouteInfo>? children,
   }) : super(
@@ -120,7 +120,7 @@ class PlaceDetailRoute extends PageRouteInfo<PlaceDetailRouteArgs> {
 class PlaceDetailRouteArgs {
   const PlaceDetailRouteArgs({required this.place, this.key});
 
-  final PlaceReviewDto place;
+  final PlaceReview place;
 
   final Key? key;
 

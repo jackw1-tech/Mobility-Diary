@@ -2,11 +2,12 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:diary/features/auth/data/secure_auth_session_store.dart';
 import 'package:diary/features/auth/domain/auth_session.dart';
+import 'package:diary/features/auth/domain/auth_session_store.dart';
 import 'package:diary/features/auth/domain/auth_user.dart';
 import 'package:diary/other/contants/api_contants.dart';
 import 'package:diary/repositories/auth_repository.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class AuthApiException implements Exception {
   final String message;
@@ -18,20 +19,16 @@ class AuthApiException implements Exception {
 }
 
 class AuthRepositoryImpl implements AuthRepository {
-  static const _tokenKey = 'auth.access_token';
-  static const _expiresAtKey = 'auth.expires_at';
-  static const _userKey = 'auth.user';
-
-  final FlutterSecureStorage _storage;
+  final AuthSessionStore _sessionStore;
   final HttpClient _client;
 
   AuthUser? _currentUser;
   String? _accessToken;
 
   AuthRepositoryImpl({
-    FlutterSecureStorage? storage,
+    AuthSessionStore? sessionStore,
     HttpClient? client,
-  })  : _storage = storage ?? const FlutterSecureStorage(),
+  })  : _sessionStore = sessionStore ?? const SecureAuthSessionStore(),
         _client = client ?? HttpClient();
 
   @override
@@ -45,7 +42,7 @@ class AuthRepositoryImpl implements AuthRepository {
 
   @override
   Future<AuthSession?> restoreSession() async {
-    final storedToken = await _storage.read(key: _tokenKey);
+    final storedToken = await _sessionStore.readAccessToken();
     if (storedToken == null || storedToken.isEmpty) {
       return null;
     }
@@ -53,10 +50,8 @@ class AuthRepositoryImpl implements AuthRepository {
     _accessToken = storedToken;
     try {
       final user = await loadCurrentUser();
-      final expiresAtValue = await _storage.read(key: _expiresAtKey);
-      final expiresAt = expiresAtValue == null
-          ? DateTime.now().add(const Duration(days: 30))
-          : DateTime.parse(expiresAtValue);
+      final expiresAt = await _sessionStore.readExpiresAt() ??
+          DateTime.now().add(const Duration(days: 30));
 
       return AuthSession(
         user: user,
@@ -136,7 +131,7 @@ class AuthRepositoryImpl implements AuthRepository {
         isSuperuser: false,
       );
       _currentUser = fakeUser;
-      await _storage.write(key: _userKey, value: jsonEncode(fakeUser.toJson()));
+      await _sessionStore.saveUser(fakeUser);
       return fakeUser;
     }
 
@@ -147,7 +142,7 @@ class AuthRepositoryImpl implements AuthRepository {
     );
     final user = AuthUser.fromJson(data);
     _currentUser = user;
-    await _storage.write(key: _userKey, value: jsonEncode(user.toJson()));
+    await _sessionStore.saveUser(user);
     return user;
   }
 
@@ -185,21 +180,13 @@ class AuthRepositoryImpl implements AuthRepository {
   Future<void> _persistSession(AuthSession session) async {
     _accessToken = session.accessToken;
     _currentUser = session.user;
-    await _storage.write(key: _tokenKey, value: session.accessToken);
-    await _storage.write(
-      key: _expiresAtKey,
-      value: session.expiresAt.toIso8601String(),
-    );
-    await _storage.write(
-        key: _userKey, value: jsonEncode(session.user.toJson()));
+    await _sessionStore.saveSession(session);
   }
 
   Future<void> _clearSession() async {
     _accessToken = null;
     _currentUser = null;
-    await _storage.delete(key: _tokenKey);
-    await _storage.delete(key: _expiresAtKey);
-    await _storage.delete(key: _userKey);
+    await _sessionStore.clear();
   }
 
   Future<Map<String, dynamic>> _sendJson({

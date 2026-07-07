@@ -1,7 +1,7 @@
-import 'package:diary/network/dto/place_review_dto.dart';
+import 'package:diary/features/places/domain/place_review.dart';
 
 class PlaceDetailState {
-  final PlaceReviewDto place;
+  final PlaceReview place;
   final bool busy;
   final bool canReview;
   final String? error;

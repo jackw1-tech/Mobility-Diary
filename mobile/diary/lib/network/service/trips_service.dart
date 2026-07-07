@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:diary/features/acquisition/sync/trip_ingestion_api.dart';
+import 'package:diary/network/service/trip_ingestion_service.dart';
 import 'package:diary/network/dto/trip_list_item_dto.dart';
 import 'package:diary/network/dto/trip_reload_dto.dart';
 import 'package:diary/network/dto/trip_reload_slots_dto.dart';

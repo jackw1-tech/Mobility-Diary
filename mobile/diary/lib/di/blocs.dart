@@ -8,14 +8,14 @@ final List<BlocProvider> blocs = [
   ),
   BlocProvider<AcquisitionCubit>(
     create: (context) => AcquisitionCubit(
-      context.read<AcquisitionRepository>(),
+      trackingRepository: context.read<AcquisitionTrackingRepository>(),
+      syncRepository: context.read<AcquisitionSyncRepository>(),
     ),
   ),
   BlocProvider<RouteAssistantCubit>(
     create: (context) => RouteAssistantCubit(
-      context.read<RouteAssistantService>(),
-      classifier: context.read<RouteClassifierService>(),
-      locationProvider: currentDeviceLocation,
+      context.read<RouteAssistantRepository>(),
+      locationProvider: context.read<LocationRepository>().currentLocation,
       activeLocationProvider: () {
         final acquisitionState = context.read<AcquisitionCubit>().state;
         return acquisitionState.isTracking
@@ -23,7 +23,7 @@ final List<BlocProvider> blocs = [
             : null;
       },
       sensorWindowProvider:
-          context.read<AcquisitionRepository>().currentSensorWindow,
+          context.read<AcquisitionTrackingRepository>().currentSensorWindow,
     ),
   ),
 ];

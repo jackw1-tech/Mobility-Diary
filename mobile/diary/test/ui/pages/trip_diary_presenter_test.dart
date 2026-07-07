@@ -1,4 +1,5 @@
-import 'package:diary/network/dto/trip_track_dto.dart';
+import 'package:diary/features/trips/domain/trip_track.dart';
+import 'package:diary/features/trips/domain/trip_enums.dart';
 import 'package:diary/ui/pages/trip_diary_presenter.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -165,28 +166,28 @@ void main() {
   });
 }
 
-TripDiarySegmentDto _segment({
+TripDiarySegment _segment({
   required String kind,
   required String activity,
   DateTime? start,
   DateTime? end,
   double distance = 0,
-  TripDiaryPlaceDto? place,
+  TripDiaryPlace? place,
 }) {
   final from = start ?? DateTime.parse('2026-06-12T10:00:00Z');
-  return TripDiarySegmentDto(
-    kind: kind,
+  return TripDiarySegment(
+    kind: TripDiarySegmentKind.fromWire(kind),
     startTimestamp: from,
     endTimestamp: end ?? from.add(const Duration(minutes: 5)),
-    activityLabel: activity,
+    activity: MobilityActivity.fromWire(activity),
     distanceMeters: distance,
     pathGeojson: null,
     place: place,
   );
 }
 
-TripDiaryPlaceDto _place(int id) {
-  return TripDiaryPlaceDto(
+TripDiaryPlace _place(int id) {
+  return TripDiaryPlace(
     id: id,
     latitude: 45.0,
     longitude: 9.0,

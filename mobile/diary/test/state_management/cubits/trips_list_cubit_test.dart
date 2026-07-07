@@ -1,35 +1,20 @@
 import 'dart:async';
 
-import 'package:diary/network/dto/trip_list_item_dto.dart';
-import 'package:diary/network/dto/trip_reload_dto.dart';
-import 'package:diary/network/dto/trip_reload_slots_dto.dart';
-import 'package:diary/network/service/trips_service.dart';
-import 'package:diary/repositories/acquisition_repository.dart';
+import 'package:diary/features/common/domain/app_result.dart';
+import 'package:diary/features/trips/domain/trip_enums.dart';
+import 'package:diary/features/trips/domain/trip_list_item.dart';
+import 'package:diary/features/trips/domain/trip_reload.dart';
+import 'package:diary/repositories/trips_repository.dart';
 import 'package:diary/state_management/cubits/trips_list_cubit/trips_list_cubit.dart';
 import 'package:diary/state_management/cubits/trips_list_cubit/trips_list_cubit_state.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-class _FakeAcquisitionRepository implements AcquisitionRepository {
-  int? purgedTripId;
-  Object? purgeError;
-
-  @override
-  Future<void> purgeLocalDataForRemoteTrip(int tripId) async {
-    purgedTripId = tripId;
-    final failure = purgeError;
-    if (failure != null) throw failure;
-  }
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
-}
-
-class FakeTripsService implements TripsService {
-  List<TripListItemDto>? result;
-  List<TripListItemDto>? reloadableResult;
-  TripReloadDto? reloadResult;
-  Completer<List<TripListItemDto>>? tripsCompleter;
-  Completer<List<TripListItemDto>>? reloadableCompleter;
+class FakeTripsService implements TripsRepository {
+  List<TripListItem>? result;
+  List<TripListItem>? reloadableResult;
+  TripReload? reloadResult;
+  Completer<List<TripListItem>>? tripsCompleter;
+  Completer<List<TripListItem>>? reloadableCompleter;
   Object? error;
   Object? reloadError;
   Object? mutationError;
@@ -38,104 +23,102 @@ class FakeTripsService implements TripsService {
   int? deletedTripId;
   int? reloadableTripId;
   bool? requestedReloadableValue;
-  TripListItemDto? reloadableUpdateResult;
+  TripListItem? reloadableUpdateResult;
   int? noteTripId;
   String? requestedNote;
-  TripListItemDto? noteUpdateResult;
-  String? reloadRequestId;
+  TripListItem? noteUpdateResult;
   DateTime? scheduledStartAt;
-  final List<String> reloadRequestIds = [];
 
   @override
-  Future<List<TripListItemDto>> fetchTrips() async {
+  Future<AppResult<List<TripListItem>>> fetchTrips() async {
     final completer = tripsCompleter;
-    if (completer != null) return completer.future;
+    if (completer != null) return AppResult.success(await completer.future);
     final failure = error;
-    if (failure != null) throw failure;
-    return result!;
+    if (failure != null) return AppResult.failure(toAppFailure(failure));
+    return AppResult.success(result!);
   }
 
   @override
-  Future<List<TripListItemDto>> fetchReloadableTrips() async {
+  Future<AppResult<List<TripListItem>>> fetchReloadableTrips() async {
     final completer = reloadableCompleter;
-    if (completer != null) return completer.future;
+    if (completer != null) return AppResult.success(await completer.future);
     final failure = error;
-    if (failure != null) throw failure;
-    return reloadableResult!;
+    if (failure != null) return AppResult.failure(toAppFailure(failure));
+    return AppResult.success(reloadableResult!);
   }
 
   @override
-  Future<TripReloadSlotsDto> fetchReloadSlots(int sourceTripId) async {
-    return TripReloadSlotsDto(
-      sourceTripId: sourceTripId,
-      durationSeconds: 1200,
-      slots: const [],
+  Future<AppResult<TripReloadSlots>> fetchReloadSlots(int sourceTripId) async {
+    return AppResult.success(
+      TripReloadSlots(
+        sourceTripId: sourceTripId,
+        durationSeconds: 1200,
+        slots: const [],
+      ),
     );
   }
 
   @override
-  Future<void> deleteTrip(int tripId) async {
+  Future<AppResult<void>> deleteTrip(int tripId) async {
     deletedTripId = tripId;
     final failure = mutationError;
-    if (failure != null) throw failure;
+    if (failure != null) return AppResult.failure(toAppFailure(failure));
+    return const AppResult.success(null);
   }
 
   @override
-  Future<TripListItemDto> setTripReloadable({
+  Future<AppResult<TripListItem>> setTripReloadable({
     required int tripId,
     required bool isReloadable,
   }) async {
     reloadableTripId = tripId;
     requestedReloadableValue = isReloadable;
     final failure = mutationError;
-    if (failure != null) throw failure;
-    return reloadableUpdateResult!;
+    if (failure != null) return AppResult.failure(toAppFailure(failure));
+    return AppResult.success(reloadableUpdateResult!);
   }
 
   @override
-  Future<TripListItemDto> updateTripNote({
+  Future<AppResult<TripListItem>> updateTripNote({
     required int tripId,
     required String note,
   }) async {
     noteTripId = tripId;
     requestedNote = note;
     final failure = mutationError;
-    if (failure != null) throw failure;
-    return noteUpdateResult!;
+    if (failure != null) return AppResult.failure(toAppFailure(failure));
+    return AppResult.success(noteUpdateResult!);
   }
 
   @override
-  Future<TripReloadDto> reloadTrip({
+  Future<AppResult<TripReload>> reloadTrip({
     required int sourceTripId,
-    required String reloadRequestId,
     DateTime? scheduledStartAt,
   }) async {
     reloadedSourceTripId = sourceTripId;
-    this.reloadRequestId = reloadRequestId;
     this.scheduledStartAt = scheduledStartAt;
-    reloadRequestIds.add(reloadRequestId);
     if (reloadFailuresBeforeSuccess > 0) {
       reloadFailuresBeforeSuccess -= 1;
       final failure = reloadError ?? Exception('timeout');
       if (reloadFailuresBeforeSuccess == 0) reloadError = null;
-      throw failure;
+      return AppResult.failure(toAppFailure(failure));
     }
     final failure = reloadError;
-    if (failure != null) throw failure;
-    return reloadResult!;
+    if (failure != null) return AppResult.failure(toAppFailure(failure));
+    return AppResult.success(reloadResult!);
   }
 }
 
-TripListItemDto _trip(
+TripListItem _trip(
   int id, {
   bool isReloadable = false,
   String note = '',
 }) =>
-    TripListItemDto(
+    TripListItem(
       id: id,
       startedAt: DateTime.utc(2026, 6, 12, 10),
       endedAt: DateTime.utc(2026, 6, 12, 10, 30),
-      status: 'PROCESSED',
+      status: TripStatus.processed,
       distanceMeters: 1000,
       note: note,
       hasTrack: true,
@@ -145,7 +128,7 @@ TripListItemDto _trip(
       canEditNote: true,
     );
 
-const _reload = TripReloadDto(
+const _reload = TripReload(
   ingestionId: 10,
   tripId: 99,
   coreStatus: 'COMPLETED',
@@ -222,54 +205,6 @@ void main() {
       expect(cubit.state.mutationError, isNull);
     });
 
-    test(
-        'purges leftover local data for the deleted trip via the '
-        'acquisition repository', () async {
-      final service = FakeTripsService();
-      final acquisitionRepository = _FakeAcquisitionRepository();
-      final cubit = TripsListCubit(
-        service,
-        acquisitionRepository: acquisitionRepository,
-      );
-      addTearDown(cubit.close);
-      cubit.emit(
-        TripsListCubitState(
-          status: TripsListStatus.loaded,
-          trips: [_trip(1), _trip(2)],
-        ),
-      );
-
-      await cubit.deleteTrip(1);
-      // La pulizia locale e' fire-and-forget (best-effort): lascia respirare
-      // l'event loop prima di verificarla.
-      await Future<void>.delayed(Duration.zero);
-
-      expect(acquisitionRepository.purgedTripId, 1);
-    });
-
-    test('delete still succeeds even if purging local data fails', () async {
-      final service = FakeTripsService();
-      final acquisitionRepository = _FakeAcquisitionRepository()
-        ..purgeError = Exception('drift error');
-      final cubit = TripsListCubit(
-        service,
-        acquisitionRepository: acquisitionRepository,
-      );
-      addTearDown(cubit.close);
-      cubit.emit(
-        TripsListCubitState(
-          status: TripsListStatus.loaded,
-          trips: [_trip(1)],
-        ),
-      );
-
-      final deleted = await cubit.deleteTrip(1);
-      await Future<void>.delayed(Duration.zero);
-
-      expect(deleted, isTrue);
-      expect(cubit.state.mutationError, isNull);
-    });
-
     test('updates a trip after changing reloadable flag', () async {
       final service = FakeTripsService()
         ..reloadableUpdateResult = _trip(1, isReloadable: true);
@@ -313,8 +248,8 @@ void main() {
     test('ignores stale trip loads after switching to reloadable trips',
         () async {
       final service = FakeTripsService()
-        ..tripsCompleter = Completer<List<TripListItemDto>>()
-        ..reloadableCompleter = Completer<List<TripListItemDto>>();
+        ..tripsCompleter = Completer<List<TripListItem>>()
+        ..reloadableCompleter = Completer<List<TripListItem>>();
       final cubit = TripsListCubit(service);
       addTearDown(cubit.close);
 
@@ -333,17 +268,13 @@ void main() {
 
     test('reloads a trip with generated request id', () async {
       final service = FakeTripsService()..reloadResult = _reload;
-      final cubit = TripsListCubit(
-        service,
-        reloadRequestIdFactory: () => 'fixed-request',
-      );
+      final cubit = TripsListCubit(service);
       addTearDown(cubit.close);
 
       final tripId = await cubit.reloadTrip(7);
 
       expect(tripId, 99);
       expect(service.reloadedSourceTripId, 7);
-      expect(service.reloadRequestId, 'fixed-request');
       expect(cubit.state.reloadingTripId, isNull);
       expect(cubit.state.reloadError, isNull);
     });
@@ -351,10 +282,7 @@ void main() {
     test('passes the selected start when reloading a trip', () async {
       final selectedStart = DateTime.utc(2026, 6, 29, 12, 15);
       final service = FakeTripsService()..reloadResult = _reload;
-      final cubit = TripsListCubit(
-        service,
-        reloadRequestIdFactory: () => 'fixed-request',
-      );
+      final cubit = TripsListCubit(service);
       addTearDown(cubit.close);
 
       final tripId = await cubit.reloadTrip(
@@ -366,16 +294,12 @@ void main() {
       expect(service.scheduledStartAt, selectedStart);
     });
 
-    test('reuses the same request id when retrying after a failure', () async {
-      var generated = 0;
+    test('keeps reload loading state clear after retry succeeds', () async {
       final service = FakeTripsService()
         ..reloadResult = _reload
         ..reloadError = Exception('timeout')
         ..reloadFailuresBeforeSuccess = 1;
-      final cubit = TripsListCubit(
-        service,
-        reloadRequestIdFactory: () => 'request-${++generated}',
-      );
+      final cubit = TripsListCubit(service);
       addTearDown(cubit.close);
 
       final first = await cubit.reloadTrip(7);
@@ -383,8 +307,7 @@ void main() {
 
       expect(first, isNull);
       expect(second, 99);
-      expect(service.reloadRequestIds, ['request-1', 'request-1']);
-      expect(generated, 1);
+      expect(cubit.state.reloadingTripId, isNull);
     });
 
     test('keeps the drawer on reload failure', () async {

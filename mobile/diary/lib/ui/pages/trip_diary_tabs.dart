@@ -1,4 +1,4 @@
-import 'package:diary/network/dto/trip_track_dto.dart';
+import 'package:diary/features/trips/domain/trip_track.dart';
 import 'package:diary/state_management/cubits/trip_track_cubit/trip_track_cubit.dart';
 import 'package:diary/state_management/cubits/trip_track_cubit/trip_track_cubit_state.dart';
 import 'package:diary/theme/color_palette.dart';
@@ -102,7 +102,7 @@ Widget? _stateMessage(TripTrackCubitState state, {required String pending}) {
   }
 }
 
-Widget _segmentTile(TripDiarySegmentDto segment) {
+Widget _segmentTile(TripDiarySegment segment) {
   final isMove = !isStopSegment(segment);
   final details = [
     formatTimeRange(segment),

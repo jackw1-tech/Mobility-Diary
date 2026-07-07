@@ -1,5 +1,5 @@
-import 'package:diary/network/dto/place_mining_status_dto.dart';
-import 'package:diary/network/dto/place_review_dto.dart';
+import 'package:diary/features/places/domain/place_mining_status.dart';
+import 'package:diary/features/places/domain/place_review.dart';
 
 enum PlacesStatus {
   initial,
@@ -11,8 +11,8 @@ enum PlacesStatus {
 
 class PlacesCubitState {
   final PlacesStatus status;
-  final List<PlaceReviewDto> places;
-  final PlaceMiningStatusDto? placeStatus;
+  final List<PlaceReview> places;
+  final PlaceMiningStatus? placeStatus;
   final String? error;
 
   const PlacesCubitState({
@@ -31,10 +31,10 @@ class PlacesCubitState {
   bool get isLoading => status == PlacesStatus.loading;
   bool get canReview => placeStatus?.isActionable ?? true;
 
-  List<PlaceReviewDto> get confirmed =>
+  List<PlaceReview> get confirmed =>
       places.where((place) => place.isConfirmed).toList(growable: false);
-  List<PlaceReviewDto> get candidates =>
+  List<PlaceReview> get candidates =>
       places.where((place) => place.isCandidate).toList(growable: false);
-  List<PlaceReviewDto> get rejected =>
+  List<PlaceReview> get rejected =>
       places.where((place) => place.isRejected).toList(growable: false);
 }

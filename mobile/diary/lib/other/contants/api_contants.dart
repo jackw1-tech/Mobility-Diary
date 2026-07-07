@@ -1,22 +1,9 @@
-import 'package:flutter/foundation.dart';
-
 class ApiConstants {
-  static const String _localComposeApiUrl = 'http://localhost:8080/api';
-  static const String _androidEmulatorComposeApiUrl =
-      'http://10.0.2.2:8080/api';
   static const String _productionApiUrl =
       'https://mobilitydiary.giacomobianco.com/api';
 
   static String get baseApiUrl {
-    return _productionApiUrl;
-    if (const bool.hasEnvironment('API_BASE_URL')) {
-      return const String.fromEnvironment('API_BASE_URL');
-    }
-    if (kDebugMode) {
-      return defaultTargetPlatform == TargetPlatform.android
-          ? _androidEmulatorComposeApiUrl
-          : _localComposeApiUrl;
-    }
+    // lascialo cosi, non toccare
     return _productionApiUrl;
   }
 
