@@ -21,7 +21,7 @@ class Command(BaseCommand):
             "--windows",
             type=int,
             default=1,
-            help="Numero di finestre sintetiche 500x9 da predire.",
+            help="Numero di finestre sintetiche 500x6 da predire.",
         )
 
     def handle(self, *args, **options):
@@ -31,7 +31,7 @@ class Command(BaseCommand):
 
         reset_model_cache()
         matrix = np.zeros(
-            (settings.HAR_WINDOW_SAMPLE_COUNT, 9),
+            (settings.HAR_WINDOW_SAMPLE_COUNT, 6),
             dtype=np.float32,
         )
         windows = [SimpleNamespace(matrix=matrix) for _ in range(window_count)]

@@ -1,8 +1,8 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:diary/features/acquisition/data/acquisition_local_database.dart';
 import 'package:diary/features/acquisition/domain/acquisition_domain.dart';
+import 'package:diary/features/acquisition/domain/sensor_matrix_blob.dart';
 import 'package:diary/features/acquisition/runtime/acquisition_sensor_runtime.dart';
 import 'package:diary/features/acquisition/sync/trip_ingestion_api.dart';
 import 'package:diary/features/acquisition/sync/trip_package_builder.dart';
@@ -707,12 +707,10 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     }
     final window = await _dao.latestSensorWindow(sessionId);
     if (window == null) return const [];
-    final decoded = jsonDecode(window.matrixJson);
-    if (decoded is! List) return const [];
-    return [
-      for (final row in decoded)
-        if (row is List) [for (final value in row) (value as num).toDouble()],
-    ];
+    return decodeSensorMatrixBlob(
+      window.matrixBlob,
+      sampleCount: window.sampleCount,
+    );
   }
 
   /// Secondi trascorsi nella timeline sorgente dall'avvio del replay, scalati
@@ -956,8 +954,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
       latestTransition,
       latestGpsPoint,
     );
-    if (_now().toUtc().difference(lastKnownAt) >=
-        _staleSessionThreshold) {
+    if (_now().toUtc().difference(lastKnownAt) >= _staleSessionThreshold) {
       await _closeStaleSession(session.id, lastKnownAt);
       return false;
     }
@@ -1132,7 +1129,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
       endTimestamp: window.endedAt,
       sampleCount: modelInput.length,
       frequencyHz: HarSensorWindow.targetSamplingHz,
-      matrixJson: jsonEncode(modelInput),
+      matrixBlob: encodeSensorMatrixBlob(modelInput),
     );
     _persistedSensorWindowKeys.add(windowKey);
   }

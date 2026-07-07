@@ -22,6 +22,8 @@ class TripSyncQueueImpl implements TripSyncQueue {
   final List<Duration> _backoff;
   final int _maxAttempts;
   final Duration _pollDelay;
+  final Duration _processingPollDelay;
+  final int _rawUploadConcurrency;
   bool _running = false;
 
   TripSyncQueueImpl({
@@ -33,6 +35,8 @@ class TripSyncQueueImpl implements TripSyncQueue {
     List<Duration>? backoff,
     int maxAttempts = 5,
     Duration pollDelay = const Duration(seconds: 15),
+    Duration processingPollDelay = const Duration(seconds: 2),
+    int rawUploadConcurrency = 3,
   })  : _dao = dao,
         _builder = builder,
         _api = api,
@@ -40,6 +44,9 @@ class TripSyncQueueImpl implements TripSyncQueue {
         _tokenProvider = tokenProvider,
         _maxAttempts = maxAttempts,
         _pollDelay = pollDelay,
+        _processingPollDelay = processingPollDelay,
+        _rawUploadConcurrency =
+            rawUploadConcurrency < 1 ? 1 : rawUploadConcurrency,
         _backoff = backoff ??
             const [
               Duration(seconds: 10),
@@ -128,7 +135,11 @@ class TripSyncQueueImpl implements TripSyncQueue {
         return;
       }
       if (status.isCoreBackendProcessing) {
-        await _waitForCoreProcessing(job, remoteIngestionId: ingestionId);
+        await _waitForCoreProcessing(
+          job,
+          remoteIngestionId: ingestionId,
+          delay: _processingDelayFor(status.coreStatus),
+        );
         return;
       }
 
@@ -154,7 +165,11 @@ class TripSyncQueueImpl implements TripSyncQueue {
         }
         if (status.isRawBackendProcessing) {
           await _deletePackageDirectory(package);
-          await _waitForRawProcessing(job, remoteIngestionId: ingestionId);
+          await _waitForRawProcessing(
+            job,
+            remoteIngestionId: ingestionId,
+            delay: _processingDelayFor(status.rawStatus),
+          );
           return;
         }
         if (status.canReceiveRawParts) {
@@ -180,7 +195,11 @@ class TripSyncQueueImpl implements TripSyncQueue {
           }
           if (status.isRawBackendProcessing) {
             await _deletePackageDirectory(package);
-            await _waitForRawProcessing(job, remoteIngestionId: ingestionId);
+            await _waitForRawProcessing(
+              job,
+              remoteIngestionId: ingestionId,
+              delay: _processingDelayFor(status.rawStatus),
+            );
             return;
           }
         }
@@ -200,7 +219,11 @@ class TripSyncQueueImpl implements TripSyncQueue {
           }
           if (status.isRawBackendProcessing) {
             await _deletePackageDirectory(package);
-            await _waitForRawProcessing(job, remoteIngestionId: ingestionId);
+            await _waitForRawProcessing(
+              job,
+              remoteIngestionId: ingestionId,
+              delay: _processingDelayFor(status.rawStatus),
+            );
             return;
           }
         }
@@ -228,31 +251,46 @@ class TripSyncQueueImpl implements TripSyncQueue {
     required bool uploadAll,
   }) async {
     final missing = missingParts.map((m) => '${m.kind}#${m.sequence}').toSet();
+    final selectedParts = [
+      for (final part in parts)
+        if (uploadAll || missing.contains('${part.kind}#${part.sequence}'))
+          part,
+    ];
 
-    for (final part in parts) {
-      final key = '${part.kind}#${part.sequence}';
-      if (!uploadAll && !missing.contains(key)) continue;
-
-      final presign = await _api.presignPart(
-        ingestionId,
-        kind: part.kind,
-        sequence: part.sequence,
-        sha256: part.sha256,
-        sizeBytes: part.sizeBytes,
-      );
-      final bytes = await part.file.readAsBytes();
-      await _api.uploadPart(
-        presign.uploadUrl,
-        bytes,
-        headers: presign.uploadHeaders,
-      );
-      await _api.confirmPart(
-        ingestionId,
-        kind: part.kind,
-        sequence: part.sequence,
-        sha256: part.sha256,
-      );
+    for (var start = 0;
+        start < selectedParts.length;
+        start += _rawUploadConcurrency) {
+      final proposedEnd = start + _rawUploadConcurrency;
+      final end = proposedEnd > selectedParts.length
+          ? selectedParts.length
+          : proposedEnd;
+      final batch = selectedParts.sublist(start, end);
+      await Future.wait([
+        for (final part in batch) _uploadSinglePart(ingestionId, part),
+      ]);
     }
+  }
+
+  Future<void> _uploadSinglePart(int ingestionId, TripPackagePart part) async {
+    final presign = await _api.presignPart(
+      ingestionId,
+      kind: part.kind,
+      sequence: part.sequence,
+      sha256: part.sha256,
+      sizeBytes: part.sizeBytes,
+    );
+    final bytes = await part.file.readAsBytes();
+    await _api.uploadPart(
+      presign.uploadUrl,
+      bytes,
+      headers: presign.uploadHeaders,
+    );
+    await _api.confirmPart(
+      ingestionId,
+      kind: part.kind,
+      sequence: part.sequence,
+      sha256: part.sha256,
+    );
   }
 
   IngestionStatus _statusFromInlineResult(
@@ -296,25 +334,37 @@ class TripSyncQueueImpl implements TripSyncQueue {
     }
   }
 
-  Future<void> _waitForCoreProcessing(SyncJob job, {int? remoteIngestionId}) {
+  Duration _processingDelayFor(String status) {
+    return status == 'FAILED_RETRYABLE' ? _pollDelay : _processingPollDelay;
+  }
+
+  Future<void> _waitForCoreProcessing(
+    SyncJob job, {
+    int? remoteIngestionId,
+    Duration? delay,
+  }) {
     return _dao.updateSyncJob(
       job.id,
       coreStatus: syncJobWaitingProcessing,
       remoteIngestionId: remoteIngestionId == null
           ? const Value.absent()
           : Value(remoteIngestionId),
-      nextRetryAt: Value(DateTime.now().toUtc().add(_pollDelay)),
+      nextRetryAt: Value(DateTime.now().toUtc().add(delay ?? _pollDelay)),
     );
   }
 
-  Future<void> _waitForRawProcessing(SyncJob job, {int? remoteIngestionId}) {
+  Future<void> _waitForRawProcessing(
+    SyncJob job, {
+    int? remoteIngestionId,
+    Duration? delay,
+  }) {
     return _dao.updateSyncJob(
       job.id,
       rawStatus: syncJobWaitingProcessing,
       remoteIngestionId: remoteIngestionId == null
           ? const Value.absent()
           : Value(remoteIngestionId),
-      nextRetryAt: Value(DateTime.now().toUtc().add(_pollDelay)),
+      nextRetryAt: Value(DateTime.now().toUtc().add(delay ?? _pollDelay)),
     );
   }
 

@@ -21,10 +21,8 @@ class AcquisitionSensorRuntime {
 
   StreamSubscription<AccelerometerEvent>? _accelerometerSubscription;
   StreamSubscription<GyroscopeEvent>? _gyroscopeSubscription;
-  StreamSubscription<MagnetometerEvent>? _magnetometerSubscription;
   StreamSubscription<Position>? _positionSubscription;
   GyroscopeEvent? _latestGyroscopeEvent;
-  MagnetometerEvent? _latestMagnetometerEvent;
   DateTime? _harWindowStartedAt;
   AcquisitionRuntimeEventSink? _eventSink;
   HarWindowSink? _harWindowSink;
@@ -63,10 +61,6 @@ class AcquisitionSensorRuntime {
       await _restartGyroscope(profile.gyroscopeHz);
     }
 
-    if (previousProfile?.magnetometerHz != profile.magnetometerHz) {
-      await _restartMagnetometer(profile.magnetometerHz);
-    }
-
     if (previousProfile?.harWindowEnabled != profile.harWindowEnabled) {
       _resetHarWindow();
       if (!profile.harWindowEnabled) {
@@ -95,15 +89,12 @@ class AcquisitionSensorRuntime {
     _completedHarWindows.clear();
     await _accelerometerSubscription?.cancel();
     await _gyroscopeSubscription?.cancel();
-    await _magnetometerSubscription?.cancel();
     await _positionSubscription?.cancel();
     _accelerometerSubscription = null;
     _gyroscopeSubscription = null;
-    _magnetometerSubscription = null;
     _positionSubscription = null;
     _gpsSpeedEstimator.reset();
     _latestGyroscopeEvent = null;
-    _latestMagnetometerEvent = null;
   }
 
   Future<void> dispose() => stop();
@@ -134,20 +125,6 @@ class AcquisitionSensorRuntime {
     _gyroscopeSubscription = gyroscopeEventStream(
       samplingPeriod: _samplingPeriodFor(frequencyHz),
     ).listen(_onGyroscopeEvent);
-  }
-
-  Future<void> _restartMagnetometer(int frequencyHz) async {
-    await _magnetometerSubscription?.cancel();
-    _magnetometerSubscription = null;
-    _latestMagnetometerEvent = null;
-
-    if (frequencyHz <= 0) {
-      return;
-    }
-
-    _magnetometerSubscription = magnetometerEventStream(
-      samplingPeriod: _samplingPeriodFor(frequencyHz),
-    ).listen(_onMagnetometerEvent);
   }
 
   Future<void> _restartGps(SamplingProfile profile) async {
@@ -225,10 +202,6 @@ class AcquisitionSensorRuntime {
     _latestGyroscopeEvent = event;
   }
 
-  void _onMagnetometerEvent(MagnetometerEvent event) {
-    _latestMagnetometerEvent = event;
-  }
-
   Future<void> _appendHarSensorSample(
     AccelerometerEvent event,
     DateTime timestamp,
@@ -240,7 +213,6 @@ class AcquisitionSensorRuntime {
 
     _harWindowStartedAt ??= timestamp;
     final gyroscopeEvent = _latestGyroscopeEvent;
-    final magnetometerEvent = _latestMagnetometerEvent;
 
     _harWindowSamples.add(
       HarSensorSample(
@@ -251,9 +223,6 @@ class AcquisitionSensorRuntime {
         gyrX: gyroscopeEvent?.x ?? 0,
         gyrY: gyroscopeEvent?.y ?? 0,
         gyrZ: gyroscopeEvent?.z ?? 0,
-        magX: magnetometerEvent?.x ?? 0,
-        magY: magnetometerEvent?.y ?? 0,
-        magZ: magnetometerEvent?.z ?? 0,
       ),
     );
 

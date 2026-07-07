@@ -64,7 +64,7 @@ class SamplingProfile {
       : this(
           accelerometerHz: 100,
           gyroscopeHz: 100,
-          magnetometerHz: 100,
+          magnetometerHz: 0,
           gpsEnabled: true,
           gpsInterval: const Duration(seconds: 2),
           gpsDistanceFilterMeters: 3,

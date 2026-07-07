@@ -2,9 +2,12 @@ import gzip
 import inspect
 import json
 import logging
+import struct
 import time
+from datetime import datetime, timezone as dt_timezone
 from typing import Any
 
+import numpy as np
 from celery import shared_task
 from django.contrib.gis.db.models.functions import Length
 from django.contrib.gis.geos import LineString, Point
@@ -30,6 +33,11 @@ from .models import (
 )
 from .ml.pipeline import PipelineSensorWindow, run_pipeline
 from .significant_places import mine_user_significant_places
+
+try:
+    import orjson
+except ModuleNotFoundError:  # pragma: no cover - fallback per ambienti non rebuildati
+    orjson = None
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +70,7 @@ _HAR_TIMING_FIELDS = [
     "raw_s3_read_ms",
     "raw_gzip_ms",
     "raw_json_ms",
+    "raw_binary_decode_ms",
     "raw_window_parse_ms",
     "raw_sort_ms",
     "raw_load_total_ms",
@@ -76,6 +85,9 @@ _HAR_TIMING_FIELDS = [
     "success_update_ms",
     "total_ms",
 ]
+_RAW_SENSOR_BINARY_MAGIC = b"MDHARW1\x00"
+_RAW_SENSOR_BINARY_HEADER = struct.Struct("<8sI")
+_RAW_SENSOR_BINARY_WINDOW_HEADER = struct.Struct("<qqIII")
 
 
 def _add_elapsed_ms(timings: dict[str, Any] | None, key: str, start: float) -> None:
@@ -131,6 +143,35 @@ def _run_pipeline_with_timings(
     result = run_pipeline(trip, sensor_windows=sensor_windows)
     _add_elapsed_ms(timings, "pipeline_total_ms", pipeline_start)
     return result
+
+
+def _load_json_bytes(raw: bytes) -> Any:
+    if orjson is not None:
+        return orjson.loads(raw)
+    return json.loads(raw.decode("utf-8"))
+
+
+def _datetime_from_epoch_micros(value: int, field: str) -> datetime:
+    try:
+        seconds, micros = divmod(int(value), 1_000_000)
+        return datetime.fromtimestamp(seconds, tz=dt_timezone.utc).replace(
+            microsecond=micros
+        )
+    except (OSError, OverflowError, ValueError) as exc:
+        raise InvalidRawSensorPayload(f"timestamp raw non valido: {field}") from exc
+
+
+def _read_gzip_object(object_key: str, timings: dict[str, Any] | None = None) -> bytes:
+    read_start = time.perf_counter()
+    raw = storage.read_object(object_key)
+    _add_elapsed_ms(timings, "raw_s3_read_ms", read_start)
+    try:
+        gzip_start = time.perf_counter()
+        decompressed = gzip.decompress(raw)
+        _add_elapsed_ms(timings, "raw_gzip_ms", gzip_start)
+        return decompressed
+    except (gzip.BadGzipFile, EOFError) as exc:
+        raise InvalidRawSensorPayload("payload raw sensor gzip non valido") from exc
 
 
 def _skip_result(phase: str, status: str) -> dict:
@@ -331,22 +372,120 @@ def process_trip_har(self, job_id: int) -> dict:
 
 def _load_json_gz(object_key: str, timings: dict[str, Any] | None = None) -> dict:
     """Scarica e decomprime un blob .json.gz dallo storage."""
-    read_start = time.perf_counter()
-    raw = storage.read_object(object_key)
-    _add_elapsed_ms(timings, "raw_s3_read_ms", read_start)
+    decompressed = _read_gzip_object(object_key, timings=timings)
     try:
-        gzip_start = time.perf_counter()
-        decompressed = gzip.decompress(raw)
-        _add_elapsed_ms(timings, "raw_gzip_ms", gzip_start)
-
         json_start = time.perf_counter()
-        payload = json.loads(decompressed.decode("utf-8"))
+        payload = _load_json_bytes(decompressed)
         _add_elapsed_ms(timings, "raw_json_ms", json_start)
         return payload
-    except (gzip.BadGzipFile, EOFError, UnicodeDecodeError) as exc:
-        raise InvalidRawSensorPayload("payload raw sensor gzip non valido") from exc
-    except json.JSONDecodeError as exc:
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise InvalidRawSensorPayload("payload raw sensor JSON non valido") from exc
+
+
+def _decode_binary_sensor_windows(raw: bytes) -> list[PipelineSensorWindow]:
+    if len(raw) < _RAW_SENSOR_BINARY_HEADER.size:
+        raise InvalidRawSensorPayload("payload raw sensor binario incompleto")
+
+    magic, window_count = _RAW_SENSOR_BINARY_HEADER.unpack_from(raw, 0)
+    if magic != _RAW_SENSOR_BINARY_MAGIC:
+        raise InvalidRawSensorPayload("payload raw sensor binario non valido")
+
+    cursor = _RAW_SENSOR_BINARY_HEADER.size
+    windows: list[PipelineSensorWindow] = []
+    try:
+        for _index in range(window_count):
+            if cursor + _RAW_SENSOR_BINARY_WINDOW_HEADER.size > len(raw):
+                raise InvalidRawSensorPayload(
+                    "payload raw sensor binario troncato"
+                )
+            (
+                start_us,
+                end_us,
+                sample_rate,
+                sample_count,
+                channel_count,
+            ) = _RAW_SENSOR_BINARY_WINDOW_HEADER.unpack_from(raw, cursor)
+            cursor += _RAW_SENSOR_BINARY_WINDOW_HEADER.size
+
+            start = _datetime_from_epoch_micros(start_us, "window_start")
+            end = _datetime_from_epoch_micros(end_us, "window_end")
+            if end <= start:
+                raise InvalidRawSensorPayload(
+                    "sensor window con intervallo temporale non valido"
+                )
+            if sample_rate <= 0:
+                raise InvalidRawSensorPayload(
+                    "sensor window con sample_rate_hz non valido"
+                )
+            if sample_count != 500:
+                raise InvalidRawSensorPayload(
+                    "sensor window con sample_count diverso da 500"
+                )
+            if channel_count != 6:
+                raise InvalidRawSensorPayload(
+                    "sensor window con channel_count diverso da 6"
+                )
+
+            value_count = sample_count * channel_count
+            value_bytes = value_count * np.dtype("<f4").itemsize
+            if cursor + value_bytes > len(raw):
+                raise InvalidRawSensorPayload(
+                    "payload raw sensor binario troncato"
+                )
+            matrix = np.frombuffer(
+                raw,
+                dtype="<f4",
+                count=value_count,
+                offset=cursor,
+            ).reshape((sample_count, channel_count))
+            cursor += value_bytes
+            windows.append(
+                PipelineSensorWindow(
+                    start_timestamp=start,
+                    end_timestamp=end,
+                    sample_count=sample_count,
+                    frequency_hz=sample_rate,
+                    matrix=matrix,
+                )
+            )
+    except (struct.error, ValueError) as exc:
+        raise InvalidRawSensorPayload(
+            "payload raw sensor binario non valido"
+        ) from exc
+
+    if cursor != len(raw):
+        raise InvalidRawSensorPayload(
+            "payload raw sensor binario con byte extra"
+        )
+    return windows
+
+
+def _load_raw_sensor_part_windows(
+    object_key: str,
+    timings: dict[str, Any] | None = None,
+) -> list[PipelineSensorWindow]:
+    decompressed = _read_gzip_object(object_key, timings=timings)
+
+    if decompressed.startswith(_RAW_SENSOR_BINARY_MAGIC):
+        decode_start = time.perf_counter()
+        windows = _decode_binary_sensor_windows(decompressed)
+        _add_elapsed_ms(timings, "raw_binary_decode_ms", decode_start)
+        return windows
+
+    try:
+        json_start = time.perf_counter()
+        payload = _load_json_bytes(decompressed)
+        _add_elapsed_ms(timings, "raw_json_ms", json_start)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise InvalidRawSensorPayload("payload raw sensor JSON non valido") from exc
+
+    raw_windows = payload.get("windows") if isinstance(payload, dict) else payload
+    if not isinstance(raw_windows, list):
+        raise InvalidRawSensorPayload("payload raw sensor senza lista windows")
+    parse_start = time.perf_counter()
+    windows = [_parse_sensor_window(raw_window) for raw_window in raw_windows]
+    _add_elapsed_ms(timings, "raw_window_parse_ms", parse_start)
+    return windows
 
 
 def _parse_required_datetime(value: Any, field: str):
@@ -365,7 +504,7 @@ def _window_matrix(raw_window: dict) -> list[list[float]]:
         if not isinstance(row, list) or len(row) < 6:
             raise InvalidRawSensorPayload("sensor window con riga matrice non valida")
         try:
-            normalized.append([float(value) for value in row])
+            normalized.append([float(value) for value in row[:6]])
         except (TypeError, ValueError) as exc:
             raise InvalidRawSensorPayload(
                 "sensor window con valore matrice non numerico"
@@ -436,13 +575,9 @@ def _load_raw_sensor_windows(
 
     windows: list[PipelineSensorWindow] = []
     for part in parts:
-        payload = _load_json_gz(part.object_key, timings=timings)
-        raw_windows = payload.get("windows") if isinstance(payload, dict) else payload
-        if not isinstance(raw_windows, list):
-            raise InvalidRawSensorPayload("payload raw sensor senza lista windows")
-        parse_start = time.perf_counter()
-        windows.extend(_parse_sensor_window(raw_window) for raw_window in raw_windows)
-        _add_elapsed_ms(timings, "raw_window_parse_ms", parse_start)
+        windows.extend(
+            _load_raw_sensor_part_windows(part.object_key, timings=timings)
+        )
 
     sort_start = time.perf_counter()
     sorted_windows = sorted(windows, key=lambda window: window.start_timestamp)

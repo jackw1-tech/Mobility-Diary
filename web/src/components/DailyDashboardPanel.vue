@@ -45,6 +45,7 @@ const loading = ref(false);
 const error = ref('');
 const selectedDay = ref(props.initialDay || new Date().toISOString().slice(0, 10));
 const mapElement = ref<HTMLElement | null>(null);
+const selectedTripIds = ref<number[]>([]);
 const filters = reactive({
   activities: [] as string[],
   place: '',
@@ -56,14 +57,22 @@ let leafletMap: ReturnType<typeof L.map> | null = null;
 const day = computed(() => selectedDay.value);
 const dayStartInput = computed(() => `${day.value}T00:00`);
 const dayEndInput = computed(() => `${day.value}T23:59`);
+const visibleDashboards = computed(() => (
+  dashboards.value.filter((dashboard) => selectedTripIds.value.includes(dashboard.trip.id))
+));
+const hasActivityFilters = computed(() => filters.activities.length > 0);
+const hasPlaceFilter = computed(() => Boolean(filters.place));
+const hasTimeWindowFilter = computed(() => (
+  filters.from !== dayStartInput.value || filters.to !== dayEndInput.value
+));
 const hasLocalFilters = computed(() => (
-  filters.activities.length > 0 ||
-  Boolean(filters.place) ||
-  filters.from !== dayStartInput.value ||
-  filters.to !== dayEndInput.value
+  hasActivityFilters.value || hasPlaceFilter.value || hasTimeWindowFilter.value
+));
+const showFullTripGhost = computed(() => (
+  hasActivityFilters.value && !hasTimeWindowFilter.value
 ));
 const rawSegments = computed(() => (
-  dashboards.value.flatMap((dashboard) => dashboard.diary.segments)
+  visibleDashboards.value.flatMap((dashboard) => dashboard.diary.segments)
 ));
 const timeWindowSegments = computed(() => (
   filterSegments(rawSegments.value, { from: filters.from, to: filters.to })
@@ -97,7 +106,7 @@ const statCards = computed(() => [
 const hasVisibleMapGeometry = computed(() => (
   moveSegments.value.some((segment) => segment.path_geojson) ||
   stopSegments.value.some((segment) => segment.place?.center_geojson) ||
-  (!hasLocalFilters.value && dashboards.value.some((dashboard) => dashboard.track.geojson))
+  (!hasLocalFilters.value && visibleDashboards.value.some((dashboard) => dashboard.track.geojson))
 ));
 
 async function loadDailyDashboard() {
@@ -132,7 +141,7 @@ function tripOverlapsDay(startedAt: string, endedAt: string | null): boolean {
   return start <= dayEnd && end >= dayStart;
 }
 
-function renderMap() {
+async function renderMap() {
   destroyMap();
   if (!mapElement.value) return;
   const map = L.map(mapElement.value, { scrollWheelZoom: false });
@@ -143,8 +152,14 @@ function renderMap() {
 
   const visiblePoints: LatLngTuple[] = [];
   if (!hasLocalFilters.value) {
-    for (const dashboard of dashboards.value) {
+    for (const dashboard of visibleDashboards.value) {
       drawLine(dashboard.track.geojson, '#111111', 3, 0.18, visiblePoints);
+    }
+  } else if (showFullTripGhost.value) {
+    // Filtro luogo/attività attivo: mostra comunque la traccia come sfondo
+    // debole, senza farla contare per il fit-bounds della camera.
+    for (const dashboard of visibleDashboards.value) {
+      drawLine(dashboard.track.geojson, '#111111', 2, 0.06, visiblePoints, false);
     }
   }
   for (const segment of moveSegments.value) {
@@ -161,8 +176,20 @@ function renderMap() {
   if (visiblePoints.length > 0) {
     map.fitBounds(L.polyline(visiblePoints).getBounds(), { padding: [28, 28] });
   } else {
-    map.setView([45.4642, 9.19], 12);
+    const current = await currentPositionOrNull();
+    map.setView(current ?? [45.4642, 9.19], current ? 14 : 12);
   }
+}
+
+function currentPositionOrNull(): Promise<LatLngTuple | null> {
+  if (!('geolocation' in navigator)) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    navigator.geolocation.getCurrentPosition(
+      (position) => resolve([position.coords.latitude, position.coords.longitude]),
+      () => resolve(null),
+      { timeout: 5000, maximumAge: 60_000 },
+    );
+  });
 }
 
 function drawLine(
@@ -171,10 +198,13 @@ function drawLine(
   weight: number,
   opacity: number,
   visiblePoints: LatLngTuple[],
+  includeInBounds = true,
 ) {
   if (!geojson?.coordinates.length || !leafletMap) return;
   const points = geojson.coordinates.map(([lon, lat]) => [lat, lon] as LatLngTuple);
-  visiblePoints.push(...points);
+  if (includeInBounds) {
+    visiblePoints.push(...points);
+  }
   L.polyline(points, { color, opacity, weight }).addTo(leafletMap);
 }
 
@@ -250,6 +280,19 @@ function changeDay(nextDay: string) {
   selectedDay.value = nextDay;
 }
 
+function formatTripTimeRange(trip: { started_at: string; ended_at: string | null }): string {
+  const start = clockLabel(trip.started_at);
+  if (!trip.ended_at) return start;
+  return `${start}–${clockLabel(trip.ended_at)}`;
+}
+
+function clockLabel(value: string): string {
+  return new Intl.DateTimeFormat('it-IT', {
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(value));
+}
+
 watch(() => props.initialDay, (nextDay) => {
   if (nextDay && nextDay !== selectedDay.value) {
     selectedDay.value = nextDay;
@@ -271,8 +314,18 @@ watch(placeOptions, (options) => {
     filters.place = '';
   }
 });
+watch(dashboards, (list) => {
+  selectedTripIds.value = list.map((dashboard) => dashboard.trip.id);
+});
+watch(selectedTripIds, (ids) => {
+  // Non si puo' scendere a zero viaggi selezionati: torna alla vista "tutti"
+  // invece di restare bloccati su una dashboard vuota.
+  if (ids.length === 0 && dashboards.value.length > 0) {
+    selectedTripIds.value = dashboards.value.map((dashboard) => dashboard.trip.id);
+  }
+});
 watch(
-  [dashboards, moveSegments, stopSegments],
+  [dashboards, selectedTripIds, moveSegments, stopSegments],
   () => nextTick(renderMap),
   { flush: 'post' },
 );
@@ -338,6 +391,29 @@ onBeforeUnmount(destroyMap);
             />
           </label>
         </div>
+
+        <fieldset v-if="dashboards.length > 1" class="activity-filter-list">
+          <legend>Viaggi</legend>
+          <button
+            class="button-subtle"
+            type="button"
+            @click="selectedTripIds = dashboards.map((dashboard) => dashboard.trip.id)"
+          >
+            Tutti
+          </button>
+          <label
+            v-for="dashboard in dashboards"
+            :key="dashboard.trip.id"
+            class="activity-filter"
+          >
+            <input
+              v-model="selectedTripIds"
+              type="checkbox"
+              :value="dashboard.trip.id"
+            />
+            <span>{{ formatTripTimeRange(dashboard.trip) }}</span>
+          </label>
+        </fieldset>
 
         <fieldset class="activity-filter-list">
           <legend>Attività</legend>

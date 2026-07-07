@@ -153,6 +153,12 @@ def classify_route_assistant_window(request, payload: RouteAssistantClassifyIn):
     }
 
 
+def _six_axis_matrix(matrix: list[list[float]] | None) -> list[list[float]] | None:
+    if matrix is None:
+        return None
+    return [row[:6] for row in matrix]
+
+
 @router.post("/trips", response=TripOut, auth=mobile_bearer_auth)
 def create_trip(request, payload: TripCreateIn):
     user_id = request.auth.user_id
@@ -200,7 +206,7 @@ def add_sensor_windows(request, trip_id: int, payload: SensorWindowBatchIn):
             end_timestamp=w.end_timestamp,
             sample_count=w.sample_count,
             frequency_hz=w.frequency_hz,
-            matrix=w.matrix,
+            matrix=_six_axis_matrix(w.matrix),
             object_key=w.object_key,
         )
         for w in payload.windows

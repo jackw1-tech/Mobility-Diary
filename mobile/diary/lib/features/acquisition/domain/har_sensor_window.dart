@@ -6,9 +6,6 @@ class HarSensorSample {
   final double gyrX;
   final double gyrY;
   final double gyrZ;
-  final double magX;
-  final double magY;
-  final double magZ;
 
   const HarSensorSample({
     required this.timestamp,
@@ -18,9 +15,6 @@ class HarSensorSample {
     required this.gyrX,
     required this.gyrY,
     required this.gyrZ,
-    required this.magX,
-    required this.magY,
-    required this.magZ,
   });
 
   List<double> get channels {
@@ -31,9 +25,6 @@ class HarSensorSample {
       gyrX,
       gyrY,
       gyrZ,
-      magX,
-      magY,
-      magZ,
     ];
   }
 }
@@ -50,9 +41,6 @@ class HarSensorWindow {
     'Gyr_x',
     'Gyr_y',
     'Gyr_z',
-    'Mag_x',
-    'Mag_y',
-    'Mag_z',
   ];
 
   final DateTime startedAt;
@@ -79,8 +67,7 @@ class HarSensorWindow {
 
   bool get hasTargetSamplingRate {
     return accelerometerHz == targetSamplingHz &&
-        gyroscopeHz == targetSamplingHz &&
-        magnetometerHz == targetSamplingHz;
+        gyroscopeHz == targetSamplingHz;
   }
 
   bool get hasTargetShape {
@@ -88,8 +75,8 @@ class HarSensorWindow {
         modelInputMatrix.every((row) => row.length == channelCount);
   }
 
-  bool get hasCompleteNineAxisData {
-    return gyroscopeHz > 0 && magnetometerHz > 0;
+  bool get hasCompleteInertialData {
+    return gyroscopeHz > 0;
   }
 
   List<List<double>> get matrix {

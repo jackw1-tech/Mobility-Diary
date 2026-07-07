@@ -1296,12 +1296,12 @@ class $SensorWindowsTable extends SensorWindows
   late final GeneratedColumn<int> frequencyHz = GeneratedColumn<int>(
       'frequency_hz', aliasedName, false,
       type: DriftSqlType.int, requiredDuringInsert: true);
-  static const VerificationMeta _matrixJsonMeta =
-      const VerificationMeta('matrixJson');
+  static const VerificationMeta _matrixBlobMeta =
+      const VerificationMeta('matrixBlob');
   @override
-  late final GeneratedColumn<String> matrixJson = GeneratedColumn<String>(
-      'matrix_json', aliasedName, false,
-      type: DriftSqlType.string, requiredDuringInsert: true);
+  late final GeneratedColumn<Uint8List> matrixBlob = GeneratedColumn<Uint8List>(
+      'matrix_blob', aliasedName, false,
+      type: DriftSqlType.blob, requiredDuringInsert: true);
   static const VerificationMeta _isSyncedMeta =
       const VerificationMeta('isSynced');
   @override
@@ -1320,7 +1320,7 @@ class $SensorWindowsTable extends SensorWindows
         endTimestamp,
         sampleCount,
         frequencyHz,
-        matrixJson,
+        matrixBlob,
         isSynced
       ];
   @override
@@ -1374,13 +1374,13 @@ class $SensorWindowsTable extends SensorWindows
     } else if (isInserting) {
       context.missing(_frequencyHzMeta);
     }
-    if (data.containsKey('matrix_json')) {
+    if (data.containsKey('matrix_blob')) {
       context.handle(
-          _matrixJsonMeta,
-          matrixJson.isAcceptableOrUnknown(
-              data['matrix_json']!, _matrixJsonMeta));
+          _matrixBlobMeta,
+          matrixBlob.isAcceptableOrUnknown(
+              data['matrix_blob']!, _matrixBlobMeta));
     } else if (isInserting) {
-      context.missing(_matrixJsonMeta);
+      context.missing(_matrixBlobMeta);
     }
     if (data.containsKey('is_synced')) {
       context.handle(_isSyncedMeta,
@@ -1407,8 +1407,8 @@ class $SensorWindowsTable extends SensorWindows
           .read(DriftSqlType.int, data['${effectivePrefix}sample_count'])!,
       frequencyHz: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}frequency_hz'])!,
-      matrixJson: attachedDatabase.typeMapping
-          .read(DriftSqlType.string, data['${effectivePrefix}matrix_json'])!,
+      matrixBlob: attachedDatabase.typeMapping
+          .read(DriftSqlType.blob, data['${effectivePrefix}matrix_blob'])!,
       isSynced: attachedDatabase.typeMapping
           .read(DriftSqlType.bool, data['${effectivePrefix}is_synced'])!,
     );
@@ -1427,7 +1427,7 @@ class SensorWindow extends DataClass implements Insertable<SensorWindow> {
   final DateTime endTimestamp;
   final int sampleCount;
   final int frequencyHz;
-  final String matrixJson;
+  final Uint8List matrixBlob;
   final bool isSynced;
   const SensorWindow(
       {required this.id,
@@ -1436,7 +1436,7 @@ class SensorWindow extends DataClass implements Insertable<SensorWindow> {
       required this.endTimestamp,
       required this.sampleCount,
       required this.frequencyHz,
-      required this.matrixJson,
+      required this.matrixBlob,
       required this.isSynced});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -1447,7 +1447,7 @@ class SensorWindow extends DataClass implements Insertable<SensorWindow> {
     map['end_timestamp'] = Variable<DateTime>(endTimestamp);
     map['sample_count'] = Variable<int>(sampleCount);
     map['frequency_hz'] = Variable<int>(frequencyHz);
-    map['matrix_json'] = Variable<String>(matrixJson);
+    map['matrix_blob'] = Variable<Uint8List>(matrixBlob);
     map['is_synced'] = Variable<bool>(isSynced);
     return map;
   }
@@ -1460,7 +1460,7 @@ class SensorWindow extends DataClass implements Insertable<SensorWindow> {
       endTimestamp: Value(endTimestamp),
       sampleCount: Value(sampleCount),
       frequencyHz: Value(frequencyHz),
-      matrixJson: Value(matrixJson),
+      matrixBlob: Value(matrixBlob),
       isSynced: Value(isSynced),
     );
   }
@@ -1475,7 +1475,7 @@ class SensorWindow extends DataClass implements Insertable<SensorWindow> {
       endTimestamp: serializer.fromJson<DateTime>(json['endTimestamp']),
       sampleCount: serializer.fromJson<int>(json['sampleCount']),
       frequencyHz: serializer.fromJson<int>(json['frequencyHz']),
-      matrixJson: serializer.fromJson<String>(json['matrixJson']),
+      matrixBlob: serializer.fromJson<Uint8List>(json['matrixBlob']),
       isSynced: serializer.fromJson<bool>(json['isSynced']),
     );
   }
@@ -1489,7 +1489,7 @@ class SensorWindow extends DataClass implements Insertable<SensorWindow> {
       'endTimestamp': serializer.toJson<DateTime>(endTimestamp),
       'sampleCount': serializer.toJson<int>(sampleCount),
       'frequencyHz': serializer.toJson<int>(frequencyHz),
-      'matrixJson': serializer.toJson<String>(matrixJson),
+      'matrixBlob': serializer.toJson<Uint8List>(matrixBlob),
       'isSynced': serializer.toJson<bool>(isSynced),
     };
   }
@@ -1501,7 +1501,7 @@ class SensorWindow extends DataClass implements Insertable<SensorWindow> {
           DateTime? endTimestamp,
           int? sampleCount,
           int? frequencyHz,
-          String? matrixJson,
+          Uint8List? matrixBlob,
           bool? isSynced}) =>
       SensorWindow(
         id: id ?? this.id,
@@ -1510,7 +1510,7 @@ class SensorWindow extends DataClass implements Insertable<SensorWindow> {
         endTimestamp: endTimestamp ?? this.endTimestamp,
         sampleCount: sampleCount ?? this.sampleCount,
         frequencyHz: frequencyHz ?? this.frequencyHz,
-        matrixJson: matrixJson ?? this.matrixJson,
+        matrixBlob: matrixBlob ?? this.matrixBlob,
         isSynced: isSynced ?? this.isSynced,
       );
   SensorWindow copyWithCompanion(SensorWindowsCompanion data) {
@@ -1527,8 +1527,8 @@ class SensorWindow extends DataClass implements Insertable<SensorWindow> {
           data.sampleCount.present ? data.sampleCount.value : this.sampleCount,
       frequencyHz:
           data.frequencyHz.present ? data.frequencyHz.value : this.frequencyHz,
-      matrixJson:
-          data.matrixJson.present ? data.matrixJson.value : this.matrixJson,
+      matrixBlob:
+          data.matrixBlob.present ? data.matrixBlob.value : this.matrixBlob,
       isSynced: data.isSynced.present ? data.isSynced.value : this.isSynced,
     );
   }
@@ -1542,7 +1542,7 @@ class SensorWindow extends DataClass implements Insertable<SensorWindow> {
           ..write('endTimestamp: $endTimestamp, ')
           ..write('sampleCount: $sampleCount, ')
           ..write('frequencyHz: $frequencyHz, ')
-          ..write('matrixJson: $matrixJson, ')
+          ..write('matrixBlob: $matrixBlob, ')
           ..write('isSynced: $isSynced')
           ..write(')'))
         .toString();
@@ -1550,7 +1550,7 @@ class SensorWindow extends DataClass implements Insertable<SensorWindow> {
 
   @override
   int get hashCode => Object.hash(id, sessionId, startTimestamp, endTimestamp,
-      sampleCount, frequencyHz, matrixJson, isSynced);
+      sampleCount, frequencyHz, $driftBlobEquality.hash(matrixBlob), isSynced);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -1561,7 +1561,7 @@ class SensorWindow extends DataClass implements Insertable<SensorWindow> {
           other.endTimestamp == this.endTimestamp &&
           other.sampleCount == this.sampleCount &&
           other.frequencyHz == this.frequencyHz &&
-          other.matrixJson == this.matrixJson &&
+          $driftBlobEquality.equals(other.matrixBlob, this.matrixBlob) &&
           other.isSynced == this.isSynced);
 }
 
@@ -1572,7 +1572,7 @@ class SensorWindowsCompanion extends UpdateCompanion<SensorWindow> {
   final Value<DateTime> endTimestamp;
   final Value<int> sampleCount;
   final Value<int> frequencyHz;
-  final Value<String> matrixJson;
+  final Value<Uint8List> matrixBlob;
   final Value<bool> isSynced;
   const SensorWindowsCompanion({
     this.id = const Value.absent(),
@@ -1581,7 +1581,7 @@ class SensorWindowsCompanion extends UpdateCompanion<SensorWindow> {
     this.endTimestamp = const Value.absent(),
     this.sampleCount = const Value.absent(),
     this.frequencyHz = const Value.absent(),
-    this.matrixJson = const Value.absent(),
+    this.matrixBlob = const Value.absent(),
     this.isSynced = const Value.absent(),
   });
   SensorWindowsCompanion.insert({
@@ -1591,14 +1591,14 @@ class SensorWindowsCompanion extends UpdateCompanion<SensorWindow> {
     required DateTime endTimestamp,
     required int sampleCount,
     required int frequencyHz,
-    required String matrixJson,
+    required Uint8List matrixBlob,
     this.isSynced = const Value.absent(),
   })  : sessionId = Value(sessionId),
         startTimestamp = Value(startTimestamp),
         endTimestamp = Value(endTimestamp),
         sampleCount = Value(sampleCount),
         frequencyHz = Value(frequencyHz),
-        matrixJson = Value(matrixJson);
+        matrixBlob = Value(matrixBlob);
   static Insertable<SensorWindow> custom({
     Expression<int>? id,
     Expression<String>? sessionId,
@@ -1606,7 +1606,7 @@ class SensorWindowsCompanion extends UpdateCompanion<SensorWindow> {
     Expression<DateTime>? endTimestamp,
     Expression<int>? sampleCount,
     Expression<int>? frequencyHz,
-    Expression<String>? matrixJson,
+    Expression<Uint8List>? matrixBlob,
     Expression<bool>? isSynced,
   }) {
     return RawValuesInsertable({
@@ -1616,7 +1616,7 @@ class SensorWindowsCompanion extends UpdateCompanion<SensorWindow> {
       if (endTimestamp != null) 'end_timestamp': endTimestamp,
       if (sampleCount != null) 'sample_count': sampleCount,
       if (frequencyHz != null) 'frequency_hz': frequencyHz,
-      if (matrixJson != null) 'matrix_json': matrixJson,
+      if (matrixBlob != null) 'matrix_blob': matrixBlob,
       if (isSynced != null) 'is_synced': isSynced,
     });
   }
@@ -1628,7 +1628,7 @@ class SensorWindowsCompanion extends UpdateCompanion<SensorWindow> {
       Value<DateTime>? endTimestamp,
       Value<int>? sampleCount,
       Value<int>? frequencyHz,
-      Value<String>? matrixJson,
+      Value<Uint8List>? matrixBlob,
       Value<bool>? isSynced}) {
     return SensorWindowsCompanion(
       id: id ?? this.id,
@@ -1637,7 +1637,7 @@ class SensorWindowsCompanion extends UpdateCompanion<SensorWindow> {
       endTimestamp: endTimestamp ?? this.endTimestamp,
       sampleCount: sampleCount ?? this.sampleCount,
       frequencyHz: frequencyHz ?? this.frequencyHz,
-      matrixJson: matrixJson ?? this.matrixJson,
+      matrixBlob: matrixBlob ?? this.matrixBlob,
       isSynced: isSynced ?? this.isSynced,
     );
   }
@@ -1663,8 +1663,8 @@ class SensorWindowsCompanion extends UpdateCompanion<SensorWindow> {
     if (frequencyHz.present) {
       map['frequency_hz'] = Variable<int>(frequencyHz.value);
     }
-    if (matrixJson.present) {
-      map['matrix_json'] = Variable<String>(matrixJson.value);
+    if (matrixBlob.present) {
+      map['matrix_blob'] = Variable<Uint8List>(matrixBlob.value);
     }
     if (isSynced.present) {
       map['is_synced'] = Variable<bool>(isSynced.value);
@@ -1681,7 +1681,7 @@ class SensorWindowsCompanion extends UpdateCompanion<SensorWindow> {
           ..write('endTimestamp: $endTimestamp, ')
           ..write('sampleCount: $sampleCount, ')
           ..write('frequencyHz: $frequencyHz, ')
-          ..write('matrixJson: $matrixJson, ')
+          ..write('matrixBlob: $matrixBlob, ')
           ..write('isSynced: $isSynced')
           ..write(')'))
         .toString();
@@ -3591,7 +3591,7 @@ typedef $$SensorWindowsTableCreateCompanionBuilder = SensorWindowsCompanion
   required DateTime endTimestamp,
   required int sampleCount,
   required int frequencyHz,
-  required String matrixJson,
+  required Uint8List matrixBlob,
   Value<bool> isSynced,
 });
 typedef $$SensorWindowsTableUpdateCompanionBuilder = SensorWindowsCompanion
@@ -3602,7 +3602,7 @@ typedef $$SensorWindowsTableUpdateCompanionBuilder = SensorWindowsCompanion
   Value<DateTime> endTimestamp,
   Value<int> sampleCount,
   Value<int> frequencyHz,
-  Value<String> matrixJson,
+  Value<Uint8List> matrixBlob,
   Value<bool> isSynced,
 });
 
@@ -3654,8 +3654,8 @@ class $$SensorWindowsTableFilterComposer
   ColumnFilters<int> get frequencyHz => $composableBuilder(
       column: $table.frequencyHz, builder: (column) => ColumnFilters(column));
 
-  ColumnFilters<String> get matrixJson => $composableBuilder(
-      column: $table.matrixJson, builder: (column) => ColumnFilters(column));
+  ColumnFilters<Uint8List> get matrixBlob => $composableBuilder(
+      column: $table.matrixBlob, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<bool> get isSynced => $composableBuilder(
       column: $table.isSynced, builder: (column) => ColumnFilters(column));
@@ -3707,8 +3707,8 @@ class $$SensorWindowsTableOrderingComposer
   ColumnOrderings<int> get frequencyHz => $composableBuilder(
       column: $table.frequencyHz, builder: (column) => ColumnOrderings(column));
 
-  ColumnOrderings<String> get matrixJson => $composableBuilder(
-      column: $table.matrixJson, builder: (column) => ColumnOrderings(column));
+  ColumnOrderings<Uint8List> get matrixBlob => $composableBuilder(
+      column: $table.matrixBlob, builder: (column) => ColumnOrderings(column));
 
   ColumnOrderings<bool> get isSynced => $composableBuilder(
       column: $table.isSynced, builder: (column) => ColumnOrderings(column));
@@ -3759,8 +3759,8 @@ class $$SensorWindowsTableAnnotationComposer
   GeneratedColumn<int> get frequencyHz => $composableBuilder(
       column: $table.frequencyHz, builder: (column) => column);
 
-  GeneratedColumn<String> get matrixJson => $composableBuilder(
-      column: $table.matrixJson, builder: (column) => column);
+  GeneratedColumn<Uint8List> get matrixBlob => $composableBuilder(
+      column: $table.matrixBlob, builder: (column) => column);
 
   GeneratedColumn<bool> get isSynced =>
       $composableBuilder(column: $table.isSynced, builder: (column) => column);
@@ -3817,7 +3817,7 @@ class $$SensorWindowsTableTableManager extends RootTableManager<
             Value<DateTime> endTimestamp = const Value.absent(),
             Value<int> sampleCount = const Value.absent(),
             Value<int> frequencyHz = const Value.absent(),
-            Value<String> matrixJson = const Value.absent(),
+            Value<Uint8List> matrixBlob = const Value.absent(),
             Value<bool> isSynced = const Value.absent(),
           }) =>
               SensorWindowsCompanion(
@@ -3827,7 +3827,7 @@ class $$SensorWindowsTableTableManager extends RootTableManager<
             endTimestamp: endTimestamp,
             sampleCount: sampleCount,
             frequencyHz: frequencyHz,
-            matrixJson: matrixJson,
+            matrixBlob: matrixBlob,
             isSynced: isSynced,
           ),
           createCompanionCallback: ({
@@ -3837,7 +3837,7 @@ class $$SensorWindowsTableTableManager extends RootTableManager<
             required DateTime endTimestamp,
             required int sampleCount,
             required int frequencyHz,
-            required String matrixJson,
+            required Uint8List matrixBlob,
             Value<bool> isSynced = const Value.absent(),
           }) =>
               SensorWindowsCompanion.insert(
@@ -3847,7 +3847,7 @@ class $$SensorWindowsTableTableManager extends RootTableManager<
             endTimestamp: endTimestamp,
             sampleCount: sampleCount,
             frequencyHz: frequencyHz,
-            matrixJson: matrixJson,
+            matrixBlob: matrixBlob,
             isSynced: isSynced,
           ),
           withReferenceMapper: (p0) => p0

@@ -1,21 +1,23 @@
 # Strategia di Ingestione Asincrona per i Viaggi
 
-> Versione 2 — rivista dopo l'analisi architetturale del 2026-06-12.
-> Questa versione sostituisce la proposta iniziale e riflette le decisioni
-> prese contestualizzandole sul codice reale e su un target di ~1000 utenti
-> registrati. Le scelte sono motivate nella sezione "Decisioni Architetturali".
+> Versione 3 — aggiornata al 2026-07-07 dopo l'introduzione del flusso raw
+> binario, della pipeline HAR finale attiva e della migrazione mobile
+> `matrixJson -> matrixBlob`.
 >
-> STATO: la parte finale del flusso (HAR finale + cancellazione dei blob raw)
-> e' CONGELATA. Oggi non esiste ancora un'interrogazione diretta del modello
-> HAR. Il codice va PREDISPOSTO (interfacce, hook, punto di cancellazione) ma:
->   - HAR finale non viene invocato finche' il modello non e' integrato;
->   - i blob raw NON vengono MAI cancellati per ora (retention illimitata).
-> La cancellazione event-driven si attivera' solo quando HAR sara' operativo.
+> Nota di lettura: le sezioni storiche piu' sotto restano utili per capire le
+> decisioni architetturali. In caso di conflitto, prevale la sezione
+> "Stato Attuale — Versione 3" di questo documento.
 >
 > AGGIORNAMENTO 2026-06-21: il Core Ingestion piccolo (GPS points e state
-> transitions) usa ora come percorso primario `POST /api/ingestion/trips/core`.
+> transitions) usa come percorso primario `POST /api/ingestion/trips/core`.
 > Il flusso presigned/object-storage resta il percorso primario per i raw
 > pesanti e resta compatibile per il core legacy dei client vecchi.
+>
+> AGGIORNAMENTO 2026-07-07: i raw sensor windows non sono piu' JSON gzip.
+> Il mobile salva localmente `matrix_blob` float32 e carica parti
+> `sensor_windows_part_XXXX.bin.gz`. Il backend decodifica il formato binario,
+> accoda `process_trip_har_final`, esegue CNN+GRU nel worker Celery, scrive i
+> segmenti del diario e poi accoda il mining dei luoghi significativi.
 
 ## Obiettivo
 
@@ -34,6 +36,217 @@ Il mobile consegna al backend un pacchetto grezzo affidabile.
 Il backend, in asincrono, lo trasforma in un viaggio definitivo.
 Il mobile non "salva il viaggio nel backend" durante lo stop.
 ```
+
+---
+
+## Stato Attuale — Versione 3
+
+Questa e' la fotografia operativa del sistema dopo gli ultimi interventi su
+upload asincrono, formato binario e pipeline HAR.
+
+### Flusso End-to-End Attuale
+
+```text
+MOBILE
+  Tracking in corso
+    -> SQLite locale:
+       - GPS points
+       - State transitions FSM
+       - Sensor windows HAR come matrix_blob float32 500x6
+
+  Stop
+    -> chiude la sessione locale
+    -> crea/aggiorna SyncJob persistente
+    -> torna subito alla UI idle
+
+  TripSyncQueue
+    -> costruisce Core inline JSON deterministico
+    -> POST /api/ingestion/trips/core
+    -> riceve ingestion_id/trip_id quando il Core e' materializzato
+    -> costruisce raw parts binarie:
+       sensor_windows_part_0001.bin.gz
+       sensor_windows_part_0002.bin.gz
+       ...
+    -> per ogni raw part:
+       presign -> PUT diretto su object storage -> confirm
+       con upload parallelo limitato
+    -> complete-raw
+    -> polling rapido mentre il backend e' QUEUED/PROCESSING
+
+BACKEND WEB
+  /trips/core
+    -> valida hash del Core
+    -> crea/recupera TripIngestion
+    -> materializza Trip + GpsPoint + StateTransition + LineString
+    -> core_status=COMPLETED
+
+  /parts/presign
+    -> genera object_key deterministico
+    -> firma PUT S3-compatible
+
+  /parts/confirm
+    -> verifica l'oggetto con HEAD
+    -> controlla size e metadata sha256
+    -> marca la parte come ricevuta
+
+  /complete-raw
+    -> verifica che tutte le raw parts siano confermate
+    -> raw_status=QUEUED
+    -> crea HarJob FINAL_TRIP
+    -> accoda process_trip_har_final(job_id, ingestion_id)
+
+CELERY WORKER
+  process_trip_har_final
+    -> claim idempotente dell'ingestion raw
+    -> legge raw parts da object storage
+    -> gunzip
+    -> decodifica binaria MDHARW1
+    -> passa finestre 500x6 float32 alla pipeline
+    -> CNN extractor + GRU batchata
+    -> correzione IDLE con velocita GPS
+    -> segmentazione e virtual stops
+    -> scrive MobilitySegment / VirtualStopInterval
+    -> Trip.status=PROCESSED
+    -> raw_status=COMPLETED
+    -> accoda mining luoghi significativi user-scoped
+```
+
+### Formato Raw Sensor Windows
+
+Il formato raw corrente e':
+
+```text
+file fisico: sensor_windows_part_XXXX.bin.gz
+content-type upload: application/gzip
+payload decompresso: binario little-endian
+magic: MDHARW1\0
+```
+
+Struttura del payload decompresso:
+
+```text
+header globale:
+  magic[8]        = "MDHARW1\0"
+  window_count u32
+
+per ogni finestra:
+  start_timestamp_us i64   # epoch microseconds UTC
+  end_timestamp_us   i64
+  frequency_hz       u32
+  sample_count       u32   # atteso: 500 in produzione
+  channel_count      u32   # atteso: 6
+  samples            float32[sample_count * 6]
+```
+
+I 6 canali sono:
+
+```text
+accelerometro: x, y, z
+giroscopio:    x, y, z
+```
+
+Il magnetometro non viene piu' raccolto, salvato o inviato nel percorso HAR.
+Il backend accetta ancora payload JSON legacy e, se arrivano righe a 9 canali,
+usa solo i primi 6 per compatibilita'.
+
+### Formato Locale Mobile
+
+La tabella Drift `sensor_windows` non usa piu' `matrix_json` nel modello
+applicativo. Lo schema corrente usa:
+
+```text
+matrix_blob BLOB NOT NULL
+```
+
+Il blob e' lo stesso layout numerico usato nel payload raw, senza header:
+
+```text
+float32 little-endian, righe consecutive, 6 canali per sample
+byte per finestra standard = 500 * 6 * 4 = 12.000 byte
+```
+
+La migration mobile `schemaVersion=7` aggiunge `matrix_blob` e converte le
+righe legacy da `matrix_json`. La colonna fisica vecchia puo' restare nei DB
+aggiornati, ma non e' piu' usata dal codice applicativo.
+
+### Stati Attuali
+
+```text
+core_status=PENDING/RECEIVING/RECEIVED
+  stato di ricezione del Core nel path legacy a parti.
+
+core_status=COMPLETED
+  Trip materializzato con GPS, transizioni e path.
+
+raw_status=PENDING/RECEIVING/RECEIVED
+  raw parts attese o ricevute ma non ancora accodate al worker finale.
+
+raw_status=QUEUED/PROCESSING
+  HAR finale accodato o in esecuzione su Celery.
+
+raw_status=COMPLETED
+  HAR finale completato, segmenti scritti e diary arricchito.
+
+raw_status=FAILED_RETRYABLE
+  errore temporaneo: il worker o il mobile possono ritentare.
+
+raw_status=FAILED_FINAL
+  payload raw invalido o errore non recuperabile.
+```
+
+Per la UI mobile:
+
+```text
+core_status=COMPLETED  -> il Viaggio e' visibile.
+raw_status=COMPLETED   -> il Viaggio e' completato/arricchito.
+```
+
+Il polling mobile e' piu' aggressivo subito dopo una complete o quando il
+backend e' `QUEUED/PROCESSING` (2 secondi), poi torna al delay normale per stati
+retryable.
+
+### Ottimizzazioni Gia' Presenti
+
+```text
+1. Raw binario float32 invece di JSON:
+   elimina parsing JSON pesante e riduce dimensione/CPU.
+
+2. `matrix_blob` locale:
+   evita di salvare/parlare JSON nel DB mobile.
+
+3. Upload raw parallelo limitato:
+   piu' parti possono fare presign/PUT/confirm contemporaneamente.
+
+4. Decoder backend NumPy:
+   il binario viene letto come float32 senza passare da liste Python inutili.
+
+5. GRU batchata:
+   il worker fa una sola predict su batch di sequenze invece di una predict per
+   ogni blocco da 32 finestre.
+
+6. Timing HAR:
+   i log `HAR_TIMING` separano read S3, gzip, decode binario, classify,
+   segmentazione e totale.
+```
+
+Esempio di log atteso:
+
+```text
+HAR_TIMING ingestion_id=... raw_parts=... windows=...
+  raw_s3_read_ms=...
+  raw_gzip_ms=...
+  raw_binary_decode_ms=...
+  pipeline_classify_ms=...
+  pipeline_total_ms=...
+  total_ms=...
+```
+
+### Cleanup Raw
+
+Il cleanup dei blob raw resta gated da `HAR_CLEANUP_ENABLED`. Il sistema ora e'
+in grado di completare HAR finale, ma la cancellazione automatica va attivata
+solo quando si decide esplicitamente la policy di retention. Finche' il flag e'
+false, i blob restano nello storage anche dopo `raw_status=COMPLETED`.
 
 ---
 
@@ -62,7 +275,8 @@ resto del design discende da qui.
 
 ## Stato Implementato nel Codice
 
-Questa sezione descrive il flusso oggi presente nel codice dopo gli step 1-7.
+Questa sezione descrive il flusso oggi presente nel codice dopo il passaggio a
+raw binario e HAR finale attivo.
 
 ```text
 Backend:
@@ -78,9 +292,11 @@ Backend:
   - confirm verifica size via HEAD e sha256 tramite metadata S3
   - inline core materializza Trip + GPS + transizioni + path nella request
   - complete-core accoda Celery solo per il core legacy a parti
-  - complete-raw registra i raw come ricevuti, senza invocare HAR per ora
-  - sensor window raw restano solo blob in object storage
-  - HAR finale congelato: non invocato, cleanup raw disattivato
+  - complete-raw verifica i raw, crea HarJob FINAL_TRIP e accoda HAR finale
+  - sensor window raw restano blob in object storage e vengono letti da Celery
+  - decoder raw binario MDHARW1 + fallback JSON legacy
+  - HAR finale attivo: CNN+GRU, correzione GPS, segmentazione, status PROCESSED
+  - cleanup raw ancora disattivato dietro HAR_CLEANUP_ENABLED
 
 Mobile:
   - SyncJob persistente in SQLite
@@ -88,10 +304,13 @@ Mobile:
   - STOP non bloccante: chiude la sessione locale, crea SyncJob, torna idle
   - packaging core inline JSON deterministico + hash SHA-256
   - niente gzip GPS/state nel percorso nuovo
-  - packaging gzip su disco solo per sensor_windows raw
+  - sensor windows salvate localmente come matrix_blob float32 500x6
+  - packaging gzip su disco solo per sensor_windows raw binarie
+  - raw parts: sensor_windows_part_XXXX.bin.gz
   - POST core inline prima, poi upload Raw e complete-raw se esistono raw
+  - upload raw parallelo limitato
   - retry/backoff opportunistico
-  - polling dello stato backend solo per stati legacy/processing o riprese raw
+  - polling rapido per stati backend QUEUED/PROCESSING
   - UI principale segue il Core; il Raw e' dettaglio secondario
 ```
 
@@ -99,13 +318,14 @@ Stato terminale attuale:
 
 ```text
 core_status=COMPLETED = Trip materializzato con GPS + transizioni.
-raw_status=RECEIVED   = raw sensor evidence arrivata nello storage, HAR non eseguito.
-raw_status=COMPLETED  = non c'erano raw attesi oppure la fase raw e' chiusa.
+raw_status=QUEUED     = raw ricevuto e HAR finale accodato.
+raw_status=PROCESSING = worker Celery sta elaborando HAR finale.
+raw_status=COMPLETED  = HAR finale completato oppure nessun raw era atteso.
 ```
 
 Quindi oggi un viaggio correttamente ingerito e' visibile nel diario quando il
-Core arriva a `COMPLETED`. Il Raw puo' completarsi dopo o restare assente:
-questo non impedisce la creazione del `Viaggio`.
+Core arriva a `COMPLETED`. Il Raw puo' completarsi dopo: questo non impedisce
+la creazione del `Viaggio`, ma arricchisce il diario con segmenti HAR e luoghi.
 
 ---
 
@@ -182,8 +402,8 @@ MOBILE (stop non bloccante)
       gps_points: [...]
       state_transitions: [...]
       core_payload_sha256: "<hash stabile del JSON core>"
-    sensor_windows_part_0001.json.gz
-    sensor_windows_part_0002.json.gz   (chunk 5-20 MB)
+    sensor_windows_part_0001.bin.gz
+    sensor_windows_part_0002.bin.gz   (chunk binari gzip)
     ...
 
   POST /api/ingestion/trips/core
@@ -206,8 +426,7 @@ MOBILE (stop non bloccante)
     -> verifica parti Core legacy -> enqueue Celery -> 202
        da qui il Trip legacy puo' essere materializzato
   POST /api/ingestion/trips/{id}/complete-raw
-    -> verifica parti Raw -> raw_status=RECEIVED -> 202
-       per ora non accoda HAR perche' HAR finale e' congelato
+    -> verifica parti Raw -> raw_status=QUEUED -> enqueue HAR finale -> 202
 
 CELERY
   process_trip_ingestion: [SOLO CORE LEGACY A PARTI]
@@ -215,23 +434,23 @@ CELERY
     BEGIN tx (LEGGERA: niente matrici)
       materializza Trip + GpsPoint + StateTransition
     COMMIT
-    (in futuro) enqueue HAR — PER ORA NON invocato
+    il Core legacy materializzato puo' poi ricevere la fase Raw separata
 
-  process_trip_har:   [CONGELATO — predisposto ma non attivo]
+  process_trip_har_final:
     legge i blob sensor_windows da object storage
     produce label / segmenti
     scrive MobilitySegment + label su PostGIS
-    on SUCCESS -> (in futuro) cancella i blob raw di quel viaggio
-    PER ORA: HAR finale non invocato; i blob raw NON vengono mai cancellati.
+    on SUCCESS -> raw_status=COMPLETED, Trip.status=PROCESSED
+    cleanup raw opzionale dietro HAR_CLEANUP_ENABLED
 
 POSTGIS  ->  SOLO dati leggeri:
              Trip, GpsPoint, StateTransition, MobilitySegment, label
-             Le matrici 500x9 NON entrano MAI qui.
+             Le matrici 500x6 NON entrano MAI qui.
 
 OBJECT STORAGE (MinIO in dev/locale, Railway Buckets in deploy — D7)
-             Blob grezzi: retention ILLIMITATA per ora (MAI cancellati).
+             Blob grezzi binari: retention controllata da policy/flag.
              La cancellazione event-driven dopo HAR success e' predisposta
-             ma disattivata finche' HAR non e' operativo.
+             ma resta disattivata finche' HAR_CLEANUP_ENABLED=false.
 ```
 
 ### Lettura Operativa Del Diagramma
@@ -294,7 +513,7 @@ I7. Il backend web non riceve mai i byte pesanti delle parti.
     Riceve solo metadata, genera URL firmati e verifica via HEAD.
 
 I8. Postgres non contiene matrici HAR grezze nel nuovo flusso.
-    I raw vivono in object storage finche' HAR non sara' operativo.
+    I raw vivono in object storage e vengono consumati dal worker HAR.
 
 I9. Celery puo' essere ritentato senza duplicare GpsPoint o StateTransition.
     I vincoli unique e ignore_conflicts sono parte del design, non un dettaglio.
@@ -303,10 +522,11 @@ I10. Tutti i timestamp del contratto di sync sono UTC ISO-8601.
      La timezone utente e' metadata, non va usata per ordinare eventi.
 
 I11. `core_status=COMPLETED` significa "Trip materializzato".
-     Non significa che il Raw sia stato caricato o che HAR finale sia avvenuto.
+     Non significa che il Raw sia stato caricato o che HAR finale sia concluso.
 
-I12. I blob raw non si cancellano a tempo finche' HAR finale e' congelato.
-     La retention illimitata e' una scelta temporanea esplicita.
+I12. I blob raw non si cancellano a tempo fisso.
+     Se si cancellano, il punto corretto e' dopo HAR success, dietro flag/policy
+     esplicita.
 
 I13. `TripIngestion` resta unica: non esiste una ingestion Core e una ingestion
      Raw separate. La separazione e' negli stati e negli expected parts.
@@ -326,10 +546,9 @@ Alcune cose sembrano naturali ma sono volutamente fuori dallo scope corrente:
 - upload garantito con app killata dal sistema operativo;
 - upload in background OS con URLSession/WorkManager;
 - streaming live dei dati verso il backend;
-- produzione del diario finale HAR;
-- cancellazione automatica dei raw;
-- formato binario ottimizzato per sensor window;
 - multi-device merge di viaggi dello stesso utente.
+- upload garantito mentre l'app resta killata per lungo tempo;
+- cancellazione automatica dei raw senza una policy di retention esplicita.
 ```
 
 Il punto non e' che queste cose siano sbagliate. Il punto e' che il nucleo
@@ -353,8 +572,9 @@ modesta. Il problema dominante e' il volume dati a riposo. L'energia va su
 storage e processing, non su un protocollo di trasporto barocco.
 
 ### D3 — Raw usa-e-getta
-Dopo che HAR ha prodotto le label, i campioni grezzi 500x9 non servono piu'
-al prodotto. Non vanno conservati a lungo in storage interrogabile.
+Dopo che HAR ha prodotto le label, i campioni grezzi 500x6 non servono piu'
+al prodotto corrente. Non devono entrare nel database transazionale; la loro
+retention nello storage e' una policy operativa separata.
 
 ### D4 — Le sensor window NON entrano in Postgres
 Diretta conseguenza di D2 + D3. Le matrici vivono come blob in object storage,
@@ -419,23 +639,22 @@ materializzazione e' piccola: una `transaction.atomic()` atomica e' sicura e
 semplice. Il retry e' banale via `get_or_create(client_session_id)`. HAR resta
 un task separato perche' e' lento e non deve tenere aperta una transazione DB.
 
-### D9 — Cancellazione raw event-driven [CONGELATA — predisposta, non attiva]
-Il design definitivo: "usa-e-getta" = gettati quando consumati, non a orologio.
-I blob raw si cancelleranno alla fine di `process_trip_har` con esito SUCCESS,
-evitando la race in cui una TTL a tempo fisso cancella le window prima che HAR
-le legga (data-loss silenzioso sotto backlog).
+### D9 — Cancellazione raw event-driven
+Il design definitivo resta: "usa-e-getta" = gettati quando consumati, non a
+orologio. I blob raw si possono cancellare alla fine di `process_trip_har_final`
+con esito SUCCESS, evitando la race in cui una TTL a tempo fisso cancella le
+window prima che HAR le legga (data-loss silenzioso sotto backlog).
 
-STATO ATTUALE: HAR finale non e' ancora integrato (nessuna interrogazione
-diretta del modello). Quindi, per ora:
+STATO ATTUALE: HAR finale e' attivo, ma la cancellazione e' ancora una policy
+esplicita disattivata di default:
 
 ```text
-- i blob raw NON vengono MAI cancellati (retention illimitata)
 - NESSUNA lifecycle TTL attiva sul bucket
-- il punto di cancellazione e' predisposto nel codice ma disattivato
-  (es. dietro un flag HAR_CLEANUP_ENABLED = False)
+- il punto di cancellazione resta dietro HAR_CLEANUP_ENABLED=False
+- raw_status=COMPLETED non implica cancellazione fisica dei blob
 ```
 
-Si attivera' la cancellazione solo quando HAR sara' operativo e validato.
+Si attivera' la cancellazione solo quando la policy di retention sara' decisa.
 
 ### D10 — Chunking giustificato dai viaggi lunghi
 Con viaggi di ore su rete mobile, un POST unico da decine di MB e' fragile.
@@ -520,7 +739,7 @@ Risposta:
 
 ```json
 {
-  "object_key": "ingestions/<id>/sensor_windows_part_0003.json.gz",
+  "object_key": "ingestions/<id>/sensor_windows_part_0003.bin.gz",
   "upload_url": "https://minio.../presigned-put...",
   "upload_headers": {
     "Content-Type": "application/gzip",
@@ -627,8 +846,9 @@ POST /api/ingestion/trips/{ingestion_id}/complete-raw
 ```
 
 Verifica che tutte le parti dichiarate in `expected_raw_parts` siano confermate.
-Nel codice attuale, se tutto e' presente, imposta `raw_status=RECEIVED` e si
-ferma li'. Non accoda HAR finale e non cancella blob.
+Nel codice attuale, se tutto e' presente, imposta `raw_status=QUEUED`, crea un
+`HarJob` finale e accoda `process_trip_har_final`. La cancellazione fisica dei
+blob resta separata e dipende da `HAR_CLEANUP_ENABLED`.
 
 `complete-raw` ha una precondizione forte: `core_status` deve essere
 `COMPLETED`. Il Raw arricchisce il viaggio e prepara HAR; non puo' sostituire
@@ -638,8 +858,8 @@ Nota:
 
 ```text
 Raw RECEIVED non significa "HAR finito": significa solo "evidenza raw arrivata
-in object storage". Quando HAR sara' attivo, la fase Raw potra' usare QUEUED,
-PROCESSING e COMPLETED per il job HAR finale.
+in object storage". Dopo `complete-raw`, la fase Raw usa `QUEUED`,
+`PROCESSING` e `COMPLETED` per il job HAR finale.
 ```
 
 ### 7. Stato
@@ -767,7 +987,7 @@ Vincoli: unique(ingestion_id, kind, sequence)
 
 ```text
 core_status  descrive la fase minima che crea il Viaggio.
-raw_status   descrive la fase sensori/raw, oggi solo upload, domani HAR finale.
+raw_status   descrive la fase sensori/raw, incluso HAR finale.
 ```
 
 Il vocabolario e' intenzionalmente uguale per entrambe le fasi:
@@ -823,14 +1043,23 @@ PENDING -> RECEIVING
 RECEIVING -> RECEIVED
   tutte le parti Raw dichiarate sono state confermate.
 
-RECEIVED -> COMPLETED
-  futuro, quando HAR finale sara' eseguito con successo.
+RECEIVED -> QUEUED
+  complete-raw accettata e HarJob finale creato.
+
+QUEUED -> PROCESSING
+  worker Celery prende in carico l'HAR finale.
+
+PROCESSING -> COMPLETED
+  HAR finale completato: segmenti scritti, Trip arricchito.
+
+PROCESSING -> FAILED_RETRYABLE
+  errore temporaneo durante lettura object storage, decompressione o pipeline.
+
+PROCESSING/FAILED_RETRYABLE -> FAILED_FINAL
+  payload raw invalido o retry esauriti.
 
 PENDING -> COMPLETED
   caso valido quando non esistono raw attesi.
-
-RECEIVED -> QUEUED -> PROCESSING -> COMPLETED
-  futuro, quando process_trip_har_final sara' sbloccato.
 ```
 
 Transizioni da evitare:
@@ -1018,23 +1247,32 @@ primo collo di bottiglia.
 ## Formati
 
 ```text
-gps_points.json.gz          punti GPS (UTC, WGS84, speed m/s, accuracy m, null se assente)
-state_transitions.json.gz   timeline decisionale FSM (from/to/reason/timestamp/metadata)
-sensor_windows_part_*.json.gz   window 500x9, chunk 5-20 MB compressi
+Core inline JSON:
+  gps_points               punti GPS (UTC, WGS84, speed m/s, accuracy m)
+  state_transitions        timeline decisionale FSM
+  expected_raw_parts       dichiarazione delle parti raw attese
+  core_payload_sha256      hash stabile del JSON Core
+
+Raw object storage:
+  sensor_windows_part_*.bin.gz   finestre 500x6 float32, formato MDHARW1
 ```
 
-Per ora JSON gzip: semplice da debuggare, e i raw sono comunque usa-e-getta e
-interni a HAR. In futuro, se serve ridurre banda mobile, si valuta un formato
-binario compatto (float32 colonnare / MessagePack / Parquet) senza cambiare il
-resto dell'architettura.
+Il Core nuovo non viene scritto come file temporaneo gzip: e' inviato inline a
+Django per materializzare rapidamente il `Trip`. Solo il Raw pesante passa da
+file temporaneo gzip e object storage.
 
 ### Schema Logico Dei File
 
-`gps_points.json.gz`:
+Core inline:
 
 ```json
 {
-  "points": [
+  "client_session_id": "local-session-uuid",
+  "schema_version": 1,
+  "started_at": "2026-06-12T10:00:00Z",
+  "ended_at": "2026-06-12T10:35:00Z",
+  "expected_raw_parts": { "sensor_windows": 3 },
+  "gps_points": [
     {
       "timestamp": "2026-06-12T10:01:05.123Z",
       "latitude": 45.4642,
@@ -1042,15 +1280,8 @@ resto dell'architettura.
       "speed_mps": 1.4,
       "accuracy_meters": 8.0
     }
-  ]
-}
-```
-
-`state_transitions.json.gz`:
-
-```json
-{
-  "transitions": [
+  ],
+  "state_transitions": [
     {
       "timestamp": "2026-06-12T10:02:00.000Z",
       "from_state": "POTENTIAL_MOTION",
@@ -1059,43 +1290,43 @@ resto dell'architettura.
       "sigma": 0.42,
       "speed_mps": 2.1
     }
-  ]
+  ],
+  "core_payload_sha256": "..."
 }
 ```
 
-`sensor_windows_part_0001.json.gz`:
+`sensor_windows_part_0001.bin.gz`, dopo gunzip:
 
-```json
-{
-  "windows": [
-    {
-      "window_start": "2026-06-12T10:02:05.000Z",
-      "window_end": "2026-06-12T10:02:10.000Z",
-      "sample_rate_hz": 100,
-      "sample_count": 500,
-      "samples": [[0.0, 0.1, 9.7, 0.0, 0.0, 0.0, 12.0, 1.0, -4.0]]
-    }
-  ]
-}
+```text
+magic[8]      = MDHARW1\0
+window_count  = uint32 little-endian
+
+per ogni finestra:
+  start_us       int64 little-endian
+  end_us         int64 little-endian
+  frequency_hz   uint32 little-endian
+  sample_count   uint32 little-endian
+  channel_count  uint32 little-endian
+  samples        float32 little-endian, row-major, 6 canali
 ```
 
 Regole di validazione consigliate:
 
 ```text
-- ogni file gzip deve decomprimersi in JSON valido;
+- ogni file raw gzip deve decomprimersi in payload binario valido;
+- magic deve essere MDHARW1\0;
 - i timestamp devono essere parseabili e in ordine non decrescente per file;
 - `gps_points` deve scartare righe senza latitude/longitude;
-- `sensor_windows` deve dichiarare sample_count coerente con samples.length;
+- `sensor_windows` deve dichiarare sample_count coerente con la dimensione blob;
 - sample_rate_hz deve essere positivo;
+- channel_count deve essere 6;
 - sequence parte da 1 ed e' continua per ogni kind;
 - una parte vuota non va generata: se un kind non ha dati, non entra negli
   expected parts della sua fase.
 ```
 
-Il formato JSON gzip resta accettabile per debugging e sviluppo. La ragione per
-cambiarlo in futuro non sara' l'API, ma CPU/banda: serializzare `500 x 9` float
-in JSON costa piu' della rappresentazione binaria float32, anche se gzip riduce
-molto il trasferimento.
+Il backend mantiene un fallback JSON legacy per payload storici o client non
+aggiornati. Nel flusso mobile attuale, pero', i nuovi raw sono binari.
 
 ---
 

@@ -83,7 +83,7 @@ _ACTIVE_INGESTION_STALE_AFTER = timedelta(hours=24)
 
 def _object_key(base_path: str, kind: str, sequence: int) -> str:
     if kind == PartKind.SENSOR_WINDOWS:
-        return f"{base_path}sensor_windows_part_{sequence:04d}.json.gz"
+        return f"{base_path}sensor_windows_part_{sequence:04d}.bin.gz"
     return f"{base_path}{kind}.json.gz"
 
 

@@ -1,13 +1,15 @@
 import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:diary/features/acquisition/data/acquisition_local_database.dart';
+import 'package:diary/features/acquisition/domain/sensor_matrix_blob.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
-/// Una parte fisica del pacchetto viaggio: un file .json.gz su disco con il suo
+/// Una parte fisica del pacchetto viaggio: un file gzip su disco con il suo
 /// checksum e dimensione, pronto per l'upload presigned.
 class TripPackagePart {
   final String kind; // gps_points | state_transitions | sensor_windows
@@ -96,8 +98,8 @@ class TripPackageBuilder {
   final AcquisitionDao _dao;
   final Future<Directory> Function() _baseDirProvider;
 
-  // Budget per parte sensor window, misurato sul JSON NON compresso. Una parte
-  // gzip risultante e' molto piu' piccola. ~12 MB -> qualche MB compressi.
+  // Budget per parte sensor window, misurato sul binario NON compresso. Una
+  // parte gzip risultante e' piu' piccola. ~12 MB -> qualche MB compressi.
   final int _sensorWindowsPartBudgetBytes;
 
   TripPackageBuilder({
@@ -197,57 +199,53 @@ class TripPackageBuilder {
 
     final parts = <TripPackagePart>[];
     var sequence = 1;
-    var buffer = StringBuffer();
+    var bufferedWindows = <SensorWindow>[];
     var bufferedBytes = 0;
-    var bufferedCount = 0;
 
     Future<void> flush() async {
-      if (bufferedCount == 0) return;
-      final json = '{"windows":[${buffer.toString()}]}';
-      parts.add(await _writePart(directory, 'sensor_windows', sequence, json));
+      if (bufferedWindows.isEmpty) return;
+      final bytes = _encodeSensorWindowsBinary(bufferedWindows);
+      parts.add(
+        await _writeGzipPart(
+          directory,
+          'sensor_windows',
+          sequence,
+          bytes,
+        ),
+      );
       sequence += 1;
-      buffer = StringBuffer();
+      bufferedWindows = <SensorWindow>[];
       bufferedBytes = 0;
-      bufferedCount = 0;
     }
 
     for (final window in windows) {
-      // `matrixJson` e' gia' un array JSON valido: lo si incastra direttamente
-      // come valore di "samples" senza decodificarlo/ricodificarlo.
-      final windowJson = '{'
-          '"window_start":"${window.startTimestamp.toUtc().toIso8601String()}",'
-          '"window_end":"${window.endTimestamp.toUtc().toIso8601String()}",'
-          '"sample_rate_hz":${window.frequencyHz},'
-          '"sample_count":${window.sampleCount},'
-          '"samples":${window.matrixJson}}';
+      final windowBytes = _sensorWindowBinaryByteSize(window);
 
-      if (bufferedCount > 0 &&
-          bufferedBytes + windowJson.length > _sensorWindowsPartBudgetBytes) {
+      if (bufferedWindows.isNotEmpty &&
+          bufferedBytes + windowBytes > _sensorWindowsPartBudgetBytes) {
         await flush();
       }
 
-      if (bufferedCount > 0) buffer.write(',');
-      buffer.write(windowJson);
-      bufferedBytes += windowJson.length;
-      bufferedCount += 1;
+      bufferedWindows.add(window);
+      bufferedBytes += windowBytes;
     }
     await flush();
 
     return parts;
   }
 
-  Future<TripPackagePart> _writePart(
+  Future<TripPackagePart> _writeGzipPart(
     Directory directory,
     String kind,
     int sequence,
-    String json,
+    List<int> payload,
   ) async {
     final fileName = kind == 'sensor_windows'
-        ? 'sensor_windows_part_${sequence.toString().padLeft(4, '0')}.json.gz'
+        ? 'sensor_windows_part_${sequence.toString().padLeft(4, '0')}.bin.gz'
         : '$kind.json.gz';
     final file = File(p.join(directory.path, fileName));
 
-    final gzipped = gzip.encode(utf8.encode(json));
+    final gzipped = gzip.encode(payload);
     await file.writeAsBytes(gzipped, flush: true);
 
     return TripPackagePart(
@@ -258,6 +256,63 @@ class TripPackageBuilder {
       sizeBytes: gzipped.length,
     );
   }
+}
+
+const List<int> _sensorWindowsBinaryMagic = [
+  0x4d, // M
+  0x44, // D
+  0x48, // H
+  0x41, // A
+  0x52, // R
+  0x57, // W
+  0x31, // 1
+  0x00,
+];
+const int _binaryHeaderBytes = 12;
+const int _binaryWindowHeaderBytes = 28;
+
+int _sensorWindowBinaryByteSize(SensorWindow window) {
+  return _binaryWindowHeaderBytes +
+      (window.sampleCount *
+          sensorMatrixChannelCount *
+          Float32List.bytesPerElement);
+}
+
+Uint8List _encodeSensorWindowsBinary(List<SensorWindow> windows) {
+  final builder = BytesBuilder(copy: false);
+  final header = ByteData(_binaryHeaderBytes);
+  for (var i = 0; i < _sensorWindowsBinaryMagic.length; i += 1) {
+    header.setUint8(i, _sensorWindowsBinaryMagic[i]);
+  }
+  header.setUint32(8, windows.length, Endian.little);
+  builder.add(header.buffer.asUint8List());
+
+  for (final window in windows) {
+    final sampleCount = window.sampleCount;
+    final expectedBlobBytes =
+        sampleCount * sensorMatrixChannelCount * Float32List.bytesPerElement;
+    if (window.matrixBlob.lengthInBytes != expectedBlobBytes) {
+      throw const FormatException('sensor window matrix blob non valido');
+    }
+    final windowHeader = ByteData(_binaryWindowHeaderBytes);
+    windowHeader.setInt64(
+      0,
+      window.startTimestamp.toUtc().microsecondsSinceEpoch,
+      Endian.little,
+    );
+    windowHeader.setInt64(
+      8,
+      window.endTimestamp.toUtc().microsecondsSinceEpoch,
+      Endian.little,
+    );
+    windowHeader.setUint32(16, window.frequencyHz, Endian.little);
+    windowHeader.setUint32(20, sampleCount, Endian.little);
+    windowHeader.setUint32(24, sensorMatrixChannelCount, Endian.little);
+    builder.add(windowHeader.buffer.asUint8List());
+    builder.add(window.matrixBlob);
+  }
+
+  return builder.toBytes();
 }
 
 Map<String, int> _expectedParts(List<TripPackagePart> sourceParts) {

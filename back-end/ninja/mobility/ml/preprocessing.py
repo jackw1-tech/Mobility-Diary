@@ -1,6 +1,6 @@
 """Normalizzazione delle finestre sensore nel formato atteso dal modello HAR.
 
-Il mobile invia la matrice GREZZA `500x9` (unita fisiche). Qui la trasformiamo
+Il mobile invia la matrice GREZZA `500x6` (unita fisiche). Qui la trasformiamo
 nel formato "pronto" per il modello: z-score per canale con le statistiche SHL
 (`norm_stats.json`) + imputazione dei NaN a 0 (media post-normalizzazione).
 
@@ -29,8 +29,11 @@ def _stats() -> tuple[np.ndarray, np.ndarray]:
 
 
 def normalize_window(matrix: list[list[float]]) -> np.ndarray:
-    """Da matrice grezza (righe x 9) a matrice normalizzata float32."""
+    """Da matrice grezza (righe x 6) a matrice normalizzata float32."""
     mean, std = _stats()
     arr = np.asarray(matrix, dtype=np.float32)
+    arr = arr[:, :6]
+    mean = mean[: arr.shape[1]]
+    std = std[: arr.shape[1]]
     arr = (arr - mean) / std
     return np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)

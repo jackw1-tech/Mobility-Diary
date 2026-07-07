@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:diary/features/acquisition/domain/sensor_matrix_blob.dart';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:path/path.dart' as p;
@@ -49,7 +50,7 @@ class SensorWindows extends Table {
   DateTimeColumn get endTimestamp => dateTime()();
   IntColumn get sampleCount => integer()();
   IntColumn get frequencyHz => integer()();
-  TextColumn get matrixJson => text()();
+  BlobColumn get matrixBlob => blob()();
   BoolColumn get isSynced => boolean().withDefault(const Constant(false))();
 }
 
@@ -118,7 +119,7 @@ class AcquisitionLocalDatabase extends _$AcquisitionLocalDatabase {
       : super(executor ?? _openConnection());
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 7;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -150,8 +151,34 @@ class AcquisitionLocalDatabase extends _$AcquisitionLocalDatabase {
               );
             }
           }
+          if (from < 7) {
+            await customStatement(
+              "ALTER TABLE sensor_windows ADD COLUMN matrix_blob BLOB NOT NULL DEFAULT X''",
+            );
+            await _migrateSensorWindowMatrixJsonToBlob();
+          }
         },
       );
+
+  Future<void> _migrateSensorWindowMatrixJsonToBlob() async {
+    final rows = await customSelect(
+      'SELECT id, matrix_json FROM sensor_windows',
+      readsFrom: {sensorWindows},
+    ).get();
+    for (final row in rows) {
+      final id = row.read<int>('id');
+      final matrixJson = row.read<String>('matrix_json');
+      final matrixBlob = encodeSensorMatrixJsonToBlob(matrixJson);
+      await customUpdate(
+        'UPDATE sensor_windows SET matrix_blob = ? WHERE id = ?',
+        variables: [
+          Variable<Uint8List>(matrixBlob),
+          Variable<int>(id),
+        ],
+        updates: {sensorWindows},
+      );
+    }
+  }
 }
 
 @DriftAccessor(
@@ -248,7 +275,7 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
     required DateTime endTimestamp,
     required int sampleCount,
     required int frequencyHz,
-    required String matrixJson,
+    required Uint8List matrixBlob,
   }) {
     return into(sensorWindows).insert(
       SensorWindowsCompanion.insert(
@@ -257,7 +284,7 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
         endTimestamp: _asUtc(endTimestamp),
         sampleCount: sampleCount,
         frequencyHz: frequencyHz,
-        matrixJson: matrixJson,
+        matrixBlob: matrixBlob,
       ),
     );
   }

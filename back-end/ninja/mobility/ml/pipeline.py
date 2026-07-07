@@ -29,7 +29,6 @@ from django.db import transaction
 from ..geo import haversine_meters
 from ..models import ActivityLabel, MobilitySegment, Trip, VirtualStopInterval
 from .classifier import classify_windows, correct_idle_with_gps, _label_from_speed
-from .preprocessing import normalize_window
 
 STOP_STATE = "STATIONARY"
 MIN_ISOLATED_LABEL_SECONDS = 60
@@ -49,7 +48,7 @@ class PipelineSensorWindow:
     end_timestamp: datetime
     sample_count: int
     frequency_hz: int
-    matrix: list[list[float]]
+    matrix: Any
 
 
 @dataclass(frozen=True)
@@ -329,12 +328,10 @@ def run_pipeline(
     transitions = list(trip.state_transitions.order_by("timestamp"))
     _add_elapsed_ms(timings, "pipeline_load_inputs_ms", load_inputs_start)
 
-    # 1. normalizzazione reale (grezzo -> pronto per il modello/fallback).
+    # 1. Controllo disponibilita' raw. La normalizzazione viene fatta solo
+    # nell'adapter del modello, evitando una seconda conversione matrice->numpy.
     normalize_start = time.perf_counter()
     all_windows_have_matrix = all(w.matrix is not None for w in windows)
-    _normalized = [
-        normalize_window(w.matrix) for w in windows if w.matrix is not None
-    ]
     _add_elapsed_ms(timings, "pipeline_normalize_ms", normalize_start)
 
     # 2-4. velocita per finestra, classificazione, fusione GPS.
@@ -344,7 +341,7 @@ def run_pipeline(
 
     classify_start = time.perf_counter()
     classification = classify_windows(
-        _normalized,
+        [],
         win_speed,
         raw_windows=windows if all_windows_have_matrix else None,
     )
