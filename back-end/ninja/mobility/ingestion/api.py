@@ -237,6 +237,31 @@ def _inline_core_response(ingestion: TripIngestion) -> InlineCoreOut:
     )
 
 
+def _queue_final_har(ingestion: TripIngestion, *, now: datetime) -> None:
+    if ingestion.trip_id is None:
+        raise HttpError(409, "trip non materializzato per HAR finale")
+
+    ingestion.raw_status = TripIngestion.PhaseStatus.QUEUED
+    ingestion.queued_at = now
+    ingestion.error_message = ""
+    ingestion.save(
+        update_fields=[
+            "raw_status",
+            "queued_at",
+            "error_message",
+            "updated_at",
+        ]
+    )
+    job = HarJob.objects.create(
+        trip_id=ingestion.trip_id,
+        kind=HarJob.Kind.FINAL_TRIP,
+    )
+
+    from ..tasks import process_trip_har_final
+
+    transaction.on_commit(lambda: process_trip_har_final.delay(job.id, ingestion.id))
+
+
 def _get_or_create_inline_trip(ingestion: TripIngestion) -> Trip:
     trip = (
         Trip.objects.select_for_update()
@@ -771,6 +796,8 @@ def create_core_inline(request, payload: InlineCoreIn):
                 now=now,
                 cutoff=payload.cutoff_source_timestamp,
             )
+        elif not expected_raw_parts:
+            _queue_final_har(ingestion, now=now)
 
         return _inline_core_response(ingestion)
 
@@ -1088,8 +1115,7 @@ def complete_raw_ingestion(request, ingestion_id: int, payload: CompleteIn):
 
         expected = _expected_part_keys(ingestion.expected_raw_parts)
         if not expected:
-            ingestion.raw_status = TripIngestion.PhaseStatus.COMPLETED
-            ingestion.save(update_fields=["raw_status", "updated_at"])
+            _queue_final_har(ingestion, now=timezone.now())
             return 202, CompleteOut(
                 ingestion_id=ingestion.id,
                 core_status=ingestion.core_status,
@@ -1105,28 +1131,8 @@ def complete_raw_ingestion(request, ingestion_id: int, payload: CompleteIn):
         if ingestion.trip_id is None:
             raise HttpError(409, "trip non materializzato per HAR finale")
         ingestion.manifest_sha256 = payload.manifest_sha256
-        ingestion.raw_status = TripIngestion.PhaseStatus.QUEUED
-        ingestion.queued_at = timezone.now()
-        ingestion.error_message = ""
-        ingestion.save(
-            update_fields=[
-                "manifest_sha256",
-                "raw_status",
-                "queued_at",
-                "error_message",
-                "updated_at",
-            ]
-        )
-        job = HarJob.objects.create(
-            trip_id=ingestion.trip_id,
-            kind=HarJob.Kind.FINAL_TRIP,
-        )
-
-        from ..tasks import process_trip_har_final
-
-        transaction.on_commit(
-            lambda: process_trip_har_final.delay(job.id, ingestion.id)
-        )
+        ingestion.save(update_fields=["manifest_sha256", "updated_at"])
+        _queue_final_har(ingestion, now=timezone.now())
     return 202, CompleteOut(
         ingestion_id=ingestion.id,
         core_status=ingestion.core_status,

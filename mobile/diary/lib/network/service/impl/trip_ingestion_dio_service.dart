@@ -223,10 +223,14 @@ class TripIngestionDioService implements TripIngestionService {
     Map<String, String> headers = const {},
   }) async {
     try {
+      final uploadHeaders = {
+        ...headers,
+        HttpHeaders.contentLengthHeader: bytes.length.toString(),
+      };
       final options = Options(
-        headers: headers,
-        contentType: headers['content-type'] ??
-            headers['Content-Type'] ??
+        headers: uploadHeaders,
+        contentType: uploadHeaders['content-type'] ??
+            uploadHeaders['Content-Type'] ??
             'application/gzip',
         sendTimeout: const Duration(minutes: 5),
         receiveTimeout: const Duration(minutes: 5),

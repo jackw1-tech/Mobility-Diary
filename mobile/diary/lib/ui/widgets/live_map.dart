@@ -26,6 +26,9 @@ class LiveMap extends StatefulWidget {
 
 class _LiveMapState extends State<LiveMap> {
   static const double _followZoom = 16.5;
+  static const String _liveRouteSourceId = 'live-route-source';
+  static const String _liveRouteCasingLayerId = 'live-route-casing';
+  static const String _liveRouteLayerId = 'live-route-line';
   static const String _replayMarkerSourceId = 'live-replay-position-source';
   static const String _replayMarkerHaloLayerId = 'live-replay-position-halo';
   static const String _replayMarkerDotLayerId = 'live-replay-position-dot';
@@ -33,10 +36,10 @@ class _LiveMapState extends State<LiveMap> {
   static const String _assistantRouteLayerId = 'route-assistant-line';
 
   MapboxMap? _map;
-  PolylineAnnotationManager? _routeManager;
   Point? _initialCenter;
   String? _error;
   bool _styleReady = false;
+  bool _liveRouteReady = false;
   bool _replayMarkerReady = false;
   bool _assistantRouteReady = false;
   RouteAssistantCubit? _routeAssistantCubit;
@@ -123,7 +126,7 @@ class _LiveMapState extends State<LiveMap> {
     // Catturato prima dell'await per non usare context oltre l'async gap.
     final cubit = context.read<AcquisitionCubit>();
     final assistant = context.read<RouteAssistantCubit>();
-    _routeManager = await map.annotations.createPolylineAnnotationManager();
+    await _installLiveRouteLayer(map);
     await _installReplayMarkerLayer(map);
     await _installAssistantRouteLayer(map);
     _styleReady = true;
@@ -132,6 +135,31 @@ class _LiveMapState extends State<LiveMap> {
     await _syncNativePuck(cubit.state);
     await _updateReplayMarker(cubit.state);
     await _updateAssistantRoute(assistant.state.routePoints);
+  }
+
+  Future<void> _installLiveRouteLayer(MapboxMap map) async {
+    _liveRouteReady = false;
+    await map.style.addSource(GeoJsonSource(
+      id: _liveRouteSourceId,
+      data: _lineGeoJson(const []),
+    ));
+    await map.style.addLayer(LineLayer(
+      id: _liveRouteCasingLayerId,
+      sourceId: _liveRouteSourceId,
+      lineColor: ColorPalette.surface.toARGB32(),
+      lineWidth: 8.0,
+      lineJoin: LineJoin.ROUND,
+      lineCap: LineCap.ROUND,
+    ));
+    await map.style.addLayer(LineLayer(
+      id: _liveRouteLayerId,
+      sourceId: _liveRouteSourceId,
+      lineColor: ColorPalette.primary.toARGB32(),
+      lineWidth: 4.5,
+      lineJoin: LineJoin.ROUND,
+      lineCap: LineCap.ROUND,
+    ));
+    _liveRouteReady = true;
   }
 
   Future<void> _installAssistantRouteLayer(MapboxMap map) async {
@@ -223,23 +251,12 @@ class _LiveMapState extends State<LiveMap> {
   }
 
   Future<void> _redrawRoute(List<ll.LatLng> points) async {
-    final manager = _routeManager;
-    if (manager == null || !_styleReady) return;
-
-    await manager.deleteAll();
-    if (points.length < 2) return;
-
-    await manager.create(
-      PolylineAnnotationOptions(
-        geometry: LineString(
-          coordinates: [
-            for (final p in points) Position(p.longitude, p.latitude),
-          ],
-        ),
-        lineColor: ColorPalette.primary.toARGB32(),
-        lineWidth: 5.0,
-        lineJoin: LineJoin.ROUND,
-      ),
+    final map = _map;
+    if (map == null || !_styleReady || !_liveRouteReady) return;
+    await map.style.setStyleSourceProperty(
+      _liveRouteSourceId,
+      'data',
+      _lineGeoJson(points),
     );
   }
 

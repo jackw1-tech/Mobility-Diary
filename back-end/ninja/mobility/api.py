@@ -44,6 +44,7 @@ from .diary_events import (
     diary_status_payload,
 )
 from .diary_projection import project_diary_segments
+from .diary_export import build_trip_privacy_export
 from .ingestion import storage
 from .ingestion.api import _active_ingestions
 from .ml.har_adapter import predict_window_label
@@ -64,14 +65,7 @@ from .models import (
 from .significant_places import (
     place_label,
     stop_like_source_intervals,
-    visible_stop_place,
     visible_stop_summary,
-)
-from .privacy import (
-    PRIVACY_AWARE_STOP_LABEL,
-    cloak_linestring,
-    line_geojson,
-    privacy_cell_size_meters,
 )
 from .schemas import (
     AnalyticsBucketOut,
@@ -491,103 +485,16 @@ def _saved_privacy_level(user_id: int) -> str:
     return settings.level
 
 
-def _export_segment_coordinates(segment, *, level: str) -> list[list[float]]:
-    """Privacy-aware coordinates for a MOVE; cloaked unless the level is precise.
-
-    A non-precise export never returns the original GPS readings, so the mobile
-    text can label them as approximated without leaking the private geometry.
-    """
-    if segment.path is None:
-        return []
-    if privacy_cell_size_meters(level) is None:
-        return [
-            [round(float(lon), 7), round(float(lat), 7)]
-            for lon, lat, *_ in segment.path.coords
-        ]
-    cloaked = line_geojson(cloak_linestring(segment.path, level=level))
-    return cloaked["coordinates"] if cloaked is not None else []
-
-
-def _export_segment(segment, *, level: str, stop_title: str) -> PrivacyExportSegmentOut:
-    masked = privacy_cell_size_meters(level) is not None
-    if segment.kind == MobilitySegment.Kind.MOVE:
-        title = segment.activity_label.lower()
-    elif masked:
-        title = PRIVACY_AWARE_STOP_LABEL
-    else:
-        title = stop_title or NEUTRAL_VISIBLE_STOP_TITLE
-
-    coordinates = (
-        _export_segment_coordinates(segment, level=level)
-        if segment.kind == MobilitySegment.Kind.MOVE
-        else []
-    )
+def _privacy_export_segment_out(segment) -> PrivacyExportSegmentOut:
     return PrivacyExportSegmentOut(
         kind=segment.kind,
-        start_label=segment.start_timestamp.strftime("%H:%M"),
-        end_label=segment.end_timestamp.strftime("%H:%M"),
+        start_label=segment.start_label,
+        end_label=segment.end_label,
         activity_label=segment.activity_label,
-        title=title,
-        point_count=len(coordinates),
-        coordinates=coordinates,
+        title=segment.title,
+        point_count=segment.point_count,
+        coordinates=segment.coordinates,
     )
-
-
-_ACTIVITY_LABELS_IT = {
-    "WALKING": "a piedi",
-    "RUNNING": "di corsa",
-    "BIKING": "in bici",
-    "MOVING_VEHICLE": "in veicolo",
-    "IDLE": "fermo",
-}
-
-
-def _activity_label_it(activity_label: str) -> str:
-    return _ACTIVITY_LABELS_IT.get(activity_label, activity_label.lower())
-
-
-def _adjacent_stop_title(
-    segments: list[PrivacyExportSegmentOut], index: int, *, step: int
-) -> str | None:
-    neighbour_index = index + step
-    if not 0 <= neighbour_index < len(segments):
-        return None
-    neighbour = segments[neighbour_index]
-    return neighbour.title if neighbour.kind == MobilitySegment.Kind.STOP else None
-
-
-def _export_text(
-    *,
-    trip_id: int,
-    level: str,
-    cell_size_meters: int | None,
-    segments: list[PrivacyExportSegmentOut],
-) -> str:
-    # Le etichette privacy-aware delle soste arrivano gia' filtrate da _export_segment.
-    lines = [
-        f"Diario viaggio #{trip_id}",
-        f"Privacy level: {level}",
-    ]
-    if cell_size_meters is not None:
-        lines.append(f"Cell size: {cell_size_meters} m")
-        lines.append("Coordinate approssimate: non sono letture GPS originali.")
-    else:
-        lines.append("Coordinate precise: export non protetto.")
-    lines.append("")
-    for index, segment in enumerate(segments):
-        time_range = f"{segment.start_label}–{segment.end_label}"
-        if segment.kind == MobilitySegment.Kind.MOVE:
-            from_title = _adjacent_stop_title(segments, index, step=-1)
-            to_title = _adjacent_stop_title(segments, index, step=1)
-            activity = _activity_label_it(segment.activity_label)
-            if from_title and to_title:
-                description = f"spostamento da {from_title} a {to_title}, modalita' prevalente: {activity}"
-            else:
-                description = f"spostamento {activity}"
-        else:
-            description = f"permanenza in {segment.title}"
-        lines.append(f"{time_range}, {description}")
-    return "\n".join(lines)
 
 
 @router.get(
@@ -604,50 +511,17 @@ def get_trip_privacy_export(request, trip_id: int):
     """
     trip = get_object_or_404(Trip, id=trip_id, user_id=request.auth.user_id)
     level = _saved_privacy_level(request.auth.user_id)
-    persisted_segments = list(trip.segments.all())
-    virtual_stop_intervals = list(trip.virtual_stop_intervals.all())
-    gps = list(trip.gps_points.order_by("timestamp"))
-    confirmed = list(
-        HabitualPlace.objects.filter(
-            user_id=request.auth.user_id,
-            state=HabitualPlace.State.CONFIRMED,
-        )
-    )
-    source_intervals = stop_like_source_intervals(
-        persisted_segments,
-        virtual_stop_intervals,
-    )
-    projected_segments = project_diary_segments(
-        persisted_segments,
-        virtual_stop_intervals,
-    )
-    segments = [
-        _export_segment(
-            segment,
-            level=level,
-            stop_title=(
-                place_label(place)
-                if segment.kind == MobilitySegment.Kind.STOP
-                and (place := visible_stop_place(segment, source_intervals, gps, confirmed))
-                is not None
-                else ""
-            ),
-        )
-        for segment in projected_segments
-    ]
+    export = build_trip_privacy_export(trip, level=level)
     return PrivacyExportOut(
-        trip_id=trip.id,
-        level=level,
-        protected=level != UserPrivacySettings.Level.PRECISE,
-        approximated_coordinates=privacy_cell_size_meters(level) is not None,
-        cell_size_meters=privacy_cell_size_meters(level),
-        text=_export_text(
-            trip_id=trip.id,
-            level=level,
-            cell_size_meters=privacy_cell_size_meters(level),
-            segments=segments,
-        ),
-        segments=segments,
+        trip_id=export.trip_id,
+        level=export.level,
+        protected=export.protected,
+        approximated_coordinates=export.approximated_coordinates,
+        cell_size_meters=export.cell_size_meters,
+        text=export.text,
+        segments=[
+            _privacy_export_segment_out(segment) for segment in export.segments
+        ],
     )
 
 

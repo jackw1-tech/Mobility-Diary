@@ -52,9 +52,12 @@ class SamplingProfile {
           gyroscopeHz: 0,
           magnetometerHz: 0,
           gpsEnabled: true,
-          gpsInterval: const Duration(minutes: 3),
-          gpsDistanceFilterMeters: 100,
-          gpsAccuracy: GpsAccuracyProfile.lowPower,
+          // Keep active trips map-grade even if the FSM is still stationary:
+          // a false stationary state must not collapse the live route into a
+          // sparse start-to-current line after long recordings.
+          gpsInterval: const Duration(seconds: 20),
+          gpsDistanceFilterMeters: 30,
+          gpsAccuracy: GpsAccuracyProfile.highAccuracy,
           harWindowEnabled: false,
           persistSensorWindows: false,
           persistGpsPoints: true,

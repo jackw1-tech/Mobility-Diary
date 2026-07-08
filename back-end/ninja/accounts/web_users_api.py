@@ -24,6 +24,7 @@ from ninja.errors import HttpError
 
 from .web_auth import web_dashboard_auth
 from .models import UserPrivacySettings
+from mobility.diary_export import build_trip_privacy_export
 from mobility.diary_projection import project_trip_diary_segments
 from mobility.models import HabitualPlace, MobilitySegment, Trip
 from mobility.privacy import (
@@ -299,6 +300,9 @@ def _segment_distance_meters(segment: MobilitySegment, *, level: str | None) -> 
 
 
 def _diary_out(trip: Trip, *, level: str | None = None) -> WebDiaryOut:
+    if level is not None:
+        return _privacy_diary_out_from_export(trip, level=level)
+
     persisted_segments = list(trip.segments.all())
     virtual_stop_intervals = list(trip.virtual_stop_intervals.all())
     projected = project_trip_diary_segments(trip)
@@ -335,6 +339,48 @@ def _diary_out(trip: Trip, *, level: str | None = None) -> WebDiaryOut:
             )
             for segment in projected
         ],
+    )
+
+
+def _privacy_diary_out_from_export(trip: Trip, *, level: str) -> WebDiaryOut:
+    export = build_trip_privacy_export(trip, level=level)
+    return WebDiaryOut(
+        trip_id=trip.id,
+        status=trip.status,
+        processed=trip.status == Trip.Status.PROCESSED,
+        segments=[
+            WebDiarySegmentOut(
+                kind=segment.kind,
+                start_timestamp=segment.start_timestamp,
+                end_timestamp=segment.end_timestamp,
+                activity_label=segment.activity_label,
+                distance_meters=segment.distance_meters,
+                path_geojson=_export_segment_path_geojson(segment),
+                place=_export_segment_place_out(segment, level=level),
+            )
+            for segment in export.segments
+        ],
+    )
+
+
+def _export_segment_path_geojson(segment) -> dict | None:
+    if segment.kind != MobilitySegment.Kind.MOVE or not segment.coordinates:
+        return None
+    return {
+        "type": "LineString",
+        "coordinates": segment.coordinates,
+    }
+
+
+def _export_segment_place_out(segment, *, level: str) -> WebDiaryPlaceOut | None:
+    if segment.kind != MobilitySegment.Kind.STOP:
+        return None
+    if level == UserPrivacySettings.Level.AGGREGATED:
+        return None
+    return WebDiaryPlaceOut(
+        center_geojson=None,
+        label=segment.title,
+        radius_meters=0,
     )
 
 
