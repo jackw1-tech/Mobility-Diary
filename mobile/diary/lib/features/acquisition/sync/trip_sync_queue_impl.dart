@@ -433,6 +433,15 @@ class TripSyncQueueImpl implements TripSyncQueue {
   Future<void> _handleFailure(SyncJob job, Object error) async {
     final currentJob = await _dao.syncJobForSession(job.localSessionId) ?? job;
     final coreCompleted = currentJob.coreStatus == syncJobCompleted;
+    // 410: il backend ha gia' abbandonato o chiuso questa ingestion altrove
+    // (es. un altro device ha avviato un nuovo viaggio dopo che questa e'
+    // rimasta stantia oltre la soglia lato server). Non e' un fallimento
+    // transitorio: nessun retry lo risolvera' mai, quindi si scarta subito
+    // invece di bruciare tutto il budget di backoff su un esito gia' noto.
+    if (error is IngestionApiException && error.statusCode == 410) {
+      await _discardJob(currentJob);
+      return;
+    }
     final attempts = currentJob.attempts + 1;
     if (attempts >= _maxAttempts) {
       await _discardJob(currentJob);

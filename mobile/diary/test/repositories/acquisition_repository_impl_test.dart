@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:diary/features/acquisition/data/acquisition_local_database.dart';
 import 'package:diary/features/acquisition/sync/trip_sync_queue.dart';
 import 'package:diary/network/dto/ingestion/active_ingestion_dto.dart';
@@ -93,6 +95,63 @@ void main() {
 
       expect(window, service.replaySensorWindow);
       expect(service.sensorWindowRequests.single.tripId, 7);
+    });
+
+    test('resume corrects stale movement from the last inertial data',
+        () async {
+      final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+      addTearDown(database.close);
+      final dao = database.acquisitionDao;
+      final startedAt = DateTime.utc(2026, 1, 1, 8);
+      final movementAt = startedAt.add(const Duration(seconds: 10));
+      final sensorEndedAt = startedAt.add(const Duration(seconds: 25));
+      final now = startedAt.add(const Duration(minutes: 5));
+
+      await dao.createSession(
+        id: 'open-session',
+        deviceId: 'device-1',
+        remoteIngestionId: 77,
+        startedAt: startedAt,
+      );
+      await dao.insertTransition(
+        sessionId: 'open-session',
+        fromState: 'STATIONARY',
+        toState: 'MOVEMENT',
+        reason: 'moving_evidence_confirmed',
+        timestamp: movementAt,
+        sigma: 1.8,
+        speedMps: 2.4,
+      );
+      await dao.insertSensorWindow(
+        sessionId: 'open-session',
+        startTimestamp: startedAt.add(const Duration(seconds: 20)),
+        endTimestamp: sensorEndedAt,
+        sampleCount: 1,
+        frequencyHz: 100,
+        matrixBlob: Uint8List.fromList([1]),
+      );
+
+      final repository = AcquisitionRepositoryImpl(
+        database: database,
+        ingestionService: _FakeTripIngestionService(),
+        enableRuntime: false,
+        now: () => now,
+      );
+      addTearDown(repository.dispose);
+
+      await repository.resumeSync();
+
+      final transitions = await dao.transitionsForSession('open-session');
+      expect(repository.currentSnapshot.isTracking, isTrue);
+      expect(repository.currentSnapshot.trackingState.name, 'stationary');
+      expect(transitions, hasLength(2));
+      expect(transitions.last.fromState, 'MOVEMENT');
+      expect(transitions.last.toState, 'STATIONARY');
+      expect(transitions.last.reason, 'resume_inertial_stale');
+      expect(
+        transitions.last.timestamp,
+        sensorEndedAt.add(const Duration(seconds: 12)),
+      );
     });
   });
 }

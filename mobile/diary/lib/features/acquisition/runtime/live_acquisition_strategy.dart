@@ -20,6 +20,9 @@ typedef HeartbeatTimerFactory = Timer Function(
 
 class LiveAcquisitionStrategy extends WidgetsBindingObserver
     implements AcquisitionStrategy {
+  static const Duration _backgroundInertialStaleAfter = Duration(seconds: 12);
+  static const String _resumeInertialStaleReason = 'resume_inertial_stale';
+
   final FsmConfig _config;
   final AcquisitionLocalDatabase _database;
   late final AcquisitionDao _dao;
@@ -50,7 +53,9 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
   String? _pendingSyncSessionId;
   Timer? _heartbeatTimer;
   StreamSubscription<AppLifecycleState>? _lifecycleSubscription;
+  AppLifecycleState _lifecycleState = AppLifecycleState.resumed;
   final Set<String> _persistedSensorWindowKeys = {};
+  DateTime? _latestMotionWindowAt;
   int? _currentRemoteIngestionId;
   String? _currentDeviceId;
   double? _latestLatitude;
@@ -145,6 +150,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     }
 
     _persistedSensorWindowKeys.clear();
+    _latestMotionWindowAt = null;
     _latestLatitude = null;
     _latestLongitude = null;
     _latestAccuracyMeters = null;
@@ -199,6 +205,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     _currentRemoteIngestionId = null;
     _currentDeviceId = null;
     _persistedSensorWindowKeys.clear();
+    _latestMotionWindowAt = null;
     _fsm = AcquisitionFsm(config: _config);
     _emit(AcquisitionSnapshot.idle());
 
@@ -214,7 +221,14 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
       return;
     }
 
-    final decision = _fsm.apply(event);
+    if (event is MotionWindowEvaluated) {
+      _latestMotionWindowAt = event.timestamp;
+    }
+
+    final decision = _fsm.apply(
+      event,
+      evidenceMode: _evidenceModeFor(event.timestamp),
+    );
     final transition = decision.transition;
     final sessionId = _currentSessionId;
 
@@ -445,9 +459,25 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
   }
 
   void _handleLifecycleState(AppLifecycleState state) {
+    _lifecycleState = state;
     if (state == AppLifecycleState.resumed) {
       unawaited(_sendHeartbeatIfTracking());
     }
+  }
+
+  FsmEvidenceMode _evidenceModeFor(DateTime timestamp) {
+    if (_lifecycleState == AppLifecycleState.resumed ||
+        !_isBackgroundInertialStale(timestamp)) {
+      return FsmEvidenceMode.strictSensors;
+    }
+    return FsmEvidenceMode.forceStationary;
+  }
+
+  bool _isBackgroundInertialStale(DateTime timestamp) {
+    final latestMotionWindowAt = _latestMotionWindowAt;
+    return latestMotionWindowAt == null ||
+        timestamp.difference(latestMotionWindowAt) >
+            _backgroundInertialStaleAfter;
   }
 
   void _restartHeartbeat() {
@@ -510,25 +540,37 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     AcquisitionSession session, {
     int? remoteIngestionId,
   }) async {
-    final latestTransition = await _dao.latestTransitionForSession(session.id);
+    var latestTransition = await _dao.latestTransitionForSession(session.id);
     final latestGpsPoint = await _dao.latestGpsPointForSession(session.id);
+    final latestSensorWindow = await _dao.latestSensorWindow(session.id);
 
     final lastKnownAt = _latestKnownEventAt(
       session,
       latestTransition,
       latestGpsPoint,
+      latestSensorWindow,
     );
     if (_now().toUtc().difference(lastKnownAt) >= _staleSessionThreshold) {
       await _closeStaleSession(session.id, lastKnownAt);
       return false;
     }
 
-    final trackingState = _trackingStateFromWire(
-      latestTransition?.toState,
+    latestTransition = await _correctStaleMovementOnResume(
+      session: session,
+      latestTransition: latestTransition,
+      latestSensorWindow: latestSensorWindow,
     );
+    final trackingState = _trackingStateFromWire(latestTransition?.toState);
     final profile = SamplingProfile.forState(trackingState);
+    final snapshotUpdatedAt = _latestKnownEventAt(
+      session,
+      latestTransition,
+      latestGpsPoint,
+      latestSensorWindow,
+    );
 
     _persistedSensorWindowKeys.clear();
+    _latestMotionWindowAt = null;
     _currentSessionId = session.id;
     _currentRemoteIngestionId = remoteIngestionId ?? session.remoteIngestionId;
     _currentDeviceId = session.deviceId;
@@ -553,9 +595,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
                 reason: latestTransition.reason,
                 timestamp: latestTransition.timestamp,
               ),
-        updatedAt: latestGpsPoint?.timestamp ??
-            latestTransition?.timestamp ??
-            session.startedAt,
+        updatedAt: snapshotUpdatedAt,
         latitude: _latestLatitude,
         longitude: _latestLongitude,
         accuracyMeters: _latestAccuracyMeters,
@@ -575,6 +615,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     AcquisitionSession session,
     StateTransition? latestTransition,
     GpsPoint? latestGpsPoint,
+    SensorWindow? latestSensorWindow,
   ) {
     var latest = session.startedAt;
     final transitionAt = latestTransition?.timestamp;
@@ -585,7 +626,57 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     if (gpsAt != null && gpsAt.isAfter(latest)) {
       latest = gpsAt;
     }
+    final sensorAt = latestSensorWindow?.endTimestamp;
+    if (sensorAt != null && sensorAt.isAfter(latest)) {
+      latest = sensorAt;
+    }
     return latest;
+  }
+
+  Future<StateTransition?> _correctStaleMovementOnResume({
+    required AcquisitionSession session,
+    required StateTransition? latestTransition,
+    required SensorWindow? latestSensorWindow,
+  }) async {
+    if (_trackingStateFromWire(latestTransition?.toState) !=
+        TrackingState.movement) {
+      return latestTransition;
+    }
+
+    final inertialReferenceAt = _resumeInertialReferenceAt(
+      session,
+      latestTransition,
+      latestSensorWindow,
+    );
+    final correctedAt = inertialReferenceAt.add(_backgroundInertialStaleAfter);
+    final now = _now().toUtc();
+    if (!correctedAt.isBefore(now)) {
+      return latestTransition;
+    }
+
+    await _dao.insertTransition(
+      sessionId: session.id,
+      fromState: TrackingState.movement.wireName,
+      toState: TrackingState.stationary.wireName,
+      reason: _resumeInertialStaleReason,
+      timestamp: correctedAt,
+      sigma: latestTransition?.sigma ?? 0,
+      speedMps: latestTransition?.speedMps ?? 0,
+    );
+    return _dao.latestTransitionForSession(session.id);
+  }
+
+  DateTime _resumeInertialReferenceAt(
+    AcquisitionSession session,
+    StateTransition? latestTransition,
+    SensorWindow? latestSensorWindow,
+  ) {
+    var referenceAt = latestSensorWindow?.endTimestamp ?? session.startedAt;
+    final transitionAt = latestTransition?.timestamp;
+    if (transitionAt != null && transitionAt.isAfter(referenceAt)) {
+      referenceAt = transitionAt;
+    }
+    return referenceAt;
   }
 
   /// Chiude localmente una sessione stantia al momento dell'ultimo dato noto

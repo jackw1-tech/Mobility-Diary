@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:diary/features/acquisition/data/acquisition_local_database.dart';
+import 'package:diary/features/acquisition/domain/sensor_matrix_blob.dart';
 import 'package:diary/features/acquisition/sync/trip_package_builder.dart';
 import 'package:diary/features/acquisition/sync/trip_sync_queue_impl.dart';
 import 'package:diary/mappers/ingestion_mapper.dart';
@@ -73,6 +74,52 @@ void main() {
       expect(await database.acquisitionDao.countSessions(), 0);
     });
 
+    test(
+        'discards immediately on 410 (permanently abandoned/closed) without retrying',
+        () async {
+      await _seedSyncJob(database, sessionId: 'session-abandoned');
+      service.postCoreInlineError = const IngestionApiException(
+        'viaggio abbandonato',
+        statusCode: 410,
+      );
+      final syncQueue = queue();
+
+      await syncQueue.processDue();
+
+      expect(service.postCoreInlineCalls, 1);
+      expect(await database.acquisitionDao.countSessions(), 0);
+      expect(
+        await database.acquisitionDao.syncJobForSession('session-abandoned'),
+        isNull,
+      );
+    });
+
+    test('uploads real raw sensor window parts before waiting for processing',
+        () async {
+      await _seedSyncJob(database, sessionId: 'session-raw');
+      await _seedSensorWindows(database, sessionId: 'session-raw');
+      service.inlineRawStatus = 'PENDING';
+      service.statusAfterRawComplete = 'QUEUED';
+      final syncQueue = queue();
+
+      await syncQueue.processDue();
+
+      expect(service.postCoreInlineCalls, 1);
+      expect(service.postedCoreBodies.single['expected_raw_parts'],
+          {'sensor_windows': 1});
+      expect(service.presignedParts, ['sensor_windows#1']);
+      expect(service.uploadedParts, hasLength(1));
+      expect(service.confirmedParts, ['sensor_windows#1']);
+      expect(service.completeRawCalls, 1);
+
+      final job =
+          await database.acquisitionDao.syncJobForSession('session-raw');
+      expect(job, isNotNull);
+      expect(job!.coreStatus, syncJobCompleted);
+      expect(job.rawStatus, syncJobWaitingProcessing);
+      expect(await database.acquisitionDao.countSessions(), 1);
+    });
+
     test('keeps only one processing pass active at a time', () async {
       await _seedSyncJob(database, sessionId: 'session-concurrent');
       service.blockInlineCore = true;
@@ -126,6 +173,23 @@ Future<void> _seedSyncJob(
   await dao.createSyncJobIfAbsent(sessionId);
 }
 
+Future<void> _seedSensorWindows(
+  AcquisitionLocalDatabase database, {
+  required String sessionId,
+}) async {
+  final matrix = [
+    for (var i = 0; i < 500; i += 1) [0.1, 0.2, 9.7, 0.01, 0.02, 0.03],
+  ];
+  await database.acquisitionDao.insertSensorWindow(
+    sessionId: sessionId,
+    startTimestamp: DateTime.utc(2026, 1, 1, 8, 1),
+    endTimestamp: DateTime.utc(2026, 1, 1, 8, 1, 5),
+    sampleCount: matrix.length,
+    frequencyHz: 100,
+    matrixBlob: encodeSensorMatrixBlob(matrix),
+  );
+}
+
 Future<void> _waitUntil(bool Function() predicate) async {
   for (var i = 0; i < 20; i += 1) {
     if (predicate()) return;
@@ -136,9 +200,16 @@ Future<void> _waitUntil(bool Function() predicate) async {
 
 class _FakeTripIngestionService implements TripIngestionService {
   int postCoreInlineCalls = 0;
+  int completeRawCalls = 0;
   int inlineTripId = 42;
+  String inlineRawStatus = 'COMPLETED';
+  String statusAfterRawComplete = 'COMPLETED';
   bool blockInlineCore = false;
+  IngestionApiException? postCoreInlineError;
   final List<Map<String, dynamic>> postedCoreBodies = [];
+  final List<String> presignedParts = [];
+  final List<List<int>> uploadedParts = [];
+  final List<String> confirmedParts = [];
   Completer<void>? _inlineBlocker;
 
   void releaseInlineCore() {
@@ -151,6 +222,10 @@ class _FakeTripIngestionService implements TripIngestionService {
   }) async {
     postCoreInlineCalls += 1;
     postedCoreBodies.add(body);
+    final error = postCoreInlineError;
+    if (error != null) {
+      throw error;
+    }
     if (blockInlineCore) {
       _inlineBlocker ??= Completer<void>();
       await _inlineBlocker!.future;
@@ -159,7 +234,7 @@ class _FakeTripIngestionService implements TripIngestionService {
       ingestionId: body['ingestion_id'] as int? ?? 10,
       tripId: inlineTripId,
       coreStatus: 'COMPLETED',
-      rawStatus: 'COMPLETED',
+      rawStatus: inlineRawStatus,
       gpsPoints: (body['gps_points'] as List).length,
       stateTransitions: (body['state_transitions'] as List).length,
       pathPoints: (body['gps_points'] as List).length,
@@ -197,7 +272,9 @@ class _FakeTripIngestionService implements TripIngestionService {
   Future<void> completeRawIngestion(
     int ingestionId, {
     required int totalParts,
-  }) async {}
+  }) async {
+    completeRawCalls += 1;
+  }
 
   @override
   Future<ActiveIngestionDto?> getActiveIngestion() async {
@@ -208,7 +285,7 @@ class _FakeTripIngestionService implements TripIngestionService {
   Future<IngestionStatusDto> getStatus(int ingestionId) async {
     return IngestionStatusDto(
       coreStatus: 'COMPLETED',
-      rawStatus: 'COMPLETED',
+      rawStatus: statusAfterRawComplete,
       missingCoreParts: const [],
       missingRawParts: const [],
       tripId: inlineTripId,
@@ -245,10 +322,11 @@ class _FakeTripIngestionService implements TripIngestionService {
     required String sha256,
     required int sizeBytes,
   }) async {
-    return const PresignResultDto(
-      objectKey: 'unused',
-      uploadUrl: 'http://unused',
-      uploadHeaders: {},
+    presignedParts.add('$kind#$sequence');
+    return PresignResultDto(
+      objectKey: '$kind-$sequence',
+      uploadUrl: 'http://unused/$kind/$sequence',
+      uploadHeaders: const {},
     );
   }
 
@@ -274,7 +352,9 @@ class _FakeTripIngestionService implements TripIngestionService {
     String uploadUrl,
     List<int> bytes, {
     Map<String, String> headers = const {},
-  }) async {}
+  }) async {
+    uploadedParts.add(bytes);
+  }
 
   @override
   Future<void> confirmPart(
@@ -282,5 +362,7 @@ class _FakeTripIngestionService implements TripIngestionService {
     required String kind,
     required int sequence,
     required String sha256,
-  }) async {}
+  }) async {
+    confirmedParts.add('$kind#$sequence');
+  }
 }

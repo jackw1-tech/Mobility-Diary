@@ -479,6 +479,20 @@ def _core_failed_final_status():
     return Status(409, {"detail": "core ingestion fallita definitivamente"})
 
 
+def _ensure_ingestion_not_permanently_dead(ingestion: TripIngestion) -> None:
+    # 410, non 409: questi due stati non si risolvono mai ritentando (a
+    # differenza degli altri 409 di questo modulo, che sono conflitti
+    # transitori). Il client li distingue per statusCode e scarta subito
+    # invece di bruciare il budget di retry su un esito che non cambiera' mai.
+    if ingestion.recording_abandoned_at is not None:
+        raise HttpError(410, "viaggio abbandonato")
+    if (
+        ingestion.recording_closed_at is not None
+        and ingestion.core_status != TripIngestion.PhaseStatus.COMPLETED
+    ):
+        raise HttpError(410, "viaggio gia' chiuso")
+
+
 def _get_inline_core_ingestion(
     request,
     payload: InlineCoreIn,
@@ -523,13 +537,7 @@ def _get_inline_core_ingestion(
         raise HttpError(403, "device_id non autorizzato")
     if ingestion.recording_started_at is None:
         raise HttpError(409, "viaggio non avviato")
-    if ingestion.recording_abandoned_at is not None:
-        raise HttpError(409, "viaggio abbandonato")
-    if (
-        ingestion.recording_closed_at is not None
-        and ingestion.core_status != TripIngestion.PhaseStatus.COMPLETED
-    ):
-        raise HttpError(409, "viaggio gia' chiuso")
+    _ensure_ingestion_not_permanently_dead(ingestion)
     return ingestion
 
 
@@ -661,7 +669,7 @@ def start_ingestion(request, payload: IngestionStartIn):
 
 @router.post(
     "/trips/core",
-    response={200: InlineCoreOut, 409: dict},
+    response={200: InlineCoreOut, 409: dict, 410: dict},
     auth=mobile_bearer_auth,
 )
 def create_core_inline(request, payload: InlineCoreIn):
@@ -804,7 +812,7 @@ def create_core_inline(request, payload: InlineCoreIn):
 
 @router.post(
     "/trips",
-    response={200: IngestionCreateOut, 409: dict},
+    response={200: IngestionCreateOut, 409: dict, 410: dict},
     auth=mobile_bearer_auth,
 )
 def create_ingestion(request, payload: IngestionCreateIn):
@@ -843,6 +851,7 @@ def create_ingestion(request, payload: IngestionCreateIn):
         # preesistente (che e' il caso comune, non l'eccezione) e ogni
         # presign successivo fallirebbe con "parte non dichiarata".
         if not created:
+            _ensure_ingestion_not_permanently_dead(ingestion)
             if ingestion.core_status == TripIngestion.PhaseStatus.FAILED_FINAL:
                 _release_active_lock_for_failed_final(
                     ingestion, now=timezone.now()
@@ -1032,7 +1041,7 @@ def confirm_part(request, ingestion_id: int, payload: PartConfirmIn):
 
 @router.post(
     "/trips/{ingestion_id}/complete-core",
-    response={202: CompleteOut, 409: dict},
+    response={202: CompleteOut, 409: dict, 410: dict},
     auth=mobile_bearer_auth,
 )
 def complete_core_ingestion(request, ingestion_id: int, payload: CompleteIn):
@@ -1055,6 +1064,7 @@ def complete_core_ingestion(request, ingestion_id: int, payload: CompleteIn):
         if ingestion.core_status == TripIngestion.PhaseStatus.FAILED_FINAL:
             _release_active_lock_for_failed_final(ingestion, now=timezone.now())
             return _core_failed_final_status()
+        _ensure_ingestion_not_permanently_dead(ingestion)
 
         expected = _expected_part_keys(ingestion.expected_core_parts)
         if not expected:

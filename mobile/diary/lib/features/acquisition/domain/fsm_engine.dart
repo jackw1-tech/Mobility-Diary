@@ -3,36 +3,26 @@ import 'tracking_event.dart';
 import 'tracking_state.dart';
 
 class FsmConfig {
-  final double movementSigmaThreshold;
-  final int requiredMotionWindows;
-  final int requiredReliableGpsMotionFixes;
-  final int requiredUnreliableGpsMotionFixes;
-  final double movementSpeedThresholdMetersPerSecond;
-  final double reliableGpsAccuracyMeters;
-  final Duration stationaryDeepAfter;
-  final Duration movementStationaryGracePeriod;
-  final int requiredConsecutiveMotionWindowsToHoldMovement;
-  final int requiredReliableGpsReadingsToHoldMovement;
-  final int requiredUnreliableGpsReadingsToHoldMovement;
+  final Duration movingEvidenceRequired;
+  final Duration stationaryEvidenceRequired;
+  final Duration stationaryUncertainGrace;
+  final Duration motionSigmaFreshness;
+  final Duration gpsSpeedFreshness;
+  final double movingGpsSpeedThresholdMps;
+  final double stationaryGpsSpeedThresholdMps;
+  final double movingMotionSigmaThreshold;
+  final double stationaryMotionSigmaThreshold;
 
   const FsmConfig({
-    this.movementSigmaThreshold = 1,
-    this.requiredMotionWindows = 4,
-    this.requiredReliableGpsMotionFixes = 2,
-    this.requiredUnreliableGpsMotionFixes = 3,
-    this.movementSpeedThresholdMetersPerSecond = 2 / 3.6,
-    this.reliableGpsAccuracyMeters = 35,
-    this.stationaryDeepAfter = const Duration(minutes: 10),
-    this.movementStationaryGracePeriod = const Duration(minutes: 2),
-    // Nel ramo movement -> stationary il sigma ha priorita': basta la stessa
-    // soglia dell'ingresso. Il GPS invece deve insistere piu' a lungo, e
-    // ancora di piu' se il fix e' impreciso (rumore Doppler/multipath tipico
-    // indoor) — stessa filosofia "affidabile vs inaffidabile" gia' usata in
-    // ingresso, ma tarata piu' stretta perche' qui il rischio e' restare
-    // bloccati in movement, non perdere l'inizio di un movimento reale.
-    this.requiredConsecutiveMotionWindowsToHoldMovement = 2,
-    this.requiredReliableGpsReadingsToHoldMovement = 3,
-    this.requiredUnreliableGpsReadingsToHoldMovement = 5,
+    this.movingEvidenceRequired = const Duration(seconds: 15),
+    this.stationaryEvidenceRequired = const Duration(seconds: 120),
+    this.stationaryUncertainGrace = const Duration(seconds: 20),
+    this.motionSigmaFreshness = const Duration(seconds: 10),
+    this.gpsSpeedFreshness = const Duration(seconds: 20),
+    this.movingGpsSpeedThresholdMps = 0.8,
+    this.stationaryGpsSpeedThresholdMps = 0.4,
+    this.movingMotionSigmaThreshold = 1.2,
+    this.stationaryMotionSigmaThreshold = 0.8,
   });
 }
 
@@ -64,19 +54,28 @@ class FsmDecision {
   bool get didTransition => transition != null;
 }
 
+enum _MotionEvidence {
+  moving,
+  stationary,
+  uncertain,
+}
+
+enum FsmEvidenceMode {
+  strictSensors,
+  forceStationary,
+}
+
 class AcquisitionFsm {
   final FsmConfig config;
 
   TrackingState _state;
-  int _consecutiveMotionWindows = 0;
-  int _movementReliableGpsMotionFixes = 0;
-  int _movementUnreliableGpsMotionFixes = 0;
-  int _stationaryReliableGpsMotionFixes = 0;
-  int _stationaryUnreliableGpsMotionFixes = 0;
   double _latestSigma = 0;
-  double _latestSpeedMetersPerSecond = 0;
-  DateTime? _stationaryStartedAt;
+  double _latestGpsSpeedMetersPerSecond = 0;
+  DateTime? _latestSigmaAt;
+  DateTime? _latestGpsSpeedAt;
+  DateTime? _movingEvidenceStartedAt;
   DateTime? _stationaryEvidenceStartedAt;
+  DateTime? _stationaryUncertainStartedAt;
 
   AcquisitionFsm({
     this.config = const FsmConfig(),
@@ -85,154 +84,158 @@ class AcquisitionFsm {
 
   double get latestSigma => _latestSigma;
 
-  double get latestSpeedMetersPerSecond => _latestSpeedMetersPerSecond;
+  double get latestSpeedMetersPerSecond => _latestGpsSpeedMetersPerSecond;
 
   TrackingState? get currentState => _state;
 
   void forceState(TrackingState state, double sigma, double speedMps) {
     _state = state;
     _latestSigma = sigma;
-    _latestSpeedMetersPerSecond = speedMps;
+    _latestGpsSpeedMetersPerSecond = speedMps;
+    _latestSigmaAt = null;
+    _latestGpsSpeedAt = null;
+    _movingEvidenceStartedAt = null;
+    _stationaryEvidenceStartedAt = null;
+    _stationaryUncertainStartedAt = null;
   }
 
-  FsmDecision apply(TrackingEvent event) {
-    switch (event) {
-      case MotionWindowEvaluated():
-        return _onMotionWindow(event);
-      case GpsFixReceived():
-        return _onGpsFix(event);
-    }
-  }
-
-  FsmDecision _onMotionWindow(MotionWindowEvaluated event) {
-    _latestSigma = event.sigma;
-    _consecutiveMotionWindows =
-        _isMotion(event.sigma) ? _consecutiveMotionWindows + 1 : 0;
-
-    if (_state == TrackingState.stationary) {
-      if (_consecutiveMotionWindows >= config.requiredMotionWindows) {
-        return _transitionTo(
-          TrackingState.movement,
-          'movement_sigma_above_threshold',
-          event.timestamp,
-        );
-      }
-      return _stay(event.timestamp);
-    }
-
-    return _evaluateMovementStationaryEvidence(event.timestamp);
-  }
-
-  FsmDecision _onGpsFix(GpsFixReceived event) {
-    _latestSpeedMetersPerSecond = event.speedMetersPerSecond;
-    _updateMovementGpsEvidence(event);
-
-    if (_state == TrackingState.stationary) {
-      return _onStationaryGpsFix(event);
-    }
-
-    return _evaluateMovementStationaryEvidence(event.timestamp);
-  }
-
-  // Tiene traccia, indipendentemente dallo stato, di quante letture GPS "in
-  // moto" si sono accumulate dall'ultimo vero calo di velocita', separando
-  // affidabili e inaffidabili — usato dal ramo movement -> stationary per
-  // decidere se fidarsi del GPS.
-  //
-  // NON azzeriamo il contatore dell'altra categoria quando cambia solo la
-  // classe di affidabilita' del fix: mentre ci si muove davvero l'accuratezza
-  // GPS oscilla di continuo intorno alla soglia (35m), quindi i fix passano
-  // spesso da affidabili a inaffidabili e viceversa. Se ogni oscillazione
-  // resettasse l'altro contatore, nessuno dei due raggiungerebbe mai la
-  // soglia e l'FSM ricadrebbe erroneamente in stationary (percorso live che
-  // "si ferma"). Solo un fix SOTTO la soglia di movimento — cioe' una
-  // decelerazione reale — azzera l'evidenza.
-  void _updateMovementGpsEvidence(GpsFixReceived event) {
-    if (!_isMovementSpeed(event.speedMetersPerSecond)) {
-      _movementReliableGpsMotionFixes = 0;
-      _movementUnreliableGpsMotionFixes = 0;
-      return;
-    }
-
-    if (_isReliableGpsFix(event)) {
-      _movementReliableGpsMotionFixes += 1;
-    } else {
-      _movementUnreliableGpsMotionFixes += 1;
-    }
-  }
-
-  FsmDecision _onStationaryGpsFix(GpsFixReceived event) {
-    if (!_isMovementSpeed(event.speedMetersPerSecond)) {
-      _resetStationaryGpsEvidence();
-      return _stay(event.timestamp);
-    }
-
-    if (_isReliableGpsFix(event)) {
-      _stationaryReliableGpsMotionFixes += 1;
-      _stationaryUnreliableGpsMotionFixes = 0;
-      if (_stationaryReliableGpsMotionFixes >=
-          config.requiredReliableGpsMotionFixes) {
-        return _transitionTo(
-          TrackingState.movement,
-          'gps_reliable_motion_confirmed_in_stationary',
-          event.timestamp,
-        );
-      }
-      return _stay(event.timestamp);
-    }
-
-    _stationaryUnreliableGpsMotionFixes += 1;
-    _stationaryReliableGpsMotionFixes = 0;
-    if (_stationaryUnreliableGpsMotionFixes >=
-        config.requiredUnreliableGpsMotionFixes) {
+  FsmDecision apply(
+    TrackingEvent event, {
+    FsmEvidenceMode evidenceMode = FsmEvidenceMode.strictSensors,
+  }) {
+    _updateSignal(event);
+    if (evidenceMode == FsmEvidenceMode.forceStationary &&
+        _state == TrackingState.movement) {
       return _transitionTo(
-        TrackingState.movement,
-        'gps_unreliable_motion_confirmed_in_stationary',
+        TrackingState.stationary,
+        'background_inertial_stale',
         event.timestamp,
       );
     }
 
-    return _stay(event.timestamp);
+    final evidence = _evidenceAt(event.timestamp, evidenceMode);
+
+    switch (_state) {
+      case TrackingState.stationary:
+        return _evaluateStationary(evidence, event.timestamp);
+      case TrackingState.movement:
+        return _evaluateMovement(evidence, event.timestamp);
+    }
   }
 
-  FsmDecision _evaluateMovementStationaryEvidence(DateTime timestamp) {
-    // Ogni canale ha il proprio contatore di letture "in moto" (sigma sopra
-    // soglia in _onMotionWindow; velocita' sopra soglia in _onGpsFix),
-    // azzerato solo da una lettura dello stesso canale che NON indica moto.
-    // Una singola lettura rumorosa isolata su un canale (rumore Doppler/
-    // multipath GPS, uno spike accelerometrico) non basta da sola: serve che
-    // ALMENO UN canale accumuli abbastanza evidenza propria per essere
-    // considerata moto reale sostenuta, non solo il valore piu' recente
-    // (possibilmente stantio) dell'altro canale.
-    //
-    // Il sigma ha priorita': gli basta la stessa soglia dell'ingresso (2). Il
-    // GPS deve insistere di piu' per essere creduto qui, ed e' pesato per
-    // affidabilita' del fix, come gia' avviene in ingresso.
-    final sustainedMotion = _consecutiveMotionWindows >=
-            config.requiredConsecutiveMotionWindowsToHoldMovement ||
-        _movementReliableGpsMotionFixes >=
-            config.requiredReliableGpsReadingsToHoldMovement ||
-        _movementUnreliableGpsMotionFixes >=
-            config.requiredUnreliableGpsReadingsToHoldMovement;
+  void _updateSignal(TrackingEvent event) {
+    switch (event) {
+      case MotionWindowEvaluated():
+        _latestSigma = event.sigma;
+        _latestSigmaAt = event.timestamp;
+      case GpsFixReceived():
+        _latestGpsSpeedMetersPerSecond = event.speedMetersPerSecond;
+        _latestGpsSpeedAt = event.timestamp;
+    }
+  }
 
-    if (sustainedMotion) {
-      _stationaryEvidenceStartedAt = null;
-      return _stay(timestamp);
+  FsmDecision _evaluateStationary(
+    _MotionEvidence evidence,
+    DateTime timestamp,
+  ) {
+    switch (evidence) {
+      case _MotionEvidence.moving:
+        _movingEvidenceStartedAt ??= timestamp;
+        final duration = timestamp.difference(_movingEvidenceStartedAt!);
+        if (duration >= config.movingEvidenceRequired) {
+          return _transitionTo(
+            TrackingState.movement,
+            'moving_evidence_confirmed',
+            timestamp,
+          );
+        }
+      case _MotionEvidence.stationary:
+        _movingEvidenceStartedAt = null;
+      case _MotionEvidence.uncertain:
+        _movingEvidenceStartedAt = null;
     }
 
-    _stationaryEvidenceStartedAt ??= timestamp;
-    final stationaryDuration = timestamp.difference(
-      _stationaryEvidenceStartedAt!,
-    );
-    if (stationaryDuration >= config.movementStationaryGracePeriod) {
-      return _transitionTo(
-        TrackingState.stationary,
-        'gps_and_motion_stationary_for_grace_period',
-        timestamp,
-      );
+    return _stay();
+  }
+
+  FsmDecision _evaluateMovement(
+    _MotionEvidence evidence,
+    DateTime timestamp,
+  ) {
+    switch (evidence) {
+      case _MotionEvidence.stationary:
+        if (_stationaryUncertainExceededGrace(timestamp)) {
+          _stationaryEvidenceStartedAt = timestamp;
+        }
+        _stationaryUncertainStartedAt = null;
+        _stationaryEvidenceStartedAt ??= timestamp;
+        final duration = timestamp.difference(_stationaryEvidenceStartedAt!);
+        if (duration >= config.stationaryEvidenceRequired) {
+          return _transitionTo(
+            TrackingState.stationary,
+            'stationary_evidence_confirmed',
+            timestamp,
+          );
+        }
+      case _MotionEvidence.moving:
+        _stationaryEvidenceStartedAt = null;
+        _stationaryUncertainStartedAt = null;
+      case _MotionEvidence.uncertain:
+        _evaluateUncertainWhileSettlingStationary(timestamp);
     }
 
-    return _stay(timestamp);
+    return _stay();
+  }
+
+  _MotionEvidence _evidenceAt(
+    DateTime timestamp,
+    FsmEvidenceMode evidenceMode,
+  ) {
+    if (evidenceMode == FsmEvidenceMode.forceStationary) {
+      return _forceStationaryEvidence();
+    }
+
+    final sigma = _freshSigma(timestamp);
+    final gpsSpeed = _freshGpsSpeed(timestamp);
+    if (sigma == null || gpsSpeed == null) {
+      return _MotionEvidence.uncertain;
+    }
+
+    if (sigma >= config.movingMotionSigmaThreshold &&
+        gpsSpeed >= config.movingGpsSpeedThresholdMps) {
+      return _MotionEvidence.moving;
+    }
+
+    if (sigma < config.stationaryMotionSigmaThreshold &&
+        gpsSpeed < config.stationaryGpsSpeedThresholdMps) {
+      return _MotionEvidence.stationary;
+    }
+
+    return _MotionEvidence.uncertain;
+  }
+
+  _MotionEvidence _forceStationaryEvidence() {
+    return _state == TrackingState.movement
+        ? _MotionEvidence.stationary
+        : _MotionEvidence.uncertain;
+  }
+
+  double? _freshSigma(DateTime timestamp) {
+    final latestAt = _latestSigmaAt;
+    if (latestAt == null ||
+        timestamp.difference(latestAt) > config.motionSigmaFreshness) {
+      return null;
+    }
+    return _latestSigma;
+  }
+
+  double? _freshGpsSpeed(DateTime timestamp) {
+    final latestAt = _latestGpsSpeedAt;
+    if (latestAt == null ||
+        timestamp.difference(latestAt) > config.gpsSpeedFreshness) {
+      return null;
+    }
+    return _latestGpsSpeedMetersPerSecond;
   }
 
   FsmDecision _transitionTo(
@@ -242,21 +245,13 @@ class AcquisitionFsm {
   ) {
     final previousState = _state;
     _state = nextState;
-    _consecutiveMotionWindows = 0;
-    _movementReliableGpsMotionFixes = 0;
-    _movementUnreliableGpsMotionFixes = 0;
+    _movingEvidenceStartedAt = null;
     _stationaryEvidenceStartedAt = null;
-    _resetStationaryGpsEvidence();
-
-    if (nextState == TrackingState.stationary) {
-      _stationaryStartedAt = timestamp;
-    } else {
-      _stationaryStartedAt = null;
-    }
+    _stationaryUncertainStartedAt = null;
 
     return FsmDecision(
       state: _state,
-      samplingProfile: _samplingProfileFor(timestamp),
+      samplingProfile: _samplingProfileFor(),
       transition: FsmTransition(
         from: previousState,
         to: nextState,
@@ -266,44 +261,37 @@ class AcquisitionFsm {
     );
   }
 
-  FsmDecision _stay(DateTime timestamp) {
-    if (_state == TrackingState.stationary) {
-      _stationaryStartedAt ??= timestamp;
-    }
-
+  FsmDecision _stay() {
     return FsmDecision(
       state: _state,
-      samplingProfile: _samplingProfileFor(timestamp),
+      samplingProfile: _samplingProfileFor(),
     );
   }
 
-  SamplingProfile _samplingProfileFor(DateTime timestamp) {
-    if (_state == TrackingState.movement) {
-      return SamplingProfile.forState(_state);
+  void _evaluateUncertainWhileSettlingStationary(DateTime timestamp) {
+    if (_stationaryEvidenceStartedAt == null) {
+      _stationaryUncertainStartedAt = null;
+      return;
     }
 
-    final stationaryStartedAt = _stationaryStartedAt ?? timestamp;
-    final stationaryDuration = timestamp.difference(stationaryStartedAt);
-    return SamplingProfile.forState(
-      _state,
-      stationaryDeep: stationaryDuration >= config.stationaryDeepAfter,
+    _stationaryUncertainStartedAt ??= timestamp;
+    final uncertainDuration = timestamp.difference(
+      _stationaryUncertainStartedAt!,
     );
+    if (uncertainDuration > config.stationaryUncertainGrace) {
+      _stationaryEvidenceStartedAt = null;
+      _stationaryUncertainStartedAt = null;
+    }
   }
 
-  bool _isMotion(double sigma) => sigma > config.movementSigmaThreshold;
-
-  bool _isMovementSpeed(double speedMetersPerSecond) {
-    return speedMetersPerSecond > config.movementSpeedThresholdMetersPerSecond;
+  bool _stationaryUncertainExceededGrace(DateTime timestamp) {
+    final uncertainStartedAt = _stationaryUncertainStartedAt;
+    return uncertainStartedAt != null &&
+        timestamp.difference(uncertainStartedAt) >
+            config.stationaryUncertainGrace;
   }
 
-  bool _isReliableGpsFix(GpsFixReceived event) {
-    final accuracyMeters = event.accuracyMeters;
-    return accuracyMeters == null ||
-        accuracyMeters <= config.reliableGpsAccuracyMeters;
-  }
-
-  void _resetStationaryGpsEvidence() {
-    _stationaryReliableGpsMotionFixes = 0;
-    _stationaryUnreliableGpsMotionFixes = 0;
+  SamplingProfile _samplingProfileFor() {
+    return SamplingProfile.forState(_state);
   }
 }

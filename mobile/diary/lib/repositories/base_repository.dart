@@ -1,6 +1,4 @@
-import 'package:diary/model/base_model.dart';
-
-abstract class BaseRepository<T extends BaseModel> {
+abstract class BaseRepository<T> {
   Future<List<T>> getAll();
 
   Future<T?> get(String id);

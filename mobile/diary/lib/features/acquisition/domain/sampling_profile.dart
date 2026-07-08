@@ -30,33 +30,14 @@ class SamplingProfile {
     required this.persistGpsPoints,
   });
 
-  const SamplingProfile.stationary() : this.stationaryRecent();
-
-  const SamplingProfile.stationaryRecent()
+  const SamplingProfile.stationary()
       : this(
           accelerometerHz: 10,
           gyroscopeHz: 0,
           magnetometerHz: 0,
           gpsEnabled: true,
-          gpsInterval: const Duration(seconds: 20),
-          gpsDistanceFilterMeters: 30,
-          gpsAccuracy: GpsAccuracyProfile.highAccuracy,
-          harWindowEnabled: false,
-          persistSensorWindows: false,
-          persistGpsPoints: true,
-        );
-
-  const SamplingProfile.stationaryDeep()
-      : this(
-          accelerometerHz: 10,
-          gyroscopeHz: 0,
-          magnetometerHz: 0,
-          gpsEnabled: true,
-          // Keep active trips map-grade even if the FSM is still stationary:
-          // a false stationary state must not collapse the live route into a
-          // sparse start-to-current line after long recordings.
-          gpsInterval: const Duration(seconds: 20),
-          gpsDistanceFilterMeters: 30,
+          gpsInterval: const Duration(seconds: 5),
+          gpsDistanceFilterMeters: 5,
           gpsAccuracy: GpsAccuracyProfile.highAccuracy,
           harWindowEnabled: false,
           persistSensorWindows: false,
@@ -77,15 +58,10 @@ class SamplingProfile {
           persistGpsPoints: true,
         );
 
-  factory SamplingProfile.forState(
-    TrackingState state, {
-    bool stationaryDeep = false,
-  }) {
+  factory SamplingProfile.forState(TrackingState state) {
     switch (state) {
       case TrackingState.stationary:
-        return stationaryDeep
-            ? const SamplingProfile.stationaryDeep()
-            : const SamplingProfile.stationaryRecent();
+        return const SamplingProfile.stationary();
       case TrackingState.movement:
         return const SamplingProfile.movement();
     }

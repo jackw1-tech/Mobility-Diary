@@ -78,4 +78,43 @@ void main() {
       expect(autoOpenTripDetailId(previous, current), 100);
     });
   });
+
+  group('syncDebugMessage', () {
+    test('announces when HAR raw parts are being uploaded', () {
+      const sync = AcquisitionSyncSnapshot(
+        status: AcquisitionSyncStatus.completed,
+        rawStatus: AcquisitionSyncStatus.uploading,
+        localSessionId: 'local-raw',
+        remoteIngestionId: 10,
+      );
+
+      expect(syncDebugMessage(sync), 'HAR trovata: upload sensor_windows');
+    });
+
+    test('announces when raw parts have reached backend processing', () {
+      const sync = AcquisitionSyncSnapshot(
+        status: AcquisitionSyncStatus.completed,
+        rawStatus: AcquisitionSyncStatus.waitingProcessing,
+        localSessionId: 'local-raw',
+        remoteIngestionId: 10,
+      );
+
+      expect(
+        syncDebugMessage(sync),
+        'Raw confermati. Processing HAR finale',
+      );
+    });
+
+    test('includes retry details when upload fails before processing', () {
+      const sync = AcquisitionSyncSnapshot(
+        status: AcquisitionSyncStatus.completed,
+        rawStatus: AcquisitionSyncStatus.failedRetryable,
+        localSessionId: 'local-raw',
+        remoteIngestionId: 10,
+        lastError: 'Upload parte fallito',
+      );
+
+      expect(syncDebugMessage(sync), 'Sync in retry: Upload parte fallito');
+    });
+  });
 }

@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('AcquisitionFsm', () {
-    test('starts in stationary with the recent sampling profile', () {
+    test('starts in stationary with the lightweight GPS profile', () {
       final decision = AcquisitionFsm().apply(
         MotionWindowEvaluated(
           timestamp: DateTime.utc(2026, 1, 1),
@@ -14,486 +14,437 @@ void main() {
 
       expect(decision.state, TrackingState.stationary);
       expect(decision.samplingProfile.accelerometerHz, 10);
+      expect(decision.samplingProfile.gyroscopeHz, 0);
       expect(decision.samplingProfile.gpsEnabled, isTrue);
-      expect(decision.samplingProfile.gpsInterval, const Duration(seconds: 20));
-      expect(decision.samplingProfile.gpsDistanceFilterMeters, 30);
+      expect(decision.samplingProfile.gpsInterval, const Duration(seconds: 5));
+      expect(decision.samplingProfile.gpsDistanceFilterMeters, 5);
       expect(decision.samplingProfile.gpsAccuracy,
           GpsAccuracyProfile.highAccuracy);
       expect(decision.samplingProfile.harWindowEnabled, isFalse);
       expect(decision.didTransition, isFalse);
     });
 
-    test('switches stationary to deep low-power sampling after ten minutes',
+    test('requires fresh GPS speed and sigma to enter movement', () {
+      final fsm = AcquisitionFsm();
+      final now = DateTime.utc(2026, 1, 1);
+
+      final gpsOnly = fsm.apply(
+        GpsFixReceived(
+          timestamp: now,
+          speedMetersPerSecond: 1.2,
+          accuracyMeters: 8,
+        ),
+      );
+      final sigmaOnly = fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: now.add(const Duration(seconds: 1)),
+          sigma: 1.4,
+          sampleCount: 20,
+        ),
+      );
+
+      expect(gpsOnly.state, TrackingState.stationary);
+      expect(sigmaOnly.state, TrackingState.stationary);
+      expect(sigmaOnly.didTransition, isFalse);
+    });
+
+    test('enters movement after fifteen seconds of concordant moving evidence',
         () {
       final fsm = AcquisitionFsm();
       final now = DateTime.utc(2026, 1, 1);
 
       fsm.apply(
+        GpsFixReceived(
+          timestamp: now,
+          speedMetersPerSecond: 1.2,
+          accuracyMeters: 8,
+        ),
+      );
+      fsm.apply(
         MotionWindowEvaluated(
           timestamp: now,
-          sigma: 0.1,
+          sigma: 1.4,
+          sampleCount: 20,
+        ),
+      );
+      final before = fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: now.add(const Duration(seconds: 14)),
+          sigma: 1.4,
           sampleCount: 20,
         ),
       );
       final decision = fsm.apply(
         MotionWindowEvaluated(
-          timestamp: now.add(const Duration(minutes: 10, seconds: 1)),
-          sigma: 0.1,
+          timestamp: now.add(const Duration(seconds: 15)),
+          sigma: 1.4,
           sampleCount: 20,
         ),
       );
 
-      expect(decision.state, TrackingState.stationary);
-      expect(decision.samplingProfile.gpsInterval, const Duration(minutes: 3));
-      expect(decision.samplingProfile.gpsDistanceFilterMeters, 100);
-      expect(decision.samplingProfile.gpsAccuracy, GpsAccuracyProfile.lowPower);
-    });
-
-    test('moves to movement after four consecutive motion windows', () {
-      final fsm = AcquisitionFsm();
-      final now = DateTime.utc(2026, 1, 1);
-
-      final decision = _enterMovement(fsm, now);
-
+      expect(before.state, TrackingState.stationary);
+      expect(before.didTransition, isFalse);
       expect(decision.state, TrackingState.movement);
+      expect(decision.transition?.reason, 'moving_evidence_confirmed');
       expect(decision.samplingProfile.accelerometerHz, 100);
       expect(decision.samplingProfile.gyroscopeHz, 100);
-      expect(decision.samplingProfile.magnetometerHz, 0);
       expect(decision.samplingProfile.gpsInterval, const Duration(seconds: 2));
       expect(decision.samplingProfile.gpsDistanceFilterMeters, 3);
       expect(decision.samplingProfile.persistSensorWindows, isTrue);
       expect(decision.samplingProfile.persistGpsPoints, isTrue);
-      expect(
-        decision.transition?.reason,
-        'movement_sigma_above_threshold',
-      );
     });
 
-    test('moves to movement after two reliable GPS motion fixes', () {
+    test('does not enter movement when GPS speed becomes stale', () {
       final fsm = AcquisitionFsm();
       final now = DateTime.utc(2026, 1, 1);
 
       fsm.apply(
         GpsFixReceived(
           timestamp: now,
-          speedMetersPerSecond: 0.8,
-          accuracyMeters: 12,
+          speedMetersPerSecond: 1.2,
+          accuracyMeters: 8,
         ),
       );
       final decision = fsm.apply(
-        GpsFixReceived(
-          timestamp: now.add(const Duration(seconds: 20)),
-          speedMetersPerSecond: 0.8,
-          accuracyMeters: 12,
+        MotionWindowEvaluated(
+          timestamp: now.add(const Duration(seconds: 21)),
+          sigma: 1.4,
+          sampleCount: 20,
         ),
       );
 
-      expect(decision.state, TrackingState.movement);
-      expect(
-        decision.transition?.reason,
-        'gps_reliable_motion_confirmed_in_stationary',
-      );
+      expect(decision.state, TrackingState.stationary);
+      expect(decision.didTransition, isFalse);
     });
 
-    test('moves to movement after three unreliable GPS motion fixes', () {
+    test('stationary evidence resets the moving countdown', () {
       final fsm = AcquisitionFsm();
       final now = DateTime.utc(2026, 1, 1);
 
       fsm.apply(
         GpsFixReceived(
           timestamp: now,
-          speedMetersPerSecond: 0.8,
-          accuracyMeters: 60,
+          speedMetersPerSecond: 1.2,
+          accuracyMeters: 8,
         ),
       );
       fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: now,
+          sigma: 1.4,
+          sampleCount: 20,
+        ),
+      );
+      fsm.apply(
+        GpsFixReceived(
+          timestamp: now.add(const Duration(seconds: 5)),
+          speedMetersPerSecond: 0.1,
+          accuracyMeters: 8,
+        ),
+      );
+      fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: now.add(const Duration(seconds: 5)),
+          sigma: 0.1,
+          sampleCount: 20,
+        ),
+      );
+      fsm.apply(
+        GpsFixReceived(
+          timestamp: now.add(const Duration(seconds: 6)),
+          speedMetersPerSecond: 1.2,
+          accuracyMeters: 8,
+        ),
+      );
+      final decision = fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: now.add(const Duration(seconds: 20)),
+          sigma: 1.4,
+          sampleCount: 20,
+        ),
+      );
+
+      expect(decision.state, TrackingState.stationary);
+      expect(decision.didTransition, isFalse);
+    });
+
+    test('uncertain evidence resets the moving countdown', () {
+      final fsm = AcquisitionFsm();
+      final now = DateTime.utc(2026, 1, 1);
+
+      fsm.apply(
+        GpsFixReceived(
+          timestamp: now,
+          speedMetersPerSecond: 1.2,
+          accuracyMeters: 8,
+        ),
+      );
+      fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: now,
+          sigma: 1.4,
+          sampleCount: 20,
+        ),
+      );
+      fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: now.add(const Duration(seconds: 5)),
+          sigma: 1,
+          sampleCount: 20,
+        ),
+      );
+      final decision = fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: now.add(const Duration(seconds: 20)),
+          sigma: 1.4,
+          sampleCount: 20,
+        ),
+      );
+
+      expect(decision.state, TrackingState.stationary);
+      expect(decision.didTransition, isFalse);
+    });
+
+    test('requires fresh GPS speed and sigma to leave movement', () {
+      final fsm = AcquisitionFsm(initialState: TrackingState.movement);
+      final now = DateTime.utc(2026, 1, 1);
+
+      final sigmaOnly = fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: now,
+          sigma: 0.1,
+          sampleCount: 20,
+        ),
+      );
+      final gpsOnly = fsm.apply(
+        GpsFixReceived(
+          timestamp: now.add(const Duration(seconds: 11)),
+          speedMetersPerSecond: 0.1,
+          accuracyMeters: 8,
+        ),
+      );
+
+      expect(sigmaOnly.state, TrackingState.movement);
+      expect(gpsOnly.state, TrackingState.movement);
+      expect(gpsOnly.didTransition, isFalse);
+    });
+
+    test(
+        'returns to stationary after one hundred twenty seconds of concordant '
+        'stationary evidence', () {
+      final fsm = AcquisitionFsm(initialState: TrackingState.movement);
+      final now = DateTime.utc(2026, 1, 1);
+
+      fsm.apply(
+        GpsFixReceived(
+          timestamp: now,
+          speedMetersPerSecond: 0.1,
+          accuracyMeters: 8,
+        ),
+      );
+      fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: now,
+          sigma: 0.1,
+          sampleCount: 20,
+        ),
+      );
+      final before = fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: now.add(const Duration(seconds: 119)),
+          sigma: 0.1,
+          sampleCount: 20,
+        ),
+      );
+      final decision = fsm.apply(
+        GpsFixReceived(
+          timestamp: now.add(const Duration(seconds: 120)),
+          speedMetersPerSecond: 0.1,
+          accuracyMeters: 8,
+        ),
+      );
+
+      expect(before.state, TrackingState.movement);
+      expect(before.didTransition, isFalse);
+      expect(decision.state, TrackingState.stationary);
+      expect(decision.transition?.reason, 'stationary_evidence_confirmed');
+      expect(decision.samplingProfile.accelerometerHz, 10);
+      expect(decision.samplingProfile.gyroscopeHz, 0);
+      expect(decision.samplingProfile.gpsInterval, const Duration(seconds: 5));
+    });
+
+    test('moving evidence resets the stationary countdown', () {
+      final fsm = AcquisitionFsm(initialState: TrackingState.movement);
+      final now = DateTime.utc(2026, 1, 1);
+
+      fsm.apply(
+        GpsFixReceived(
+          timestamp: now,
+          speedMetersPerSecond: 0.1,
+          accuracyMeters: 8,
+        ),
+      );
+      fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: now,
+          sigma: 0.1,
+          sampleCount: 20,
+        ),
+      );
+      fsm.apply(
+        GpsFixReceived(
+          timestamp: now.add(const Duration(seconds: 60)),
+          speedMetersPerSecond: 1.2,
+          accuracyMeters: 8,
+        ),
+      );
+      fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: now.add(const Duration(seconds: 60)),
+          sigma: 1.4,
+          sampleCount: 20,
+        ),
+      );
+      fsm.apply(
+        GpsFixReceived(
+          timestamp: now.add(const Duration(seconds: 61)),
+          speedMetersPerSecond: 0.1,
+          accuracyMeters: 8,
+        ),
+      );
+      final decision = fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: now.add(const Duration(seconds: 180)),
+          sigma: 0.1,
+          sampleCount: 20,
+        ),
+      );
+
+      expect(decision.state, TrackingState.movement);
+      expect(decision.didTransition, isFalse);
+    });
+
+    test('brief uncertain evidence freezes the stationary countdown', () {
+      final fsm = AcquisitionFsm(initialState: TrackingState.movement);
+      final now = DateTime.utc(2026, 1, 1);
+
+      fsm.apply(
+        GpsFixReceived(
+          timestamp: now,
+          speedMetersPerSecond: 0.1,
+          accuracyMeters: 8,
+        ),
+      );
+      fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: now,
+          sigma: 0.1,
+          sampleCount: 20,
+        ),
+      );
+      fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: now.add(const Duration(seconds: 100)),
+          sigma: 1,
+          sampleCount: 20,
+        ),
+      );
+      fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: now.add(const Duration(seconds: 115)),
+          sigma: 0.1,
+          sampleCount: 20,
+        ),
+      );
+      final decision = fsm.apply(
+        GpsFixReceived(
+          timestamp: now.add(const Duration(seconds: 120)),
+          speedMetersPerSecond: 0.1,
+          accuracyMeters: 8,
+        ),
+      );
+
+      expect(decision.state, TrackingState.stationary);
+      expect(decision.transition?.reason, 'stationary_evidence_confirmed');
+    });
+
+    test('long uncertain evidence resets the stationary countdown', () {
+      final fsm = AcquisitionFsm(initialState: TrackingState.movement);
+      final now = DateTime.utc(2026, 1, 1);
+
+      fsm.apply(
+        GpsFixReceived(
+          timestamp: now,
+          speedMetersPerSecond: 0.1,
+          accuracyMeters: 8,
+        ),
+      );
+      fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: now,
+          sigma: 0.1,
+          sampleCount: 20,
+        ),
+      );
+      fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: now.add(const Duration(seconds: 30)),
+          sigma: 1,
+          sampleCount: 20,
+        ),
+      );
+      final decision = fsm.apply(
+        GpsFixReceived(
+          timestamp: now.add(const Duration(seconds: 120)),
+          speedMetersPerSecond: 0.1,
+          accuracyMeters: 8,
+        ),
+      );
+
+      expect(decision.state, TrackingState.movement);
+      expect(decision.didTransition, isFalse);
+    });
+
+    test('force-stationary mode closes movement immediately', () {
+      final fsm = AcquisitionFsm(initialState: TrackingState.movement);
+      final now = DateTime.utc(2026, 1, 1);
+
+      final decision = fsm.apply(
+        GpsFixReceived(
+          timestamp: now,
+          speedMetersPerSecond: 8,
+          accuracyMeters: 8,
+        ),
+        evidenceMode: FsmEvidenceMode.forceStationary,
+      );
+
+      expect(decision.state, TrackingState.stationary);
+      expect(decision.transition?.reason, 'background_inertial_stale');
+    });
+
+    test('force-stationary mode does not open movement from stationary', () {
+      final fsm = AcquisitionFsm();
+      final now = DateTime.utc(2026, 1, 1);
+
+      fsm.apply(
+        GpsFixReceived(
+          timestamp: now,
+          speedMetersPerSecond: 1.2,
+          accuracyMeters: 8,
+        ),
+        evidenceMode: FsmEvidenceMode.forceStationary,
+      );
+      final decision = fsm.apply(
         GpsFixReceived(
           timestamp: now.add(const Duration(seconds: 20)),
-          speedMetersPerSecond: 0.8,
-          accuracyMeters: 60,
+          speedMetersPerSecond: 1.2,
+          accuracyMeters: 8,
         ),
-      );
-      final decision = fsm.apply(
-        GpsFixReceived(
-          timestamp: now.add(const Duration(seconds: 40)),
-          speedMetersPerSecond: 0.8,
-          accuracyMeters: 60,
-        ),
-      );
-
-      expect(decision.state, TrackingState.movement);
-      expect(
-        decision.transition?.reason,
-        'gps_unreliable_motion_confirmed_in_stationary',
-      );
-    });
-
-    test('keeps movement while speed stays above the movement threshold', () {
-      final fsm = AcquisitionFsm(initialState: TrackingState.movement);
-      final now = DateTime.utc(2026, 1, 1);
-
-      final decision = fsm.apply(
-        GpsFixReceived(
-          timestamp: now,
-          speedMetersPerSecond: 3,
-          accuracyMeters: 12,
-        ),
-      );
-
-      expect(decision.state, TrackingState.movement);
-      expect(decision.didTransition, isFalse);
-    });
-
-    test('returns to stationary after the movement grace period', () {
-      final fsm = AcquisitionFsm(initialState: TrackingState.movement);
-      final now = DateTime.utc(2026, 1, 1);
-
-      fsm.apply(
-        GpsFixReceived(
-          timestamp: now,
-          speedMetersPerSecond: 0,
-          accuracyMeters: 10,
-        ),
-      );
-      fsm.apply(
-        MotionWindowEvaluated(
-          timestamp: now,
-          sigma: 0.05,
-          sampleCount: 500,
-        ),
-      );
-      final decision = fsm.apply(
-        MotionWindowEvaluated(
-          timestamp: now.add(const Duration(minutes: 2, seconds: 1)),
-          sigma: 0.04,
-          sampleCount: 500,
-        ),
+        evidenceMode: FsmEvidenceMode.forceStationary,
       );
 
       expect(decision.state, TrackingState.stationary);
-      expect(
-        decision.transition?.reason,
-        'gps_and_motion_stationary_for_grace_period',
-      );
-    });
-
-    test('does not return to stationary before the grace period expires', () {
-      final fsm = AcquisitionFsm(initialState: TrackingState.movement);
-      final now = DateTime.utc(2026, 1, 1);
-
-      fsm.apply(
-        GpsFixReceived(
-          timestamp: now,
-          speedMetersPerSecond: 0,
-          accuracyMeters: 10,
-        ),
-      );
-      final decision = fsm.apply(
-        MotionWindowEvaluated(
-          timestamp: now.add(const Duration(minutes: 1)),
-          sigma: 0.04,
-          sampleCount: 500,
-        ),
-      );
-
-      expect(decision.state, TrackingState.movement);
-      expect(decision.didTransition, isFalse);
-    });
-
-    test(
-        'a single noisy reading while settling does not reset the grace '
-        'countdown', () {
-      final fsm = AcquisitionFsm(initialState: TrackingState.movement);
-      final now = DateTime.utc(2026, 1, 1);
-
-      fsm.apply(
-        GpsFixReceived(
-          timestamp: now,
-          speedMetersPerSecond: 0,
-          accuracyMeters: 10,
-        ),
-      );
-      // Singolo fix rumoroso isolato (es. rumore Doppler indoor): non deve
-      // azzerare il countdown verso stationary.
-      final blip = fsm.apply(
-        GpsFixReceived(
-          timestamp: now.add(const Duration(seconds: 60)),
-          speedMetersPerSecond: 3,
-          accuracyMeters: 10,
-        ),
-      );
-      fsm.apply(
-        MotionWindowEvaluated(
-          timestamp: now.add(const Duration(seconds: 61)),
-          sigma: 0.05,
-          sampleCount: 500,
-        ),
-      );
-      final decision = fsm.apply(
-        MotionWindowEvaluated(
-          timestamp: now.add(const Duration(minutes: 2, seconds: 1)),
-          sigma: 0.04,
-          sampleCount: 500,
-        ),
-      );
-
-      expect(blip.state, TrackingState.movement);
-      expect(blip.didTransition, isFalse);
-      expect(decision.state, TrackingState.stationary);
-      expect(
-        decision.transition?.reason,
-        'gps_and_motion_stationary_for_grace_period',
-      );
-    });
-
-    test(
-        'two consecutive reliable GPS readings are not enough to reset the '
-        'grace countdown (GPS needs three)', () {
-      final fsm = AcquisitionFsm(initialState: TrackingState.movement);
-      final now = DateTime.utc(2026, 1, 1);
-
-      fsm.apply(
-        GpsFixReceived(
-          timestamp: now,
-          speedMetersPerSecond: 0,
-          accuracyMeters: 10,
-        ),
-      );
-      fsm.apply(
-        GpsFixReceived(
-          timestamp: now.add(const Duration(seconds: 60)),
-          speedMetersPerSecond: 3,
-          accuracyMeters: 10,
-        ),
-      );
-      fsm.apply(
-        GpsFixReceived(
-          timestamp: now.add(const Duration(seconds: 61)),
-          speedMetersPerSecond: 3,
-          accuracyMeters: 10,
-        ),
-      );
-      final decision = fsm.apply(
-        MotionWindowEvaluated(
-          timestamp: now.add(const Duration(minutes: 2, seconds: 1)),
-          sigma: 0.04,
-          sampleCount: 500,
-        ),
-      );
-
-      expect(decision.state, TrackingState.stationary);
-    });
-
-    test('three consecutive reliable GPS readings reset the grace countdown',
-        () {
-      final fsm = AcquisitionFsm(initialState: TrackingState.movement);
-      final now = DateTime.utc(2026, 1, 1);
-
-      fsm.apply(
-        GpsFixReceived(
-          timestamp: now,
-          speedMetersPerSecond: 0,
-          accuracyMeters: 10,
-        ),
-      );
-      fsm.apply(
-        GpsFixReceived(
-          timestamp: now.add(const Duration(seconds: 60)),
-          speedMetersPerSecond: 3,
-          accuracyMeters: 10,
-        ),
-      );
-      fsm.apply(
-        GpsFixReceived(
-          timestamp: now.add(const Duration(seconds: 61)),
-          speedMetersPerSecond: 3,
-          accuracyMeters: 10,
-        ),
-      );
-      // Terza lettura affidabile consecutiva: ora e' evidenza sostenuta, il
-      // countdown riparte da qui.
-      fsm.apply(
-        GpsFixReceived(
-          timestamp: now.add(const Duration(seconds: 62)),
-          speedMetersPerSecond: 3,
-          accuracyMeters: 10,
-        ),
-      );
-      fsm.apply(
-        MotionWindowEvaluated(
-          timestamp: now.add(const Duration(seconds: 63)),
-          sigma: 0.05,
-          sampleCount: 500,
-        ),
-      );
-      final decision = fsm.apply(
-        MotionWindowEvaluated(
-          timestamp: now.add(const Duration(minutes: 2, seconds: 1)),
-          sigma: 0.04,
-          sampleCount: 500,
-        ),
-      );
-
-      expect(decision.state, TrackingState.movement);
-      expect(decision.didTransition, isFalse);
-    });
-
-    test(
-        'two consecutive loud sigma readings reset the grace countdown '
-        '(sigma keeps priority over GPS)', () {
-      final fsm = AcquisitionFsm(initialState: TrackingState.movement);
-      final now = DateTime.utc(2026, 1, 1);
-
-      fsm.apply(
-        MotionWindowEvaluated(
-          timestamp: now,
-          sigma: 0.05,
-          sampleCount: 500,
-        ),
-      );
-      fsm.apply(
-        MotionWindowEvaluated(
-          timestamp: now.add(const Duration(seconds: 60)),
-          sigma: 1.5,
-          sampleCount: 500,
-        ),
-      );
-      // Seconda finestra rumorosa consecutiva: per il sigma bastano due,
-      // stessa soglia dell'ingresso.
-      fsm.apply(
-        MotionWindowEvaluated(
-          timestamp: now.add(const Duration(seconds: 65)),
-          sigma: 1.5,
-          sampleCount: 500,
-        ),
-      );
-      fsm.apply(
-        MotionWindowEvaluated(
-          timestamp: now.add(const Duration(seconds: 70)),
-          sigma: 0.04,
-          sampleCount: 500,
-        ),
-      );
-      final decision = fsm.apply(
-        MotionWindowEvaluated(
-          timestamp: now.add(const Duration(minutes: 2, seconds: 1)),
-          sigma: 0.04,
-          sampleCount: 500,
-        ),
-      );
-
-      expect(decision.state, TrackingState.movement);
-      expect(decision.didTransition, isFalse);
-    });
-
-    test(
-        'five consecutive unreliable GPS readings reset the grace countdown, '
-        'four is not enough', () {
-      final fsm = AcquisitionFsm(initialState: TrackingState.movement);
-      final now = DateTime.utc(2026, 1, 1);
-
-      fsm.apply(
-        GpsFixReceived(
-          timestamp: now,
-          speedMetersPerSecond: 0,
-          accuracyMeters: 60,
-        ),
-      );
-      for (var i = 0; i < 4; i += 1) {
-        fsm.apply(
-          GpsFixReceived(
-            timestamp: now.add(Duration(seconds: 60 + i)),
-            speedMetersPerSecond: 3,
-            accuracyMeters: 60,
-          ),
-        );
-      }
-      // Con solo quattro letture inaffidabili consecutive il countdown non
-      // si e' ancora azzerato.
-      final beforeFifth = fsm.apply(
-        MotionWindowEvaluated(
-          timestamp: now.add(const Duration(minutes: 2, seconds: 1)),
-          sigma: 0.04,
-          sampleCount: 500,
-        ),
-      );
-      expect(beforeFifth.state, TrackingState.stationary);
-
-      final fsm2 = AcquisitionFsm(initialState: TrackingState.movement);
-      fsm2.apply(
-        GpsFixReceived(
-          timestamp: now,
-          speedMetersPerSecond: 0,
-          accuracyMeters: 60,
-        ),
-      );
-      for (var i = 0; i < 5; i += 1) {
-        fsm2.apply(
-          GpsFixReceived(
-            timestamp: now.add(Duration(seconds: 60 + i)),
-            speedMetersPerSecond: 3,
-            accuracyMeters: 60,
-          ),
-        );
-      }
-      fsm2.apply(
-        MotionWindowEvaluated(
-          timestamp: now.add(const Duration(seconds: 66)),
-          sigma: 0.05,
-          sampleCount: 500,
-        ),
-      );
-      final afterFifth = fsm2.apply(
-        MotionWindowEvaluated(
-          timestamp: now.add(const Duration(minutes: 2, seconds: 1)),
-          sigma: 0.04,
-          sampleCount: 500,
-        ),
-      );
-
-      expect(afterFifth.state, TrackingState.movement);
-      expect(afterFifth.didTransition, isFalse);
-    });
-
-    test(
-        'stays in movement while genuinely moving even if GPS accuracy keeps '
-        'flipping reliable/unreliable', () {
-      // Regressione: guida reale continua (~8 m/s) con l'accuratezza GPS che
-      // oscilla intorno alla soglia di affidabilita' (tipico in citta'), phone
-      // fermo sul supporto -> nessuna finestra accelerometrica di moto. Prima
-      // del fix ogni oscillazione affidabile<->inaffidabile azzerava il
-      // contatore opposto, nessuno raggiungeva la soglia e dopo il grace
-      // period l'FSM ricadeva in stationary (percorso live che si "ferma").
-      final fsm = AcquisitionFsm(initialState: TrackingState.movement);
-      final now = DateTime.utc(2026, 1, 1);
-
-      FsmDecision? decision;
-      for (var i = 0; i < 90; i += 1) {
-        decision = fsm.apply(
-          GpsFixReceived(
-            timestamp: now.add(Duration(seconds: i * 2)),
-            speedMetersPerSecond: 8,
-            accuracyMeters: i.isEven ? 20 : 45, // alterna reliable/unreliable
-          ),
-        );
-      }
-
-      expect(decision!.state, TrackingState.movement);
       expect(decision.didTransition, isFalse);
     });
   });
-}
-
-FsmDecision _enterMovement(AcquisitionFsm fsm, DateTime timestamp) {
-  late FsmDecision decision;
-  for (var index = 0; index < 4; index += 1) {
-    decision = fsm.apply(
-      MotionWindowEvaluated(
-        timestamp: timestamp.add(Duration(seconds: index * 2)),
-        sigma: 1.2,
-        sampleCount: 20,
-      ),
-    );
-  }
-  return decision;
 }

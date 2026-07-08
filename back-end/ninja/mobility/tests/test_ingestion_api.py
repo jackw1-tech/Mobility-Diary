@@ -206,3 +206,135 @@ def test_complete_raw_with_binary_sensor_windows_processes_real_trip(
     assert ingestion.raw_status == TripIngestion.PhaseStatus.COMPLETED
     assert ingestion.trip.status == Trip.Status.PROCESSED
     assert job.status == HarJob.Status.SUCCESS
+
+
+def _core_body_for_existing_ingestion(
+    *, ingestion_id: int, session_id: str, started_at, ended_at
+) -> dict:
+    body = _core_body_without_raw(
+        session_id=session_id, started_at=started_at, ended_at=ended_at
+    )
+    body["ingestion_id"] = ingestion_id
+    body["core_payload_sha256"] = _inline_payload_sha256(InlineCoreIn(**body))
+    return body
+
+
+@pytest.mark.django_db
+def test_inline_core_on_abandoned_ingestion_returns_410(mobile_user, auth_headers):
+    started_at = timezone.now() - timedelta(hours=30)
+    ingestion = TripIngestion.objects.create(
+        user=mobile_user,
+        client_session_id="abandoned-1",
+        device_id="device-1",
+        recording_started_at=started_at,
+        recording_abandoned_at=timezone.now(),
+        last_seen_at=started_at,
+    )
+    body = _core_body_for_existing_ingestion(
+        ingestion_id=ingestion.id,
+        session_id="abandoned-1",
+        started_at=started_at,
+        ended_at=started_at + timedelta(minutes=20),
+    )
+
+    response = Client().post(
+        "/api/ingestion/trips/core",
+        data=json.dumps(body),
+        content_type="application/json",
+        **auth_headers,
+    )
+
+    assert response.status_code == 410
+    assert response.json()["detail"] == "viaggio abbandonato"
+
+
+@pytest.mark.django_db
+def test_inline_core_on_closed_incomplete_ingestion_returns_410(
+    mobile_user, auth_headers
+):
+    started_at = timezone.now() - timedelta(hours=2)
+    ingestion = TripIngestion.objects.create(
+        user=mobile_user,
+        client_session_id="closed-1",
+        device_id="device-1",
+        recording_started_at=started_at,
+        recording_closed_at=timezone.now(),
+        last_seen_at=started_at,
+    )
+    body = _core_body_for_existing_ingestion(
+        ingestion_id=ingestion.id,
+        session_id="closed-1",
+        started_at=started_at,
+        ended_at=started_at + timedelta(minutes=20),
+    )
+
+    response = Client().post(
+        "/api/ingestion/trips/core",
+        data=json.dumps(body),
+        content_type="application/json",
+        **auth_headers,
+    )
+
+    assert response.status_code == 410
+    assert response.json()["detail"] == "viaggio gia' chiuso"
+
+
+@pytest.mark.django_db
+def test_create_ingestion_parts_path_on_abandoned_ingestion_returns_410(
+    mobile_user, auth_headers
+):
+    started_at = timezone.now() - timedelta(hours=30)
+    TripIngestion.objects.create(
+        user=mobile_user,
+        client_session_id="abandoned-parts",
+        device_id="device-1",
+        recording_started_at=started_at,
+        recording_abandoned_at=timezone.now(),
+        last_seen_at=started_at,
+    )
+
+    response = Client().post(
+        "/api/ingestion/trips",
+        data=json.dumps(
+            {
+                "client_session_id": "abandoned-parts",
+                "device_id": "device-1",
+                "started_at": _iso(started_at),
+                "expected_core_parts": {"gps_points": 1, "state_transitions": 1},
+            }
+        ),
+        content_type="application/json",
+        **auth_headers,
+    )
+
+    assert response.status_code == 410
+    assert response.json()["detail"] == "viaggio abbandonato"
+
+
+@pytest.mark.django_db
+def test_complete_core_ingestion_on_abandoned_ingestion_returns_410(
+    mobile_user, auth_headers
+):
+    started_at = timezone.now() - timedelta(hours=30)
+    ingestion = TripIngestion.objects.create(
+        user=mobile_user,
+        client_session_id="abandoned-complete",
+        device_id="device-1",
+        recording_started_at=started_at,
+        recording_abandoned_at=timezone.now(),
+        last_seen_at=started_at,
+        expected_core_parts={"gps_points": 1, "state_transitions": 1},
+        core_status=TripIngestion.PhaseStatus.RECEIVING,
+    )
+
+    response = Client().post(
+        f"/api/ingestion/trips/{ingestion.id}/complete-core",
+        data=json.dumps({"manifest_sha256": "manifest"}),
+        content_type="application/json",
+        **auth_headers,
+    )
+
+    assert response.status_code == 410
+    assert response.json()["detail"] == "viaggio abbandonato"
+    ingestion.refresh_from_db()
+    assert ingestion.core_status == TripIngestion.PhaseStatus.RECEIVING
