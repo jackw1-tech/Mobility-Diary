@@ -1,28 +1,8 @@
 import asyncio
-import hashlib
 import json
-import math
-from collections import Counter, defaultdict
-from datetime import datetime, time, timedelta
-from datetime import timezone as dt_timezone
-from zoneinfo import ZoneInfo
 
-from django.conf import settings
-from django.contrib.gis.db.models.functions import AsGeoJSON, Length
 from django.contrib.gis.geos import Point
 from django.db import transaction
-from django.db.models import (
-    BooleanField,
-    Case,
-    Count,
-    Exists,
-    Max,
-    Min,
-    OuterRef,
-    Q,
-    Value,
-    When,
-)
 from django.http import StreamingHttpResponse
 from django.shortcuts import aget_object_or_404, get_object_or_404
 from django.utils import timezone
@@ -45,22 +25,49 @@ from .diary_events import (
 )
 from .diary_projection import project_diary_segments
 from .diary_export import build_trip_privacy_export
-from .ingestion import storage
-from .ingestion.api import _active_ingestions
-from .ml.har_adapter import predict_window_label
-from .replay_raw import regenerate_raw_and_queue_har, source_sensor_window_at
+from .replay_raw import source_sensor_window_at
+from .selectors.places import (
+    place_mining_status_row_for_user,
+    place_review_queryset_for_user,
+)
+from .selectors.trips import (
+    reloadable_trip_list_items_for_user,
+    trip_list_items_for_user,
+    trip_track_for_user,
+)
+from .selectors.analytics import personal_analytics_for_user
+from .services.places import (
+    PlaceMutationBlockedError,
+    PlaceServiceError,
+    confirm_place_for_user,
+    label_place_for_user,
+    reactivate_place_for_user,
+    reject_place_for_user,
+)
+from .services.reload import (
+    ReloadServiceError,
+    reload_slots_for_trip as reload_slots_for_trip_service,
+    reload_trip_from_source,
+)
+from .services.route_assistant import (
+    RouteAssistantValidationError,
+    classify_route_assistant_samples,
+)
+from .services.trips import (
+    TripServiceError,
+    delete_trip as delete_trip_service,
+    update_trip_note as update_trip_note_service,
+    update_trip_reloadable as update_trip_reloadable_service,
+)
 from .models import (
     GpsPoint,
     HabitualPlace,
     HarJob,
     MobilitySegment,
-    PartKind,
-    PlaceMiningStatus,
     SensorWindow,
     StateTransition,
     Trip,
     TripIngestion,
-    TripIngestionPart,
 )
 from .significant_places import (
     place_label,
@@ -68,12 +75,7 @@ from .significant_places import (
     visible_stop_summary,
 )
 from .schemas import (
-    AnalyticsBucketOut,
-    AnalyticsCategorySliceOut,
-    AnalyticsHeatPointOut,
     AnalyticsOut,
-    AnalyticsRouteOut,
-    AnalyticsWeeklyHeatmapOut,
     DiaryOut,
     GpsPointBatchIn,
     HarJobOut,
@@ -104,7 +106,7 @@ from .schemas import (
     TripListItemOut,
     TripOut,
 )
-from .tasks import _build_trip_path, process_trip_har
+from .tasks import process_trip_har
 
 router = Router(tags=["mobility"])
 
@@ -118,33 +120,17 @@ def health(request):
     return {"status": "ok"}
 
 
-# Le tre modalita' dell'assistente di percorso derivano dall'etichetta HAR:
-# running e' assimilato a walking, moving_vehicle a driving.
-_ASSISTANT_MODE_BY_LABEL = {
-    "IDLE": "idle",
-    "WALKING": "walking",
-    "RUNNING": "walking",
-    "BIKING": "cycling",
-    "MOVING_VEHICLE": "driving",
-}
-
-
 @router.post(
     "/route-assistant/classify",
     response=RouteAssistantClassifyOut,
     auth=mobile_bearer_auth,
 )
 def classify_route_assistant_window(request, payload: RouteAssistantClassifyIn):
-    samples = payload.samples
-    if len(samples) != settings.HAR_WINDOW_SAMPLE_COUNT or any(
-        len(row) < 6 for row in samples
-    ):
-        raise HttpError(422, "finestra sensori non valida")
-    label, confidence = predict_window_label(samples)
-    return {
-        "label": _ASSISTANT_MODE_BY_LABEL.get(label, "idle"),
-        "confidence": confidence,
-    }
+    try:
+        result = classify_route_assistant_samples(payload.samples)
+    except RouteAssistantValidationError as exc:
+        raise HttpError(exc.status_code, exc.message) from exc
+    return {"label": result.label, "confidence": result.confidence}
 
 
 def _six_axis_matrix(matrix: list[list[float]] | None) -> list[list[float]] | None:
@@ -346,44 +332,15 @@ def _place_review_out(place) -> PlaceReviewOut:
 
 
 def _place_mining_status_out(user_id: int) -> PlaceMiningStatusOut:
-    row = (
-        PlaceMiningStatus.objects.filter(user_id=user_id)
-        .values(
-            "status",
-            "requested_at",
-            "started_at",
-            "finished_at",
-            "error_message",
-            "rerun_requested",
-        )
-        .first()
-    )
-    return PlaceMiningStatusOut(
-        **(
-            row
-            or {
-                "status": PlaceMiningStatus.Status.IDLE,
-                "error_message": "",
-                "rerun_requested": False,
-            }
-        )
-    )
+    return PlaceMiningStatusOut(**place_mining_status_row_for_user(user_id))
 
 
-def _place_mutation_block(user_id: int) -> PlaceMutationBlockedOut | None:
-    status = (
-        PlaceMiningStatus.objects.filter(user_id=user_id)
-        .values_list("status", flat=True)
-        .first()
-        or PlaceMiningStatus.Status.IDLE
-    )
-    if status == PlaceMiningStatus.Status.SUCCEEDED:
-        return None
-    return PlaceMutationBlockedOut(
-        detail="analisi dei luoghi abituali non completata",
-        code="place_mining_not_ready",
-        status=status,
-    )
+def _place_blocked_status(exc: PlaceMutationBlockedError):
+    return Status(409, PlaceMutationBlockedOut(**exc.block.__dict__))
+
+
+def _raise_place_service_error(exc: PlaceServiceError) -> None:
+    raise HttpError(exc.status_code, exc.message) from exc
 
 
 @router.get("/places", response=list[PlaceReviewOut], auth=mobile_bearer_auth)
@@ -393,11 +350,7 @@ def list_places(request):
     Restituisce tutti i luoghi dell'utente (il client raggruppa per stato); ogni
     luogo porta il contesto (visite, giorni distinti) e le visite di supporto.
     """
-    places = (
-        HabitualPlace.objects.filter(user_id=request.auth.user_id)
-        .prefetch_related("visits")
-        .order_by("state", "-visit_count")
-    )
+    places = place_review_queryset_for_user(request.auth.user_id)
     return [_place_review_out(place) for place in places]
 
 
@@ -406,32 +359,19 @@ def get_places_status(request):
     return _place_mining_status_out(request.auth.user_id)
 
 
-_VALID_PLACE_CATEGORIES = {choice.value for choice in HabitualPlace.Category}
-
-
-def _owned_place(request, place_id: int) -> HabitualPlace:
-    return get_object_or_404(
-        HabitualPlace, id=place_id, user_id=request.auth.user_id
-    )
-
-
-def _save_review(place: HabitualPlace, fields: list[str]) -> PlaceReviewOut:
-    place.save(update_fields=[*fields, "updated_at"])
-    return _place_review_out(place)
-
-
 @router.post(
     "/places/{place_id}/confirm",
     response=_PLACE_REVIEW_RESPONSES,
     auth=mobile_bearer_auth,
 )
 def confirm_place(request, place_id: int):
-    place = _owned_place(request, place_id)
-    if blocked := _place_mutation_block(request.auth.user_id):
-        return Status(409, blocked)
-    place.state = HabitualPlace.State.CONFIRMED
-    place.manually_reviewed = True
-    return _save_review(place, ["state", "manually_reviewed"])
+    try:
+        place = confirm_place_for_user(request.auth.user_id, place_id)
+    except PlaceMutationBlockedError as exc:
+        return _place_blocked_status(exc)
+    except PlaceServiceError as exc:
+        _raise_place_service_error(exc)
+    return _place_review_out(place)
 
 
 @router.post(
@@ -440,12 +380,13 @@ def confirm_place(request, place_id: int):
     auth=mobile_bearer_auth,
 )
 def reject_place(request, place_id: int):
-    place = _owned_place(request, place_id)
-    if blocked := _place_mutation_block(request.auth.user_id):
-        return Status(409, blocked)
-    place.state = HabitualPlace.State.REJECTED
-    place.manually_reviewed = True
-    return _save_review(place, ["state", "manually_reviewed"])
+    try:
+        place = reject_place_for_user(request.auth.user_id, place_id)
+    except PlaceMutationBlockedError as exc:
+        return _place_blocked_status(exc)
+    except PlaceServiceError as exc:
+        _raise_place_service_error(exc)
+    return _place_review_out(place)
 
 
 @router.post(
@@ -455,12 +396,13 @@ def reject_place(request, place_id: int):
 )
 def reactivate_place(request, place_id: int):
     """Riattiva un luogo rifiutato: torna candidato e rientra nel flusso automatico."""
-    place = _owned_place(request, place_id)
-    if blocked := _place_mutation_block(request.auth.user_id):
-        return Status(409, blocked)
-    place.state = HabitualPlace.State.CANDIDATE
-    place.manually_reviewed = False
-    return _save_review(place, ["state", "manually_reviewed"])
+    try:
+        place = reactivate_place_for_user(request.auth.user_id, place_id)
+    except PlaceMutationBlockedError as exc:
+        return _place_blocked_status(exc)
+    except PlaceServiceError as exc:
+        _raise_place_service_error(exc)
+    return _place_review_out(place)
 
 
 @router.post(
@@ -469,15 +411,18 @@ def reactivate_place(request, place_id: int):
     auth=mobile_bearer_auth,
 )
 def label_place(request, place_id: int, payload: PlaceLabelIn):
-    if payload.category and payload.category not in _VALID_PLACE_CATEGORIES:
-        raise HttpError(422, "categoria non valida")
-    place = _owned_place(request, place_id)
-    if blocked := _place_mutation_block(request.auth.user_id):
-        return Status(409, blocked)
-    place.category = payload.category
-    place.custom_name = payload.custom_name
-    place.manually_reviewed = True
-    return _save_review(place, ["category", "custom_name", "manually_reviewed"])
+    try:
+        place = label_place_for_user(
+            request.auth.user_id,
+            place_id,
+            category=payload.category,
+            custom_name=payload.custom_name,
+        )
+    except PlaceMutationBlockedError as exc:
+        return _place_blocked_status(exc)
+    except PlaceServiceError as exc:
+        _raise_place_service_error(exc)
+    return _place_review_out(place)
 
 
 def _saved_privacy_level(user_id: int) -> str:
@@ -624,104 +569,8 @@ async def trip_events(request, trip_id: int):
     return response
 
 
-def _trip_list_items(queryset):
-    rows = (
-        queryset.annotate(**_trip_list_annotations())
-        .order_by("-started_at")
-    )
-    return [_trip_list_item(row) for row in rows]
-
-
-def _trip_list_annotations():
-    return {
-        "has_track": _has_track_case(),
-        "has_reload_descendants": Exists(
-            Trip.objects.filter(reloaded_from_trip=OuterRef("pk"))
-        ),
-        "has_replay_ingestions": Exists(
-            TripIngestion.objects.filter(source_trip=OuterRef("pk"))
-        ),
-        "has_raw_sensor_evidence": Exists(
-            TripIngestionPart.objects.filter(
-                ingestion__trip=OuterRef("pk"),
-                ingestion__raw_status=TripIngestion.PhaseStatus.COMPLETED,
-                kind=PartKind.SENSOR_WINDOWS,
-                received_at__isnull=False,
-            )
-        ),
-        "has_completed_ingestion": Exists(
-            TripIngestion.objects.filter(
-                trip=OuterRef("pk"),
-                core_status=TripIngestion.PhaseStatus.COMPLETED,
-                raw_status=TripIngestion.PhaseStatus.COMPLETED,
-            )
-        ),
-    }
-
-
-def _has_track_case():
-    return Case(
-        When(path__isnull=False, then=Value(True)),
-        default=Value(False),
-        output_field=BooleanField(),
-    )
-
-
-def _trip_has_reload_usage(trip: Trip) -> bool:
-    return trip.reloads.exists() or trip.replay_ingestions.exists()
-
-
-def _trip_can_delete(trip: Trip) -> bool:
-    return not trip.has_reload_descendants and not trip.has_replay_ingestions
-
-
-def _trip_can_toggle_reloadable(trip: Trip) -> bool:
-    is_real = trip.reloaded_from_trip_id is None
-    is_completed = trip.status in [Trip.Status.CLOSED, Trip.Status.PROCESSED]
-    can_publish = not trip.is_reloadable and trip.has_raw_sensor_evidence
-    can_withdraw = trip.is_reloadable and _trip_can_delete(trip)
-    return is_real and is_completed and (can_publish or can_withdraw)
-
-
-def _trip_can_edit_note(trip: Trip) -> bool:
-    return trip.has_completed_ingestion
-
-
-def _trip_list_item(trip: Trip) -> dict:
-    return {
-        "id": trip.id,
-        "started_at": trip.started_at,
-        "ended_at": trip.ended_at,
-        "status": trip.status,
-        "distance_meters": trip.distance_meters,
-        "note": trip.note,
-        "has_track": trip.has_track,
-        "is_reloadable": trip.is_reloadable,
-        "is_derived": trip.reloaded_from_trip_id is not None,
-        "can_delete": _trip_can_delete(trip),
-        "can_toggle_reloadable": _trip_can_toggle_reloadable(trip),
-        "can_edit_note": _trip_can_edit_note(trip),
-    }
-
-
-def _trip_list_item_by_id(trip_id: int) -> dict:
-    trip = Trip.objects.filter(id=trip_id).annotate(**_trip_list_annotations()).get()
-    return _trip_list_item(trip)
-
-
-def _trip_object_keys(trip: Trip) -> list[str]:
-    sensor_keys = SensorWindow.objects.filter(trip=trip).exclude(object_key="").values_list(
-        "object_key", flat=True
-    )
-    ingestion_keys = TripIngestionPart.objects.filter(
-        ingestion__trip=trip
-    ).values_list("object_key", flat=True)
-    return sorted({key for key in [*sensor_keys, *ingestion_keys] if key})
-
-
-def _delete_storage_objects(object_keys: list[str]) -> None:
-    for object_key in object_keys:
-        storage.delete_object(object_key)
+def _raise_trip_service_error(exc: TripServiceError) -> None:
+    raise HttpError(exc.status_code, exc.message) from exc
 
 
 @router.get("/trips", response=list[TripListItemOut], auth=mobile_bearer_auth)
@@ -731,7 +580,7 @@ def list_trips(request):
     `has_track` e' calcolato a DB (path non null) senza caricare la geometria,
     cosi' la UI sa se il pulsante "Vedi su mappa" puo' mostrare qualcosa.
     """
-    return _trip_list_items(Trip.objects.filter(user_id=request.auth.user_id))
+    return trip_list_items_for_user(request.auth.user_id)
 
 
 @router.get(
@@ -740,13 +589,7 @@ def list_trips(request):
     auth=mobile_bearer_auth,
 )
 def list_reloadable_trips(request):
-    return _trip_list_items(
-        Trip.objects.filter(
-            user_id=request.auth.user_id,
-            is_reloadable=True,
-            status__in=[Trip.Status.CLOSED, Trip.Status.PROCESSED],
-        )
-    )
+    return reloadable_trip_list_items_for_user(request.auth.user_id)
 
 
 @router.patch(
@@ -755,29 +598,14 @@ def list_reloadable_trips(request):
     auth=mobile_bearer_auth,
 )
 def update_trip_reloadable(request, trip_id: int, payload: TripReloadableUpdateIn):
-    with transaction.atomic():
-        trip = get_object_or_404(
-            Trip.objects.select_for_update(),
-            id=trip_id,
+    try:
+        return update_trip_reloadable_service(
             user_id=request.auth.user_id,
+            trip_id=trip_id,
+            is_reloadable=payload.is_reloadable,
         )
-        if trip.reloaded_from_trip_id is not None:
-            raise HttpError(409, "un viaggio derivato non puo' diventare ricaricabile")
-        if trip.status not in [Trip.Status.CLOSED, Trip.Status.PROCESSED]:
-            raise HttpError(409, "solo un viaggio completato puo' diventare ricaricabile")
-
-        if payload.is_reloadable and not _source_has_raw_sensor_evidence(trip):
-            raise HttpError(409, "telemetrie sorgente non disponibili")
-        if (
-            not payload.is_reloadable
-            and trip.is_reloadable
-            and _trip_has_reload_usage(trip)
-        ):
-            raise HttpError(409, "viaggio gia' usato come sorgente")
-
-        trip.is_reloadable = payload.is_reloadable
-        trip.save(update_fields=["is_reloadable", "updated_at"])
-    return _trip_list_item_by_id(trip.id)
+    except TripServiceError as exc:
+        _raise_trip_service_error(exc)
 
 
 @router.patch(
@@ -786,20 +614,14 @@ def update_trip_reloadable(request, trip_id: int, payload: TripReloadableUpdateI
     auth=mobile_bearer_auth,
 )
 def update_trip_note(request, trip_id: int, payload: TripNoteUpdateIn):
-    trip = get_object_or_404(Trip, id=trip_id, user_id=request.auth.user_id)
-    if not TripIngestion.objects.filter(
-        trip=trip,
-        core_status=TripIngestion.PhaseStatus.COMPLETED,
-        raw_status=TripIngestion.PhaseStatus.COMPLETED,
-    ).exists():
-        raise HttpError(409, "nota disponibile solo a viaggio completato")
-
-    note = payload.note.strip()
-    if len(note) > 500:
-        raise HttpError(422, "nota troppo lunga")
-    trip.note = note
-    trip.save(update_fields=["note", "updated_at"])
-    return _trip_list_item_by_id(trip.id)
+    try:
+        return update_trip_note_service(
+            user_id=request.auth.user_id,
+            trip_id=trip_id,
+            note=payload.note,
+        )
+    except TripServiceError as exc:
+        _raise_trip_service_error(exc)
 
 
 @router.delete(
@@ -808,19 +630,10 @@ def update_trip_note(request, trip_id: int, payload: TripNoteUpdateIn):
     auth=mobile_bearer_auth,
 )
 def delete_trip(request, trip_id: int):
-    with transaction.atomic():
-        trip = get_object_or_404(
-            Trip.objects.select_for_update(),
-            id=trip_id,
-            user_id=request.auth.user_id,
-        )
-        if _trip_has_reload_usage(trip):
-            raise HttpError(409, "viaggio gia' usato come sorgente")
-
-        object_keys = _trip_object_keys(trip)
-        _delete_storage_objects(object_keys)
-        TripIngestion.objects.filter(trip=trip).delete()
-        trip.delete()
+    try:
+        delete_trip_service(user_id=request.auth.user_id, trip_id=trip_id)
+    except TripServiceError as exc:
+        _raise_trip_service_error(exc)
     return Status(204, None)
 
 
@@ -863,138 +676,8 @@ def get_reloadable_sensor_window(request, trip_id: int, offset_seconds: int):
     return {"samples": samples}
 
 
-def _reload_client_session_id(user_id: int, source_trip_id: int, request_id: str) -> str:
-    key = f"{user_id}:{source_trip_id}:{request_id}".encode("utf-8")
-    return f"reload-{hashlib.sha256(key).hexdigest()[:57]}"
-
-
-def _reload_response(ingestion: TripIngestion) -> TripReloadOut:
-    trip = ingestion.trip
-    if trip is None:
-        raise HttpError(409, "reload senza trip materializzato")
-    gps_count = GpsPoint.objects.filter(trip=trip).count()
-    transition_count = StateTransition.objects.filter(trip=trip).count()
-    return TripReloadOut(
-        ingestion_id=ingestion.id,
-        trip_id=trip.id,
-        core_status=ingestion.core_status,
-        raw_status=ingestion.raw_status,
-        gps_points=gps_count,
-        state_transitions=transition_count,
-        path_points=gps_count,
-        distance_meters=float(trip.distance_meters or 0),
-        map_available=trip.path is not None,
-    )
-
-
-def _source_timeline(
-    source: Trip,
-) -> tuple[list[GpsPoint], list[StateTransition], datetime, datetime]:
-    source_points = list(source.gps_points.order_by("timestamp"))
-    source_transitions = list(source.state_transitions.order_by("timestamp"))
-    source_timestamps = [point.timestamp for point in source_points] + [
-        transition.timestamp for transition in source_transitions
-    ]
-    if not source_timestamps:
-        raise HttpError(409, "viaggio ricaricabile senza evidenza core")
-
-    source_start = source.started_at or min(source_timestamps)
-    source_end = source.ended_at or max(source_timestamps)
-    if source_end < source_start:
-        raise HttpError(409, "durata viaggio ricaricabile non valida")
-    return source_points, source_transitions, source_start, source_end
-
-
-def _reloadable_source_or_409(user_id: int, trip_id: int) -> Trip:
-    source = get_object_or_404(Trip, id=trip_id, user_id=user_id)
-    if not source.is_reloadable or source.status not in [
-        Trip.Status.CLOSED,
-        Trip.Status.PROCESSED,
-    ]:
-        raise HttpError(409, "viaggio non ricaricabile")
-    return source
-
-
-def _user_trip_overlaps(user_id: int, start: datetime, end: datetime) -> bool:
-    return (
-        Trip.objects.filter(user_id=user_id, started_at__lt=end)
-        .filter(Q(ended_at__isnull=True) | Q(ended_at__gt=start))
-        .exists()
-    )
-
-
-def _ensure_reload_slot_available(
-    user_id: int,
-    start: datetime,
-    end: datetime,
-    now: datetime,
-) -> None:
-    if end > now:
-        raise HttpError(409, "scegli uno slot nel passato")
-    if _user_trip_overlaps(user_id, start, end):
-        raise HttpError(409, "slot sovrapposto a un viaggio esistente")
-
-
-def _ceil_to_step(value: datetime, step_minutes: int) -> datetime:
-    step_seconds = step_minutes * 60
-    timestamp = math.ceil(value.timestamp() / step_seconds) * step_seconds
-    return datetime.fromtimestamp(timestamp, tz=dt_timezone.utc)
-
-
-def _source_has_raw_sensor_evidence(source: Trip) -> bool:
-    return TripIngestionPart.objects.filter(
-        ingestion__trip=source,
-        ingestion__raw_status=TripIngestion.PhaseStatus.COMPLETED,
-        kind=PartKind.SENSOR_WINDOWS,
-        received_at__isnull=False,
-    ).exists()
-
-
-def _reload_slot_candidates(
-    *,
-    user_id: int,
-    duration: timedelta,
-    now: datetime,
-    days: int,
-    step_minutes: int,
-    limit: int,
-) -> list[dict[str, datetime]]:
-    window_start = now - timedelta(days=max(1, min(days, 30)))
-    step_minutes = max(5, min(step_minutes, 60))
-    limit = max(1, min(limit, 500))
-    busy_rows = (
-        Trip.objects.filter(user_id=user_id, started_at__lt=now)
-        .filter(Q(ended_at__isnull=True) | Q(ended_at__gt=window_start))
-        .order_by("started_at")
-        .values_list("started_at", "ended_at")
-    )
-    busy = [
-        (max(start, window_start), min(end or now, now))
-        for start, end in busy_rows
-        if start and max(start, window_start) < min(end or now, now)
-    ]
-    free: list[tuple[datetime, datetime]] = []
-    cursor = window_start
-    for start, end in busy:
-        if start > cursor:
-            free.append((cursor, start))
-        if end > cursor:
-            cursor = end
-    if cursor < now:
-        free.append((cursor, now))
-
-    slots: list[dict[str, datetime]] = []
-    for free_start, free_end in free:
-        candidate = _ceil_to_step(free_start, step_minutes)
-        while candidate + duration <= free_end:
-            slots.append(
-                {
-                    "started_at": candidate,
-                    "ended_at": candidate + duration,
-                }
-            )
-            candidate += timedelta(minutes=step_minutes)
-    return list(reversed(slots[-limit:]))
+def _raise_reload_service_error(exc: ReloadServiceError) -> None:
+    raise HttpError(exc.status_code, exc.message) from exc
 
 
 @router.get(
@@ -1009,25 +692,16 @@ def list_reload_slots(
     step_minutes: int = 15,
     limit: int = 100,
 ):
-    source = _reloadable_source_or_409(request.auth.user_id, trip_id)
-    if not _source_has_raw_sensor_evidence(source):
-        raise HttpError(409, "telemetrie sorgente non disponibili")
-    _, _, source_start, source_end = _source_timeline(source)
-    duration = source_end - source_start
-    if duration <= timedelta(0):
-        raise HttpError(409, "durata viaggio ricaricabile non valida")
-    return {
-        "source_trip_id": source.id,
-        "duration_seconds": int(duration.total_seconds()),
-        "slots": _reload_slot_candidates(
+    try:
+        return reload_slots_for_trip_service(
             user_id=request.auth.user_id,
-            duration=duration,
-            now=timezone.now(),
+            trip_id=trip_id,
             days=days,
             step_minutes=step_minutes,
             limit=limit,
-        ),
-    }
+        )
+    except ReloadServiceError as exc:
+        _raise_reload_service_error(exc)
 
 
 @router.post(
@@ -1036,398 +710,23 @@ def list_reload_slots(
     auth=mobile_bearer_auth,
 )
 def reload_trip(request, trip_id: int, payload: TripReloadIn):
-    if not payload.reload_request_id:
-        raise HttpError(422, "reload_request_id richiesto")
-    if _active_ingestions(request.auth.user_id).exists():
-        raise HttpError(409, "viaggio in corso attivo")
-
-    source = get_object_or_404(Trip, id=trip_id, user_id=request.auth.user_id)
-    client_session_id = _reload_client_session_id(
-        request.auth.user_id,
-        source.id,
-        payload.reload_request_id,
-    )
-
-    with transaction.atomic():
-        existing = (
-            TripIngestion.objects.select_for_update()
-            .filter(user_id=request.auth.user_id, client_session_id=client_session_id)
-            .first()
-        )
-        if existing is not None:
-            if existing.trip_id is not None:
-                return _reload_response(existing)
-            existing.delete()
-
-        source = Trip.objects.select_for_update().get(id=source.id)
-        if not source.is_reloadable or source.status not in [
-            Trip.Status.CLOSED,
-            Trip.Status.PROCESSED,
-        ]:
-            raise HttpError(409, "viaggio non ricaricabile")
-
-        source_points, source_transitions, source_start, source_end = _source_timeline(
-            source
-        )
-        duration = source_end - source_start
-        reload_end = timezone.now()
-        if payload.scheduled_start_at is None:
-            reload_start = reload_end - duration
-        else:
-            reload_start = payload.scheduled_start_at
-            reload_end = reload_start + duration
-            _ensure_reload_slot_available(
-                request.auth.user_id,
-                reload_start,
-                reload_end,
-                timezone.now(),
-            )
-        shift = reload_start - source_start
-
-        ingestion = TripIngestion.objects.create(
+    try:
+        return reload_trip_from_source(
             user_id=request.auth.user_id,
-            client_session_id=client_session_id,
-            device_id="reload",
-            core_status=TripIngestion.PhaseStatus.COMPLETED,
-            raw_status=TripIngestion.PhaseStatus.PENDING,
-            core_ingestion_mode=TripIngestion.CoreIngestionMode.INLINE,
-            expected_core_parts={},
-            expected_raw_parts={},
-            started_at=reload_start,
-            ended_at=reload_end,
-            completed_at=reload_end,
+            trip_id=trip_id,
+            reload_request_id=payload.reload_request_id,
+            scheduled_start_at=payload.scheduled_start_at,
         )
-        ingestion.raw_base_path = f"ingestions/{ingestion.id}/"
-        ingestion.save(update_fields=["raw_base_path", "updated_at"])
-
-        trip = Trip.objects.create(
-            user_id=request.auth.user_id,
-            client_session_id=client_session_id,
-            device_id="reload",
-            status=Trip.Status.CLOSED,
-            started_at=reload_start,
-            ended_at=reload_end,
-            reloaded_from_trip=source,
-        )
-
-        GpsPoint.objects.bulk_create(
-            [
-                GpsPoint(
-                    trip=trip,
-                    timestamp=point.timestamp + shift,
-                    point=Point(point.longitude, point.latitude, srid=4326),
-                    speed_mps=point.speed_mps,
-                    accuracy_meters=point.accuracy_meters,
-                )
-                for point in source_points
-            ],
-            ignore_conflicts=True,
-        )
-        StateTransition.objects.bulk_create(
-            [
-                StateTransition(
-                    trip=trip,
-                    timestamp=transition.timestamp + shift,
-                    from_state=transition.from_state,
-                    to_state=transition.to_state,
-                    reason=transition.reason,
-                    sigma=transition.sigma,
-                    speed_mps=transition.speed_mps,
-                )
-                for transition in source_transitions
-            ],
-            ignore_conflicts=True,
-        )
-        _build_trip_path(trip)
-        trip.refresh_from_db(fields=["path", "distance_meters"])
-
-        ingestion.trip = trip
-        ingestion.save(update_fields=["trip", "updated_at"])
-        regenerate_raw_and_queue_har(ingestion, source, shift=shift, now=reload_end)
-        return _reload_response(ingestion)
+    except ReloadServiceError as exc:
+        _raise_reload_service_error(exc)
 
 
 @router.get("/trips/{trip_id}/track", response=TrackOut, auth=mobile_bearer_auth)
 def get_trip_track(request, trip_id: int):
-    row = (
-        Trip.objects.filter(pk=trip_id, user_id=request.auth.user_id)
-        .annotate(
-            track_geojson=AsGeoJSON("path"),
-            track_distance=Length("path"),
-            point_count=Count("gps_points"),
-        )
-        .values("id", "track_geojson", "track_distance", "point_count")
-        .first()
-    )
-    if row is None:
+    track = trip_track_for_user(trip_id, request.auth.user_id)
+    if track is None:
         raise HttpError(404, "Trip non trovato")
-
-    distance = row["track_distance"]
-    return TrackOut(
-        trip_id=row["id"],
-        point_count=row["point_count"],
-        distance_meters=float(
-            distance.m if hasattr(distance, "m") else distance or 0
-        ),
-        geojson=json.loads(row["track_geojson"])
-        if row["track_geojson"] is not None
-        else None,
-    )
-
-
-# Categoria di Mobilita: mappatura 1-a-1 dalla Etichetta di Attivita.
-_CATEGORY_BY_ACTIVITY = {
-    "IDLE": "fermo",
-    "WALKING": "a_piedi",
-    "RUNNING": "corsa",
-    "BIKING": "in_bici",
-    "MOVING_VEHICLE": "in_auto",
-}
-_MOBILITY_CATEGORIES = ["fermo", "a_piedi", "corsa", "in_bici", "in_auto"]
-
-
-def _analytics_zone(tz: str):
-    """Fuso per il bucketing: offset firmato in minuti (dal mobile), nome IANA, o UTC."""
-    try:
-        return dt_timezone(timedelta(minutes=int(tz)))
-    except ValueError:
-        pass
-    try:
-        return ZoneInfo(tz)
-    except Exception:  # noqa: BLE001 — tz arbitraria dal client, fallback sicuro
-        return ZoneInfo("UTC")
-
-
-# Tetto di sicurezza sull'estensione reale coperta dalla Finestra Analitica:
-# un MobilitySegment con un timestamp anomalo (clock del device sballato, bug
-# di ingestion/replay, riga residua) non deve far generare milioni di bucket.
-# Oltre il tetto, i bucket piu' vecchi restano fuori dalla Finestra Analitica
-# ma continuano a contare per heatmap, Percorsi Frequenti e modalita' prevalente,
-# che restano cumulativi su tutta la storia.
-_ANALYTICS_MAX_SPAN = timedelta(days=3650)
-
-
-def _bucket_start_of(local_date, granularity: str):
-    """Inizio del bucket (lunedi' per la settimana, il giorno stesso altrimenti)."""
-    if granularity == "week":
-        return local_date - timedelta(days=local_date.weekday())
-    return local_date
-
-
-def _analytics_buckets(user_id: int, granularity: str, zone: ZoneInfo):
-    """Finestra Analitica sull'intera storia dell'utente: dal Viaggio meno
-    recente al piu' recente, un bucket per ogni giorno/settimana del range
-    (anche senza attivita'), fino a _ANALYTICS_MAX_SPAN. Il front end pagina
-    questi bucket a botte di 7 con uno slider (ADR 0030). Il range e' calcolato
-    sui MobilitySegment (non su Trip.started_at) cosi' da coprire sempre tutta
-    l'attivita' registrata, senza perderne ai bordi."""
-    step = timedelta(weeks=1) if granularity == "week" else timedelta(days=1)
-
-    span = MobilitySegment.objects.filter(trip__user_id=user_id).aggregate(
-        first=Min("start_timestamp"), last=Max("start_timestamp")
-    )
-    if span["first"] is None:
-        return []
-
-    first_start = _bucket_start_of(span["first"].astimezone(zone).date(), granularity)
-    last_start = _bucket_start_of(span["last"].astimezone(zone).date(), granularity)
-    earliest_allowed = _bucket_start_of(last_start - _ANALYTICS_MAX_SPAN, granularity)
-    if first_start < earliest_allowed:
-        first_start = earliest_allowed
-
-    starts = []
-    cursor = first_start
-    while cursor <= last_start:
-        starts.append(cursor)
-        cursor += step
-
-    index_by_start = {start: i for i, start in enumerate(starts)}
-    totals = [{c: [0.0, 0.0] for c in _MOBILITY_CATEGORIES} for _ in starts]
-
-    window_start = datetime.combine(starts[0], time.min, tzinfo=zone)
-    rows = MobilitySegment.objects.filter(
-        trip__user_id=user_id, start_timestamp__gte=window_start
-    ).values("start_timestamp", "end_timestamp", "activity_label", "distance_meters")
-
-    for row in rows:
-        local_date = row["start_timestamp"].astimezone(zone).date()
-        index = index_by_start.get(_bucket_start_of(local_date, granularity))
-        if index is None:
-            continue
-        category = _CATEGORY_BY_ACTIVITY.get(row["activity_label"], "fermo")
-        seconds = (row["end_timestamp"] - row["start_timestamp"]).total_seconds()
-        cell = totals[index][category]
-        cell[0] += max(0.0, seconds)
-        cell[1] += float(row["distance_meters"] or 0)
-
-    return [
-        AnalyticsBucketOut(
-            # Anno incluso: la Finestra Analitica ora copre piu' storia di un
-            # anno, "%d/%m" da solo genererebbe etichette ambigue (12/05 di
-            # anni diversi mostrerebbe la stessa label).
-            label=start.strftime("%d/%m/%y"),
-            categories=[
-                AnalyticsCategorySliceOut(
-                    category=c, seconds=cell[c][0], distance_meters=cell[c][1]
-                )
-                for c in _MOBILITY_CATEGORIES
-            ],
-        )
-        for start, cell in zip(starts, totals)
-    ]
-
-
-def _analytics_heatmap(user_id: int) -> list[AnalyticsHeatPointOut]:
-    """Mappa di Frequentazione: Luoghi Significativi confermati pesati per visite."""
-    places = HabitualPlace.objects.filter(
-        user_id=user_id, state=HabitualPlace.State.CONFIRMED
-    ).only("center", "visit_count")
-    return [
-        AnalyticsHeatPointOut(
-            lat=place.center.y, lon=place.center.x, weight=float(place.visit_count)
-        )
-        for place in places
-    ]
-
-
-def _weekly_heatmaps(user_id: int, zone: ZoneInfo) -> list[AnalyticsWeeklyHeatmapOut]:
-    """Luoghi abituali toccati dai viaggi, raggruppati per settimana locale."""
-    today = timezone.now().astimezone(zone).date()
-    anchor = _bucket_start_of(today, "week")
-    starts = [anchor - timedelta(weeks=i) for i in range(7, -1, -1)]
-    index_by_start = {start: i for i, start in enumerate(starts)}
-    trip_ids = [[] for _ in starts]
-    place_hits = [Counter() for _ in starts]
-
-    places = list(
-        HabitualPlace.objects.filter(
-            user_id=user_id, state=HabitualPlace.State.CONFIRMED
-        ).only("center", "radius_meters")
-    )
-    if not places:
-        return []
-
-    by_id = {place.id: place for place in places}
-    window_start = datetime.combine(starts[0], time.min, tzinfo=zone)
-    trips = (
-        Trip.objects.filter(
-            user_id=user_id,
-            started_at__gte=window_start,
-            path__isnull=False,
-        )
-        .only("id", "started_at", "path")
-        .order_by("started_at")
-    )
-
-    for trip in trips:
-        local_date = trip.started_at.astimezone(zone).date()
-        index = index_by_start.get(_bucket_start_of(local_date, "week"))
-        if index is None:
-            continue
-        trip_ids[index].append(trip.id)
-        coords = trip.path.coords
-        if len(coords) < 2:
-            continue
-        matched = {
-            place.id
-            for place in (
-                _nearest_place(coords[0], places),
-                _nearest_place(coords[-1], places),
-            )
-            if place is not None
-        }
-        for place_id in matched:
-            place_hits[index][place_id] += 1
-
-    return [
-        AnalyticsWeeklyHeatmapOut(
-            label=start.strftime("%d/%m"),
-            trip_ids=ids,
-            habitual_places=[
-                AnalyticsHeatPointOut(
-                    lat=by_id[place_id].center.y,
-                    lon=by_id[place_id].center.x,
-                    weight=float(weight),
-                )
-                for place_id, weight in hits.most_common()
-            ],
-        )
-        for start, ids, hits in zip(starts, trip_ids, place_hits)
-        if ids or hits
-    ]
-
-
-def _prevalent_mode(user_id: int) -> str | None:
-    """Categoria di Mobilita con piu' tempo totale su tutta la storia, Fermo escluso."""
-    rows = MobilitySegment.objects.filter(trip__user_id=user_id).values(
-        "activity_label", "start_timestamp", "end_timestamp"
-    )
-    totals: dict[str, float] = defaultdict(float)
-    for row in rows:
-        category = _CATEGORY_BY_ACTIVITY.get(row["activity_label"], "fermo")
-        if category == "fermo":
-            continue
-        totals[category] += (
-            row["end_timestamp"] - row["start_timestamp"]
-        ).total_seconds()
-    return max(totals, key=totals.get) if totals else None
-
-
-def _haversine_meters(lat1, lon1, lat2, lon2) -> float:
-    radius = 6371000.0
-    phi1, phi2 = math.radians(lat1), math.radians(lat2)
-    dphi = math.radians(lat2 - lat1)
-    dlambda = math.radians(lon2 - lon1)
-    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(
-        dlambda / 2
-    ) ** 2
-    return 2 * radius * math.asin(math.sqrt(a))
-
-
-def _nearest_place(coord, places):
-    """Luogo Significativo piu' vicino a (lon, lat) entro il suo raggio (min 150 m)."""
-    lon, lat = coord[0], coord[1]
-    best, best_distance = None, None
-    for place in places:
-        distance = _haversine_meters(lat, lon, place.center.y, place.center.x)
-        if distance <= max(place.radius_meters or 0, 150.0) and (
-            best_distance is None or distance < best_distance
-        ):
-            best, best_distance = place, distance
-    return best
-
-
-def _frequent_routes(user_id: int, limit: int = 5) -> list[AnalyticsRouteOut]:
-    """Percorsi Frequenti: coppie Origine->Destinazione tra Luoghi Significativi."""
-    places = list(
-        HabitualPlace.objects.filter(
-            user_id=user_id, state=HabitualPlace.State.CONFIRMED
-        ).only("center", "radius_meters", "custom_name", "category")
-    )
-    if not places:
-        return []
-
-    pairs: Counter = Counter()
-    trips = Trip.objects.filter(user_id=user_id, path__isnull=False).only("path")
-    for trip in trips:
-        coords = trip.path.coords
-        if len(coords) < 2:
-            continue
-        origin = _nearest_place(coords[0], places)
-        destination = _nearest_place(coords[-1], places)
-        if origin is None or destination is None or origin.id == destination.id:
-            continue
-        pairs[(origin.id, destination.id)] += 1
-
-    by_id = {place.id: place for place in places}
-    return [
-        AnalyticsRouteOut(
-            origin_label=place_label(by_id[origin_id]),
-            destination_label=place_label(by_id[destination_id]),
-            trip_count=count,
-        )
-        for (origin_id, destination_id), count in pairs.most_common(limit)
-    ]
+    return TrackOut(**track)
 
 
 @router.get("/analytics", response=AnalyticsOut, auth=mobile_bearer_auth)
@@ -1440,14 +739,8 @@ def get_personal_analytics(request, granularity: str = "day", tz: str = "UTC"):
     il bucketing. Modalita' prevalente, Percorsi Frequenti e heatmap sono
     cumulativi su tutta la storia.
     """
-    user_id = request.auth.user_id
-    granularity = granularity if granularity in {"day", "week"} else "day"
-    return AnalyticsOut(
+    return personal_analytics_for_user(
+        user_id=request.auth.user_id,
         granularity=granularity,
-        has_data=Trip.objects.filter(user_id=user_id).exists(),
-        buckets=_analytics_buckets(user_id, granularity, _analytics_zone(tz)),
-        prevalent_mode=_prevalent_mode(user_id),
-        frequent_routes=_frequent_routes(user_id),
-        heatmap=_analytics_heatmap(user_id),
-        weekly_heatmaps=_weekly_heatmaps(user_id, _analytics_zone(tz)),
+        tz=tz,
     )

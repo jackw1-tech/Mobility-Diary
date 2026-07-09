@@ -1,19 +1,10 @@
-import gzip
-import inspect
-import json
 import logging
-import struct
 import time
-from datetime import datetime, timezone as dt_timezone
 from typing import Any
 
-import numpy as np
 from celery import shared_task
-from django.contrib.gis.db.models.functions import Length
-from django.contrib.gis.geos import LineString, Point
 from django.db import transaction
 from django.utils import timezone
-from django.utils.dateparse import parse_datetime
 
 from .diary_events import (
     DIARY_ENRICHMENT_FAILED_REASON,
@@ -21,37 +12,22 @@ from .diary_events import (
     DIARY_STATUS_FAILED,
     publish_diary_status_on_commit,
 )
-from .ingestion import storage
+from .ingestion.raw_sensor_codec import InvalidRawSensorPayload
+from .ingestion.raw_sensor_loader import load_raw_sensor_windows
+from .ingestion.services import process_part_based_core_ingestion
 from .models import (
-    GpsPoint,
     HarJob,
-    PartKind,
     PlaceMiningStatus,
-    StateTransition,
     Trip,
     TripIngestion,
 )
-from .ml.pipeline import PipelineSensorWindow, run_pipeline
+from .ml.pipeline import run_pipeline
+from .services.har import run_har_pipeline_with_timings
 from .significant_places import mine_user_significant_places
-
-try:
-    import orjson
-except ModuleNotFoundError:  # pragma: no cover - fallback per ambienti non rebuildati
-    orjson = None
 
 logger = logging.getLogger(__name__)
 
 
-class InvalidRawSensorPayload(ValueError):
-    """Il blob raw e leggibile dallo storage ma non rispetta il contratto HAR."""
-
-
-CORE_CLAIMABLE_STATUSES = {
-    TripIngestion.PhaseStatus.PENDING,
-    TripIngestion.PhaseStatus.RECEIVED,
-    TripIngestion.PhaseStatus.QUEUED,
-    TripIngestion.PhaseStatus.FAILED_RETRYABLE,
-}
 RAW_CLAIMABLE_STATUSES = {
     TripIngestion.PhaseStatus.QUEUED,
     TripIngestion.PhaseStatus.FAILED_RETRYABLE,
@@ -85,9 +61,6 @@ _HAR_TIMING_FIELDS = [
     "success_update_ms",
     "total_ms",
 ]
-_RAW_SENSOR_BINARY_MAGIC = b"MDHARW1\x00"
-_RAW_SENSOR_BINARY_HEADER = struct.Struct("<8sI")
-_RAW_SENSOR_BINARY_WINDOW_HEADER = struct.Struct("<qqIII")
 
 
 def _add_elapsed_ms(timings: dict[str, Any] | None, key: str, start: float) -> None:
@@ -120,58 +93,6 @@ def _log_har_timing(
         (result or {}).get("windows", timings.get("raw_windows", 0)),
         " ".join(values),
     )
-
-
-def _run_pipeline_with_timings(
-    trip: Trip,
-    *,
-    sensor_windows: list[PipelineSensorWindow],
-    timings: dict[str, Any],
-) -> dict:
-    try:
-        parameters = inspect.signature(run_pipeline).parameters
-    except (TypeError, ValueError):
-        parameters = {}
-    if "timings" in parameters:
-        return run_pipeline(
-            trip,
-            sensor_windows=sensor_windows,
-            timings=timings,
-        )
-
-    pipeline_start = time.perf_counter()
-    result = run_pipeline(trip, sensor_windows=sensor_windows)
-    _add_elapsed_ms(timings, "pipeline_total_ms", pipeline_start)
-    return result
-
-
-def _load_json_bytes(raw: bytes) -> Any:
-    if orjson is not None:
-        return orjson.loads(raw)
-    return json.loads(raw.decode("utf-8"))
-
-
-def _datetime_from_epoch_micros(value: int, field: str) -> datetime:
-    try:
-        seconds, micros = divmod(int(value), 1_000_000)
-        return datetime.fromtimestamp(seconds, tz=dt_timezone.utc).replace(
-            microsecond=micros
-        )
-    except (OSError, OverflowError, ValueError) as exc:
-        raise InvalidRawSensorPayload(f"timestamp raw non valido: {field}") from exc
-
-
-def _read_gzip_object(object_key: str, timings: dict[str, Any] | None = None) -> bytes:
-    read_start = time.perf_counter()
-    raw = storage.read_object(object_key)
-    _add_elapsed_ms(timings, "raw_s3_read_ms", read_start)
-    try:
-        gzip_start = time.perf_counter()
-        decompressed = gzip.decompress(raw)
-        _add_elapsed_ms(timings, "raw_gzip_ms", gzip_start)
-        return decompressed
-    except (gzip.BadGzipFile, EOFError) as exc:
-        raise InvalidRawSensorPayload("payload raw sensor gzip non valido") from exc
 
 
 def _skip_result(phase: str, status: str) -> dict:
@@ -370,310 +291,6 @@ def process_trip_har(self, job_id: int) -> dict:
 # --------------------------------------------------------------------------- #
 
 
-def _load_json_gz(object_key: str, timings: dict[str, Any] | None = None) -> dict:
-    """Scarica e decomprime un blob .json.gz dallo storage."""
-    decompressed = _read_gzip_object(object_key, timings=timings)
-    try:
-        json_start = time.perf_counter()
-        payload = _load_json_bytes(decompressed)
-        _add_elapsed_ms(timings, "raw_json_ms", json_start)
-        return payload
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise InvalidRawSensorPayload("payload raw sensor JSON non valido") from exc
-
-
-def _decode_binary_sensor_windows(raw: bytes) -> list[PipelineSensorWindow]:
-    if len(raw) < _RAW_SENSOR_BINARY_HEADER.size:
-        raise InvalidRawSensorPayload("payload raw sensor binario incompleto")
-
-    magic, window_count = _RAW_SENSOR_BINARY_HEADER.unpack_from(raw, 0)
-    if magic != _RAW_SENSOR_BINARY_MAGIC:
-        raise InvalidRawSensorPayload("payload raw sensor binario non valido")
-
-    cursor = _RAW_SENSOR_BINARY_HEADER.size
-    windows: list[PipelineSensorWindow] = []
-    try:
-        for _index in range(window_count):
-            if cursor + _RAW_SENSOR_BINARY_WINDOW_HEADER.size > len(raw):
-                raise InvalidRawSensorPayload(
-                    "payload raw sensor binario troncato"
-                )
-            (
-                start_us,
-                end_us,
-                sample_rate,
-                sample_count,
-                channel_count,
-            ) = _RAW_SENSOR_BINARY_WINDOW_HEADER.unpack_from(raw, cursor)
-            cursor += _RAW_SENSOR_BINARY_WINDOW_HEADER.size
-
-            start = _datetime_from_epoch_micros(start_us, "window_start")
-            end = _datetime_from_epoch_micros(end_us, "window_end")
-            if end <= start:
-                raise InvalidRawSensorPayload(
-                    "sensor window con intervallo temporale non valido"
-                )
-            if sample_rate <= 0:
-                raise InvalidRawSensorPayload(
-                    "sensor window con sample_rate_hz non valido"
-                )
-            if sample_count != 500:
-                raise InvalidRawSensorPayload(
-                    "sensor window con sample_count diverso da 500"
-                )
-            if channel_count != 6:
-                raise InvalidRawSensorPayload(
-                    "sensor window con channel_count diverso da 6"
-                )
-
-            value_count = sample_count * channel_count
-            value_bytes = value_count * np.dtype("<f4").itemsize
-            if cursor + value_bytes > len(raw):
-                raise InvalidRawSensorPayload(
-                    "payload raw sensor binario troncato"
-                )
-            matrix = np.frombuffer(
-                raw,
-                dtype="<f4",
-                count=value_count,
-                offset=cursor,
-            ).reshape((sample_count, channel_count))
-            cursor += value_bytes
-            windows.append(
-                PipelineSensorWindow(
-                    start_timestamp=start,
-                    end_timestamp=end,
-                    sample_count=sample_count,
-                    frequency_hz=sample_rate,
-                    matrix=matrix,
-                )
-            )
-    except (struct.error, ValueError) as exc:
-        raise InvalidRawSensorPayload(
-            "payload raw sensor binario non valido"
-        ) from exc
-
-    if cursor != len(raw):
-        raise InvalidRawSensorPayload(
-            "payload raw sensor binario con byte extra"
-        )
-    return windows
-
-
-def _load_raw_sensor_part_windows(
-    object_key: str,
-    timings: dict[str, Any] | None = None,
-) -> list[PipelineSensorWindow]:
-    decompressed = _read_gzip_object(object_key, timings=timings)
-
-    if decompressed.startswith(_RAW_SENSOR_BINARY_MAGIC):
-        decode_start = time.perf_counter()
-        windows = _decode_binary_sensor_windows(decompressed)
-        _add_elapsed_ms(timings, "raw_binary_decode_ms", decode_start)
-        return windows
-
-    try:
-        json_start = time.perf_counter()
-        payload = _load_json_bytes(decompressed)
-        _add_elapsed_ms(timings, "raw_json_ms", json_start)
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise InvalidRawSensorPayload("payload raw sensor JSON non valido") from exc
-
-    raw_windows = payload.get("windows") if isinstance(payload, dict) else payload
-    if not isinstance(raw_windows, list):
-        raise InvalidRawSensorPayload("payload raw sensor senza lista windows")
-    parse_start = time.perf_counter()
-    windows = [_parse_sensor_window(raw_window) for raw_window in raw_windows]
-    _add_elapsed_ms(timings, "raw_window_parse_ms", parse_start)
-    return windows
-
-
-def _parse_required_datetime(value: Any, field: str):
-    parsed = parse_datetime(str(value)) if value else None
-    if parsed is None:
-        raise InvalidRawSensorPayload(f"timestamp raw non valido: {field}")
-    return parsed
-
-
-def _window_matrix(raw_window: dict) -> list[list[float]]:
-    matrix = raw_window.get("samples", raw_window.get("matrix"))
-    if not isinstance(matrix, list) or not matrix:
-        raise InvalidRawSensorPayload("sensor window senza matrice samples/matrix")
-    normalized: list[list[float]] = []
-    for row in matrix:
-        if not isinstance(row, list) or len(row) < 6:
-            raise InvalidRawSensorPayload("sensor window con riga matrice non valida")
-        try:
-            normalized.append([float(value) for value in row[:6]])
-        except (TypeError, ValueError) as exc:
-            raise InvalidRawSensorPayload(
-                "sensor window con valore matrice non numerico"
-            ) from exc
-    return normalized
-
-
-def _parse_sensor_window(raw_window: dict) -> PipelineSensorWindow:
-    start = _parse_required_datetime(
-        raw_window.get("window_start", raw_window.get("start")),
-        "window_start",
-    )
-    end = _parse_required_datetime(
-        raw_window.get("window_end", raw_window.get("end")),
-        "window_end",
-    )
-    if end <= start:
-        raise InvalidRawSensorPayload(
-            "sensor window con intervallo temporale non valido"
-        )
-
-    try:
-        sample_rate = int(
-            raw_window.get("sample_rate_hz", raw_window.get("frequency_hz", 0))
-        )
-    except (TypeError, ValueError) as exc:
-        raise InvalidRawSensorPayload(
-            "sensor window con sample_rate_hz non valido"
-        ) from exc
-    if sample_rate <= 0:
-        raise InvalidRawSensorPayload("sensor window con sample_rate_hz non valido")
-
-    matrix = _window_matrix(raw_window)
-    try:
-        sample_count = int(raw_window.get("sample_count", len(matrix)))
-    except (TypeError, ValueError) as exc:
-        raise InvalidRawSensorPayload(
-            "sensor window con sample_count non valido"
-        ) from exc
-    if sample_count != len(matrix):
-        raise InvalidRawSensorPayload("sensor window con sample_count incoerente")
-    if sample_count != 500:
-        raise InvalidRawSensorPayload("sensor window con sample_count diverso da 500")
-
-    return PipelineSensorWindow(
-        start_timestamp=start,
-        end_timestamp=end,
-        sample_count=sample_count,
-        frequency_hz=sample_rate,
-        matrix=matrix,
-    )
-
-
-def _load_raw_sensor_windows(
-    ingestion: TripIngestion,
-    timings: dict[str, Any] | None = None,
-) -> list[PipelineSensorWindow]:
-    parts_start = time.perf_counter()
-    parts = list(
-        ingestion.parts.filter(
-            kind=PartKind.SENSOR_WINDOWS,
-            received_at__isnull=False,
-        ).order_by("sequence")
-    )
-    _add_elapsed_ms(timings, "raw_parts_query_ms", parts_start)
-    if timings is not None:
-        timings["raw_parts"] = len(parts)
-
-    windows: list[PipelineSensorWindow] = []
-    for part in parts:
-        windows.extend(
-            _load_raw_sensor_part_windows(part.object_key, timings=timings)
-        )
-
-    sort_start = time.perf_counter()
-    sorted_windows = sorted(windows, key=lambda window: window.start_timestamp)
-    _add_elapsed_ms(timings, "raw_sort_ms", sort_start)
-    if timings is not None:
-        timings["raw_windows"] = len(sorted_windows)
-    return sorted_windows
-
-
-def _materialize_gps(trip: Trip, ingestion: TripIngestion) -> int:
-    part = ingestion.parts.filter(
-        kind=PartKind.GPS_POINTS, received_at__isnull=False
-    ).first()
-    if part is None:
-        return 0
-
-    payload = _load_json_gz(part.object_key)
-    rows = []
-    for p in payload.get("points", []):
-        lat = p.get("latitude")
-        lon = p.get("longitude")
-        if lat is None or lon is None:
-            continue
-        rows.append(
-            GpsPoint(
-                trip=trip,
-                timestamp=parse_datetime(p["timestamp"]),
-                point=Point(float(lon), float(lat), srid=4326),
-                speed_mps=p.get("speed_mps") or 0,
-                accuracy_meters=p.get("accuracy_meters"),
-            )
-        )
-    GpsPoint.objects.bulk_create(rows, ignore_conflicts=True)
-    return len(rows)
-
-
-def _materialize_transitions(trip: Trip, ingestion: TripIngestion) -> int:
-    part = ingestion.parts.filter(
-        kind=PartKind.STATE_TRANSITIONS, received_at__isnull=False
-    ).first()
-    if part is None:
-        return 0
-
-    payload = _load_json_gz(part.object_key)
-    rows = [
-        StateTransition(
-            trip=trip,
-            from_state=t["from_state"],
-            to_state=t["to_state"],
-            reason=t.get("reason", ""),
-            timestamp=parse_datetime(t["timestamp"]),
-            sigma=t.get("sigma"),
-            speed_mps=t.get("speed_mps"),
-        )
-        for t in payload.get("transitions", [])
-    ]
-    StateTransition.objects.bulk_create(rows, ignore_conflicts=True)
-    return len(rows)
-
-
-def _distance_meters_from_postgis(trip: Trip) -> float:
-    row = (
-        Trip.objects.filter(pk=trip.pk)
-        .annotate(path_length=Length("path"))
-        .values("path_length")
-        .get()
-    )
-    distance = row["path_length"]
-    if distance is None:
-        return 0
-    return float(distance.m if hasattr(distance, "m") else distance)
-
-
-def _build_trip_path(trip: Trip) -> int:
-    """Deriva la LineString del viaggio dai GPS ordinati nel DB."""
-    coords = [
-        (point.x, point.y)
-        for point in GpsPoint.objects.filter(trip=trip)
-        .order_by("timestamp", "id")
-        .values_list("point", flat=True)
-    ]
-    if len(set(coords)) < 2:
-        trip.path = None
-        trip.distance_meters = 0
-        trip.save(update_fields=["path", "distance_meters", "updated_at"])
-        return len(coords)
-
-    trip.path = LineString(coords, srid=4326)
-    trip.distance_meters = None
-    trip.save(update_fields=["path", "distance_meters", "updated_at"])
-
-    trip.distance_meters = _distance_meters_from_postgis(trip)
-    trip.save(update_fields=["distance_meters", "updated_at"])
-    return len(coords)
-
-
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
 def process_trip_ingestion(self, ingestion_id: int) -> dict:
     """Materializza un Trip pulito da una TripIngestion completata.
@@ -686,86 +303,15 @@ def process_trip_ingestion(self, ingestion_id: int) -> dict:
     accoda `process_trip_har_final` quando tutte le sensor window sono arrivate.
     I blob raw NON vengono cancellati in questa fase del progetto.
     """
-    with transaction.atomic():
-        ingestion = (
-            TripIngestion.objects.select_for_update()
-            .select_related("user")
-            .get(id=ingestion_id)
-        )
-        if ingestion.core_status == TripIngestion.PhaseStatus.COMPLETED:
-            return {"skipped": "core ingestion already completed"}
-        if ingestion.core_status not in CORE_CLAIMABLE_STATUSES:
-            return _skip_result("core", ingestion.core_status)
-
-        ingestion.core_status = TripIngestion.PhaseStatus.PROCESSING
-        ingestion.started_processing_at = timezone.now()
-        ingestion.save(
-            update_fields=["core_status", "started_processing_at", "updated_at"]
-        )
-
     try:
-        with transaction.atomic():
-            trip, _ = Trip.objects.get_or_create(
-                client_session_id=ingestion.client_session_id,
-                defaults={
-                    "user_id": ingestion.user_id,
-                    "device_id": ingestion.device_id or "unknown",
-                    "status": Trip.Status.CLOSED,
-                },
-            )
-            # Il viaggio e' concluso lato client: assicura stato/chiusura.
-            if trip.status == Trip.Status.OPEN:
-                trip.status = Trip.Status.CLOSED
-            trip.ended_at = ingestion.ended_at or trip.ended_at or timezone.now()
-            trip.save(update_fields=["status", "ended_at", "updated_at"])
-
-            gps_count = _materialize_gps(trip, ingestion)
-            transition_count = _materialize_transitions(trip, ingestion)
-            path_point_count = _build_trip_path(trip)
-
-            ingestion.trip = trip
-            ingestion.core_status = TripIngestion.PhaseStatus.COMPLETED
-            ingestion.error_message = ""
-            ingestion.completed_at = timezone.now()
-            ingestion.save(
-                update_fields=[
-                    "trip",
-                    "core_status",
-                    "error_message",
-                    "completed_at",
-                    "updated_at",
-                ]
-            )
-    except Exception as exc:  # noqa: BLE001
-        will_retry = self.request.retries < self.max_retries
-        failed_at = timezone.now()
-        ingestion.core_status = (
-            TripIngestion.PhaseStatus.FAILED_RETRYABLE
-            if will_retry
-            else TripIngestion.PhaseStatus.FAILED_FINAL
+        return process_part_based_core_ingestion(
+            ingestion_id,
+            will_retry_on_error=self.request.retries < self.max_retries,
         )
-        ingestion.error_message = str(exc)
-        ingestion.failed_at = failed_at
-        update_fields = ["core_status", "error_message", "failed_at", "updated_at"]
-        if (
-            not will_retry
-            and ingestion.recording_started_at is not None
-            and ingestion.recording_closed_at is None
-            and ingestion.recording_abandoned_at is None
-        ):
-            ingestion.recording_closed_at = failed_at
-            update_fields.append("recording_closed_at")
-        ingestion.save(update_fields=update_fields)
-        if will_retry:
+    except Exception as exc:  # noqa: BLE001
+        if self.request.retries < self.max_retries:
             raise self.retry(exc=exc)
         raise
-
-    return {
-        "trip_id": trip.id,
-        "gps_points": gps_count,
-        "path_points": path_point_count,
-        "state_transitions": transition_count,
-    }
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
@@ -814,10 +360,10 @@ def process_trip_har_final(self, job_id: int, ingestion_id: int) -> dict:
 
     try:
         raw_load_start = time.perf_counter()
-        sensor_windows = _load_raw_sensor_windows(ingestion, timings=timings)
+        sensor_windows = load_raw_sensor_windows(ingestion, timings=timings)
         _add_elapsed_ms(timings, "raw_load_total_ms", raw_load_start)
         with transaction.atomic():
-            result = _run_pipeline_with_timings(
+            result = run_har_pipeline_with_timings(
                 trip,
                 sensor_windows=sensor_windows,
                 timings=timings,

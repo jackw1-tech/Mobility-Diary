@@ -11,8 +11,16 @@ from django.utils import timezone
 from accounts.models import AccessToken
 from mobility.ingestion.api import _inline_payload_sha256
 from mobility.ingestion.schemas import InlineCoreIn
-from mobility.models import HarJob, PartKind, Trip, TripIngestion, TripIngestionPart
-from mobility.tasks import process_trip_har_final
+from mobility.models import (
+    GpsPoint,
+    HarJob,
+    PartKind,
+    StateTransition,
+    Trip,
+    TripIngestion,
+    TripIngestionPart,
+)
+from mobility.tasks import process_trip_har_final, process_trip_ingestion
 
 
 @pytest.fixture
@@ -98,6 +106,10 @@ def _binary_sensor_windows_gz(started_at) -> bytes:
     )
     matrix = b"".join(struct.pack("<f", 0.1) for _ in range(500 * 6))
     return gzip.compress(header + window_header + matrix)
+
+
+def _json_gz(payload: dict) -> bytes:
+    return gzip.compress(json.dumps(payload).encode("utf-8"))
 
 
 @pytest.mark.django_db
@@ -206,6 +218,112 @@ def test_complete_raw_with_binary_sensor_windows_processes_real_trip(
     assert ingestion.raw_status == TripIngestion.PhaseStatus.COMPLETED
     assert ingestion.trip.status == Trip.Status.PROCESSED
     assert job.status == HarJob.Status.SUCCESS
+
+
+@pytest.mark.django_db
+def test_part_based_core_ingestion_materializes_visible_trip_data(
+    mobile_user,
+    monkeypatch,
+):
+    started_at = timezone.now() - timedelta(minutes=10)
+    ended_at = timezone.now()
+    ingestion = TripIngestion.objects.create(
+        user=mobile_user,
+        client_session_id="parts-core-materialization",
+        device_id="device-1",
+        started_at=started_at,
+        ended_at=ended_at,
+        expected_core_parts={
+            PartKind.GPS_POINTS: 1,
+            PartKind.STATE_TRANSITIONS: 1,
+        },
+        core_status=TripIngestion.PhaseStatus.QUEUED,
+    )
+    gps_key = f"{ingestion.raw_base_path}gps_points.json.gz"
+    transitions_key = f"{ingestion.raw_base_path}state_transitions.json.gz"
+    gps_body = _json_gz(
+        {
+            "points": [
+                {
+                    "timestamp": _iso(started_at),
+                    "latitude": 45.4642,
+                    "longitude": 9.19,
+                    "speed_mps": 1.2,
+                    "accuracy_meters": 5,
+                },
+                {
+                    "timestamp": _iso(started_at + timedelta(minutes=5)),
+                    "latitude": 45.465,
+                    "longitude": 9.2,
+                    "speed_mps": 1.4,
+                    "accuracy_meters": 5,
+                },
+            ]
+        }
+    )
+    transitions_body = _json_gz(
+        {
+            "transitions": [
+                {
+                    "timestamp": _iso(started_at + timedelta(minutes=1)),
+                    "from_state": "STATIONARY",
+                    "to_state": "MOVEMENT",
+                    "reason": "gps_reliable_motion_confirmed_in_stationary",
+                    "sigma": 0.2,
+                    "speed_mps": 1.2,
+                }
+            ]
+        }
+    )
+    TripIngestionPart.objects.bulk_create(
+        [
+            TripIngestionPart(
+                ingestion=ingestion,
+                kind=PartKind.GPS_POINTS,
+                sequence=1,
+                sha256="gps-sha",
+                size_bytes=len(gps_body),
+                object_key=gps_key,
+                received_at=timezone.now(),
+            ),
+            TripIngestionPart(
+                ingestion=ingestion,
+                kind=PartKind.STATE_TRANSITIONS,
+                sequence=1,
+                sha256="transitions-sha",
+                size_bytes=len(transitions_body),
+                object_key=transitions_key,
+                received_at=timezone.now(),
+            ),
+        ]
+    )
+    objects = {
+        gps_key: gps_body,
+        transitions_key: transitions_body,
+    }
+    monkeypatch.setattr(
+        "mobility.ingestion.storage.read_object",
+        lambda key: objects[key],
+    )
+
+    task_result = process_trip_ingestion.apply(args=(ingestion.id,), throw=True).result
+
+    ingestion.refresh_from_db()
+    trip = ingestion.trip
+    assert ingestion.core_status == TripIngestion.PhaseStatus.COMPLETED
+    assert trip is not None
+    assert trip.status == Trip.Status.CLOSED
+    assert trip.ended_at == ended_at
+    assert GpsPoint.objects.filter(trip=trip).count() == 2
+    assert StateTransition.objects.filter(trip=trip).count() == 1
+    assert trip.path is not None
+    assert trip.distance_meters and trip.distance_meters > 0
+    assert task_result == {
+        "trip_id": trip.id,
+        "gps_points": 2,
+        "path_points": 2,
+        "state_transitions": 1,
+    }
 
 
 def _core_body_for_existing_ingestion(

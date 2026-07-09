@@ -163,7 +163,7 @@ class AcquisitionSensorRuntime {
       permission = await Geolocator.requestPermission();
     }
 
-    return permission == LocationPermission.always;
+    return canStartAcquisitionLocationStream(permission);
   }
 
   Future<void> _onAccelerometerEvent(AccelerometerEvent event) async {
@@ -346,4 +346,9 @@ class AcquisitionSensorRuntime {
 
     return 20;
   }
+}
+
+bool canStartAcquisitionLocationStream(LocationPermission permission) {
+  return permission == LocationPermission.always ||
+      permission == LocationPermission.whileInUse;
 }

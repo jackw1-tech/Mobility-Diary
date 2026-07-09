@@ -11,12 +11,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timedelta
 
 from django.conf import settings
-from django.contrib.gis.geos import Point
 from django.db import transaction
-from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from ninja import Router
@@ -26,16 +23,29 @@ from ninja.responses import Status
 from accounts.auth import mobile_bearer_auth
 
 from ..models import (
-    GpsPoint,
-    HarJob,
     PartKind,
-    StateTransition,
     Trip,
     TripIngestion,
     TripIngestionPart,
 )
 from . import storage
-from ..replay_raw import regenerate_raw_and_queue_har
+from .materialization import (
+    materialized_trip_counts,
+)
+from .selectors import (
+    first_active_ingestion_for_owner,
+    owned_ingestions_for_owner,
+)
+from .services import (
+    IngestionServiceError,
+    abandon_recording,
+    ensure_ingestion_not_permanently_dead,
+    heartbeat_recording,
+    process_inline_core_ingestion,
+    queue_final_har,
+    release_active_lock_for_failed_final,
+    start_recording,
+)
 from .schemas import (
     ActiveIngestionConflictOut,
     ActiveIngestionOut,
@@ -78,7 +88,6 @@ _INLINE_PASSIVE_STATES = {
     TripIngestion.PhaseStatus.QUEUED,
     TripIngestion.PhaseStatus.PROCESSING,
 }
-_ACTIVE_INGESTION_STALE_AFTER = timedelta(hours=24)
 
 
 def _object_key(base_path: str, kind: str, sequence: int) -> str:
@@ -166,9 +175,8 @@ def _mark_phase_received_if_complete(ingestion: TripIngestion, phase: str) -> No
 
 def _get_owned_ingestion(request, ingestion_id: int) -> TripIngestion:
     return get_object_or_404(
-        TripIngestion.objects.select_related("trip"),
+        owned_ingestions_for_owner(request.auth.user_id),
         id=ingestion_id,
-        user_id=request.auth.user_id,
     )
 
 
@@ -207,12 +215,13 @@ def _inline_payload_sha256(payload: InlineCoreIn) -> str:
 
 
 def _materialized_counts(trip: Trip | None) -> tuple[int, int, int, float]:
-    if trip is None:
-        return 0, 0, 0, 0
-    gps_count = GpsPoint.objects.filter(trip=trip).count()
-    transition_count = StateTransition.objects.filter(trip=trip).count()
-    distance_meters = float(trip.distance_meters or 0)
-    return gps_count, transition_count, gps_count, distance_meters
+    counts = materialized_trip_counts(trip)
+    return (
+        counts.gps_points,
+        counts.state_transitions,
+        counts.path_points,
+        counts.distance_meters,
+    )
 
 
 def _inline_core_response(ingestion: TripIngestion) -> InlineCoreOut:
@@ -235,137 +244,6 @@ def _inline_core_response(ingestion: TripIngestion) -> InlineCoreOut:
         distance_meters=distance_meters,
         map_available=_map_available(ingestion),
     )
-
-
-def _queue_final_har(ingestion: TripIngestion, *, now: datetime) -> None:
-    if ingestion.trip_id is None:
-        raise HttpError(409, "trip non materializzato per HAR finale")
-
-    ingestion.raw_status = TripIngestion.PhaseStatus.QUEUED
-    ingestion.queued_at = now
-    ingestion.error_message = ""
-    ingestion.save(
-        update_fields=[
-            "raw_status",
-            "queued_at",
-            "error_message",
-            "updated_at",
-        ]
-    )
-    job = HarJob.objects.create(
-        trip_id=ingestion.trip_id,
-        kind=HarJob.Kind.FINAL_TRIP,
-    )
-
-    from ..tasks import process_trip_har_final
-
-    transaction.on_commit(lambda: process_trip_har_final.delay(job.id, ingestion.id))
-
-
-def _get_or_create_inline_trip(ingestion: TripIngestion) -> Trip:
-    trip = (
-        Trip.objects.select_for_update()
-        .filter(client_session_id=ingestion.client_session_id)
-        .first()
-    )
-    if trip is not None and trip.user_id not in {None, ingestion.user_id}:
-        raise HttpError(409, "client_session_id gia' associato a un altro utente")
-    ended_at = ingestion.ended_at or timezone.now()
-    started_at = ingestion.started_at or ended_at
-    if trip is None:
-        return Trip.objects.create(
-            user_id=ingestion.user_id,
-            client_session_id=ingestion.client_session_id,
-            device_id=ingestion.device_id or "unknown",
-            status=Trip.Status.CLOSED,
-            started_at=started_at,
-            ended_at=ended_at,
-            reloaded_from_trip_id=ingestion.source_trip_id,
-        )
-
-    update_fields = ["updated_at"]
-    if (
-        trip.reloaded_from_trip_id is not None
-        and trip.reloaded_from_trip_id != ingestion.source_trip_id
-    ):
-        raise HttpError(409, "client_session_id gia' associato a un'altra sorgente")
-    if trip.user_id is None:
-        trip.user_id = ingestion.user_id
-        update_fields.append("user")
-    if trip.reloaded_from_trip_id is None and ingestion.source_trip_id is not None:
-        trip.reloaded_from_trip_id = ingestion.source_trip_id
-        update_fields.append("reloaded_from_trip")
-    if not trip.device_id and ingestion.device_id:
-        trip.device_id = ingestion.device_id
-        update_fields.append("device_id")
-    if trip.status == Trip.Status.OPEN:
-        trip.status = Trip.Status.CLOSED
-        update_fields.append("status")
-    if trip.started_at is None:
-        trip.started_at = started_at
-        update_fields.append("started_at")
-    if trip.ended_at is None:
-        trip.ended_at = ended_at
-        update_fields.append("ended_at")
-    trip.save(update_fields=update_fields)
-    return trip
-
-
-def _materialize_inline_core(trip: Trip, payload: InlineCoreIn) -> tuple[int, int, int]:
-    gps_rows = [
-        GpsPoint(
-            trip=trip,
-            timestamp=point.timestamp,
-            point=Point(point.longitude, point.latitude, srid=4326),
-            speed_mps=point.speed_mps,
-            accuracy_meters=point.accuracy_meters,
-        )
-        for point in payload.gps_points
-    ]
-    StateTransition.objects.bulk_create(
-        [
-            StateTransition(
-                trip=trip,
-                timestamp=transition.timestamp,
-                from_state=transition.from_state,
-                to_state=transition.to_state,
-                reason=transition.reason,
-                sigma=transition.sigma,
-                speed_mps=transition.speed_mps,
-            )
-            for transition in payload.state_transitions
-        ],
-        ignore_conflicts=True,
-    )
-    GpsPoint.objects.bulk_create(gps_rows, ignore_conflicts=True)
-
-    from ..tasks import _build_trip_path
-
-    path_points = _build_trip_path(trip)
-    gps_count = GpsPoint.objects.filter(trip=trip).count()
-    transition_count = StateTransition.objects.filter(trip=trip).count()
-    return gps_count, transition_count, path_points
-
-
-def _validate_replay_slot(
-    *,
-    user_id: int,
-    client_session_id: str,
-    started_at: datetime | None,
-    ended_at: datetime | None,
-) -> None:
-    if started_at is None or ended_at is None:
-        return
-    if ended_at > timezone.now():
-        raise HttpError(409, "scegli uno slot nel passato")
-    overlaps = (
-        Trip.objects.filter(user_id=user_id, started_at__lt=ended_at)
-        .filter(Q(ended_at__isnull=True) | Q(ended_at__gt=started_at))
-        .exclude(client_session_id=client_session_id)
-        .exists()
-    )
-    if overlaps:
-        raise HttpError(409, "slot sovrapposto a un viaggio esistente")
 
 
 def _validate_kind(kind: str) -> None:
@@ -397,15 +275,6 @@ def _ensure_part_was_declared(
     expected_count = int(_expected_parts_for_phase(ingestion, phase).get(kind, 0) or 0)
     if sequence < 1 or sequence > expected_count:
         raise HttpError(409, f"parte non dichiarata nel manifest iniziale: {kind}#{sequence}")
-
-
-def _active_ingestions(user_id: int):
-    return TripIngestion.objects.filter(
-        user_id=user_id,
-        recording_started_at__isnull=False,
-        recording_closed_at__isnull=True,
-        recording_abandoned_at__isnull=True,
-    )
 
 
 def _start_response(
@@ -441,104 +310,12 @@ def _active_conflict_response(
     )
 
 
-def _active_last_seen(ingestion: TripIngestion) -> datetime:
-    return (
-        ingestion.last_seen_at
-        or ingestion.recording_started_at
-        or ingestion.created_at
-    )
-
-
-def _abandon_if_stale(
-    ingestion: TripIngestion,
-    *,
-    now: datetime,
-) -> bool:
-    if now - _active_last_seen(ingestion) < _ACTIVE_INGESTION_STALE_AFTER:
-        return False
-    ingestion.recording_abandoned_at = now
-    ingestion.save(update_fields=["recording_abandoned_at", "updated_at"])
-    return True
-
-
-def _release_active_lock_for_failed_final(
-    ingestion: TripIngestion,
-    *,
-    now: datetime,
-) -> None:
-    if (
-        ingestion.recording_started_at is not None
-        and ingestion.recording_closed_at is None
-        and ingestion.recording_abandoned_at is None
-    ):
-        ingestion.recording_closed_at = now
-        ingestion.save(update_fields=["recording_closed_at", "updated_at"])
+def _raise_ingestion_service_error(exc: IngestionServiceError) -> None:
+    raise HttpError(exc.status_code, exc.message) from exc
 
 
 def _core_failed_final_status():
     return Status(409, {"detail": "core ingestion fallita definitivamente"})
-
-
-def _ensure_ingestion_not_permanently_dead(ingestion: TripIngestion) -> None:
-    # 410, non 409: questi due stati non si risolvono mai ritentando (a
-    # differenza degli altri 409 di questo modulo, che sono conflitti
-    # transitori). Il client li distingue per statusCode e scarta subito
-    # invece di bruciare il budget di retry su un esito che non cambiera' mai.
-    if ingestion.recording_abandoned_at is not None:
-        raise HttpError(410, "viaggio abbandonato")
-    if (
-        ingestion.recording_closed_at is not None
-        and ingestion.core_status != TripIngestion.PhaseStatus.COMPLETED
-    ):
-        raise HttpError(410, "viaggio gia' chiuso")
-
-
-def _get_inline_core_ingestion(
-    request,
-    payload: InlineCoreIn,
-    *,
-    expected_raw_parts: dict[str, int],
-    raw_status: str,
-    actual_sha256: str,
-    body_size: int,
-) -> TripIngestion:
-    if payload.ingestion_id is None:
-        ingestion, _ = TripIngestion.objects.select_for_update().get_or_create(
-            user_id=request.auth.user_id,
-            client_session_id=payload.client_session_id,
-            defaults={
-                "device_id": payload.device_id,
-                "schema_version": payload.schema_version,
-                "expected_core_parts": {},
-                "expected_raw_parts": expected_raw_parts,
-                "raw_status": raw_status,
-                "core_ingestion_mode": TripIngestion.CoreIngestionMode.INLINE,
-                "core_payload_sha256": actual_sha256,
-                "core_payload_size_bytes": body_size,
-                "started_at": payload.started_at,
-                "ended_at": payload.ended_at,
-                "timezone": payload.timezone,
-                "app_version": payload.app_version,
-                "device_platform": payload.device_platform,
-            },
-        )
-        return ingestion
-
-    ingestion = (
-        TripIngestion.objects.select_for_update()
-        .filter(id=payload.ingestion_id, user_id=request.auth.user_id)
-        .first()
-    )
-    if ingestion is None:
-        raise HttpError(404, "ingestion non trovata")
-    if ingestion.client_session_id != payload.client_session_id:
-        raise HttpError(409, "client_session_id non corrisponde")
-    if ingestion.device_id != payload.device_id:
-        raise HttpError(403, "device_id non autorizzato")
-    if ingestion.recording_started_at is None:
-        raise HttpError(409, "viaggio non avviato")
-    _ensure_ingestion_not_permanently_dead(ingestion)
-    return ingestion
 
 
 @router.get(
@@ -547,7 +324,7 @@ def _get_inline_core_ingestion(
     auth=mobile_bearer_auth,
 )
 def get_active_ingestion(request):
-    active = _active_ingestions(request.auth.user_id).first()
+    active = first_active_ingestion_for_owner(request.auth.user_id)
     if active is None:
         return Status(404, {"detail": "nessun viaggio in corso"})
     return _active_response(active)
@@ -559,21 +336,14 @@ def get_active_ingestion(request):
     auth=mobile_bearer_auth,
 )
 def abandon_ingestion(request, ingestion_id: int, payload: IngestionAbandonIn):
-    with transaction.atomic():
-        ingestion = (
-            TripIngestion.objects.select_for_update()
-            .filter(id=ingestion_id, user_id=request.auth.user_id)
-            .first()
+    try:
+        ingestion = abandon_recording(
+            user_id=request.auth.user_id,
+            ingestion_id=ingestion_id,
+            device_id=payload.device_id,
         )
-        if ingestion is None:
-            raise HttpError(404, "ingestion non trovata")
-        if ingestion.device_id != payload.device_id:
-            raise HttpError(403, "solo il dispositivo origine puo' abbandonare")
-        if ingestion.recording_closed_at is not None:
-            raise HttpError(409, "viaggio gia' chiuso")
-        if ingestion.recording_abandoned_at is None:
-            ingestion.recording_abandoned_at = timezone.now()
-            ingestion.save(update_fields=["recording_abandoned_at", "updated_at"])
+    except IngestionServiceError as exc:
+        _raise_ingestion_service_error(exc)
 
     return IngestionAbandonOut(
         ingestion_id=ingestion.id,
@@ -587,27 +357,15 @@ def abandon_ingestion(request, ingestion_id: int, payload: IngestionAbandonIn):
     auth=mobile_bearer_auth,
 )
 def heartbeat_ingestion(request, ingestion_id: int, payload: IngestionHeartbeatIn):
-    now = timezone.now()
-    with transaction.atomic():
-        ingestion = (
-            TripIngestion.objects.select_for_update()
-            .filter(id=ingestion_id, user_id=request.auth.user_id)
-            .first()
+    try:
+        ingestion = heartbeat_recording(
+            user_id=request.auth.user_id,
+            ingestion_id=ingestion_id,
+            client_session_id=payload.client_session_id,
+            device_id=payload.device_id,
         )
-        if ingestion is None:
-            raise HttpError(404, "ingestion non trovata")
-        if ingestion.client_session_id != payload.client_session_id:
-            raise HttpError(409, "client_session_id non corrisponde")
-        if ingestion.device_id != payload.device_id:
-            raise HttpError(403, "device_id non autorizzato")
-        if (
-            ingestion.recording_started_at is None
-            or ingestion.recording_closed_at is not None
-            or ingestion.recording_abandoned_at is not None
-        ):
-            raise HttpError(409, "viaggio non attivo")
-        ingestion.last_seen_at = now
-        ingestion.save(update_fields=["last_seen_at", "updated_at"])
+    except IngestionServiceError as exc:
+        _raise_ingestion_service_error(exc)
 
     return IngestionHeartbeatOut(
         ingestion_id=ingestion.id,
@@ -621,50 +379,24 @@ def heartbeat_ingestion(request, ingestion_id: int, payload: IngestionHeartbeatI
     auth=mobile_bearer_auth,
 )
 def start_ingestion(request, payload: IngestionStartIn):
-    user_id = request.auth.user_id
-    now = timezone.now()
-    started_at = payload.started_at or now
-
-    source_trip_id = None
-    if payload.source_trip_id is not None:
-        if not Trip.objects.filter(
-            id=payload.source_trip_id,
-            user_id=user_id,
-            is_reloadable=True,
-            status__in=[Trip.Status.CLOSED, Trip.Status.PROCESSED],
-        ).exists():
-            raise HttpError(409, "viaggio sorgente non ricaricabile")
-        source_trip_id = payload.source_trip_id
-
-    with transaction.atomic():
-        active = _active_ingestions(user_id).select_for_update().first()
-        if active is not None:
-            if not _abandon_if_stale(active, now=now):
-                if (
-                    active.client_session_id == payload.client_session_id
-                    and active.device_id == payload.device_id
-                ):
-                    return _start_response(active, already_exists=True)
-                return Status(409, _active_conflict_response(active))
-
-        ingestion = TripIngestion.objects.create(
-            user_id=user_id,
+    try:
+        result = start_recording(
+            user_id=request.auth.user_id,
             client_session_id=payload.client_session_id,
             device_id=payload.device_id,
             schema_version=payload.schema_version,
-            timezone=payload.timezone,
+            timezone_name=payload.timezone,
             app_version=payload.app_version,
             device_platform=payload.device_platform,
-            started_at=started_at,
-            recording_started_at=started_at,
-            last_seen_at=now,
-            source_trip_id=source_trip_id,
+            started_at=payload.started_at,
+            source_trip_id=payload.source_trip_id,
         )
-        if not ingestion.raw_base_path:
-            ingestion.raw_base_path = f"ingestions/{ingestion.id}/"
-            ingestion.save(update_fields=["raw_base_path", "updated_at"])
+    except IngestionServiceError as exc:
+        _raise_ingestion_service_error(exc)
 
-    return _start_response(ingestion, already_exists=False)
+    if result.conflict_ingestion is not None:
+        return Status(409, _active_conflict_response(result.conflict_ingestion))
+    return _start_response(result.ingestion, already_exists=result.already_exists)
 
 
 @router.post(
@@ -694,120 +426,19 @@ def create_core_inline(request, payload: InlineCoreIn):
         else TripIngestion.PhaseStatus.COMPLETED
     )
 
-    with transaction.atomic():
-        ingestion = _get_inline_core_ingestion(
-            request,
-            payload,
+    try:
+        ingestion = process_inline_core_ingestion(
+            user_id=request.auth.user_id,
+            payload=payload,
             expected_raw_parts=expected_raw_parts,
             raw_status=raw_status,
             actual_sha256=actual_sha256,
             body_size=body_size,
         )
-        if (
-            ingestion.core_payload_sha256
-            and ingestion.core_payload_sha256 != actual_sha256
-        ):
-            raise HttpError(409, "client_session_id gia' usato con core diverso")
-        if not ingestion.raw_base_path:
-            ingestion.raw_base_path = f"ingestions/{ingestion.id}/"
-            ingestion.save(update_fields=["raw_base_path", "updated_at"])
+    except IngestionServiceError as exc:
+        _raise_ingestion_service_error(exc)
 
-        if ingestion.core_status == TripIngestion.PhaseStatus.FAILED_FINAL:
-            _release_active_lock_for_failed_final(ingestion, now=timezone.now())
-            return _core_failed_final_status()
-        if ingestion.core_status == TripIngestion.PhaseStatus.COMPLETED:
-            return _inline_core_response(ingestion)
-        if ingestion.core_status in _INLINE_PASSIVE_STATES:
-            return _inline_core_response(ingestion)
-        if ingestion.core_status not in _INLINE_REPROCESS_STATES:
-            raise HttpError(409, f"stato core non gestibile: {ingestion.core_status}")
-
-        now = timezone.now()
-        ingestion.core_ingestion_mode = TripIngestion.CoreIngestionMode.INLINE
-        ingestion.core_payload_sha256 = actual_sha256
-        ingestion.core_payload_size_bytes = body_size
-        ingestion.expected_core_parts = {}
-        ingestion.expected_raw_parts = expected_raw_parts
-        ingestion.raw_status = raw_status
-        ingestion.device_id = payload.device_id
-        ingestion.schema_version = payload.schema_version
-        ingestion.started_at = payload.started_at
-        ingestion.ended_at = payload.ended_at
-        ingestion.timezone = payload.timezone
-        ingestion.app_version = payload.app_version
-        ingestion.device_platform = payload.device_platform
-        ingestion.core_status = TripIngestion.PhaseStatus.PROCESSING
-        ingestion.started_processing_at = now
-        ingestion.error_message = ""
-        ingestion.save(
-            update_fields=[
-                "core_ingestion_mode",
-                "core_payload_sha256",
-                "core_payload_size_bytes",
-                "expected_core_parts",
-                "expected_raw_parts",
-                "raw_status",
-                "device_id",
-                "schema_version",
-                "started_at",
-                "ended_at",
-                "timezone",
-                "app_version",
-                "device_platform",
-                "core_status",
-                "started_processing_at",
-                "error_message",
-                "updated_at",
-            ]
-        )
-
-        if ingestion.source_trip_id is not None:
-            _validate_replay_slot(
-                user_id=request.auth.user_id,
-                client_session_id=ingestion.client_session_id,
-                started_at=payload.started_at,
-                ended_at=payload.ended_at,
-            )
-
-        trip = _get_or_create_inline_trip(ingestion)
-        _materialize_inline_core(trip, payload)
-        trip.refresh_from_db(fields=["distance_meters", "path"])
-
-        ingestion.trip = trip
-        ingestion.core_status = TripIngestion.PhaseStatus.COMPLETED
-        ingestion.completed_at = now
-        ingestion.failed_at = None
-        if payload.ingestion_id is not None:
-            ingestion.recording_closed_at = payload.ended_at or now
-            ingestion.last_seen_at = now
-        update_fields = [
-            "trip",
-            "core_status",
-            "completed_at",
-            "failed_at",
-            "updated_at",
-        ]
-        if payload.ingestion_id is not None:
-            update_fields.extend(["recording_closed_at", "last_seen_at"])
-        ingestion.save(
-            update_fields=update_fields,
-        )
-
-        if ingestion.source_trip_id is not None:
-            if payload.cutoff_source_timestamp is None:
-                raise HttpError(400, "cutoff_source_timestamp richiesto per il replay")
-            ended_at = ingestion.recording_closed_at or now
-            regenerate_raw_and_queue_har(
-                ingestion,
-                ingestion.source_trip,
-                shift=ended_at - payload.cutoff_source_timestamp,
-                now=now,
-                cutoff=payload.cutoff_source_timestamp,
-            )
-        elif not expected_raw_parts:
-            _queue_final_har(ingestion, now=now)
-
-        return _inline_core_response(ingestion)
+    return _inline_core_response(ingestion)
 
 
 @router.post(
@@ -851,9 +482,12 @@ def create_ingestion(request, payload: IngestionCreateIn):
         # preesistente (che e' il caso comune, non l'eccezione) e ogni
         # presign successivo fallirebbe con "parte non dichiarata".
         if not created:
-            _ensure_ingestion_not_permanently_dead(ingestion)
+            try:
+                ensure_ingestion_not_permanently_dead(ingestion)
+            except IngestionServiceError as exc:
+                _raise_ingestion_service_error(exc)
             if ingestion.core_status == TripIngestion.PhaseStatus.FAILED_FINAL:
-                _release_active_lock_for_failed_final(
+                release_active_lock_for_failed_final(
                     ingestion, now=timezone.now()
                 )
                 return _core_failed_final_status()
@@ -1062,9 +696,12 @@ def complete_core_ingestion(request, ingestion_id: int, payload: CompleteIn):
                 raw_status=ingestion.raw_status,
             )
         if ingestion.core_status == TripIngestion.PhaseStatus.FAILED_FINAL:
-            _release_active_lock_for_failed_final(ingestion, now=timezone.now())
+            release_active_lock_for_failed_final(ingestion, now=timezone.now())
             return _core_failed_final_status()
-        _ensure_ingestion_not_permanently_dead(ingestion)
+        try:
+            ensure_ingestion_not_permanently_dead(ingestion)
+        except IngestionServiceError as exc:
+            _raise_ingestion_service_error(exc)
 
         expected = _expected_part_keys(ingestion.expected_core_parts)
         if not expected:
@@ -1125,7 +762,10 @@ def complete_raw_ingestion(request, ingestion_id: int, payload: CompleteIn):
 
         expected = _expected_part_keys(ingestion.expected_raw_parts)
         if not expected:
-            _queue_final_har(ingestion, now=timezone.now())
+            try:
+                queue_final_har(ingestion, now=timezone.now())
+            except IngestionServiceError as exc:
+                _raise_ingestion_service_error(exc)
             return 202, CompleteOut(
                 ingestion_id=ingestion.id,
                 core_status=ingestion.core_status,
@@ -1142,7 +782,10 @@ def complete_raw_ingestion(request, ingestion_id: int, payload: CompleteIn):
             raise HttpError(409, "trip non materializzato per HAR finale")
         ingestion.manifest_sha256 = payload.manifest_sha256
         ingestion.save(update_fields=["manifest_sha256", "updated_at"])
-        _queue_final_har(ingestion, now=timezone.now())
+        try:
+            queue_final_har(ingestion, now=timezone.now())
+        except IngestionServiceError as exc:
+            _raise_ingestion_service_error(exc)
     return 202, CompleteOut(
         ingestion_id=ingestion.id,
         core_status=ingestion.core_status,
