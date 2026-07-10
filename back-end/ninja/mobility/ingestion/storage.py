@@ -10,9 +10,9 @@ Due client distinti:
   - interno: backend e Celery parlano allo storage sulla rete privata
     (es. http://minio:9000);
   - pubblico: i presigned PUT devono puntare all'host che il MOBILE riesce a
-    raggiungere (in locale l'IP LAN del Mac). La firma S3 e' legata all'host,
+    raggiungere (in locale l'IP LAN del Mac, in deploy il dominio pubblico
+    esposto dal gateway/proxy verso MinIO). La firma S3 e' legata all'host,
     quindi il presign usa un client configurato sull'endpoint pubblico.
-In deploy (Railway Buckets) i due endpoint coincidono.
 """
 from __future__ import annotations
 

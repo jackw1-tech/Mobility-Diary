@@ -11,7 +11,7 @@ from ninja.errors import HttpError
 from ninja.responses import Status
 
 from accounts.schemas import MessageOut
-from accounts.auth import mobile_bearer_auth
+from accounts.auth_mobile.auth import mobile_bearer_auth
 from accounts.models import UserPrivacySettings
 
 from .diary_events import (

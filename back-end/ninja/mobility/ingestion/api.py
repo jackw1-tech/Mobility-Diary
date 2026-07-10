@@ -1,11 +1,10 @@
 """API di ingestione asincrona dei viaggi.
 
-Upload "stupido" e affidabile: il backend non riceve mai i byte pesanti, genera
-presigned URL e tiene la contabilita' delle parti. Il processing (materializzazione
-Trip + HAR) e' demandato a Celery (REPORT_STRATEGIA_INGESTION_ASINCRONA.md).
+Upload "stupido" e affidabile: il backend riceve il core inline e non riceve
+i byte pesanti delle sensor window raw, per cui genera presigned URL e tiene
+la contabilita' delle parti raw. Il processing HAR e' demandato a Celery.
 
-Flusso: create -> presign/PUT/confirm core -> complete-core ->
-presign/PUT/confirm raw -> complete-raw.
+Flusso: core inline -> presign/PUT/confirm raw -> complete-raw.
 """
 from __future__ import annotations
 
@@ -20,7 +19,7 @@ from ninja import Router
 from ninja.errors import HttpError
 from ninja.responses import Status
 
-from accounts.auth import mobile_bearer_auth
+from accounts.auth_mobile.auth import mobile_bearer_auth
 
 from ..models import (
     PartKind,
@@ -39,11 +38,9 @@ from .selectors import (
 from .services import (
     IngestionServiceError,
     abandon_recording,
-    ensure_ingestion_not_permanently_dead,
     heartbeat_recording,
     process_inline_core_ingestion,
     queue_final_har,
-    release_active_lock_for_failed_final,
     start_recording,
 )
 from .schemas import (
@@ -55,8 +52,6 @@ from .schemas import (
     InlineCoreOut,
     IngestionAbandonIn,
     IngestionAbandonOut,
-    IngestionCreateIn,
-    IngestionCreateOut,
     IngestionHeartbeatIn,
     IngestionHeartbeatOut,
     IngestionStartIn,
@@ -70,30 +65,17 @@ from .schemas import (
 
 router = Router(tags=["ingestion"])
 
-_CORE_KINDS = {PartKind.GPS_POINTS, PartKind.STATE_TRANSITIONS}
 _RAW_KINDS = {PartKind.SENSOR_WINDOWS}
-_VALID_KINDS = _CORE_KINDS | _RAW_KINDS
+_VALID_KINDS = _RAW_KINDS
 _RECEIVING_STATES = {
     TripIngestion.PhaseStatus.PENDING,
     TripIngestion.PhaseStatus.RECEIVING,
     TripIngestion.PhaseStatus.RECEIVED,
 }
-_INLINE_REPROCESS_STATES = {
-    TripIngestion.PhaseStatus.PENDING,
-    TripIngestion.PhaseStatus.RECEIVING,
-    TripIngestion.PhaseStatus.RECEIVED,
-    TripIngestion.PhaseStatus.FAILED_RETRYABLE,
-}
-_INLINE_PASSIVE_STATES = {
-    TripIngestion.PhaseStatus.QUEUED,
-    TripIngestion.PhaseStatus.PROCESSING,
-}
 
 
 def _object_key(base_path: str, kind: str, sequence: int) -> str:
-    if kind == PartKind.SENSOR_WINDOWS:
-        return f"{base_path}sensor_windows_part_{sequence:04d}.bin.gz"
-    return f"{base_path}{kind}.json.gz"
+    return f"{base_path}sensor_windows_part_{sequence:04d}.bin.gz"
 
 
 def _expected_part_keys(parts: dict[str, int]) -> list[tuple[str, int]]:
@@ -105,8 +87,6 @@ def _expected_part_keys(parts: dict[str, int]) -> list[tuple[str, int]]:
 
 
 def _part_phase(kind: str) -> str:
-    if kind in _CORE_KINDS:
-        return "core"
     if kind in _RAW_KINDS:
         return "raw"
     raise HttpError(422, f"kind non valido: {kind}")
@@ -314,10 +294,6 @@ def _raise_ingestion_service_error(exc: IngestionServiceError) -> None:
     raise HttpError(exc.status_code, exc.message) from exc
 
 
-def _core_failed_final_status():
-    return Status(409, {"detail": "core ingestion fallita definitivamente"})
-
-
 @router.get(
     "/trips/active",
     response={200: ActiveIngestionOut, 404: dict},
@@ -406,8 +382,6 @@ def start_ingestion(request, payload: IngestionStartIn):
 )
 def create_core_inline(request, payload: InlineCoreIn):
     body_size = len(request.body or b"")
-    if body_size > settings.INGESTION_INLINE_CORE_MAX_BYTES:
-        raise HttpError(413, "payload core inline troppo grande")
     if not payload.gps_points and not payload.state_transitions:
         raise HttpError(400, "core vuoto: GPS e state transitions assenti")
 
@@ -439,119 +413,6 @@ def create_core_inline(request, payload: InlineCoreIn):
         _raise_ingestion_service_error(exc)
 
     return _inline_core_response(ingestion)
-
-
-@router.post(
-    "/trips",
-    response={200: IngestionCreateOut, 409: dict, 410: dict},
-    auth=mobile_bearer_auth,
-)
-def create_ingestion(request, payload: IngestionCreateIn):
-    user_id = request.auth.user_id
-    expected_core_parts = _validate_expected_parts(
-        payload.expected_core_parts,
-        _CORE_KINDS,
-        "core",
-    )
-    expected_raw_parts = _validate_expected_parts(
-        payload.expected_raw_parts,
-        _RAW_KINDS,
-        "raw",
-    )
-
-    with transaction.atomic():
-        ingestion, created = (
-            TripIngestion.objects.select_for_update().get_or_create(
-                user_id=user_id,
-                client_session_id=payload.client_session_id,
-                defaults={
-                    "device_id": payload.device_id,
-                    "schema_version": payload.schema_version,
-                    "started_at": payload.started_at,
-                },
-            )
-        )
-        if not ingestion.raw_base_path:
-            ingestion.raw_base_path = f"ingestions/{ingestion.id}/"
-            ingestion.save(update_fields=["raw_base_path", "updated_at"])
-
-        # `start_ingestion` crea gia' la riga per ogni viaggio, con manifest
-        # vuoto: qui e' dove il manifest viene davvero dichiarato/aggiornato,
-        # non solo alla creazione. Senza questo, get_or_create ignorerebbe
-        # silenziosamente expected_core_parts/expected_raw_parts su una riga
-        # preesistente (che e' il caso comune, non l'eccezione) e ogni
-        # presign successivo fallirebbe con "parte non dichiarata".
-        if not created:
-            try:
-                ensure_ingestion_not_permanently_dead(ingestion)
-            except IngestionServiceError as exc:
-                _raise_ingestion_service_error(exc)
-            if ingestion.core_status == TripIngestion.PhaseStatus.FAILED_FINAL:
-                release_active_lock_for_failed_final(
-                    ingestion, now=timezone.now()
-                )
-                return _core_failed_final_status()
-            if ingestion.core_status == TripIngestion.PhaseStatus.COMPLETED:
-                return IngestionCreateOut(
-                    ingestion_id=ingestion.id,
-                    core_status=ingestion.core_status,
-                    raw_status=ingestion.raw_status,
-                    already_exists=True,
-                )
-            if ingestion.core_status in _INLINE_PASSIVE_STATES:
-                return IngestionCreateOut(
-                    ingestion_id=ingestion.id,
-                    core_status=ingestion.core_status,
-                    raw_status=ingestion.raw_status,
-                    already_exists=True,
-                )
-            if ingestion.core_status not in _INLINE_REPROCESS_STATES:
-                raise HttpError(
-                    409, f"stato core non gestibile: {ingestion.core_status}"
-                )
-
-        raw_status = (
-            TripIngestion.PhaseStatus.PENDING
-            if expected_raw_parts
-            else TripIngestion.PhaseStatus.COMPLETED
-        )
-        ingestion.expected_core_parts = expected_core_parts
-        ingestion.expected_raw_parts = expected_raw_parts
-        ingestion.raw_status = raw_status
-        ingestion.core_ingestion_mode = TripIngestion.CoreIngestionMode.LEGACY_PARTS
-        ingestion.device_id = payload.device_id
-        ingestion.schema_version = payload.schema_version
-        ingestion.started_at = payload.started_at
-        ingestion.ended_at = payload.ended_at
-        ingestion.timezone = payload.timezone
-        ingestion.app_version = payload.app_version
-        ingestion.device_platform = payload.device_platform
-        ingestion.error_message = ""
-        ingestion.save(
-            update_fields=[
-                "expected_core_parts",
-                "expected_raw_parts",
-                "raw_status",
-                "core_ingestion_mode",
-                "device_id",
-                "schema_version",
-                "started_at",
-                "ended_at",
-                "timezone",
-                "app_version",
-                "device_platform",
-                "error_message",
-                "updated_at",
-            ]
-        )
-
-    return IngestionCreateOut(
-        ingestion_id=ingestion.id,
-        core_status=ingestion.core_status,
-        raw_status=ingestion.raw_status,
-        already_exists=not created,
-    )
-
 
 @router.post(
     "/trips/{ingestion_id}/parts/presign",
@@ -671,64 +532,6 @@ def confirm_part(request, ingestion_id: int, payload: PartConfirmIn):
         sequence=part.sequence,
         status="RECEIVED",
     )
-
-
-@router.post(
-    "/trips/{ingestion_id}/complete-core",
-    response={202: CompleteOut, 409: dict, 410: dict},
-    auth=mobile_bearer_auth,
-)
-def complete_core_ingestion(request, ingestion_id: int, payload: CompleteIn):
-    ingestion = _get_owned_ingestion(request, ingestion_id)
-
-    with transaction.atomic():
-        ingestion = TripIngestion.objects.select_for_update().get(id=ingestion.id)
-        # Idempotente: se gia' in coda o oltre, non rifare nulla.
-        if ingestion.core_status in {
-            TripIngestion.PhaseStatus.QUEUED,
-            TripIngestion.PhaseStatus.PROCESSING,
-            TripIngestion.PhaseStatus.COMPLETED,
-            TripIngestion.PhaseStatus.FAILED_RETRYABLE,
-        }:
-            return 202, CompleteOut(
-                ingestion_id=ingestion.id,
-                core_status=ingestion.core_status,
-                raw_status=ingestion.raw_status,
-            )
-        if ingestion.core_status == TripIngestion.PhaseStatus.FAILED_FINAL:
-            release_active_lock_for_failed_final(ingestion, now=timezone.now())
-            return _core_failed_final_status()
-        try:
-            ensure_ingestion_not_permanently_dead(ingestion)
-        except IngestionServiceError as exc:
-            _raise_ingestion_service_error(exc)
-
-        expected = _expected_part_keys(ingestion.expected_core_parts)
-        if not expected:
-            raise HttpError(409, "nessuna parte core attesa")
-        confirmed = _confirmed_parts(ingestion)
-        missing = [pk for pk in expected if pk not in confirmed]
-        if missing:
-            readable = ", ".join(f"{kind}#{seq}" for kind, seq in missing)
-            raise HttpError(409, f"parti core mancanti: {readable}")
-
-        ingestion.manifest_sha256 = payload.manifest_sha256
-        ingestion.core_status = TripIngestion.PhaseStatus.QUEUED
-        ingestion.queued_at = timezone.now()
-        ingestion.save(
-            update_fields=["manifest_sha256", "core_status", "queued_at", "updated_at"]
-        )
-
-        # Import locale: evita import circolare e accoppiamento a Celery a load-time.
-        from ..tasks import process_trip_ingestion
-
-        transaction.on_commit(lambda: process_trip_ingestion.delay(ingestion.id))
-    return 202, CompleteOut(
-        ingestion_id=ingestion.id,
-        core_status=ingestion.core_status,
-        raw_status=ingestion.raw_status,
-    )
-
 
 @router.post(
     "/trips/{ingestion_id}/complete-raw",

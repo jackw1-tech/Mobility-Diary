@@ -4,21 +4,6 @@ from ninja import Schema
 from pydantic import Field
 
 
-class IngestionCreateIn(Schema):
-    client_session_id: str
-    schema_version: int = 1
-    started_at: datetime | None = None
-    ended_at: datetime | None = None
-    timezone: str = ""
-    device_id: str = ""
-    app_version: str = ""
-    device_platform: str = ""
-    # {"gps_points": 1, "state_transitions": 1}
-    expected_core_parts: dict[str, int]
-    # {"sensor_windows": 6}
-    expected_raw_parts: dict[str, int] = Field(default_factory=dict)
-
-
 class IngestionStartIn(Schema):
     client_session_id: str
     schema_version: int = 1
@@ -68,13 +53,6 @@ class IngestionHeartbeatIn(Schema):
 class IngestionHeartbeatOut(Schema):
     ingestion_id: int
     last_seen_at: datetime
-
-
-class IngestionCreateOut(Schema):
-    ingestion_id: int
-    core_status: str
-    raw_status: str
-    already_exists: bool
 
 
 class InlineGpsPointIn(Schema):

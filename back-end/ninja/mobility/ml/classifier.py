@@ -1,8 +1,8 @@
 """Classificatore di attivita.
 
 Quando le finestre raw sono disponibili, `classify_windows` invoca l'adapter
-Keras CNN+GRU. Se il modello non e disponibile e `HAR_MODEL_REQUIRED` e falso,
-usa una classificazione a bande di velocita GPS come fallback esplicito.
+Keras CNN+GRU. I modelli HAR sono obbligatori: se non sono disponibili,
+l'errore risale al chiamante.
 
 `correct_idle_with_gps` e gia la fusione GPS definitiva: corregge le finestre
 IDLE circondate da velocita da veicolo (IDLE<->MOVING_VEHICLE), il difetto #1
@@ -13,9 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from django.conf import settings
-
-from .har_adapter import HarModelUnavailable, predict_activity_windows
+from .har_adapter import predict_activity_windows
 
 # Bande di velocita (m/s). Soglie da motivare in relazione.
 WALK_MAX = 2.2          # ~8 km/h
@@ -57,13 +55,7 @@ def classify_windows(
     raw_windows=None,
 ) -> ClassifierResult:
     if raw_windows:
-        try:
-            prediction = predict_activity_windows(raw_windows)
-        except HarModelUnavailable as exc:
-            if settings.HAR_MODEL_REQUIRED:
-                raise
-            labels = [_label_from_speed(s) for s in win_speeds]
-            return ClassifierResult(labels, _speed_fallback_summary(str(exc)))
+        prediction = predict_activity_windows(raw_windows)
         if len(prediction.labels) != len(win_speeds):
             raise ValueError("il classificatore HAR ha restituito un numero di label errato")
         return ClassifierResult(prediction.labels, prediction.summary)

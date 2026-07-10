@@ -161,37 +161,6 @@ class TripIngestionDioService implements TripIngestionService {
   }
 
   @override
-  Future<int> createIngestion({
-    required String clientSessionId,
-    required Map<String, int> expectedCoreParts,
-    required Map<String, int> expectedRawParts,
-    DateTime? startedAt,
-    DateTime? endedAt,
-    String deviceId = '',
-    String devicePlatform = '',
-  }) async {
-    try {
-      final response = await _dio.post(
-        _base,
-        data: {
-          'client_session_id': clientSessionId,
-          'schema_version': 1,
-          'started_at': startedAt?.toUtc().toIso8601String(),
-          'ended_at': endedAt?.toUtc().toIso8601String(),
-          'device_id': deviceId,
-          'device_platform': devicePlatform,
-          'expected_core_parts': expectedCoreParts,
-          'expected_raw_parts': expectedRawParts,
-        },
-        options: await _options(),
-      );
-      return response.data['ingestion_id'] as int;
-    } catch (e) {
-      throw _handleError(e);
-    }
-  }
-
-  @override
   Future<PresignResultDto> presignPart(
     int ingestionId, {
     required String kind,
@@ -262,22 +231,6 @@ class TripIngestionDioService implements TripIngestionService {
       await _dio.post(
         '$_base/$ingestionId/parts/confirm',
         data: {'kind': kind, 'sequence': sequence, 'sha256': sha256},
-        options: await _options(),
-      );
-    } catch (e) {
-      throw _handleError(e);
-    }
-  }
-
-  @override
-  Future<void> completeCoreIngestion(
-    int ingestionId, {
-    required int totalParts,
-  }) async {
-    try {
-      await _dio.post(
-        '$_base/$ingestionId/complete-core',
-        data: {'total_parts': totalParts},
         options: await _options(),
       );
     } catch (e) {

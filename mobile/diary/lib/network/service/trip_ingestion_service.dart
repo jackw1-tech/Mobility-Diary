@@ -46,16 +46,6 @@ abstract class TripIngestionService {
     required Map<String, dynamic> body,
   });
 
-  Future<int> createIngestion({
-    required String clientSessionId,
-    required Map<String, int> expectedCoreParts,
-    required Map<String, int> expectedRawParts,
-    DateTime? startedAt,
-    DateTime? endedAt,
-    String deviceId,
-    String devicePlatform,
-  });
-
   Future<PresignResultDto> presignPart(
     int ingestionId, {
     required String kind,
@@ -76,9 +66,6 @@ abstract class TripIngestionService {
     required int sequence,
     required String sha256,
   });
-
-  Future<void> completeCoreIngestion(int ingestionId,
-      {required int totalParts});
 
   Future<void> completeRawIngestion(int ingestionId, {required int totalParts});
 

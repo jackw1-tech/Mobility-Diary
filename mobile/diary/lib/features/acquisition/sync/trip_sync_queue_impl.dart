@@ -129,31 +129,14 @@ class TripSyncQueueImpl implements TripSyncQueue {
           corePayloadSizeBytes: corePayload.sizeBytes,
         );
 
-        // Nota: `ingestionId` puo' essere gia' noto qui (assegnato da
-        // `start_ingestion` all'avvio della registrazione, per QUALSIASI
-        // viaggio) senza che nessun tentativo di core sia mai avvenuto —
-        // non e' un segnale di "fallback gia' iniziato". Percio' l'inline
-        // resta sempre il primo tentativo: il payload lo include come
-        // `ingestion_id` e il backend lo gestisce correttamente anche se la
-        // riga esiste gia'.
-        try {
-          final coreResult = _mapper.mapInlineCoreResult(
-            await _service.postCoreInline(body: corePayload.requestBody),
-          );
-          ingestionId = coreResult.ingestionId;
-          status = _statusFromInlineResult(coreResult, package.rawParts);
-        } on IngestionApiException catch (error) {
-          // Il core inline ha un limite di dimensione lato server (413
-          // sopra soglia). Per i viaggi lunghi usiamo lo stesso percorso a
-          // parti presigned gia' usato per le sensor window, invece di
-          // esaurire i retry sull'inline e perdere il viaggio.
-          if (error.statusCode != 413 || package.coreParts.isEmpty) {
-            rethrow;
-          }
-          final uploaded = await _uploadCoreViaParts(job, package);
-          ingestionId = uploaded.ingestionId;
-          status = uploaded.status;
-        }
+        // `ingestionId` puo' essere gia' noto qui perche' `start_ingestion`
+        // crea la riga remota all'avvio della registrazione. Il core pero'
+        // entra sempre solo da questo endpoint inline.
+        final coreResult = _mapper.mapInlineCoreResult(
+          await _service.postCoreInline(body: corePayload.requestBody),
+        );
+        ingestionId = coreResult.ingestionId;
+        status = _statusFromInlineResult(coreResult, package.rawParts);
       }
 
       if (status.isCoreFailedFinal) {
@@ -270,40 +253,6 @@ class TripSyncQueueImpl implements TripSyncQueue {
     } catch (error) {
       await _handleFailure(job, error);
     }
-  }
-
-  /// Fallback per core troppo grande per l'inline (413): stessa strada a
-  /// parti presigned gia' usata per le sensor window raw. `createIngestion`
-  /// e' idempotente per client_session_id (dichiara/aggiorna il manifest
-  /// anche se la riga esiste gia' da `start_ingestion`), quindi e' sicuro
-  /// richiamarlo su un retry — le parti gia' confermate non vengono
-  /// ricaricate (vedi `_uploadMissingParts`/`missingCoreParts`).
-  Future<({int ingestionId, IngestionStatus status})> _uploadCoreViaParts(
-    SyncJob job,
-    TripPackage package,
-  ) async {
-    final id = await _service.createIngestion(
-      clientSessionId: job.localSessionId,
-      expectedCoreParts: package.expectedCoreParts,
-      expectedRawParts: package.expectedRawParts,
-      startedAt: package.startedAt,
-      endedAt: package.endedAt,
-    );
-    await _dao.updateSyncJob(job.id, remoteIngestionId: Value(id));
-
-    var status = _mapper.mapIngestionStatus(await _service.getStatus(id));
-    if (status.canReceiveCoreParts) {
-      await _uploadMissingParts(
-        id,
-        package.coreParts,
-        status.missingCoreParts,
-        uploadAll: status.coreStatus == 'PENDING',
-      );
-      await _service.completeCoreIngestion(id,
-          totalParts: package.coreParts.length);
-      status = _mapper.mapIngestionStatus(await _service.getStatus(id));
-    }
-    return (ingestionId: id, status: status);
   }
 
   Future<void> _uploadMissingParts(

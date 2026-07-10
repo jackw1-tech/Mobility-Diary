@@ -10,12 +10,12 @@ if ENV_FILE:
 else:
     load_dotenv(BASE_DIR / ".env.local")
 
-
+# funzioni helper per leggere variabili d'ambiente e transformale in booleano o lista
 def env_bool(name: str, default: bool = False) -> bool:
     value = os.getenv(name)
     if value is None:
         return default
-    return value.lower() in {"1", "true", "yes", "on"}
+    return value.lower() in {"True", "true", "1", "yes"}
 
 
 def env_list(name: str, default: str = "") -> list[str]:
@@ -23,45 +23,35 @@ def env_list(name: str, default: str = "") -> list[str]:
     return [item.strip() for item in raw_value.split(",") if item.strip()]
 
 
-def unique(values: list[str]) -> list[str]:
-    seen = set()
-    result = []
-    for value in values:
-        if value not in seen:
-            seen.add(value)
-            result.append(value)
-    return result
-
-
+# restituisce solo il dominio -> server per gli allowed host di django
 def normalize_host(host: str) -> str:
     return host.removeprefix("https://").removeprefix("http://").split("/")[0]
 
-
+# restuisce il dominio + https
 def normalize_csrf_origin(origin: str) -> str:
     if origin.startswith(("http://", "https://")):
         return origin.rstrip("/")
     return f"https://{origin.rstrip('/')}"
 
 
-RAILWAY_PUBLIC_DOMAIN = os.getenv("RAILWAY_PUBLIC_DOMAIN", "").strip()
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "unsafe-dev-secret-key")
+
 DEBUG = env_bool("DJANGO_DEBUG", True)
-ALLOWED_HOSTS = unique(
+ALLOWED_HOSTS = (
     [
         normalize_host(host)
         for host in env_list("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1")
-        + ([RAILWAY_PUBLIC_DOMAIN] if RAILWAY_PUBLIC_DOMAIN else [])
+        
     ]
 )
-CSRF_TRUSTED_ORIGINS = unique(
+CSRF_TRUSTED_ORIGINS = (
     [
         normalize_csrf_origin(origin)
         for origin in env_list("CSRF_TRUSTED_ORIGINS")
-        + ([RAILWAY_PUBLIC_DOMAIN] if RAILWAY_PUBLIC_DOMAIN else [])
     ]
 )
-CORS_ALLOWED_ORIGINS = unique(
+CORS_ALLOWED_ORIGINS = (
     [
         normalize_csrf_origin(origin)
         for origin in env_list("CORS_ALLOWED_ORIGINS")
@@ -151,8 +141,12 @@ STORAGES = {
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+#Parametri per Django <-> Nginx
+# Se la richiesta che arriva ha come header HTTP_X_FORWARDED_PROTO considerala HTTPS, quindi valida 
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
-USE_X_FORWARDED_HOST = env_bool("USE_X_FORWARDED_HOST", bool(RAILWAY_PUBLIC_DOMAIN))
+# Serve a django per capire il vero dominio della richiesta, essendo esso dentro Nginx
+USE_X_FORWARDED_HOST = env_bool("USE_X_FORWARDED_HOST", True)
+
 
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
@@ -160,9 +154,12 @@ SESSION_COOKIE_SECURE = env_bool("SESSION_COOKIE_SECURE", not DEBUG)
 CSRF_COOKIE_HTTPONLY = False
 CSRF_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_SECURE = env_bool("CSRF_COOKIE_SECURE", not DEBUG)
-MOBILE_ACCESS_TOKEN_TTL_DAYS = int(os.getenv("MOBILE_ACCESS_TOKEN_TTL_DAYS", "30"))
+MOBILE_ACCESS_TOKEN_TTL_DAYS = 30
 WEB_ACCESS_TOKEN_TTL_MINUTES = int(os.getenv("WEB_ACCESS_TOKEN_TTL_MINUTES", "15"))
 WEB_REFRESH_TOKEN_TTL_DAYS = int(os.getenv("WEB_REFRESH_TOKEN_TTL_DAYS", "7"))
+
+
+#Sezione Redis + Celery
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6381/0")
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", REDIS_URL)
@@ -170,52 +167,24 @@ CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:63
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 30 * 60
 
-# Object storage S3-compatibile per l'ingestione asincrona dei viaggi.
-# MinIO in locale, Railway Buckets in deploy (vedi REPORT_STRATEGIA_INGESTION_ASINCRONA.md D7).
-# S3_ENDPOINT_URL: usato dal backend/Celery (rete interna Docker, es. http://minio:9000).
-# S3_PUBLIC_ENDPOINT_URL: host con cui il MOBILE raggiunge lo storage per i presigned URL
-#   (in locale l'IP LAN del Mac; default = endpoint interno). In deploy coincidono.
-S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL", os.getenv("S3_ENDPOINT", "http://minio:9000"))
+# Sezione S3
+#Endpoint interno per tutti i servizi che devono accederci
+S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL", "http://minio:9000")
+#Endpoint pubblico che il mobile deve poter raggiungere
 S3_PUBLIC_ENDPOINT_URL = os.getenv(
     "S3_PUBLIC_ENDPOINT_URL",
-    os.getenv("S3_PUBLIC_ENDPOINT", S3_ENDPOINT_URL),
+   S3_ENDPOINT_URL,
 )
 S3_ACCESS_KEY_ID = os.getenv("S3_ACCESS_KEY_ID", "minioadmin")
 S3_SECRET_ACCESS_KEY = os.getenv("S3_SECRET_ACCESS_KEY", "minioadmin")
 S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", os.getenv("S3_BUCKET", "mobility-trips"))
 S3_REGION = os.getenv("S3_REGION", "us-east-1")
-# Durata dei presigned URL (secondi).
-S3_PRESIGN_EXPIRES_SECONDS = int(os.getenv("S3_PRESIGN_EXPIRES_SECONDS", "900"))
-# Limite dimensione per singola parte caricata (byte). Default 25 MB.
-INGESTION_MAX_PART_BYTES = int(os.getenv("INGESTION_MAX_PART_BYTES", str(25 * 1024 * 1024)))
-# Limite del payload Core inline: il core deve restare piccolo e sincrono.
-# Sopra questa soglia il client passa al percorso a parti presigned (stessa
-# strada delle sensor window) invece di essere respinto senza alternativa.
-INGESTION_INLINE_CORE_MAX_BYTES = int(
-    os.getenv("INGESTION_INLINE_CORE_MAX_BYTES", str(8 * 1024 * 1024))
-)
-
-# CONGELATO: la cancellazione dei blob raw dopo HAR e' predisposta ma disattivata
-# finche' HAR non e' operativo (vedi REPORT D9). NON attivare senza HAR validato.
-HAR_CLEANUP_ENABLED = env_bool("HAR_CLEANUP_ENABLED", False)
+S3_PRESIGN_EXPIRES_SECONDS = int("900")
+INGESTION_MAX_PART_BYTES = int(25 * 1024 * 1024) #25 mb
 
 
-def default_har_artifact_path(filename: str) -> str:
-    local_app_path = BASE_DIR / "manual_har" / filename
-    repo_root_path = BASE_DIR.parent.parent / "manual_har" / filename
-    if local_app_path.exists():
-        return str(local_app_path)
-    return str(repo_root_path)
-
-
-HAR_CNN_MODEL_PATH = os.getenv(
-    "HAR_CNN_MODEL_PATH",
-    default_har_artifact_path("shl_cnn1d_full_100pct_5class_best.keras"),
-)
-HAR_GRU_MODEL_PATH = os.getenv(
-    "HAR_GRU_MODEL_PATH",
-    default_har_artifact_path("shl_6ch_5class_gru_best.keras"),
-)
-HAR_MODEL_REQUIRED = env_bool("HAR_MODEL_REQUIRED", False)
-HAR_GRU_SEQUENCE_LENGTH = int(os.getenv("HAR_GRU_SEQUENCE_LENGTH", "32"))
-HAR_WINDOW_SAMPLE_COUNT = int(os.getenv("HAR_WINDOW_SAMPLE_COUNT", "500"))
+#Sezione HAR
+HAR_CNN_MODEL_PATH = str(BASE_DIR / "manual_har" / "shl_cnn1d_full_100pct_5class_best.keras")
+HAR_GRU_MODEL_PATH = str(BASE_DIR / "manual_har" / "shl_6ch_5class_gru_best.keras")
+HAR_GRU_SEQUENCE_LENGTH = 32
+HAR_WINDOW_SAMPLE_COUNT = 500
