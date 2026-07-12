@@ -194,9 +194,5 @@ class PlaceMiningStatusAdmin(admin.ModelAdmin):
 
 @admin.register(RawSensorReading)
 class RawSensorReadingAdmin(admin.ModelAdmin):
-   
     list_display = [field.name for field in RawSensorReading._meta.fields]
 
-    raw_id_fields = ('trip',)
-    list_filter = ('timestamp',)
-    search_fields = ('trip__id',)
