@@ -204,6 +204,6 @@ class RawSensorReadingAdmin(admin.ModelAdmin):
         'gyro_y', 
         'gyro_z'
     )
-    
     raw_id_fields = ('trip',)
     show_full_result_count = False
+    list_display_links = None
