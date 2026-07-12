@@ -6,6 +6,7 @@ from .models import (
     HabitualPlace,
     HarJob,
     MobilitySegment,
+    RawSensorReading,
     SensorWindow,
     StateTransition,
     Trip,
@@ -190,3 +191,12 @@ class PlaceMiningStatusAdmin(admin.ModelAdmin):
     list_filter = ("status", "updated_at")
     search_fields = ("id", "user__email")
     raw_id_fields = ("user",)
+
+@admin.register(RawSensorReading)
+class RawSensorReadingAdmin(admin.ModelAdmin):
+   
+    list_display = [field.name for field in RawSensorReading._meta.fields]
+
+    raw_id_fields = ('trip',)
+    list_filter = ('timestamp',)
+    search_fields = ('trip__id',)
