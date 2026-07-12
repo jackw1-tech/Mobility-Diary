@@ -135,7 +135,8 @@ services:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mobility} -d ${POSTGRES_DB:-mobility}"]
       interval: 5s
       timeout: 3s
-      retries: 20
+      retries: 60
+      start_period: 120s
 
   # Object storage S3-compatibile per lo sviluppo locale (REPORT_STRATEGIA_INGESTION_ASINCRONA.md D7).
   # In deploy su Railway viene sostituito da Railway Buckets cambiando solo le env var S3_*.

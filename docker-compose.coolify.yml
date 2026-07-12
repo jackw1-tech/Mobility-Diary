@@ -186,7 +186,8 @@ services:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mobility} -d ${POSTGRES_DB:-mobility}"]
       interval: 5s
       timeout: 3s
-      retries: 20
+      retries: 60
+      start_period: 120s
 
   minio:
     image: minio/minio:latest
