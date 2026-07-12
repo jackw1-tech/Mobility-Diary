@@ -170,16 +170,17 @@ services:
       retries: 20
 
   db:
-    image: postgis/postgis:16-3.4
+    image: timescale/timescaledb-ha:pg16
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-mobility}
       POSTGRES_USER: ${POSTGRES_USER:-mobility}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGDATA: /home/postgres/pgdata/data
     expose:
       - "5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/home/postgres/pgdata/data
       - ./back-end/infra/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mobility} -d ${POSTGRES_DB:-mobility}"]
