@@ -192,15 +192,3 @@ class PlaceMiningStatusAdmin(admin.ModelAdmin):
     search_fields = ("id", "user__email")
     raw_id_fields = ("user",)
 
-@admin.register(RawSensorReading)
-class RawSensorReadingAdmin(admin.ModelAdmin):
-    list_display = (
-        'trip', 
-        'timestamp', 
-        'accel_x', 
-        'accel_y', 
-        'accel_z', 
-        'gyro_x', 
-        'gyro_y', 
-        'gyro_z'
-    )
