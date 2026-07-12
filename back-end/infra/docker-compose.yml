@@ -115,19 +115,20 @@ services:
       retries: 20
 
   db:
-    image: timescale/timescaledb-ha:pg16
+    build:
+      context: ./postgres
     restart: unless-stopped
+    command: ["postgres", "-c", "shared_preload_libraries=timescaledb"]
     env_file:
       - .env
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-mobility}
       POSTGRES_USER: ${POSTGRES_USER:-mobility}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mobility}
-      PGDATA: /home/postgres/pgdata/data
     expose:
       - "5432"
     volumes:
-      - postgres_data:/home/postgres/pgdata/data
+      - postgres_data:/var/lib/postgresql/data
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mobility} -d ${POSTGRES_DB:-mobility}"]
