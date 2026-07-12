@@ -8,7 +8,6 @@ EARTH_RADIUS_METERS = 6371000.0
 
 
 def haversine_meters(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    """Distanza in metri fra due coordinate (lat, lon) in gradi."""
     p1, p2 = math.radians(lat1), math.radians(lat2)
     dp = math.radians(lat2 - lat1)
     dl = math.radians(lon2 - lon1)

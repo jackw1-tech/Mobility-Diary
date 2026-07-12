@@ -3,10 +3,6 @@
 Quando le finestre raw sono disponibili, `classify_windows` invoca l'adapter
 Keras CNN+GRU. I modelli HAR sono obbligatori: se non sono disponibili,
 l'errore risale al chiamante.
-
-`correct_idle_with_gps` e gia la fusione GPS definitiva: corregge le finestre
-IDLE circondate da velocita da veicolo (IDLE<->MOVING_VEHICLE), il difetto #1
-del modello inerziale (vedi RELAZIONE HAR).
 """
 
 from __future__ import annotations
@@ -19,8 +15,6 @@ from .har_adapter import predict_activity_windows
 WALK_MAX = 2.2          # ~8 km/h
 RUN_MAX = 3.6           # ~13 km/h
 BIKE_MAX = 7.0          # ~25 km/h
-VEHICLE_SPEED_MPS = 8.0  # ~29 km/h: chiaramente un veicolo
-CONTEXT = 6              # +-6 finestre = +-30s di contesto
 
 
 @dataclass(frozen=True)
@@ -41,37 +35,12 @@ def _label_from_speed(speed: float | None) -> str:
     return "MOVING_VEHICLE"
 
 
-def _speed_fallback_summary(reason: str | None = None) -> dict:
-    summary = {"classifier": "placeholder_gps_speed"}
-    if reason:
-        summary["fallback_reason"] = reason
-    return summary
-
-
+""" 
+Assegna i label di attività per ogni sensor window
+"""
 def classify_windows(
-    normalized_windows,
-    win_speeds: list[float | None],
     *,
     raw_windows=None,
 ) -> ClassifierResult:
-    if raw_windows:
-        prediction = predict_activity_windows(raw_windows)
-        if len(prediction.labels) != len(win_speeds):
-            raise ValueError("il classificatore HAR ha restituito un numero di label errato")
-        return ClassifierResult(prediction.labels, prediction.summary)
-
-    labels = [_label_from_speed(s) for s in win_speeds]
-    return ClassifierResult(labels, _speed_fallback_summary())
-
-
-def correct_idle_with_gps(labels: list[str], win_speeds: list[float | None]) -> list[str]:
-    out = list(labels)
-    n = len(out)
-    for i in range(n):
-        if out[i] != "IDLE":
-            continue
-        lo, hi = max(0, i - CONTEXT), min(n, i + CONTEXT + 1)
-        near = [s for s in win_speeds[lo:hi] if s is not None]
-        if near and max(near) >= VEHICLE_SPEED_MPS:
-            out[i] = "MOVING_VEHICLE"  # eri in viaggio: il "fermo" era un semaforo
-    return out
+    prediction = predict_activity_windows(raw_windows)
+    return ClassifierResult(prediction.labels, prediction.summary)

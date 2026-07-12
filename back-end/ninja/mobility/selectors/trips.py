@@ -6,7 +6,7 @@ from typing import Any
 from django.contrib.gis.db.models.functions import AsGeoJSON, Length
 from django.db.models import BooleanField, Case, Count, Exists, OuterRef, Value, When
 
-from ..models import PartKind, Trip, TripIngestion, TripIngestionPart
+from ..models import Trip, TripIngestion, TripIngestionPart
 
 
 def trip_list_items_for_user(user_id: int) -> list[dict[str, Any]]:
@@ -61,7 +61,6 @@ def source_has_raw_sensor_evidence(source: Trip) -> bool:
     return TripIngestionPart.objects.filter(
         ingestion__trip=source,
         ingestion__raw_status=TripIngestion.PhaseStatus.COMPLETED,
-        kind=PartKind.SENSOR_WINDOWS,
         received_at__isnull=False,
     ).exists()
 
@@ -92,7 +91,6 @@ def _trip_list_annotations():
             TripIngestionPart.objects.filter(
                 ingestion__trip=OuterRef("pk"),
                 ingestion__raw_status=TripIngestion.PhaseStatus.COMPLETED,
-                kind=PartKind.SENSOR_WINDOWS,
                 received_at__isnull=False,
             )
         ),

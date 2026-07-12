@@ -38,14 +38,8 @@ class IngestionMapper {
     return IngestionStatus(
       coreStatus: dto.coreStatus,
       rawStatus: dto.rawStatus,
-      missingCoreParts: dto.missingCoreParts
-          .map((e) => (kind: e.kind, sequence: e.sequence))
-          .toList(),
-      missingRawParts: dto.missingRawParts
-          .map((e) => (kind: e.kind, sequence: e.sequence))
-          .toList(),
+      missingRawParts: dto.missingRawParts.map((e) => e.sequence).toList(),
       tripId: dto.tripId,
-      coreIngestionMode: dto.coreIngestionMode,
       mapAvailable: dto.mapAvailable,
     );
   }
@@ -56,10 +50,6 @@ class IngestionMapper {
       tripId: dto.tripId,
       coreStatus: dto.coreStatus,
       rawStatus: dto.rawStatus,
-      gpsPoints: dto.gpsPoints,
-      stateTransitions: dto.stateTransitions,
-      pathPoints: dto.pathPoints,
-      distanceMeters: dto.distanceMeters,
       mapAvailable: dto.mapAvailable,
     );
   }

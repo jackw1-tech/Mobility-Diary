@@ -48,7 +48,6 @@ abstract class TripIngestionService {
 
   Future<PresignResultDto> presignPart(
     int ingestionId, {
-    required String kind,
     required int sequence,
     required String sha256,
     required int sizeBytes,
@@ -62,7 +61,6 @@ abstract class TripIngestionService {
 
   Future<void> confirmPart(
     int ingestionId, {
-    required String kind,
     required int sequence,
     required String sha256,
   });

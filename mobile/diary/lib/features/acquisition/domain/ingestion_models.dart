@@ -13,19 +13,15 @@ class PresignResult {
 class IngestionStatus {
   final String coreStatus;
   final String rawStatus;
-  final List<({String kind, int sequence})> missingCoreParts;
-  final List<({String kind, int sequence})> missingRawParts;
+  final List<int> missingRawParts;
   final int? tripId;
-  final String coreIngestionMode;
   final bool mapAvailable;
 
   const IngestionStatus({
     required this.coreStatus,
     required this.rawStatus,
-    required this.missingCoreParts,
     required this.missingRawParts,
     this.tripId,
-    this.coreIngestionMode = 'LEGACY_PARTS',
     this.mapAvailable = false,
   });
 
@@ -45,11 +41,6 @@ class IngestionStatus {
         coreStatus == 'FAILED_RETRYABLE';
   }
 
-  bool get canReceiveCoreParts =>
-      coreStatus == 'PENDING' ||
-      coreStatus == 'RECEIVING' ||
-      coreStatus == 'RECEIVED';
-
   bool get canReceiveRawParts =>
       rawStatus == 'PENDING' || rawStatus == 'RECEIVING';
 }
@@ -59,10 +50,6 @@ class InlineCoreResult {
   final int? tripId;
   final String coreStatus;
   final String rawStatus;
-  final int gpsPoints;
-  final int stateTransitions;
-  final int pathPoints;
-  final double distanceMeters;
   final bool mapAvailable;
 
   const InlineCoreResult({
@@ -70,10 +57,6 @@ class InlineCoreResult {
     required this.tripId,
     required this.coreStatus,
     required this.rawStatus,
-    required this.gpsPoints,
-    required this.stateTransitions,
-    required this.pathPoints,
-    required this.distanceMeters,
     required this.mapAvailable,
   });
 

@@ -92,6 +92,28 @@ class GpsPoint(models.Model):
         return self.point.x
 
 
+class RawSensorReading(models.Model):
+    """Lettura inerziale grezza per-campione, proiettata su TimescaleDB (ADR 0001).
+
+    Il blob binario su object storage resta la fonte di verita' ricaricabile;
+    questa tabella e' la proiezione interrogabile (query temporali, debug,
+    valutazione HAR). La PK composita (trip, timestamp) include la colonna
+    tempo come richiesto da create_hypertable; niente id autoincrementale.
+    """
+
+    pk = models.CompositePrimaryKey("trip_id", "timestamp")
+    trip = models.ForeignKey(
+        Trip, related_name="raw_sensor_readings", on_delete=models.CASCADE
+    )
+    timestamp = models.DateTimeField()
+    accel_x = models.FloatField()
+    accel_y = models.FloatField()
+    accel_z = models.FloatField()
+    gyro_x = models.FloatField()
+    gyro_y = models.FloatField()
+    gyro_z = models.FloatField()
+
+
 class StateTransition(models.Model):
     trip = models.ForeignKey(
         Trip, related_name="state_transitions", on_delete=models.CASCADE
@@ -308,10 +330,6 @@ class VirtualStopInterval(models.Model):
 
 
 class HarJob(models.Model):
-    class Kind(models.TextChoices):
-        LIVE_BATCH = "LIVE_BATCH", "Live batch"
-        FINAL_TRIP = "FINAL_TRIP", "Final trip"
-
     class Status(models.TextChoices):
         PENDING = "PENDING", "Pending"
         STARTED = "STARTED", "Started"
@@ -319,7 +337,6 @@ class HarJob(models.Model):
         FAILURE = "FAILURE", "Failure"
 
     trip = models.ForeignKey(Trip, related_name="har_jobs", on_delete=models.CASCADE)
-    kind = models.CharField(max_length=32, choices=Kind.choices)
     status = models.CharField(max_length=32, choices=Status.choices, default=Status.PENDING)
     result = models.JSONField(null=True, blank=True)
     error = models.TextField(blank=True)
@@ -327,20 +344,7 @@ class HarJob(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
 
-class PartKind(models.TextChoices):
-    GPS_POINTS = "gps_points", "GPS points"
-    STATE_TRANSITIONS = "state_transitions", "State transitions"
-    SENSOR_WINDOWS = "sensor_windows", "Sensor windows"
-
-
 class TripIngestion(models.Model):
-    """Aggregato di upload, separato dal Trip di dominio.
-
-    L'upload sporco (parti parziali, retry, fallimenti) vive qui; il Trip lo
-    materializza Celery solo a processing riuscito, cosi' la tabella Trip
-    contiene solo viaggi puliti (REPORT_STRATEGIA_INGESTION_ASINCRONA.md D6).
-    """
-
     class PhaseStatus(models.TextChoices):
         PENDING = "PENDING", "Pending"
         RECEIVING = "RECEIVING", "Receiving"
@@ -351,10 +355,6 @@ class TripIngestion(models.Model):
         FAILED_RETRYABLE = "FAILED_RETRYABLE", "Failed (retryable)"
         FAILED_FINAL = "FAILED_FINAL", "Failed (final)"
 
-    class CoreIngestionMode(models.TextChoices):
-        LEGACY_PARTS = "LEGACY_PARTS", "Legacy parts"
-        INLINE = "INLINE", "Inline"
-
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         related_name="trip_ingestions",
@@ -363,7 +363,6 @@ class TripIngestion(models.Model):
     # Chiave di idempotenza dell'upload: stessa sessione mobile -> stessa ingestion.
     client_session_id = models.CharField(max_length=64)
     device_id = models.CharField(max_length=128, blank=True)
-    schema_version = models.PositiveIntegerField(default=1)
     core_status = models.CharField(
         max_length=32,
         choices=PhaseStatus.choices,
@@ -374,28 +373,16 @@ class TripIngestion(models.Model):
         choices=PhaseStatus.choices,
         default=PhaseStatus.PENDING,
     )
-    core_ingestion_mode = models.CharField(
-        max_length=32,
-        choices=CoreIngestionMode.choices,
-        default=CoreIngestionMode.LEGACY_PARTS,
-    )
-    # {"gps_points": 1, "state_transitions": 1}
-    expected_core_parts = models.JSONField(default=dict)
-    # {"sensor_windows": 6}
-    expected_raw_parts = models.JSONField(default=dict)
+    # Numero di parti raw attese dopo il core.
+    expected_raw_parts = models.JSONField(default=int)
     # Prefisso degli oggetti raw nello storage, es. "ingestions/<id>/".
     raw_base_path = models.CharField(max_length=512, blank=True)
-    manifest_sha256 = models.CharField(max_length=64, blank=True)
-    core_payload_sha256 = models.CharField(max_length=64, blank=True)
     core_payload_size_bytes = models.BigIntegerField(default=0)
     total_size_bytes = models.BigIntegerField(default=0)
 
     # Metadati del viaggio, dichiarati dal client.
     started_at = models.DateTimeField(null=True, blank=True)
     ended_at = models.DateTimeField(null=True, blank=True)
-    timezone = models.CharField(max_length=64, blank=True)
-    app_version = models.CharField(max_length=32, blank=True)
-    device_platform = models.CharField(max_length=32, blank=True)
 
     # Lifecycle della registrazione attiva: il Trip visibile nasce solo a core
     # ingestion completata, ma il lock account-wide vive gia' qui dallo Start.
@@ -465,22 +452,20 @@ class TripIngestionPart(models.Model):
     ingestion = models.ForeignKey(
         TripIngestion, related_name="parts", on_delete=models.CASCADE
     )
-    kind = models.CharField(max_length=32, choices=PartKind.choices)
     sequence = models.PositiveIntegerField()
     sha256 = models.CharField(max_length=64)
     size_bytes = models.BigIntegerField(default=0)
     object_key = models.CharField(max_length=512)
-    # Valorizzato in 'confirm', quando il blob risulta presente sullo storage.
     received_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["ingestion", "kind", "sequence"],
-                name="unique_part_per_ingestion_kind_sequence",
+                fields=["ingestion", "sequence"],
+                name="unique_part_per_ingestion_sequence",
             )
         ]
 
     def __str__(self) -> str:
-        return f"{self.kind}#{self.sequence} of ingestion {self.ingestion_id}"
+        return f"part #{self.sequence} of ingestion {self.ingestion_id}"

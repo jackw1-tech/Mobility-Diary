@@ -1,25 +1,23 @@
 import 'dart:async';
 
-import 'package:diary/features/trips/domain/diary_event.dart';
 import 'package:diary/repositories/trip_track_repository.dart';
 import 'package:diary/state_management/cubits/trip_track_cubit/trip_track_cubit_state.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 class TripTrackCubit extends Cubit<TripTrackCubitState> {
+  static const _diaryPollingInterval = Duration(seconds: 1);
+
   final TripTrackRepository _repository;
-  StreamSubscription<DiaryEvent>? _diaryEventSubscription;
+  Timer? _diaryPollingTimer;
   int? _tripId;
-  bool _sawEnrichmentFailureThisSession = false;
-  String? _enrichmentFailureReasonCode;
+  bool _isPollingDiary = false;
 
   TripTrackCubit(this._repository) : super(const TripTrackCubitState.initial());
 
   Future<void> load(int tripId) async {
     _tripId = tripId;
-    _clearEnrichmentFailure();
-    await _diaryEventSubscription?.cancel();
-    _diaryEventSubscription = null;
-    await _load(tripId, showLoading: true, watchPendingDiary: true);
+    _stopDiaryPolling();
+    await _load(tripId, showLoading: true, pollPendingDiary: true);
   }
 
   Future<void> reload() async {
@@ -28,14 +26,14 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
     await _load(
       tripId,
       showLoading: true,
-      watchPendingDiary: !_sawEnrichmentFailureThisSession,
+      pollPendingDiary: true,
     );
   }
 
   Future<void> _load(
     int tripId, {
     required bool showLoading,
-    required bool watchPendingDiary,
+    required bool pollPendingDiary,
   }) async {
     final previousState = state;
     if (showLoading) {
@@ -48,15 +46,14 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
         throw diaryFailure;
       }
       final diary = diaryResult.requireValue;
-      if (diary.processed) _clearEnrichmentFailure();
-      final enrichmentFailed =
-          !diary.processed && _sawEnrichmentFailureThisSession;
+      final enrichmentFailed = !diary.processed && diary.enrichmentFailed;
       final enrichmentPending = !diary.processed && !enrichmentFailed;
       final enrichmentErrorMessage = enrichmentFailed
-          ? _enrichmentFailureMessage(_enrichmentFailureReasonCode)
+          ? _enrichmentFailureMessage(diary.enrichmentFailureReason)
           : null;
       final drawableSegments = diary.drawableSegments;
       if (diary.processed && drawableSegments.isNotEmpty) {
+        _pollPendingDiaryIfNeeded(tripId, pending: false);
         final segments = [
           for (final segment in drawableSegments)
             TripTrackSegmentState(
@@ -103,9 +100,9 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
           enrichmentErrorMessage: enrichmentErrorMessage,
         ),
       );
-      _watchPendingDiaryIfNeeded(
+      _pollPendingDiaryIfNeeded(
         tripId,
-        pending: enrichmentPending && watchPendingDiary,
+        pending: enrichmentPending && pollPendingDiary,
       );
     } catch (error) {
       emit(
@@ -124,66 +121,21 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
     }
   }
 
-  void _watchPendingDiaryIfNeeded(int tripId, {required bool pending}) {
+  void _pollPendingDiaryIfNeeded(int tripId, {required bool pending}) {
     if (!pending) {
-      unawaited(_diaryEventSubscription?.cancel());
-      _diaryEventSubscription = null;
+      _stopDiaryPolling();
       return;
     }
-    if (_diaryEventSubscription != null) return;
+    if (_diaryPollingTimer != null) return;
 
-    late final StreamSubscription<DiaryEvent> subscription;
-    subscription = _repository.watchDiaryEvents(tripId).listen(
-      (event) {
-        if (event.tripId != null && event.tripId != tripId) return;
-        if (event.status == DiaryEventStatus.enriched) {
-          unawaited(_refreshAfterDiaryEvent(tripId));
-        } else if (event.status == DiaryEventStatus.failed) {
-          _handleDiaryFailure(event.reasonCode);
-        }
-      },
-      // Lo stream si chiude da solo dopo `: timeout` (300s senza eventi) o un
-      // errore di rete: azzeriamo la subscription cosi' che un successivo
-      // reload()/re-watch non resti bloccato dalla guardia `!= null`.
-      onError: (_) => _clearDiaryEventSubscription(subscription),
-      onDone: () => _clearDiaryEventSubscription(subscription),
-    );
-    _diaryEventSubscription = subscription;
-  }
-
-  void _clearDiaryEventSubscription(
-      StreamSubscription<DiaryEvent> subscription) {
-    if (!identical(_diaryEventSubscription, subscription)) return;
-    _diaryEventSubscription = null;
-  }
-
-  Future<void> _refreshAfterDiaryEvent(int tripId) async {
-    await _diaryEventSubscription?.cancel();
-    _diaryEventSubscription = null;
-    _clearEnrichmentFailure();
-    if (isClosed) return;
-    await _load(tripId, showLoading: false, watchPendingDiary: false);
-  }
-
-  void _handleDiaryFailure(String? reasonCode) {
-    _sawEnrichmentFailureThisSession = true;
-    _enrichmentFailureReasonCode = reasonCode;
-    unawaited(_diaryEventSubscription?.cancel());
-    _diaryEventSubscription = null;
-    if (isClosed) return;
-    emit(
-      TripTrackCubitState(
-        status: state.status,
-        points: state.points,
-        segments: state.segments,
-        diarySegments: state.diarySegments,
-        distanceMeters: state.distanceMeters,
-        enrichmentPending: false,
-        enrichmentFailed: true,
-        enrichmentErrorMessage: _enrichmentFailureMessage(reasonCode),
-        error: state.error,
-      ),
-    );
+    _diaryPollingTimer = Timer.periodic(_diaryPollingInterval, (_) {
+      if (_isPollingDiary || isClosed) return;
+      _isPollingDiary = true;
+      unawaited(
+        _load(tripId, showLoading: false, pollPendingDiary: true)
+            .whenComplete(() => _isPollingDiary = false),
+      );
+    });
   }
 
   String _enrichmentFailureMessage(String? reasonCode) {
@@ -194,14 +146,14 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
     };
   }
 
-  void _clearEnrichmentFailure() {
-    _sawEnrichmentFailureThisSession = false;
-    _enrichmentFailureReasonCode = null;
+  void _stopDiaryPolling() {
+    _diaryPollingTimer?.cancel();
+    _diaryPollingTimer = null;
   }
 
   @override
   Future<void> close() async {
-    await _diaryEventSubscription?.cancel();
+    _stopDiaryPolling();
     return super.close();
   }
 }

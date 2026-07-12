@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from django.contrib.gis.geos import Point
-from django.db import DatabaseError, connection, transaction
+from django.db import connection, transaction
 from django.db.models import Q
 
 from .geo import haversine_meters
@@ -76,15 +76,10 @@ def _point_fields(point) -> tuple[datetime, Point, float | None]:
     accuracy = rest[0] if rest else None
     return timestamp, geometry, accuracy
 
-
+""" 
+Algoritmo di stay detection (Pre processing per DBSCAN)
+"""
 def detect_visits(points) -> list[DetectedVisit]:
-    """Stay-detection distance+time con centroide aggiornato.
-
-    `points` sono GpsPoint ordinati per timestamp. Una permanenza nasce quando
-    almeno MIN_STAY_POINTS punti restano entro STAY_RADIUS_METERS dal centroide
-    corrente per almeno MIN_STAY_SECONDS; un punto troppo lontano o un gap
-    temporale troppo lungo chiude la permanenza corrente e ne apre un'altra.
-    """
     visits: list[DetectedVisit] = []
     cluster_started_at: datetime | None = None
     cluster_ended_at: datetime | None = None
@@ -110,7 +105,7 @@ def detect_visits(points) -> list[DetectedVisit]:
     for p in points:
         timestamp, point, accuracy_meters = _point_fields(p)
         if accuracy_meters is not None and accuracy_meters > MAX_ACCURACY_METERS:
-            continue  # punto troppo impreciso: ignorato prima della detection
+            continue
         lat, lon = point.y, point.x
         if point_count:
             gap = (timestamp - cluster_ended_at).total_seconds()
@@ -133,9 +128,10 @@ def detect_visits(points) -> list[DetectedVisit]:
     flush()
     return visits
 
-
+""" 
+Funzione che prende tutti i GPS dei viaggi dell’utente X e scarta quelli imprecisi 
+"""
 def _user_points_for_detection(user_id: int):
-    """Stream minimale dei GpsPoint utili alla stay-detection dell'utente."""
     return (
         GpsPoint.objects.filter(trip__user_id=user_id)
         .filter(Q(accuracy_meters__isnull=True) | Q(accuracy_meters__lte=MAX_ACCURACY_METERS))
@@ -144,23 +140,12 @@ def _user_points_for_detection(user_id: int):
         .iterator(chunk_size=2000)
     )
 
-
+""" 
+GPS dell’utente -> visite candidate -> cluster di visite -> luoghi abituali
+"""
 def mine_user_significant_places(user_id: int) -> dict:
-    """Ricomputo user-scoped delle Visite Candidate dalla storia GPS completa.
-
-    Serializzato per utente con un advisory lock Postgres (ADR 0027): due viaggi
-    che terminano insieme non producono visite in conflitto. Il ricomputo e'
-    completo (ADR 0026): le visite dell'utente vengono rigenerate da zero.
-    """
     with transaction.atomic():
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT pg_advisory_xact_lock(%s, %s)",
-                [_MINING_LOCK_NAMESPACE, user_id],
-            )
         detected = detect_visits(_user_points_for_detection(user_id))
-        # La review manuale sopravvive al ricomputo completo (ADR 0028): i luoghi
-        # manuali non si cancellano, i cluster vicini si riagganciano a loro.
         manual_places = list(
             HabitualPlace.objects.filter(user_id=user_id, manually_reviewed=True)
         )
@@ -185,10 +170,8 @@ def mine_user_significant_places(user_id: int) -> dict:
 
 
 def _cluster_into_places(user_id: int, visits: list, manual_places: list) -> int:
-    """Clusterizza le visite in Luoghi Candidati e collega ogni visita al luogo."""
     if not visits:
         return 0
-
     visit_by_id = {visit.pk: visit for visit in visits}
     clusters = _postgis_visit_clusters(visits)
     visits_to_update = []
@@ -206,11 +189,10 @@ def _cluster_into_places(user_id: int, visits: list, manual_places: list) -> int
         CandidateVisit.objects.bulk_update(visits_to_update, ["place"])
     return place_count
 
-
+""" 
+DB SCAN
+"""
 def _postgis_visit_clusters(visits: list) -> list[list[int]]:
-    """Cluster DBSCAN in PostGIS sui centroidi visita; fallback a Python se serve."""
-    if connection.vendor != "postgresql":
-        return _python_visit_clusters(visits)
 
     table = CandidateVisit._meta.db_table
     visit_ids = [visit.pk for visit in visits]
@@ -231,8 +213,7 @@ def _postgis_visit_clusters(visits: list) -> list[list[int]]:
         WHERE cluster_id IS NOT NULL
         ORDER BY cluster_id, id
     """
-    try:
-        with connection.cursor() as cursor:
+    with connection.cursor() as cursor:
             cursor.execute(
                 sql,
                 [
@@ -243,8 +224,6 @@ def _postgis_visit_clusters(visits: list) -> list[list[int]]:
                 ],
             )
             rows = cursor.fetchall()
-    except DatabaseError:
-        return _python_visit_clusters(visits)
 
     clusters: list[list[int]] = []
     current_cluster_id = None
@@ -261,15 +240,7 @@ def _postgis_visit_clusters(visits: list) -> list[list[int]]:
     return clusters
 
 
-def _python_visit_clusters(visits: list) -> list[list[int]]:
-    """Fallback compatibile con il vecchio flusso per ambienti senza PostGIS DBSCAN."""
-    coords = [(visit.center.y, visit.center.x) for visit in visits]
-    clusters = _dbscan(coords, CLUSTER_EPS_METERS, CLUSTER_MIN_VISITS)
-    return [[visits[index].pk for index in members] for members in clusters]
-
-
 def _place_for_cluster(user_id: int, visits: list, manual_places: list) -> HabitualPlace | None:
-    """Riusa un luogo manuale vicino (reattach) o crea un nuovo Luogo automatico."""
     lats = [v.center.y for v in visits]
     lons = [v.center.x for v in visits]
     center_lat = sum(lats) / len(lats)
@@ -313,44 +284,6 @@ def _take_nearby_manual_place(lat: float, lon: float, manual_places: list):
             manual_places.remove(place)
             return place
     return None
-
-
-def _dbscan(coords, eps_meters, min_samples) -> list[list[int]]:
-    """DBSCAN sui centroidi delle visite (ADR 0022).
-
-    `coords` e' una lista di (lat, lon). Ritorna i cluster come liste di indici;
-    le visite isolate (one-off) restano rumore e non diventano Luoghi Candidati.
-    """
-    n = len(coords)
-    neighbors = [
-        [
-            j
-            for j in range(n)
-            if haversine_meters(coords[i][0], coords[i][1], coords[j][0], coords[j][1])
-            <= eps_meters
-        ]
-        for i in range(n)
-    ]
-    labels = [-1] * n
-    next_cluster = 0
-    for i in range(n):
-        if labels[i] != -1 or len(neighbors[i]) < min_samples:
-            continue
-        labels[i] = next_cluster
-        queue = list(neighbors[i])
-        while queue:
-            j = queue.pop()
-            if labels[j] != -1:
-                continue
-            labels[j] = next_cluster
-            if len(neighbors[j]) >= min_samples:
-                queue.extend(neighbors[j])
-        next_cluster += 1
-    clusters: list[list[int]] = [[] for _ in range(next_cluster)]
-    for index, label in enumerate(labels):
-        if label != -1:
-            clusters[label].append(index)
-    return clusters
 
 
 def place_label(place: HabitualPlace) -> str:

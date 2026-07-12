@@ -20,7 +20,7 @@ from django.utils.dateparse import parse_datetime
 from ninja.errors import HttpError
 
 from .ingestion import storage
-from .models import HarJob, PartKind, Trip, TripIngestion, TripIngestionPart
+from .models import HarJob, Trip, TripIngestion, TripIngestionPart
 
 _START_FIELDS = ("window_start", "start")
 _END_FIELDS = ("window_end", "end")
@@ -95,7 +95,6 @@ def source_sensor_window_at(
     parts = TripIngestionPart.objects.filter(
         ingestion__trip=source,
         ingestion__raw_status=TripIngestion.PhaseStatus.COMPLETED,
-        kind=PartKind.SENSOR_WINDOWS,
         received_at__isnull=False,
     ).order_by("sequence", "id")
     windows: list[dict] = []
@@ -138,7 +137,6 @@ def regenerate_raw_and_queue_har(
     parts = TripIngestionPart.objects.filter(
         ingestion__trip=source,
         ingestion__raw_status=TripIngestion.PhaseStatus.COMPLETED,
-        kind=PartKind.SENSOR_WINDOWS,
         received_at__isnull=False,
     ).order_by("sequence", "id")
     if not parts.exists():
@@ -166,20 +164,19 @@ def regenerate_raw_and_queue_har(
             written.append(object_key)
             TripIngestionPart.objects.create(
                 ingestion=ingestion,
-                kind=PartKind.SENSOR_WINDOWS,
                 sequence=sequence,
                 sha256=sha256,
                 size_bytes=len(body),
                 object_key=object_key,
                 received_at=now,
             )
-        ingestion.expected_raw_parts = {PartKind.SENSOR_WINDOWS: len(bodies)}
+        ingestion.expected_raw_parts = len(bodies)
         ingestion.raw_status = TripIngestion.PhaseStatus.QUEUED
         ingestion.queued_at = now
         ingestion.save(
             update_fields=["expected_raw_parts", "raw_status", "queued_at", "updated_at"]
         )
-        job = HarJob.objects.create(trip=ingestion.trip, kind=HarJob.Kind.FINAL_TRIP)
+        job = HarJob.objects.create(trip=ingestion.trip)
         from .tasks import process_trip_har_final
 
         transaction.on_commit(lambda: process_trip_har_final.delay(job.id, ingestion.id))

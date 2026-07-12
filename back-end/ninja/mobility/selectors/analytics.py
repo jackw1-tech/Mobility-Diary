@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 from collections import Counter, defaultdict
 from datetime import datetime, time, timedelta
 from datetime import timezone as dt_timezone
@@ -9,6 +8,7 @@ from zoneinfo import ZoneInfo
 from django.db.models import Max, Min
 from django.utils import timezone
 
+from ..geo import haversine_meters
 from ..models import HabitualPlace, MobilitySegment, Trip
 from ..schemas import (
     AnalyticsBucketOut,
@@ -257,22 +257,11 @@ def _bucket_start_of(local_date, granularity: str):
     return local_date
 
 
-def _haversine_meters(lat1, lon1, lat2, lon2) -> float:
-    radius = 6371000.0
-    phi1, phi2 = math.radians(lat1), math.radians(lat2)
-    dphi = math.radians(lat2 - lat1)
-    dlambda = math.radians(lon2 - lon1)
-    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(
-        dlambda / 2
-    ) ** 2
-    return 2 * radius * math.asin(math.sqrt(a))
-
-
 def _nearest_place(coord, places):
     lon, lat = coord[0], coord[1]
     best, best_distance = None, None
     for place in places:
-        distance = _haversine_meters(lat, lon, place.center.y, place.center.x)
+        distance = haversine_meters(lat, lon, place.center.y, place.center.x)
         if distance <= max(place.radius_meters or 0, 150.0) and (
             best_distance is None or distance < best_distance
         ):

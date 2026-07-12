@@ -363,7 +363,7 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
       'device_platform': '',
       'ended_at': _utcIso(replayEndedAt),
       'cutoff_source_timestamp': _utcIso(cutoffTimestamp),
-      'expected_raw_parts': const {},
+      'expected_raw_parts': 0,
       'gps_points': shiftedPoints,
       if (_currentRemoteIngestionId != null)
         'ingestion_id': _currentRemoteIngestionId,

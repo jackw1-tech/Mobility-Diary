@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Any
 
 import numpy as np
 from django.conf import settings
@@ -30,10 +30,6 @@ class HarModelUnavailable(RuntimeError):
     """Il modello non puo essere caricato nel runtime corrente."""
 
 
-class PredictableModel(Protocol):
-    def predict(self, data, *args, **kwargs): ...
-
-
 @dataclass(frozen=True)
 class HarPredictionResult:
     labels: list[str]
@@ -43,13 +39,12 @@ class HarPredictionResult:
 
 @dataclass(frozen=True)
 class HarModelBundle:
-    extractor: PredictableModel
-    gru: PredictableModel
+    extractor: Any
+    gru: Any
     sequence_length: int
     cnn_model_path: str
     gru_model_path: str
-    # CNN completo con testa softmax: classifica una singola finestra senza GRU.
-    classifier: PredictableModel | None = None
+    classifier: Any = None
 
 
 _MODEL_BUNDLE: HarModelBundle | None = None
@@ -59,7 +54,9 @@ def reset_model_cache() -> None:
     global _MODEL_BUNDLE
     _MODEL_BUNDLE = None
 
-
+""" 
+Carica i modelli Har e li mette in cache
+"""
 def _load_model_bundle() -> HarModelBundle:
     global _MODEL_BUNDLE
     if _MODEL_BUNDLE is not None:
@@ -94,14 +91,16 @@ def _load_model_bundle() -> HarModelBundle:
     return _MODEL_BUNDLE
 
 
-def _predict(model: PredictableModel, data):
+def _predict(model: Any, data):
     try:
         return model.predict(data, verbose=0)
     except TypeError:
         return model.predict(data)
 
-
-def _project_window_matrix(matrix) -> np.ndarray:
+""" 
+Converte tutti i numeri in float 32
+"""
+def _prepare_har_window_matrix(matrix) -> np.ndarray:
     arr = np.asarray(matrix, dtype=np.float32)
     expected_samples = settings.HAR_WINDOW_SAMPLE_COUNT
     if arr.ndim != 2:
@@ -127,16 +126,9 @@ def _confidence_summary(confidences: list[float]) -> dict:
 
 def predict_window_label(
     matrix,
-    *,
-    bundle: HarModelBundle | None = None,
 ) -> tuple[str, float]:
-    """Classifica una singola finestra 500x6 col solo CNN, senza contesto GRU.
-
-    Restituisce (ActivityLabel.value, confidenza). Usato dalla classificazione
-    live dell'assistente di percorso, dove esiste solo il presente.
-    """
-    model_bundle = bundle or _load_model_bundle()
-    x = np.expand_dims(_project_window_matrix(matrix), axis=0)
+    model_bundle = _load_model_bundle()
+    x = np.expand_dims(_prepare_har_window_matrix(matrix), axis=0)
     probs = np.asarray(_predict(model_bundle.classifier, x), dtype=np.float32)
     if probs.shape != (1, len(MODEL_CLASS_NAMES)):
         raise ValueError(
@@ -145,11 +137,11 @@ def predict_window_label(
     idx = int(np.argmax(probs[0]))
     return MODEL_TO_ACTIVITY_LABEL[MODEL_CLASS_NAMES[idx]].value, float(probs[0][idx])
 
-
+""" 
+Prende la lista delle sensor window e le da all HAR
+"""
 def predict_activity_windows(
     windows,
-    *,
-    bundle: HarModelBundle | None = None,
 ) -> HarPredictionResult:
     if not windows:
         return HarPredictionResult(
@@ -163,15 +155,12 @@ def predict_activity_windows(
             },
         )
 
-    model_bundle = bundle or _load_model_bundle()
-    x_raw = np.stack([_project_window_matrix(window.matrix) for window in windows])
+    model_bundle = _load_model_bundle()
+    x_raw = np.stack([_prepare_har_window_matrix(window.matrix) for window in windows])
+    # -> ( len(windows), 500 , 6  )
 
     embeddings = np.asarray(_predict(model_bundle.extractor, x_raw), dtype=np.float32)
-    if embeddings.ndim != 2 or embeddings.shape[0] != len(windows):
-        raise ValueError(
-            "estrattore CNN HAR ha prodotto embedding con shape inattesa: "
-            f"{embeddings.shape}"
-        )
+    # -> ( len(windows), embedding_dim )
 
     labels_idx = np.zeros(len(windows), dtype=int)
     all_probs = np.zeros((len(windows), len(MODEL_CLASS_NAMES)), dtype=np.float32)
@@ -189,17 +178,12 @@ def predict_activity_windows(
 
         prediction = np.asarray(
             _predict(model_bundle.gru, np.expand_dims(segment, axis=0)),
+                # -> (1, len(windows), embedding_dim )
             dtype=np.float32,
         )
-        if prediction.shape != (
-            1,
-            sequence_length,
-            len(MODEL_CLASS_NAMES),
-        ):
-            raise ValueError(
-                "modello GRU HAR ha prodotto probabilita con shape inattesa: "
-                f"{prediction.shape}"
-            )
+        
+        # -> (1, 32, 5)
+        
 
         valid = prediction[0, :current_length]
         labels_idx[start : start + current_length] = np.argmax(valid, axis=1)

@@ -3,6 +3,8 @@ from dataclasses import dataclass
 
 from django.contrib.gis.geos import LineString, Point
 
+from .geo import haversine_meters
+
 
 WEB_MERCATOR_RADIUS_METERS = 6378137.0
 WEB_MERCATOR_MAX_LATITUDE = 85.05112878
@@ -131,7 +133,7 @@ def privacy_metrics(
     # Perturbation pairs every original point with its published cell center,
     # before collapsing consecutive duplicate cells for display.
     perturbations = [
-        _haversine_meters(original, published)
+        haversine_meters(original[1], original[0], published[1], published[0])
         for original, published in zip(originals, cloaked)
     ]
     private_distance = _line_distance_meters(originals)
@@ -201,27 +203,6 @@ def _collapse_consecutive_duplicates(
 
 def _line_distance_meters(coordinates: list[tuple[float, float]]) -> float:
     return sum(
-        _haversine_meters(start, end)
+        haversine_meters(start[1], start[0], end[1], end[0])
         for start, end in zip(coordinates, coordinates[1:])
-    )
-
-
-def _haversine_meters(
-    start: tuple[float, float],
-    end: tuple[float, float],
-) -> float:
-    lon1, lat1 = start
-    lon2, lat2 = end
-    lat1_rad = math.radians(lat1)
-    lat2_rad = math.radians(lat2)
-    delta_lat = math.radians(lat2 - lat1)
-    delta_lon = math.radians(lon2 - lon1)
-    a = (
-        math.sin(delta_lat / 2) ** 2
-        + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(delta_lon / 2) ** 2
-    )
-    clamped = min(1, max(0, a))
-    return 2 * WEB_MERCATOR_RADIUS_METERS * math.atan2(
-        math.sqrt(clamped),
-        math.sqrt(1 - clamped),
     )

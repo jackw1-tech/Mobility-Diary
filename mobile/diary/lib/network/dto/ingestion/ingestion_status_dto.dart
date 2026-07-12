@@ -4,11 +4,9 @@ part 'ingestion_status_dto.g.dart';
 
 @JsonSerializable(fieldRename: FieldRename.snake)
 class IngestionMissingPartDto {
-  final String kind;
   final int sequence;
 
   const IngestionMissingPartDto({
-    required this.kind,
     required this.sequence,
   });
 
@@ -24,15 +22,9 @@ class IngestionStatusDto {
   final String rawStatus;
 
   @JsonKey(defaultValue: [])
-  final List<IngestionMissingPartDto> missingCoreParts;
-
-  @JsonKey(defaultValue: [])
   final List<IngestionMissingPartDto> missingRawParts;
 
   final int? tripId;
-
-  @JsonKey(defaultValue: 'LEGACY_PARTS')
-  final String coreIngestionMode;
 
   @JsonKey(defaultValue: false)
   final bool mapAvailable;
@@ -40,10 +32,8 @@ class IngestionStatusDto {
   const IngestionStatusDto({
     required this.coreStatus,
     required this.rawStatus,
-    required this.missingCoreParts,
     required this.missingRawParts,
     this.tripId,
-    required this.coreIngestionMode,
     required this.mapAvailable,
   });
 

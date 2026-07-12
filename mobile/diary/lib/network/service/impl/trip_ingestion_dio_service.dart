@@ -163,7 +163,6 @@ class TripIngestionDioService implements TripIngestionService {
   @override
   Future<PresignResultDto> presignPart(
     int ingestionId, {
-    required String kind,
     required int sequence,
     required String sha256,
     required int sizeBytes,
@@ -172,7 +171,6 @@ class TripIngestionDioService implements TripIngestionService {
       final response = await _dio.post(
         '$_base/$ingestionId/parts/presign',
         data: {
-          'kind': kind,
           'sequence': sequence,
           'sha256': sha256,
           'size_bytes': sizeBytes,
@@ -223,14 +221,13 @@ class TripIngestionDioService implements TripIngestionService {
   @override
   Future<void> confirmPart(
     int ingestionId, {
-    required String kind,
     required int sequence,
     required String sha256,
   }) async {
     try {
       await _dio.post(
         '$_base/$ingestionId/parts/confirm',
-        data: {'kind': kind, 'sequence': sequence, 'sha256': sha256},
+        data: {'sequence': sequence, 'sha256': sha256},
         options: await _options(),
       );
     } catch (e) {

@@ -12,14 +12,12 @@ import 'package:path_provider/path_provider.dart';
 /// Una parte fisica del pacchetto viaggio: un file gzip su disco con il suo
 /// checksum e dimensione, pronto per l'upload presigned.
 class TripPackagePart {
-  final String kind; // sensor_windows
   final int sequence;
   final File file;
   final String sha256;
   final int sizeBytes;
 
   const TripPackagePart({
-    required this.kind,
     required this.sequence,
     required this.file,
     required this.sha256,
@@ -28,30 +26,19 @@ class TripPackagePart {
 }
 
 class TripCorePayload {
-  final Map<String, dynamic> bodyWithoutHash;
-  final String sha256;
+  final Map<String, dynamic> body;
 
-  TripCorePayload._({
-    required this.bodyWithoutHash,
-    required this.sha256,
-  });
+  TripCorePayload._({required this.body});
 
-  factory TripCorePayload(Map<String, dynamic> bodyWithoutHash) {
-    final stableBody =
-        _stableJsonValue(bodyWithoutHash) as Map<String, dynamic>;
-    final canonicalJson = jsonEncode(stableBody);
+  factory TripCorePayload(Map<String, dynamic> body) {
     return TripCorePayload._(
-      bodyWithoutHash: stableBody,
-      sha256: crypto.sha256.convert(utf8.encode(canonicalJson)).toString(),
+      body: _stableJsonValue(body) as Map<String, dynamic>,
     );
   }
 
-  Map<String, dynamic> get requestBody => {
-        ...bodyWithoutHash,
-        'core_payload_sha256': sha256,
-      };
+  Map<String, dynamic> get requestBody => body;
 
-  String get canonicalJson => jsonEncode(bodyWithoutHash);
+  String get canonicalJson => jsonEncode(body);
 
   int get sizeBytes => utf8.encode(jsonEncode(requestBody)).length;
 }
@@ -77,12 +64,10 @@ class TripPackage {
     required this.parts,
   });
 
-  Map<String, int> get expectedRawParts => _expectedParts(rawParts);
+  int get expectedRawParts => rawParts.length;
 
   List<TripPackagePart> get rawParts {
-    return parts
-        .where((part) => part.kind == 'sensor_windows')
-        .toList(growable: false);
+    return parts.toList(growable: false);
   }
 }
 
@@ -122,7 +107,7 @@ class TripPackageBuilder {
             'device_id': session?.deviceId ?? '',
             'device_platform': '',
             'ended_at': _utcIsoOrNull(session?.endedAt),
-            'expected_raw_parts': _expectedParts(parts),
+            'expected_raw_parts': parts.length,
             'gps_points': gpsPoints,
             if (remoteIngestionId != null) 'ingestion_id': remoteIngestionId,
             'schema_version': 1,
@@ -202,7 +187,6 @@ class TripPackageBuilder {
       parts.add(
         await _writeGzipPart(
           directory,
-          'sensor_windows',
           sequence,
           bytes,
         ),
@@ -230,20 +214,17 @@ class TripPackageBuilder {
 
   Future<TripPackagePart> _writeGzipPart(
     Directory directory,
-    String kind,
     int sequence,
     List<int> payload,
   ) async {
-    final fileName = kind == 'sensor_windows'
-        ? 'sensor_windows_part_${sequence.toString().padLeft(4, '0')}.bin.gz'
-        : '$kind.json.gz';
+    final fileName =
+        'sensor_windows_part_${sequence.toString().padLeft(4, '0')}.bin.gz';
     final file = File(p.join(directory.path, fileName));
 
     final gzipped = gzip.encode(payload);
     await file.writeAsBytes(gzipped, flush: true);
 
     return TripPackagePart(
-      kind: kind,
       sequence: sequence,
       file: file,
       sha256: crypto.sha256.convert(gzipped).toString(),
@@ -307,14 +288,6 @@ Uint8List _encodeSensorWindowsBinary(List<SensorWindow> windows) {
   }
 
   return builder.toBytes();
-}
-
-Map<String, int> _expectedParts(List<TripPackagePart> sourceParts) {
-  final counts = <String, int>{};
-  for (final part in sourceParts) {
-    counts[part.kind] = (counts[part.kind] ?? 0) + 1;
-  }
-  return counts;
 }
 
 Object? _stableJsonValue(Object? value) {

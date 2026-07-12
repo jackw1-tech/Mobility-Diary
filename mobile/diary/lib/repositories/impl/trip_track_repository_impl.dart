@@ -1,5 +1,4 @@
 import 'package:diary/features/common/domain/app_result.dart';
-import 'package:diary/features/trips/domain/diary_event.dart' as domain;
 import 'package:diary/features/trips/domain/trip_track.dart';
 import 'package:diary/mappers/trips_mapper.dart';
 import 'package:diary/network/service/trip_track_service.dart' as service;
@@ -23,20 +22,5 @@ class TripTrackRepositoryImpl implements TripTrackRepository {
   @override
   Future<AppResult<TripDiary>> fetchDiary(int tripId) => appResultOf(
         () async => _mapper.mapTripDiary(await _service.fetchDiary(tripId)),
-      );
-
-  @override
-  Stream<domain.DiaryEvent> watchDiaryEvents(int tripId) {
-    return _service.watchDiaryEvents(tripId).map(_mapEvent);
-  }
-
-  domain.DiaryEvent _mapEvent(service.DiaryEvent event) => domain.DiaryEvent(
-        status: switch (event.status) {
-          service.DiaryEventStatus.enriched => domain.DiaryEventStatus.enriched,
-          service.DiaryEventStatus.failed => domain.DiaryEventStatus.failed,
-          service.DiaryEventStatus.unknown => domain.DiaryEventStatus.unknown,
-        },
-        tripId: event.tripId,
-        reasonCode: event.reasonCode,
       );
 }

@@ -8,11 +8,9 @@ from ..models import TripIngestion
 def owned_ingestions_for_owner(user_id: int) -> QuerySet[TripIngestion]:
     return TripIngestion.objects.select_related("trip").filter(user_id=user_id)
 
-
-def locked_owned_ingestions_for_owner(user_id: int) -> QuerySet[TripIngestion]:
-    return TripIngestion.objects.filter(user_id=user_id).select_for_update()
-
-
+""" 
+Prende una trip ingestions solo se appartiene all'utente autenticato
+"""
 def active_ingestions_for_owner(user_id: int) -> QuerySet[TripIngestion]:
     return owned_ingestions_for_owner(user_id).filter(
         recording_started_at__isnull=False,
@@ -21,6 +19,10 @@ def active_ingestions_for_owner(user_id: int) -> QuerySet[TripIngestion]:
     )
 
 
+"""
+Controlla se un utente ha già una registrazione attiva in corso
+Se ancora in corso, ottiene il lock su quella riga
+"""
 def locked_active_ingestions_for_owner(user_id: int) -> QuerySet[TripIngestion]:
     return TripIngestion.objects.filter(
         user_id=user_id,
@@ -28,7 +30,3 @@ def locked_active_ingestions_for_owner(user_id: int) -> QuerySet[TripIngestion]:
         recording_closed_at__isnull=True,
         recording_abandoned_at__isnull=True,
     ).select_for_update()
-
-
-def first_active_ingestion_for_owner(user_id: int) -> TripIngestion | None:
-    return active_ingestions_for_owner(user_id).first()

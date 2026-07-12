@@ -8,10 +8,6 @@ class InlineCoreResultDto {
   final int? tripId;
   final String coreStatus;
   final String rawStatus;
-  final int gpsPoints;
-  final int stateTransitions;
-  final int pathPoints;
-  final double distanceMeters;
   @JsonKey(defaultValue: false)
   final bool mapAvailable;
 
@@ -20,10 +16,6 @@ class InlineCoreResultDto {
     required this.tripId,
     required this.coreStatus,
     required this.rawStatus,
-    required this.gpsPoints,
-    required this.stateTransitions,
-    required this.pathPoints,
-    required this.distanceMeters,
     required this.mapAvailable,
   });
 

@@ -117,15 +117,15 @@ class VirtualStopIntervalAdmin(admin.ModelAdmin):
 
 @admin.register(HarJob)
 class HarJobAdmin(admin.ModelAdmin):
-    list_display = ("id", "trip", "kind", "status", "created_at", "updated_at")
-    list_filter = ("kind", "status", "created_at")
+    list_display = ("id", "trip", "status", "created_at", "updated_at")
+    list_filter = ("status", "created_at")
     raw_id_fields = ("trip",)
 
 
 class TripIngestionPartInline(admin.TabularInline):
     model = TripIngestionPart
     extra = 0
-    fields = ("kind", "sequence", "size_bytes", "object_key", "received_at", "created_at")
+    fields = ("sequence", "size_bytes", "object_key", "received_at", "created_at")
     readonly_fields = ("created_at",)
 
 
@@ -135,7 +135,6 @@ class TripIngestionAdmin(admin.ModelAdmin):
         "id",
         "user",
         "client_session_id",
-        "core_ingestion_mode",
         "core_status",
         "raw_status",
         "trip",
@@ -146,9 +145,6 @@ class TripIngestionAdmin(admin.ModelAdmin):
     list_filter = (
         "core_status",
         "raw_status",
-        "core_ingestion_mode",
-        "schema_version",
-        "device_platform",
         "created_at",
     )
     search_fields = (
@@ -157,8 +153,6 @@ class TripIngestionAdmin(admin.ModelAdmin):
         "client_session_id",
         "device_id",
         "raw_base_path",
-        "manifest_sha256",
-        "core_payload_sha256",
         "error_message",
     )
     readonly_fields = (
@@ -179,13 +173,12 @@ class TripIngestionPartAdmin(admin.ModelAdmin):
     list_display = (
         "id",
         "ingestion",
-        "kind",
         "sequence",
         "size_bytes",
         "received_at",
         "created_at",
     )
-    list_filter = ("kind", "received_at", "created_at")
+    list_filter = ("received_at", "created_at")
     search_fields = ("id", "ingestion__client_session_id", "object_key", "sha256")
     readonly_fields = ("created_at",)
     raw_id_fields = ("ingestion",)

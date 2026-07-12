@@ -53,6 +53,8 @@ class TripDiaryDto {
   final int tripId;
   final String status;
   final bool processed;
+  final bool enrichmentFailed;
+  final String? enrichmentFailureReason;
   final List<TripDiarySegmentDto> segments;
   final List<TripDiaryPlaceDto> places;
 
@@ -60,6 +62,8 @@ class TripDiaryDto {
     required this.tripId,
     required this.status,
     required this.processed,
+    required this.enrichmentFailed,
+    this.enrichmentFailureReason,
     required this.segments,
     required this.places,
   });
@@ -69,6 +73,8 @@ class TripDiaryDto {
       tripId: json['trip_id'] as int,
       status: json['status'] as String? ?? '',
       processed: json['processed'] as bool? ?? false,
+      enrichmentFailed: json['enrichment_failed'] as bool? ?? false,
+      enrichmentFailureReason: json['enrichment_failure_reason'] as String?,
       segments: (json['segments'] as List<dynamic>? ?? const [])
           .map((value) => TripDiarySegmentDto.fromJson(
                 Map<String, dynamic>.from(value as Map<dynamic, dynamic>),

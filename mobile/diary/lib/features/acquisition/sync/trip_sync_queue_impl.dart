@@ -125,7 +125,6 @@ class TripSyncQueueImpl implements TripSyncQueue {
           coreStatus: syncJobUploading,
           remoteIngestionId:
               ingestionId == null ? const Value.absent() : Value(ingestionId),
-          corePayloadSha256: Value(corePayload.sha256),
           corePayloadSizeBytes: corePayload.sizeBytes,
         );
 
@@ -258,14 +257,12 @@ class TripSyncQueueImpl implements TripSyncQueue {
   Future<void> _uploadMissingParts(
     int ingestionId,
     List<TripPackagePart> parts,
-    List<({String kind, int sequence})> missingParts, {
+    List<int> missingParts, {
     required bool uploadAll,
   }) async {
-    final missing = missingParts.map((m) => '${m.kind}#${m.sequence}').toSet();
     final selectedParts = [
       for (final part in parts)
-        if (uploadAll || missing.contains('${part.kind}#${part.sequence}'))
-          part,
+        if (uploadAll || missingParts.contains(part.sequence)) part,
     ];
 
     for (var start = 0;
@@ -285,7 +282,6 @@ class TripSyncQueueImpl implements TripSyncQueue {
   Future<void> _uploadSinglePart(int ingestionId, TripPackagePart part) async {
     final presign = _mapper.mapPresignResult(await _service.presignPart(
       ingestionId,
-      kind: part.kind,
       sequence: part.sequence,
       sha256: part.sha256,
       sizeBytes: part.sizeBytes,
@@ -298,7 +294,6 @@ class TripSyncQueueImpl implements TripSyncQueue {
     );
     await _service.confirmPart(
       ingestionId,
-      kind: part.kind,
       sequence: part.sequence,
       sha256: part.sha256,
     );
@@ -311,17 +306,15 @@ class TripSyncQueueImpl implements TripSyncQueue {
     return IngestionStatus(
       coreStatus: result.coreStatus,
       rawStatus: result.rawStatus,
-      missingCoreParts: const [],
       missingRawParts: _partKeys(rawParts),
       tripId: result.tripId,
-      coreIngestionMode: 'INLINE',
       mapAvailable: result.mapAvailable,
     );
   }
 
-  List<({String kind, int sequence})> _partKeys(List<TripPackagePart> parts) {
+  List<int> _partKeys(List<TripPackagePart> parts) {
     return [
-      for (final part in parts) (kind: part.kind, sequence: part.sequence),
+      for (final part in parts) part.sequence,
     ];
   }
 

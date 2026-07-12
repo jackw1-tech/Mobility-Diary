@@ -114,8 +114,10 @@ services:
       timeout: 3s
       retries: 20
 
+  # TimescaleDB + PostGIS sulla stessa istanza (ADR 0001): l'immagine -ha
+  # include entrambe le estensioni; PGDATA vive in /home/postgres/pgdata/data.
   db:
-    image: postgis/postgis:16-3.4
+    image: timescale/timescaledb-ha:pg16
     platform: linux/amd64
     restart: unless-stopped
     env_file:
@@ -127,7 +129,7 @@ services:
     expose:
       - "5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/home/postgres/pgdata/data
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mobility} -d ${POSTGRES_DB:-mobility}"]
