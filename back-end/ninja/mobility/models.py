@@ -93,14 +93,6 @@ class GpsPoint(models.Model):
 
 
 class RawSensorReading(models.Model):
-    """Lettura inerziale grezza per-campione, proiettata su TimescaleDB (ADR 0001).
-
-    Il blob binario su object storage resta la fonte di verita' ricaricabile;
-    questa tabella e' la proiezione interrogabile (query temporali, debug,
-    valutazione HAR). La PK composita (trip, timestamp) include la colonna
-    tempo come richiesto da create_hypertable; niente id autoincrementale.
-    """
-
     pk = models.CompositePrimaryKey("trip_id", "timestamp")
     trip = models.ForeignKey(
         Trip, related_name="raw_sensor_readings", on_delete=models.CASCADE

@@ -21,12 +21,6 @@ def persist_raw_sensor_readings(
     trip: Trip,
     windows: list[PipelineSensorWindow],
 ) -> int:
-    """Scrive una riga per campione con timestamp interpolato dalla frequenza.
-
-    Idempotente sui retry del task Celery: la PK composita (trip, timestamp)
-    piu' ignore_conflicts scarta i campioni gia' presenti. Il flush a batch
-    limita il numero di istanze tenute in memoria. Ritorna i campioni processati.
-    """
     pending: list[RawSensorReading] = []
     total = 0
     for window in windows:
@@ -52,7 +46,6 @@ def persist_raw_sensor_readings(
 
 
 def _flush(readings: list[RawSensorReading]) -> int:
-    """Esegue il bulk_create di un batch, ignorando i duplicati su PK."""
     if not readings:
         return 0
     RawSensorReading.objects.bulk_create(

@@ -63,14 +63,14 @@ services:
     restart: unless-stopped
     command: >
       sh -c "celery -A config worker -l info
-      --concurrency ${WORKER_CONCURRENCY:-1}"
+      --concurrency ${WORKER_CONCURRENCY:-3}"
     environment:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
       DJANGO_DEBUG: ${DJANGO_DEBUG:-0}
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS}
       CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
-      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-1}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-3}
       POSTGRES_DB: ${POSTGRES_DB:-mobility}
       POSTGRES_USER: ${POSTGRES_USER:-mobility}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}

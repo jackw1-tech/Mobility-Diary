@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import statistics
+from bisect import bisect_left
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
+from time import perf_counter
 from typing import Any
 
 from django.contrib.gis.geos import LineString
@@ -35,10 +37,14 @@ class LabelTimeRun:
 
 
 """
-Filtra i punti GPS dentro l'intervallo [start, end).
+Filtra i punti GPS dentro l'intervallo [start, end). `gps_timestamps` e' la lista
+dei timestamp di `gps` (stesso ordine, gia' ordinata): permette di ritagliare la
+fetta con una ricerca binaria invece di riscansionare tutta la lista ad ogni chiamata.
 """
-def _gps_in(gps, start: datetime, end: datetime):
-    return [g for g in gps if start <= g.timestamp < end]
+def _gps_in(gps, gps_timestamps, start: datetime, end: datetime):
+    lo = bisect_left(gps_timestamps, start)
+    hi = bisect_left(gps_timestamps, end)
+    return gps[lo:hi]
 
 
 """
@@ -274,8 +280,8 @@ def _fallback_move_label(points) -> str:
 """
 Salva nel DB un segmento MOVE con label, path e distanza.
 """
-def _build_move_segment(trip, start, end, label, gps) -> None:
-    points = _gps_in(gps, start, end)
+def _build_move_segment(trip, start, end, label, gps, gps_timestamps) -> None:
+    points = _gps_in(gps, gps_timestamps, start, end)
     MobilitySegment.objects.create(
         trip=trip,
         kind=MobilitySegment.Kind.MOVE,
@@ -290,14 +296,14 @@ def _build_move_segment(trip, start, end, label, gps) -> None:
 """
 Spezza un macro MOVE in segmenti HAR e virtual stop.
 """
-def _build_move(trip, start, end, windows, labels, gps) -> None:
+def _build_move(trip, start, end, windows, labels, gps, gps_timestamps) -> None:
     inside = [
         (w, lbl)
         for w, lbl in zip(windows, labels)
         if start <= w.start_timestamp < end
     ]
     if not inside:
-        _build_move_segment(trip, start, end, ActivityLabel.IDLE, gps)
+        _build_move_segment(trip, start, end, ActivityLabel.IDLE, gps, gps_timestamps)
         return
 
     inside = _smooth_isolated_label_changes(inside)
@@ -307,8 +313,8 @@ def _build_move(trip, start, end, windows, labels, gps) -> None:
         _build_virtual_stop(trip, run.start_timestamp, run.end_timestamp)
 
     if not move_runs and not virtual_stop_runs:
-        points = _gps_in(gps, start, end)
-        _build_move_segment(trip, start, end, _fallback_move_label(points), gps)
+        points = _gps_in(gps, gps_timestamps, start, end)
+        _build_move_segment(trip, start, end, _fallback_move_label(points), gps, gps_timestamps)
         return
 
     for run in move_runs:
@@ -318,6 +324,7 @@ def _build_move(trip, start, end, windows, labels, gps) -> None:
             run.end_timestamp,
             run.label,
             gps,
+            gps_timestamps,
         )
 
 
@@ -329,19 +336,26 @@ def run_pipeline(
     *,
     sensor_windows: list[PipelineSensorWindow] | None = None,
 ) -> dict:
+    timings_ms: dict[str, float] = {}
+
+    load_context_started = perf_counter()
     windows = (
         list(trip.sensor_windows.order_by("start_timestamp"))
         if sensor_windows is None
         else sorted(sensor_windows, key=lambda window: window.start_timestamp)
     )
     gps = list(trip.gps_points.order_by("timestamp"))
+    gps_timestamps = [g.timestamp for g in gps]
     transitions = list(trip.state_transitions.order_by("timestamp"))
+    timings_ms["load_pipeline_context"] = _elapsed_ms(load_context_started)
 
     all_windows_have_matrix = all(w.matrix is not None for w in windows)
 
+    classification_started = perf_counter()
     classification = classify_windows(
         raw_windows=windows if all_windows_have_matrix else None,
     )
+    timings_ms["har_classification"] = _elapsed_ms(classification_started)
 
     labels = classification.labels
 
@@ -351,6 +365,7 @@ def run_pipeline(
     }
     
     #diario
+    materialization_started = perf_counter()
     with transaction.atomic():
         trip.segments.all().delete()
         trip.virtual_stop_intervals.all().delete()
@@ -359,17 +374,28 @@ def run_pipeline(
             if kind == MobilitySegment.Kind.STOP:
                 _build_stop(trip, start, end)
             else:
-                _build_move(trip, start, end, windows, labels, gps)
+                _build_move(trip, start, end, windows, labels, gps, gps_timestamps)
 
         trip.status = Trip.Status.PROCESSED
         trip.save(update_fields=["status", "updated_at"])
+    timings_ms["diary_materialization"] = _elapsed_ms(materialization_started)
+
+    count_started = perf_counter()
+    segment_count = trip.segments.count()
+    virtual_stop_count = trip.virtual_stop_intervals.count()
+    timings_ms["result_counts"] = _elapsed_ms(count_started)
 
     result = {
         "windows": len(windows),
         "gps_points": len(gps),
         "transitions": len(transitions),
-        "segments": trip.segments.count(),
-        "virtual_stop_intervals": trip.virtual_stop_intervals.count(),
+        "segments": segment_count,
+        "virtual_stop_intervals": virtual_stop_count,
+        "pipeline_timings_ms": timings_ms,
         **classifier_summary,
     }
     return result
+
+
+def _elapsed_ms(started_at: float) -> float:
+    return (perf_counter() - started_at) * 1000
