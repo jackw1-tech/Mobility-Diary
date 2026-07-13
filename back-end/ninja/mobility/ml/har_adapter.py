@@ -162,32 +162,23 @@ def predict_activity_windows(
     embeddings = np.asarray(_predict(model_bundle.extractor, x_raw), dtype=np.float32)
     # -> ( len(windows), embedding_dim )
 
-    labels_idx = np.zeros(len(windows), dtype=int)
-    all_probs = np.zeros((len(windows), len(MODEL_CLASS_NAMES)), dtype=np.float32)
     sequence_length = model_bundle.sequence_length
+    sequence_count = int(np.ceil(len(windows) / sequence_length))
+    padded_length = sequence_count * sequence_length
+    padded_embeddings = np.zeros(
+        (padded_length, embeddings.shape[1]),
+        dtype=embeddings.dtype,
+    )
+    padded_embeddings[: len(windows)] = embeddings
+    gru_input = padded_embeddings.reshape(
+        (sequence_count, sequence_length, embeddings.shape[1])
+    )
 
-    for start in range(0, len(windows), sequence_length):
-        segment = embeddings[start : start + sequence_length]
-        current_length = len(segment)
-        if current_length < sequence_length:
-            padding = np.zeros(
-                (sequence_length - current_length, embeddings.shape[1]),
-                dtype=embeddings.dtype,
-            )
-            segment = np.concatenate([segment, padding])
-
-        prediction = np.asarray(
-            _predict(model_bundle.gru, np.expand_dims(segment, axis=0)),
-                # -> (1, len(windows), embedding_dim )
-            dtype=np.float32,
-        )
-        
-        # -> (1, 32, 5)
-        
-
-        valid = prediction[0, :current_length]
-        labels_idx[start : start + current_length] = np.argmax(valid, axis=1)
-        all_probs[start : start + current_length] = valid
+    predictions = np.asarray(_predict(model_bundle.gru, gru_input), dtype=np.float32)
+    all_probs = predictions.reshape(
+        (padded_length, len(MODEL_CLASS_NAMES))
+    )[: len(windows)]
+    labels_idx = np.argmax(all_probs, axis=1)
 
     model_classes = [MODEL_CLASS_NAMES[idx] for idx in labels_idx]
     labels = [MODEL_TO_ACTIVITY_LABEL[name].value for name in model_classes]
