@@ -12,7 +12,7 @@ from .models import (
     TripIngestion,
 )
 from .ml.pipeline import run_pipeline
-from .services.sensor_readings import persist_raw_sensor_readings
+from .services.sensor_readings import replace_raw_sensor_readings
 from .significant_places import mine_user_significant_places
 
 logger = logging.getLogger(__name__)
@@ -146,6 +146,113 @@ def _schedule_place_mining(user_id: int) -> None:
     transaction.on_commit(lambda: mine_significant_places.delay(user_id))
 
 
+def _merge_har_job_result(job_id: int, updates: dict) -> dict:
+    with transaction.atomic():
+        job = HarJob.objects.select_for_update().get(id=job_id)
+        result = job.result if isinstance(job.result, dict) else {}
+        result = {**result, **updates}
+        job.result = result
+        job.save(update_fields=["result", "updated_at"])
+        return result
+
+
+@shared_task(bind=True, max_retries=3, retry_backoff=True, default_retry_delay=30)
+def persist_trip_raw_sensor_readings(self, job_id: int, ingestion_id: int) -> dict:
+    task_started = perf_counter()
+    phase_timings_ms: dict[str, float] = {}
+    raw_load_timings_ms: dict[str, float] = {}
+    raw_part_count = 0
+    sensor_windows_count = 0
+    compressed_bytes = 0
+    decompressed_bytes = 0
+    trip_id = None
+
+    try:
+        lookup_started = perf_counter()
+        ingestion = (
+            TripIngestion.objects.select_related("trip")
+            .get(id=ingestion_id)
+        )
+        job = HarJob.objects.select_related("trip").get(id=job_id)
+        trip = ingestion.trip or job.trip
+        if trip is None:
+            raise ValueError("trip non disponibile per la persistenza raw sensor")
+        trip_id = trip.id
+        phase_timings_ms["lookup_context"] = _elapsed_ms(lookup_started)
+
+        raw_load_started = perf_counter()
+        raw_load = load_raw_sensor_windows_with_metrics(ingestion)
+        sensor_windows = raw_load.windows
+        phase_timings_ms["raw_load_total"] = _elapsed_ms(raw_load_started)
+        raw_load_timings_ms = raw_load.timings_ms
+        raw_part_count = raw_load.part_count
+        sensor_windows_count = len(sensor_windows)
+        compressed_bytes = raw_load.compressed_bytes
+        decompressed_bytes = raw_load.decompressed_bytes
+
+        persist_started = perf_counter()
+        persisted_readings = replace_raw_sensor_readings(trip, sensor_windows)
+        phase_timings_ms["raw_sensor_reading_replace"] = _elapsed_ms(
+            persist_started
+        )
+        phase_timings_ms["task_total"] = _elapsed_ms(task_started)
+
+        _merge_har_job_result(
+            job_id,
+            {
+                "raw_readings_persisted": persisted_readings,
+                "raw_readings_persistence_status": "COMPLETED",
+                "raw_readings_persistence_timings_ms": _rounded(phase_timings_ms),
+            },
+        )
+        _log_raw_sensor_persistence_timing(
+            "completed",
+            ingestion_id=ingestion_id,
+            trip_id=trip_id,
+            job_id=job_id,
+            phase_timings_ms=phase_timings_ms,
+            raw_load_timings_ms=raw_load_timings_ms,
+            raw_part_count=raw_part_count,
+            sensor_windows_count=sensor_windows_count,
+            persisted_readings=persisted_readings,
+            compressed_bytes=compressed_bytes,
+            decompressed_bytes=decompressed_bytes,
+        )
+        return {
+            "trip_id": trip_id,
+            "raw_readings_persisted": persisted_readings,
+            "raw_readings_persistence_status": "COMPLETED",
+        }
+    except Exception as exc:
+        will_retry = self.request.retries < self.max_retries
+        phase_timings_ms["task_total_until_error"] = _elapsed_ms(task_started)
+        _log_raw_sensor_persistence_timing(
+            "failed_retryable" if will_retry else "failed_final",
+            ingestion_id=ingestion_id,
+            trip_id=trip_id,
+            job_id=job_id,
+            phase_timings_ms=phase_timings_ms,
+            raw_load_timings_ms=raw_load_timings_ms,
+            raw_part_count=raw_part_count,
+            sensor_windows_count=sensor_windows_count,
+            persisted_readings=None,
+            compressed_bytes=compressed_bytes,
+            decompressed_bytes=decompressed_bytes,
+            error=str(exc),
+        )
+        if will_retry:
+            raise self.retry(exc=exc)
+        _merge_har_job_result(
+            job_id,
+            {
+                "raw_readings_persisted": 0,
+                "raw_readings_persistence_status": "FAILED",
+                "raw_readings_persistence_error": str(exc),
+            },
+        )
+        raise
+
+
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
 def process_trip_har_final(self, job_id: int, ingestion_id: int) -> dict:
     task_started = perf_counter()
@@ -156,7 +263,7 @@ def process_trip_har_final(self, job_id: int, ingestion_id: int) -> dict:
     raw_part_count = 0
     compressed_bytes = 0
     decompressed_bytes = 0
-    persisted_readings = 0
+    persisted_readings = None
     trip_id = None
 
     status_started = perf_counter()
@@ -205,6 +312,8 @@ def process_trip_har_final(self, job_id: int, ingestion_id: int) -> dict:
             )
             phase_timings_ms["pipeline_total"] = _elapsed_ms(pipeline_started)
             pipeline_timings_ms = result.get("pipeline_timings_ms", {})
+            result["raw_readings_persisted"] = None
+            result["raw_readings_persistence_status"] = "QUEUED"
 
             finalize_started = perf_counter()
             ingestion.raw_status = TripIngestion.PhaseStatus.COMPLETED
@@ -260,20 +369,27 @@ def process_trip_har_final(self, job_id: int, ingestion_id: int) -> dict:
             raise self.retry(exc=exc)
         raise
 
-    raw_persist_started = perf_counter()
+    raw_persist_enqueue_started = perf_counter()
     try:
-        persisted_readings = persist_raw_sensor_readings(trip, sensor_windows)
-    except Exception:
-        persisted_readings = 0
-    phase_timings_ms["raw_sensor_reading_insert_after_completion"] = _elapsed_ms(
-        raw_persist_started
+        persist_trip_raw_sensor_readings.delay(job_id, ingestion_id)
+    except Exception as exc:
+        _merge_har_job_result(
+            job_id,
+            {
+                "raw_readings_persisted": 0,
+                "raw_readings_persistence_status": "FAILED",
+                "raw_readings_persistence_error": str(exc),
+            },
+        )
+        logger.exception(
+            "Impossibile accodare la persistenza raw sensor "
+            "per ingestion_id=%s job_id=%s",
+            ingestion_id,
+            job_id,
+        )
+    phase_timings_ms["raw_sensor_reading_enqueue"] = _elapsed_ms(
+        raw_persist_enqueue_started
     )
-    result["raw_readings_persisted"] = persisted_readings
-    try:
-        job.result = result
-        job.save(update_fields=["result", "updated_at"])
-    except Exception:
-        pass
 
     if _request_place_mining(trip.user_id):
         _schedule_place_mining(trip.user_id)
@@ -311,7 +427,7 @@ def _log_har_phase2_timing(
     pipeline_timings_ms: dict[str, float],
     raw_part_count: int,
     sensor_windows_count: int,
-    persisted_readings: int,
+    persisted_readings: int | None,
     compressed_bytes: int,
     decompressed_bytes: int,
     error: str | None = None,
@@ -360,6 +476,52 @@ def _log_har_phase2_timing(
         log_payload["error"] = error
 
     logger.info("[HAR-PHASE2-TIMING] %s", log_payload)
+
+
+def _log_raw_sensor_persistence_timing(
+    status: str,
+    *,
+    ingestion_id: int,
+    trip_id: int | None,
+    job_id: int,
+    phase_timings_ms: dict[str, float],
+    raw_load_timings_ms: dict[str, float],
+    raw_part_count: int,
+    sensor_windows_count: int,
+    persisted_readings: int | None,
+    compressed_bytes: int,
+    decompressed_bytes: int,
+    error: str | None = None,
+) -> None:
+    task_total_ms = phase_timings_ms.get("task_total")
+    if task_total_ms is None:
+        task_total_ms = phase_timings_ms.get("task_total_until_error")
+    total_ms = task_total_ms or sum(
+        value
+        for key, value in phase_timings_ms.items()
+        if not key.startswith("task_total")
+    )
+
+    log_payload = {
+        "status": status,
+        "ingestion_id": ingestion_id,
+        "trip_id": trip_id,
+        "job_id": job_id,
+        "total_ms": round(total_ms, 2),
+        "phases_ms": _rounded(phase_timings_ms),
+        "phases_pct": _percentages(phase_timings_ms, total_ms),
+        "raw_load_ms": _rounded(raw_load_timings_ms),
+        "raw_load_pct_of_total": _percentages(raw_load_timings_ms, total_ms),
+        "raw_parts": raw_part_count,
+        "sensor_windows": sensor_windows_count,
+        "raw_readings_persisted": persisted_readings,
+        "compressed_bytes": compressed_bytes,
+        "decompressed_bytes": decompressed_bytes,
+    }
+    if error:
+        log_payload["error"] = error
+
+    logger.info("[RAW-SENSOR-PERSIST-TIMING] %s", log_payload)
 
 
 def _rounded(values: dict[str, float]) -> dict[str, float]:

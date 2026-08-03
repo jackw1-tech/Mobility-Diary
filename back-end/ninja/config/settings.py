@@ -181,6 +181,7 @@ S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", os.getenv("S3_BUCKET", "mobility-tr
 S3_REGION = os.getenv("S3_REGION", "us-east-1")
 S3_PRESIGN_EXPIRES_SECONDS = int("900")
 INGESTION_MAX_PART_BYTES = int(25 * 1024 * 1024) #25 mb
+RAW_SENSOR_COPY_FORMAT = os.getenv("RAW_SENSOR_COPY_FORMAT", "binary")
 
 
 #Sezione HAR

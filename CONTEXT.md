@@ -133,6 +133,70 @@ _Avoid_: Privacy score, privacy mode, visibility
 A Viaggio whose Core Ingestion has completed and can appear in the diary, regardless of whether raw sensor evidence has finished uploading.
 _Avoid_: Fully uploaded journey, HAR-complete journey
 
+**Viaggio Completato**:
+A Viaggio whose synchronous core ingestion and asynchronous raw/HAR ingestion
+have both completed. User-authored notes can only be added to or edited on a
+Viaggio Completato, so the note describes a stable diary entry rather than an
+in-flight upload.
+_Avoid_: Visible trip, stopped trip, GPS-complete trip
+
+**Nota Viaggio**:
+A single owner-authored text note attached to one Viaggio Completato. It is
+private to the owner, can be replaced or cleared, is not copied when a Viaggio
+Ricaricabile is reloaded, and becomes the primary display label for that
+Viaggio in trip lists when present.
+_Avoid_: Trip title, cloned label, comment history, annotation list
+
+**Viaggio Ricaricabile**:
+A completed real Viaggio explicitly marked by its owner or staff as an
+approved source that can be replayed or copied into a new Viaggio while
+preserving its GPS evidence and raw sensor evidence semantics. Once marked
+reloadable, it is available as a reload source only to its owner. A derived
+Viaggio cannot become reloadable; reload lineage always points back to a real
+source Viaggio. The owner may withdraw reloadability only while the Viaggio has
+not yet produced any derived Viaggio.
+_Avoid_: Template file, fake trip, seed track, import library item
+
+**Viaggio Reale**:
+A Viaggio created from a direct mobile recording rather than from replay or
+direct reload. Only a real Viaggio can become a Viaggio Ricaricabile.
+_Avoid_: Original row, non-fake trip, owned trip
+
+**Viaggio Derivato**:
+A Viaggio created from a Viaggio Ricaricabile through direct reload or live
+replay. It belongs to the user who triggered that creation, but it cannot itself
+become a Viaggio Ricaricabile.
+_Avoid_: Fake trip, cloned trip, copied trip
+
+**Viaggio Eliminabile**:
+A Viaggio that may be physically deleted from the database and associated
+storage objects because it has never been used as the source for another
+Viaggio through replay or direct reload. A Viaggio that has generated one or
+more reload descendants is retained to preserve source lineage and auditability.
+_Avoid_: Hidden trip, archived trip, soft-deleted trip
+
+**Ricaricamento Diretto**:
+The creation of a new Viaggio from a Viaggio Ricaricabile by submitting copied
+core evidence and raw sensor evidence through the normal ingestion lifecycle, as
+if a real recording had just been stopped. The resulting Viaggio has new
+database records, new storage objects, and timestamps shifted to the reload
+time while preserving the source evidence's relative timing. The source Viaggio
+Ricaricabile must belong to the same user who starts the reload. A direct reload
+is anchored as just ended at the reload time: a 25-minute source becomes a new
+Viaggio from 25 minutes ago to now. If the source raw sensor evidence is no
+longer available in storage, the direct reload is rejected instead of silently
+creating a GPS-only Viaggio. A client-provided reload request identifier makes
+one logical direct reload idempotent across retries and double clicks. The
+resulting Viaggio keeps an explicit reference to the source Viaggio Ricaricabile
+for audit and debugging.
+_Avoid_: Database clone, admin duplicate, manual insert, bypass ingestion
+
+**Riproduzione Live**:
+The presentation or paced replay of evidence from a Viaggio Ricaricabile as if
+the movement were happening over time, without changing the meaning of the
+source Viaggio.
+_Avoid_: Real tracking, active recording, GPS spoofing
+
 **Viaggio in Corso**:
 A Viaggio whose recording has been explicitly started for one Proprietario del Viaggio but has not yet been closed or synchronized as a completed diary entry.
 _Avoid_: Local session, active trip, draft upload, open tracking
@@ -185,12 +249,15 @@ the non-Fermo categories.
 _Avoid_: Activity label, transport type, movement flag
 
 **Finestra Analitica**:
-The fixed rolling window that scopes the recent-trend parts of the Analitiche
-Personali, selectable between Giorno (last 7 days, daily buckets) and Settimana
-(last 8 weeks, weekly buckets). It scopes only the time-by-category trend and its
-distances; the Mappa di Frequentazione, Percorsi Frequenti, and prevalent mode
-stay cumulative over all history.
-_Avoid_: Date range, filter, reporting period
+The bucketing of the recent-trend parts of the Analitiche Personali, selectable
+between Giorno (one bucket per day) and Settimana (one bucket per week). Buckets
+span the user's full trip history, from their least recent to their most recent
+Viaggio, including empty buckets for periods without activity; the client pages
+through this history 7 buckets at a time, with a slider when there are more.
+It scopes only the time-by-category trend and its distances; the Mappa di
+Frequentazione, Percorsi Frequenti, and prevalent mode stay cumulative over all
+history.
+_Avoid_: Date range, filter, reporting period, fixed rolling window
 
 **Mappa di Frequentazione**:
 The heatmap inside the Analitiche Personali that weights the user's Luoghi

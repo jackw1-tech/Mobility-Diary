@@ -533,9 +533,7 @@ Campi principali:
 | `user` | utente Django proprietario |
 | `token_hash` | SHA-256 del token raw |
 | `device_name` | nome dispositivo inviato dal client |
-| `user_agent` | user agent della richiesta login |
 | `created_at` | creazione token |
-| `last_used_at` | ultimo utilizzo |
 | `expires_at` | scadenza |
 | `revoked_at` | logout/revoca |
 
