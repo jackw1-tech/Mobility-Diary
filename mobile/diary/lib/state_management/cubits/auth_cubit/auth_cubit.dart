@@ -1,4 +1,4 @@
-import 'package:diary/features/auth/domain/auth_user.dart';
+import 'package:diary/model/entities/auth/auth_user.dart';
 import 'package:diary/repositories/auth_repository.dart';
 import 'package:diary/state_management/cubits/auth_cubit/auth_cubit_state.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';

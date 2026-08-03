@@ -1,6 +1,6 @@
 import 'package:auto_route/auto_route.dart';
-import 'package:diary/features/acquisition/domain/acquisition_domain.dart';
-import 'package:diary/features/route_assistant/domain/route_assistant_domain.dart';
+import 'package:diary/model/entities/acquisition/acquisition_domain.dart';
+import 'package:diary/model/entities/route_assistant/route_assistant_domain.dart';
 import 'package:diary/repositories/acquisition_repository.dart';
 import 'package:diary/repositories/privacy_settings_repository.dart';
 import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubit.dart';
@@ -11,7 +11,7 @@ import 'package:diary/state_management/cubits/privacy_settings_cubit/privacy_set
 import 'package:diary/state_management/cubits/route_assistant_cubit/route_assistant_cubit.dart';
 import 'package:diary/state_management/cubits/route_assistant_cubit/route_assistant_cubit_state.dart';
 import 'package:diary/routers/app_router.dart';
-import 'package:diary/theme/Dimensions.dart';
+import 'package:diary/theme/dimensions.dart';
 import 'package:diary/theme/color_palette.dart';
 import 'package:diary/ui/pages/auth_page.dart';
 import 'package:diary/ui/widgets/live_map.dart';

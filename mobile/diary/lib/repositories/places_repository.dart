@@ -1,6 +1,6 @@
-import 'package:diary/features/common/domain/app_result.dart';
-import 'package:diary/features/places/domain/place_mining_status.dart';
-import 'package:diary/features/places/domain/place_review.dart';
+import 'package:diary/utils/app_result.dart';
+import 'package:diary/model/entities/places/place_mining_status.dart';
+import 'package:diary/model/entities/places/place_review.dart';
 
 abstract class PlacesRepository {
   Future<AppResult<PlaceMiningStatus>> fetchPlacesStatus();

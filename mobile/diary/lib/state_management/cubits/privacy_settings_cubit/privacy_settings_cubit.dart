@@ -1,4 +1,4 @@
-import 'package:diary/features/privacy/domain/privacy_level.dart';
+import 'package:diary/model/entities/privacy/privacy_level.dart';
 import 'package:diary/repositories/privacy_settings_repository.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 

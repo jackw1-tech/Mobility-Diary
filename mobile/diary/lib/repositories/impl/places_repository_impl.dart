@@ -1,6 +1,6 @@
-import 'package:diary/features/common/domain/app_result.dart';
-import 'package:diary/features/places/domain/place_mining_status.dart';
-import 'package:diary/features/places/domain/place_review.dart';
+import 'package:diary/utils/app_result.dart';
+import 'package:diary/model/entities/places/place_mining_status.dart';
+import 'package:diary/model/entities/places/place_review.dart';
 import 'package:diary/mappers/places_mapper.dart';
 import 'package:diary/network/service/places_service.dart';
 import 'package:diary/repositories/places_repository.dart';

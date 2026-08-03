@@ -1,7 +1,7 @@
-import 'package:diary/features/trips/domain/trip_list_item.dart';
-import 'package:diary/features/trips/domain/trip_enums.dart';
-import 'package:diary/features/trips/domain/trip_reload.dart';
-import 'package:diary/features/trips/domain/trip_track.dart';
+import 'package:diary/model/entities/trips/trip_list_item.dart';
+import 'package:diary/model/entities/trips/trip_enums.dart';
+import 'package:diary/model/entities/trips/trip_reload.dart';
+import 'package:diary/model/entities/trips/trip_track.dart';
 import 'package:diary/network/dto/trip_list_item_dto.dart';
 import 'package:diary/network/dto/trip_reload_dto.dart';
 import 'package:diary/network/dto/trip_reload_slots_dto.dart';

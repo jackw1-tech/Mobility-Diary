@@ -1,5 +1,5 @@
 import 'package:auto_route/auto_route.dart';
-import 'package:diary/features/trips/domain/trip_list_item.dart';
+import 'package:diary/model/entities/trips/trip_list_item.dart';
 import 'package:diary/repositories/trip_track_repository.dart';
 import 'package:diary/repositories/trips_repository.dart';
 import 'package:diary/state_management/cubits/trip_track_cubit/trip_track_cubit.dart';

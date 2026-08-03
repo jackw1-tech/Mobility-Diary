@@ -36,6 +36,8 @@ class Command(BaseCommand):
         )
         windows = [SimpleNamespace(matrix=matrix) for _ in range(window_count)]
 
+        self.stdout.write(f"HAR backend: {settings.HAR_MODEL_BACKEND}")
+        self.stdout.write(f"Fused model: {settings.HAR_FUSED_MODEL_PATH}")
         self.stdout.write(f"CNN model: {settings.HAR_CNN_MODEL_PATH}")
         self.stdout.write(f"GRU model: {settings.HAR_GRU_MODEL_PATH}")
 

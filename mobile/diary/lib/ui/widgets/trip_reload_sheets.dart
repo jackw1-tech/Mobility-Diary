@@ -1,4 +1,4 @@
-import 'package:diary/features/trips/domain/trip_reload.dart';
+import 'package:diary/model/entities/trips/trip_reload.dart';
 import 'package:diary/theme/dimensions.dart';
 import 'package:flutter/material.dart';
 

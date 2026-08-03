@@ -1,5 +1,5 @@
-import 'package:diary/features/common/domain/app_result.dart';
-import 'package:diary/features/privacy/domain/trip_privacy_export.dart';
+import 'package:diary/utils/app_result.dart';
+import 'package:diary/model/entities/privacy/trip_privacy_export.dart';
 import 'package:diary/mappers/trip_privacy_export_mapper.dart';
 import 'package:diary/network/service/trip_privacy_export_service.dart';
 import 'package:diary/repositories/trip_privacy_export_repository.dart';

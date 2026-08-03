@@ -1,5 +1,5 @@
 import 'package:auto_route/auto_route.dart';
-import 'package:diary/features/places/domain/place_review.dart';
+import 'package:diary/model/entities/places/place_review.dart';
 import 'package:diary/repositories/places_repository.dart';
 import 'package:diary/state_management/cubits/place_detail_cubit/place_detail_cubit.dart';
 import 'package:diary/state_management/cubits/place_detail_cubit/place_detail_state.dart';

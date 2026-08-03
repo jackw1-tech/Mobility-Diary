@@ -1,5 +1,5 @@
-import 'package:diary/features/common/domain/app_result.dart';
-import 'package:diary/features/trips/domain/trip_track.dart';
+import 'package:diary/utils/app_result.dart';
+import 'package:diary/model/entities/trips/trip_track.dart';
 import 'package:diary/mappers/trips_mapper.dart';
 import 'package:diary/network/service/trip_track_service.dart' as service;
 import 'package:diary/repositories/trip_track_repository.dart';

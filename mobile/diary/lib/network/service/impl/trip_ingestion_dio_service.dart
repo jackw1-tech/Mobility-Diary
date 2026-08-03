@@ -6,7 +6,7 @@ import 'package:diary/network/dto/ingestion/ingestion_status_dto.dart';
 import 'package:diary/network/dto/ingestion/inline_core_result_dto.dart';
 import 'package:diary/network/dto/ingestion/presign_result_dto.dart';
 import 'package:diary/network/service/trip_ingestion_service.dart';
-import 'package:diary/other/contants/api_contants.dart';
+import 'package:diary/other/constants/api_constants.dart';
 import 'package:dio/dio.dart';
 
 class TripIngestionDioService implements TripIngestionService {

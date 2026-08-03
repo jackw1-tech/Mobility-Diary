@@ -1,4 +1,4 @@
-import 'package:diary/features/analytics/domain/analytics.dart';
+import 'package:diary/model/entities/analytics/analytics.dart';
 
 enum AnalyticsStatus {
   initial,

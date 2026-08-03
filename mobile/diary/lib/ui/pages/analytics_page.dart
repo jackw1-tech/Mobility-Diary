@@ -1,5 +1,5 @@
 import 'package:auto_route/auto_route.dart';
-import 'package:diary/features/analytics/domain/analytics.dart';
+import 'package:diary/model/entities/analytics/analytics.dart';
 import 'package:diary/repositories/analytics_repository.dart';
 import 'package:diary/state_management/cubits/analytics_cubit/analytics_cubit.dart';
 import 'package:diary/state_management/cubits/analytics_cubit/analytics_cubit_state.dart';

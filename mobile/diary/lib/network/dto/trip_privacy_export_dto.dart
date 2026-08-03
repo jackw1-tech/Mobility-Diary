@@ -1,4 +1,4 @@
-import 'package:diary/features/privacy/domain/privacy_level.dart';
+import 'package:diary/model/entities/privacy/privacy_level.dart';
 
 /// Vista Privacy-Aware testuale del diario, pronta per l'export mobile.
 ///

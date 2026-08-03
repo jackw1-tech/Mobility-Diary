@@ -7,6 +7,19 @@ List<SingleChildWidget> buildProviders({
       Provider<AuthSessionStore>(
         create: (_) => authSessionStore ?? const SecureAuthSessionStore(),
       ),
+      Provider<AuthService>(
+        create: (_) => AuthHttpService(),
+      ),
+      // Provider layer (Pine): accesso grezzo al DB locale (Drift) e allo
+      // storage sicuro dell'identita' del device, usati dal repository di
+      // acquisizione. Registrati qui (non instanziati manualmente nel
+      // repository) cosi' la costruzione resta centralizzata nella DI.
+      Provider<AcquisitionLocalDatabase>(
+        create: (_) => AcquisitionLocalDatabase(),
+      ),
+      Provider<DeviceIdentityStore>(
+        create: (_) => SecureDeviceIdentityStore(),
+      ),
       Provider<TripTrackService>(
         create: (context) => TripTrackHttpService(
           tokenProvider: context.read<AuthSessionStore>().readAccessToken,

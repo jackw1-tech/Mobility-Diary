@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:diary/di/dependency_injector.dart';
-import 'package:diary/features/auth/data/secure_auth_session_store.dart';
-import 'package:diary/features/auth/domain/auth_session_store.dart';
+import 'package:diary/network/service/impl/secure_auth_session_store.dart';
+import 'package:diary/network/service/auth_session_store.dart';
 import 'package:diary/repositories/auth_repository.dart';
 import 'package:diary/repositories/impl/auth_repository_impl.dart';
 import 'package:diary/routers/app_router.dart';

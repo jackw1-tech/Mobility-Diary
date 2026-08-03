@@ -1,5 +1,5 @@
-import 'package:diary/features/places/domain/place_mining_status.dart';
-import 'package:diary/features/places/domain/place_review.dart';
+import 'package:diary/model/entities/places/place_mining_status.dart';
+import 'package:diary/model/entities/places/place_review.dart';
 import 'package:diary/theme/color_palette.dart';
 import 'package:flutter/material.dart';
 

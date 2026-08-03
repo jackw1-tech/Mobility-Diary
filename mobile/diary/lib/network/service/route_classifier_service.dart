@@ -1,16 +1,21 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:diary/features/route_assistant/domain/route_assistant_domain.dart';
-import 'package:diary/other/contants/api_contants.dart';
+import 'package:diary/model/entities/route_assistant/route_assistant_domain.dart';
+import 'package:diary/other/constants/api_constants.dart';
 
 typedef AccessTokenProvider = Future<String?> Function();
 
 /// Classificazione live della modalita' di mobilita' via backend (solo CNN).
+///
+/// Provider layer (Pine): restituisce l'etichetta grezza cosi' come arriva
+/// dal backend. La conversione in [RouteMode] e' compito esclusivo di
+/// [RouteAssistantMapper].
 abstract class RouteClassifierService {
-  /// Classifica una finestra 500x6. Restituisce la modalita' rilevata, oppure
-  /// null quando il modello risponde "idle" (fermo).
-  Future<RouteMode?> classify(List<List<double>> samples);
+  /// Classifica una finestra 500x6. Restituisce l'etichetta grezza (es.
+  /// `walking`/`cycling`/`driving`), oppure null quando il modello risponde
+  /// "idle" (fermo) o con un valore inatteso.
+  Future<String?> classify(List<List<double>> samples);
 }
 
 class RouteClassifierHttpService implements RouteClassifierService {
@@ -24,7 +29,7 @@ class RouteClassifierHttpService implements RouteClassifierService {
         _client = client ?? HttpClient();
 
   @override
-  Future<RouteMode?> classify(List<List<double>> samples) async {
+  Future<String?> classify(List<List<double>> samples) async {
     final token = await _tokenProvider();
     if (token == null || token.isEmpty) {
       throw const RouteAssistantException('Sessione non disponibile');
@@ -46,20 +51,7 @@ class RouteClassifierHttpService implements RouteClassifierService {
     }
     final decoded = jsonDecode(body);
     final label = decoded is Map ? decoded['label'] : null;
-    return _modeFromLabel(label);
-  }
-
-  RouteMode? _modeFromLabel(dynamic label) {
-    switch (label) {
-      case 'walking':
-        return RouteMode.walking;
-      case 'cycling':
-        return RouteMode.cycling;
-      case 'driving':
-        return RouteMode.driving;
-      default:
-        return null; // idle o valore inatteso
-    }
+    return label is String ? label : null;
   }
 
   Uri _uri(String path) {

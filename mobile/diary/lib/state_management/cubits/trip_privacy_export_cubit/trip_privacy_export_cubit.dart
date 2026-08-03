@@ -1,4 +1,4 @@
-import 'package:diary/features/privacy/domain/trip_privacy_export.dart';
+import 'package:diary/model/entities/privacy/trip_privacy_export.dart';
 import 'package:diary/repositories/trip_privacy_export_repository.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 

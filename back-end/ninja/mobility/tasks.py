@@ -2,6 +2,7 @@ import logging
 from time import perf_counter
 
 from celery import shared_task
+from celery.signals import worker_process_init
 from django.db import transaction
 from django.utils import timezone
 
@@ -11,6 +12,7 @@ from .models import (
     PlaceMiningStatus,
     TripIngestion,
 )
+from .ml.har_adapter import HarModelUnavailable, warm_har_model
 from .ml.pipeline import run_pipeline
 from .services.sensor_readings import replace_raw_sensor_readings
 from .significant_places import mine_user_significant_places
@@ -26,6 +28,20 @@ _PLACE_MINING_PENDING_FIELDS = [
     "error_message",
     "rerun_requested",
 ]
+
+
+@worker_process_init.connect
+def warm_har_model_on_worker_start(**_kwargs) -> None:
+    started = perf_counter()
+    try:
+        warm_har_model()
+    except HarModelUnavailable:
+        logger.exception("Warmup modello HAR non riuscito")
+        return
+    logger.info(
+        "Warmup modello HAR completato in %.2f ms",
+        _elapsed_ms(started),
+    )
 
 
 def _place_mining_status_for_update(user_id: int) -> PlaceMiningStatus:

@@ -1,5 +1,5 @@
-import 'package:diary/features/auth/domain/auth_session.dart';
-import 'package:diary/features/auth/domain/auth_user.dart';
+import 'package:diary/model/entities/auth/auth_session.dart';
+import 'package:diary/model/entities/auth/auth_user.dart';
 
 abstract class AuthRepository {
   AuthUser? get currentUser;

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:diary/theme/app_text_styles.dart';
 import 'package:diary/theme/color_palette.dart';
-import 'package:diary/theme/Dimensions.dart';
+import 'package:diary/theme/dimensions.dart';
 
 /// Tema ispirato al design system Uber:
 ///  - duetto bianco/nero, nero `primary` come unico colore di conversione;

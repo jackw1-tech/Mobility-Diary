@@ -5,7 +5,7 @@ import 'package:diary/network/service/trip_ingestion_service.dart';
 import 'package:diary/network/dto/trip_list_item_dto.dart';
 import 'package:diary/network/dto/trip_reload_dto.dart';
 import 'package:diary/network/dto/trip_reload_slots_dto.dart';
-import 'package:diary/other/contants/api_contants.dart';
+import 'package:diary/other/constants/api_constants.dart';
 
 abstract class TripsService {
   Future<List<TripListItemDto>> fetchTrips();

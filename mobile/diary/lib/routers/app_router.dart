@@ -1,9 +1,8 @@
 import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
-import 'package:diary/features/places/domain/place_review.dart';
+import 'package:diary/model/entities/places/place_review.dart';
 import 'package:diary/routers/auth_guard.dart';
 import 'package:diary/ui/pages/analytics_page.dart';
-import 'package:diary/ui/pages/detail_page.dart';
 import 'package:diary/ui/pages/home_page.dart';
 import 'package:diary/ui/pages/place_detail_page.dart';
 import 'package:diary/ui/pages/places_page.dart';
@@ -24,11 +23,6 @@ class AppRouter extends RootStackRouter {
   @override
   List<AutoRoute> get routes => [
         AutoRoute(path: '/', page: HomeRoute.page, initial: true),
-        AutoRoute(
-          path: '/detail/:id',
-          page: ExampleDetailRoute.page,
-          guards: [authGuard],
-        ),
         AutoRoute(
           path: '/trips/:id',
           page: TripDetailRoute.page,

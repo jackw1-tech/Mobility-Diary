@@ -1,4 +1,4 @@
-import 'package:diary/features/privacy/domain/privacy_level.dart';
+import 'package:diary/model/entities/privacy/privacy_level.dart';
 import 'package:diary/state_management/cubits/privacy_settings_cubit/privacy_settings_cubit.dart';
 import 'package:diary/theme/dimensions.dart';
 import 'package:flutter/material.dart';

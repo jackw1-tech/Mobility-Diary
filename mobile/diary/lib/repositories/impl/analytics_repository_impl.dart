@@ -1,5 +1,5 @@
-import 'package:diary/features/analytics/domain/analytics.dart';
-import 'package:diary/features/common/domain/app_result.dart';
+import 'package:diary/model/entities/analytics/analytics.dart';
+import 'package:diary/utils/app_result.dart';
 import 'package:diary/mappers/analytics_mapper.dart';
 import 'package:diary/network/service/analytics_service.dart';
 import 'package:diary/repositories/analytics_repository.dart';

@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:diary/network/service/trip_ingestion_service.dart';
 import 'package:diary/network/dto/trip_track_dto.dart';
-import 'package:diary/other/contants/api_contants.dart';
+import 'package:diary/other/constants/api_constants.dart';
 
 Map<String, dynamic>? _tryDecodeMap(String? body) {
   if (body == null || body.isEmpty) return null;

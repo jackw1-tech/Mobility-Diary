@@ -1,4 +1,4 @@
-import 'package:diary/features/route_assistant/domain/route_assistant_domain.dart';
+import 'package:diary/model/entities/route_assistant/route_assistant_domain.dart';
 import 'package:diary/state_management/cubits/route_assistant_cubit/route_assistant_cubit.dart';
 import 'package:diary/state_management/cubits/route_assistant_cubit/route_assistant_cubit_state.dart';
 import 'package:flutter/material.dart';

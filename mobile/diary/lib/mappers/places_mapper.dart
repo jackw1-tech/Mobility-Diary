@@ -1,6 +1,6 @@
-import 'package:diary/features/places/domain/place_enums.dart';
-import 'package:diary/features/places/domain/place_mining_status.dart';
-import 'package:diary/features/places/domain/place_review.dart';
+import 'package:diary/model/entities/places/place_enums.dart';
+import 'package:diary/model/entities/places/place_mining_status.dart';
+import 'package:diary/model/entities/places/place_review.dart';
 import 'package:diary/network/dto/place_mining_status_dto.dart';
 import 'package:diary/network/dto/place_review_dto.dart';
 

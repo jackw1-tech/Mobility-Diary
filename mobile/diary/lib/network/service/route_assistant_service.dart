@@ -1,20 +1,27 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:diary/features/route_assistant/domain/route_assistant_domain.dart';
+import 'package:diary/model/entities/route_assistant/route_assistant_domain.dart';
+import 'package:diary/network/dto/geocoding_feature_dto.dart';
+import 'package:diary/network/dto/mapbox_route_dto.dart';
 import 'package:latlong2/latlong.dart' as ll;
 
 /// Assistente di percorso: geocoding e routing via API Mapbox chiamate
 /// direttamente dal client (il token Mapbox e' gia' presente nell'app).
+///
+/// Provider layer (Pine): restituisce sempre DTO grezzi. La trasformazione in
+/// model di dominio e' compito esclusivo di [RouteAssistantMapper].
 abstract class RouteAssistantService {
   /// Cerca luoghi per testo libero. `proximity` ordina i risultati vicino a un
   /// punto (tipicamente la posizione corrente).
-  Future<List<GeocodingPlace>> searchPlaces(String query,
-      {ll.LatLng? proximity});
+  Future<List<GeocodingFeatureDto>> searchPlaces(
+    String query, {
+    ll.LatLng? proximity,
+  });
 
   /// Percorso da `from` a `to` col profilo della modalita' scelta. Restituisce
-  /// geometria e metadati Mapbox gia' pronti per mappa e riepilogo.
-  Future<RouteAssistantRoute> fetchRoute({
+  /// il primo percorso Mapbox grezzo, o null se nessuno trovato.
+  Future<MapboxRouteDto?> fetchRoute({
     required ll.LatLng from,
     required ll.LatLng to,
     required RouteMode mode,
@@ -32,7 +39,7 @@ class MapboxRouteAssistantService implements RouteAssistantService {
         _client = client ?? HttpClient();
 
   @override
-  Future<List<GeocodingPlace>> searchPlaces(
+  Future<List<GeocodingFeatureDto>> searchPlaces(
     String query, {
     ll.LatLng? proximity,
   }) async {
@@ -55,13 +62,14 @@ class MapboxRouteAssistantService implements RouteAssistantService {
     final features = data['features'];
     if (features is! List) return const [];
     return features
-        .map(_placeFromFeature)
-        .whereType<GeocodingPlace>()
+        .whereType<Map>()
+        .map((feature) =>
+            GeocodingFeatureDto.fromJson(Map<String, dynamic>.from(feature)))
         .toList(growable: false);
   }
 
   @override
-  Future<RouteAssistantRoute> fetchRoute({
+  Future<MapboxRouteDto?> fetchRoute({
     required ll.LatLng from,
     required ll.LatLng to,
     required RouteMode mode,
@@ -79,53 +87,10 @@ class MapboxRouteAssistantService implements RouteAssistantService {
     );
     final data = await _getJson(uri);
     final routes = data['routes'];
-    if (routes is! List || routes.isEmpty) {
-      throw const RouteAssistantException('Nessun percorso trovato');
-    }
+    if (routes is! List || routes.isEmpty) return null;
     final route = routes.first;
-    if (route is! Map) {
-      throw const RouteAssistantException('Percorso non valido');
-    }
-    final distance = route['distance'];
-    final duration = route['duration'];
-    if (distance is! num || duration is! num) {
-      throw const RouteAssistantException('Dati percorso non validi');
-    }
-    final coordinates = route['geometry']?['coordinates'];
-    if (coordinates is! List) {
-      throw const RouteAssistantException('Geometria percorso non valida');
-    }
-    final points = coordinates
-        .map(_latLngFromCoordinate)
-        .whereType<ll.LatLng>()
-        .toList(growable: false);
-    if (points.length < 2) {
-      throw const RouteAssistantException('Geometria percorso non valida');
-    }
-    return RouteAssistantRoute(
-      points: points,
-      distanceMeters: distance.toDouble(),
-      durationSeconds: duration.toDouble(),
-    );
-  }
-
-  GeocodingPlace? _placeFromFeature(dynamic feature) {
-    if (feature is! Map) return null;
-    final location = _latLngFromCoordinate(feature['center']);
-    if (location == null) return null;
-    final label = feature['place_name'];
-    return GeocodingPlace(
-      label: label is String ? label : '',
-      location: location,
-    );
-  }
-
-  ll.LatLng? _latLngFromCoordinate(dynamic coordinate) {
-    if (coordinate is! List || coordinate.length < 2) return null;
-    final lon = coordinate[0];
-    final lat = coordinate[1];
-    if (lon is! num || lat is! num) return null;
-    return ll.LatLng(lat.toDouble(), lon.toDouble());
+    if (route is! Map) return null;
+    return MapboxRouteDto.fromJson(Map<String, dynamic>.from(route));
   }
 
   Future<Map<String, dynamic>> _getJson(Uri uri) async {

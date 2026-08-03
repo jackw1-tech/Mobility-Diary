@@ -1,13 +1,13 @@
 import 'dart:async';
 
-import 'package:diary/features/acquisition/data/acquisition_local_database.dart';
-import 'package:diary/features/acquisition/domain/acquisition_domain.dart';
-import 'package:diary/features/acquisition/domain/acquisition_strategy.dart';
-import 'package:diary/features/acquisition/runtime/acquisition_sensor_runtime.dart';
-import 'package:diary/features/acquisition/runtime/live_acquisition_strategy.dart'
+import 'package:diary/network/service/impl/acquisition_local_database.dart';
+import 'package:diary/model/entities/acquisition/acquisition_domain.dart';
+import 'package:diary/repositories/acquisition_strategy.dart';
+import 'package:diary/network/service/impl/acquisition_sensor_runtime.dart';
+import 'package:diary/repositories/impl/acquisition/live_acquisition_strategy.dart'
     hide HeartbeatTimerFactory;
-import 'package:diary/features/acquisition/runtime/replay_acquisition_strategy.dart';
-import 'package:diary/features/acquisition/sync/trip_sync_queue.dart';
+import 'package:diary/repositories/impl/acquisition/replay_acquisition_strategy.dart';
+import 'package:diary/repositories/trip_sync_queue.dart';
 import 'package:diary/mappers/ingestion_mapper.dart';
 import 'package:diary/network/service/trip_ingestion_service.dart';
 import 'package:diary/repositories/acquisition_repository.dart';

@@ -1,5 +1,5 @@
-import 'package:diary/features/common/domain/app_result.dart';
-import 'package:diary/features/trips/domain/trip_list_item.dart';
+import 'package:diary/utils/app_result.dart';
+import 'package:diary/model/entities/trips/trip_list_item.dart';
 import 'package:diary/repositories/trips_repository.dart';
 import 'package:diary/state_management/cubits/trips_list_cubit/trips_list_cubit_state.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';

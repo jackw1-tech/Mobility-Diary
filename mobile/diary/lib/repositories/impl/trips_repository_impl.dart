@@ -1,6 +1,6 @@
-import 'package:diary/features/common/domain/app_result.dart';
-import 'package:diary/features/trips/domain/trip_list_item.dart';
-import 'package:diary/features/trips/domain/trip_reload.dart';
+import 'package:diary/utils/app_result.dart';
+import 'package:diary/model/entities/trips/trip_list_item.dart';
+import 'package:diary/model/entities/trips/trip_reload.dart';
 import 'package:diary/mappers/trips_mapper.dart';
 import 'package:diary/network/service/trips_service.dart';
 import 'package:diary/repositories/acquisition_repository.dart';

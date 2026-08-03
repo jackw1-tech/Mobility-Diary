@@ -1,10 +1,10 @@
 import 'dart:convert';
 
+import 'package:diary/repositories/location_repository.dart';
 import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubit_state.dart';
 import 'package:diary/theme/color_palette.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:geolocator/geolocator.dart' as geo;
 import 'package:latlong2/latlong.dart' as ll;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubit.dart';
@@ -70,37 +70,22 @@ class _LiveMapState extends State<LiveMap> {
 
   Future<void> _resolveInitialCenter() async {
     try {
-      final position = await _currentPositionOrNull();
+      // La UI non deve mai parlare direttamente coi plugin di posizione
+      // (quello e' compito del layer Provider/Repository): passiamo dal
+      // LocationRepository iniettato via DI, come fa RouteAssistantCubit.
+      final location = await context.read<LocationRepository>().currentLocation();
       if (!mounted) return;
       setState(() {
-        _initialCenter = position == null
+        _initialCenter = location == null
             ? Point(coordinates: Position(0, 0))
             : Point(
-                coordinates: Position(position.longitude, position.latitude),
+                coordinates: Position(location.longitude, location.latitude),
               );
       });
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = 'Posizione non disponibile: $e');
     }
-  }
-
-  Future<geo.Position?> _currentPositionOrNull() async {
-    final serviceEnabled = await geo.Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) return null;
-
-    var permission = await geo.Geolocator.checkPermission();
-    if (permission == geo.LocationPermission.denied) {
-      permission = await geo.Geolocator.requestPermission();
-    }
-    if (permission == geo.LocationPermission.denied ||
-        permission == geo.LocationPermission.deniedForever) {
-      return null;
-    }
-
-    final last = await geo.Geolocator.getLastKnownPosition();
-    if (last != null) return last;
-    return geo.Geolocator.getCurrentPosition();
   }
 
   Future<void> _onMapCreated(MapboxMap map) async {
@@ -404,9 +389,10 @@ class _LiveMapState extends State<LiveMap> {
                 if (latest != null) {
                   await _followTo(latest);
                 } else {
-                  final pos = await _currentPositionOrNull();
-                  if (pos != null) {
-                    await _followTo(ll.LatLng(pos.latitude, pos.longitude));
+                  final location =
+                      await context.read<LocationRepository>().currentLocation();
+                  if (location != null) {
+                    await _followTo(location);
                   }
                 }
               },

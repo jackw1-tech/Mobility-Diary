@@ -1,4 +1,4 @@
-import 'package:diary/features/acquisition/domain/ingestion_models.dart';
+import 'package:diary/model/entities/acquisition/ingestion_models.dart';
 import 'package:diary/network/dto/ingestion/active_ingestion_dto.dart';
 import 'package:diary/network/dto/ingestion/ingestion_start_result_dto.dart';
 import 'package:diary/network/dto/ingestion/ingestion_status_dto.dart';

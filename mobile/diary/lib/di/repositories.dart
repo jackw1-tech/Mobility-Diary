@@ -8,6 +8,8 @@ List<RepositoryProvider> buildRepositories({
         create: (context) =>
             authRepository ??
             AuthRepositoryImpl(
+              service: context.read<AuthService>(),
+              mapper: context.read<AuthMapper>(),
               sessionStore: context.read<AuthSessionStore>(),
             ),
       ),
@@ -20,10 +22,10 @@ List<RepositoryProvider> buildRepositories({
       // definitivo, non solo il residuo locale.
       RepositoryProvider<AcquisitionRepository>(
         create: (context) {
-          final database = AcquisitionLocalDatabase();
+          final database = context.read<AcquisitionLocalDatabase>();
           final auth = context.read<AuthRepository>();
           Future<String?> tokenProvider() async => auth.accessToken;
-          final deviceIdentityStore = DeviceIdentityStore();
+          final deviceIdentityStore = context.read<DeviceIdentityStore>();
           final ingestionService = context.read<TripIngestionService>();
           final mapper = context.read<IngestionMapper>();
           final syncQueue = TripSyncQueueImpl(
@@ -82,6 +84,7 @@ List<RepositoryProvider> buildRepositories({
       RepositoryProvider<PrivacySettingsRepository>(
         create: (context) => PrivacySettingsRepositoryImpl(
           service: context.read<PrivacySettingsService>(),
+          mapper: context.read<PrivacySettingsMapper>(),
         ),
       ),
       RepositoryProvider<TripPrivacyExportRepository>(
@@ -94,6 +97,7 @@ List<RepositoryProvider> buildRepositories({
         create: (context) => RouteAssistantRepositoryImpl(
           service: context.read<RouteAssistantService>(),
           classifier: context.read<RouteClassifierService>(),
+          mapper: context.read<RouteAssistantMapper>(),
         ),
       ),
     ];

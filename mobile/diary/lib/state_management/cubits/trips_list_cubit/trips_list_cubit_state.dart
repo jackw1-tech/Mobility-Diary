@@ -1,4 +1,4 @@
-import 'package:diary/features/trips/domain/trip_list_item.dart';
+import 'package:diary/model/entities/trips/trip_list_item.dart';
 
 enum TripsListStatus {
   initial,

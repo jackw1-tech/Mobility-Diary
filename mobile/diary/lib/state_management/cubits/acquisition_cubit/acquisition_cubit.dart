@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:diary/features/acquisition/domain/acquisition_domain.dart';
+import 'package:diary/model/entities/acquisition/acquisition_domain.dart';
 import 'package:diary/repositories/acquisition_repository.dart';
 import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubit_state.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';

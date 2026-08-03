@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:diary/network/service/trip_ingestion_service.dart';
 import 'package:diary/network/dto/place_mining_status_dto.dart';
 import 'package:diary/network/dto/place_review_dto.dart';
-import 'package:diary/other/contants/api_contants.dart';
+import 'package:diary/other/constants/api_constants.dart';
 
 abstract class PlacesService {
   Future<PlaceMiningStatusDto> fetchPlacesStatus();

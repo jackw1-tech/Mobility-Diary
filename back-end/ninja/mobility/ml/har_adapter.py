@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+import importlib.util
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,7 @@ from django.conf import settings
 from ..models import ActivityLabel
 
 MODEL_CLASS_NAMES = ("IDLE", "WALKING", "RUNNING", "BIKING", "DRIVING")
+FUSED_MODEL_CLASS_NAMES = ("IDLE", "WALKING", "RUNNING", "BIKING", "MOVING_VEHICLE")
 MODEL_TO_ACTIVITY_LABEL = {
     "IDLE": ActivityLabel.IDLE,
     "WALKING": ActivityLabel.WALKING,
@@ -47,12 +49,86 @@ class HarModelBundle:
     classifier: Any = None
 
 
+@dataclass(frozen=True)
+class FusedHarModelBundle:
+    classifier: Any
+    sequence_length: int
+    model_path: str
+    inference_path: str
+
+
 _MODEL_BUNDLE: HarModelBundle | None = None
+_FUSED_MODEL_BUNDLE: FusedHarModelBundle | None = None
 
 
 def reset_model_cache() -> None:
-    global _MODEL_BUNDLE
+    global _MODEL_BUNDLE, _FUSED_MODEL_BUNDLE
     _MODEL_BUNDLE = None
+    _FUSED_MODEL_BUNDLE = None
+
+
+def warm_har_model() -> None:
+    if _should_use_fused_model():
+        _load_fused_model_bundle()
+        return
+    _load_model_bundle()
+
+
+def _should_use_fused_model() -> bool:
+    backend = settings.HAR_MODEL_BACKEND.lower()
+    if backend == "fused":
+        return True
+    if backend == "legacy":
+        return False
+    return Path(settings.HAR_FUSED_MODEL_PATH).exists()
+
+
+def _load_fused_inference_class():
+    inference_path = Path(settings.HAR_FUSED_INFERENCE_PATH)
+    if not inference_path.exists():
+        raise HarModelUnavailable(
+            f"modulo inferenza HAR fused non trovato: {inference_path}"
+        )
+    spec = importlib.util.spec_from_file_location(
+        "manual_har_fused_inference",
+        inference_path,
+    )
+    if spec is None or spec.loader is None:
+        raise HarModelUnavailable(
+            f"modulo inferenza HAR fused non caricabile: {inference_path}"
+        )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.HARClassifier
+
+
+def _load_fused_model_bundle() -> FusedHarModelBundle:
+    global _FUSED_MODEL_BUNDLE
+    if _FUSED_MODEL_BUNDLE is not None:
+        return _FUSED_MODEL_BUNDLE
+
+    model_path = Path(settings.HAR_FUSED_MODEL_PATH)
+    if not model_path.exists():
+        raise HarModelUnavailable(f"modello HAR fused non trovato: {model_path}")
+
+    try:
+        classifier_class = _load_fused_inference_class()
+        classifier = classifier_class(
+            str(model_path),
+            seq_len=settings.HAR_FUSED_SEQUENCE_LENGTH,
+        )
+    except ModuleNotFoundError as exc:
+        raise HarModelUnavailable(
+            "tensorflow non installato nel runtime del worker"
+        ) from exc
+
+    _FUSED_MODEL_BUNDLE = FusedHarModelBundle(
+        classifier=classifier,
+        sequence_length=settings.HAR_FUSED_SEQUENCE_LENGTH,
+        model_path=str(model_path),
+        inference_path=str(settings.HAR_FUSED_INFERENCE_PATH),
+    )
+    return _FUSED_MODEL_BUNDLE
 
 """ 
 Carica i modelli Har e li mette in cache
@@ -124,9 +200,23 @@ def _confidence_summary(confidences: list[float]) -> dict:
     }
 
 
+def _activity_label_value(model_class_name: str) -> str:
+    label = MODEL_TO_ACTIVITY_LABEL.get(model_class_name, model_class_name)
+    return label.value if hasattr(label, "value") else str(label)
+
+
 def predict_window_label(
     matrix,
 ) -> tuple[str, float]:
+    if _should_use_fused_model():
+        model_bundle = _load_fused_model_bundle()
+        x = np.expand_dims(_prepare_har_window_matrix(matrix), axis=0)
+        prediction = model_bundle.classifier.predict(x)
+        probs = np.asarray(prediction["probs"], dtype=np.float32)
+        idx = int(np.argmax(probs[0]))
+        label = prediction["classes"][idx]
+        return _activity_label_value(label), float(probs[0][idx])
+
     model_bundle = _load_model_bundle()
     x = np.expand_dims(_prepare_har_window_matrix(matrix), axis=0)
     probs = np.asarray(_predict(model_bundle.classifier, x), dtype=np.float32)
@@ -135,7 +225,7 @@ def predict_window_label(
             f"CNN HAR ha prodotto probabilita con shape inattesa: {probs.shape}"
         )
     idx = int(np.argmax(probs[0]))
-    return MODEL_TO_ACTIVITY_LABEL[MODEL_CLASS_NAMES[idx]].value, float(probs[0][idx])
+    return _activity_label_value(MODEL_CLASS_NAMES[idx]), float(probs[0][idx])
 
 """ 
 Prende la lista delle sensor window e le da all HAR
@@ -144,16 +234,24 @@ def predict_activity_windows(
     windows,
 ) -> HarPredictionResult:
     if not windows:
+        classifier_name = (
+            "keras_fused_cnn_gru"
+            if _should_use_fused_model()
+            else "keras_cnn_gru"
+        )
         return HarPredictionResult(
             labels=[],
             confidences=[],
             summary={
-                "classifier": "keras_cnn_gru",
+                "classifier": classifier_name,
                 "window_count": 0,
                 "label_distribution": {},
                 "confidence": _confidence_summary([]),
             },
         )
+
+    if _should_use_fused_model():
+        return _predict_activity_windows_fused(windows)
 
     model_bundle = _load_model_bundle()
     x_raw = np.stack([_prepare_har_window_matrix(window.matrix) for window in windows])
@@ -181,7 +279,7 @@ def predict_activity_windows(
     labels_idx = np.argmax(all_probs, axis=1)
 
     model_classes = [MODEL_CLASS_NAMES[idx] for idx in labels_idx]
-    labels = [MODEL_TO_ACTIVITY_LABEL[name].value for name in model_classes]
+    labels = [_activity_label_value(name) for name in model_classes]
     confidences = [float(prob.max()) for prob in all_probs]
     distribution = dict(Counter(labels))
 
@@ -194,6 +292,33 @@ def predict_activity_windows(
             "cnn_model": Path(model_bundle.cnn_model_path).name,
             "gru_model": Path(model_bundle.gru_model_path).name,
             "sequence_length": sequence_length,
+            "window_count": len(windows),
+            "label_distribution": distribution,
+            "confidence": _confidence_summary(confidences),
+        },
+    )
+
+
+def _predict_activity_windows_fused(windows) -> HarPredictionResult:
+    model_bundle = _load_fused_model_bundle()
+    x_raw = np.stack([_prepare_har_window_matrix(window.matrix) for window in windows])
+    prediction = model_bundle.classifier.predict(x_raw)
+    probs = np.asarray(prediction["probs"], dtype=np.float32)
+    labels_idx = np.asarray(prediction["labels"])
+    classes = list(prediction.get("classes", FUSED_MODEL_CLASS_NAMES))
+    model_classes = [classes[int(idx)] for idx in labels_idx]
+    labels = [_activity_label_value(name) for name in model_classes]
+    confidences = [float(prob.max()) for prob in probs]
+    distribution = dict(Counter(labels))
+
+    return HarPredictionResult(
+        labels=labels,
+        confidences=confidences,
+        summary={
+            "classifier": "keras_fused_cnn_gru",
+            "model_classes": classes,
+            "fused_model": Path(model_bundle.model_path).name,
+            "sequence_length": model_bundle.sequence_length,
             "window_count": len(windows),
             "label_distribution": distribution,
             "confidence": _confidence_summary(confidences),

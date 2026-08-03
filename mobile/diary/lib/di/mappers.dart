@@ -1,6 +1,9 @@
 part of 'dependency_injector.dart';
 
 final List<SingleChildWidget> _mappers = [
+  Provider<AuthMapper>(
+    create: (_) => AuthMapper(),
+  ),
   Provider<IngestionMapper>(
     create: (_) => IngestionMapper(),
   ),
@@ -15,5 +18,11 @@ final List<SingleChildWidget> _mappers = [
   ),
   Provider<TripPrivacyExportMapper>(
     create: (_) => TripPrivacyExportMapper(),
+  ),
+  Provider<PrivacySettingsMapper>(
+    create: (_) => PrivacySettingsMapper(),
+  ),
+  Provider<RouteAssistantMapper>(
+    create: (_) => RouteAssistantMapper(),
   ),
 ];

@@ -1,4 +1,4 @@
-import 'package:diary/features/route_assistant/domain/route_assistant_domain.dart';
+import 'package:diary/model/entities/route_assistant/route_assistant_domain.dart';
 import 'package:latlong2/latlong.dart' as ll;
 
 class RouteAssistantState {

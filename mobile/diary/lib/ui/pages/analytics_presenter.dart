@@ -1,4 +1,4 @@
-import 'package:diary/features/analytics/domain/analytics.dart';
+import 'package:diary/model/entities/analytics/analytics.dart';
 import 'package:flutter/material.dart';
 
 /// Categoria di Mobilita mostrata nel grafico, in ordine di stack. I colori

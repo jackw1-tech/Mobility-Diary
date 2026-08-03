@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:diary/features/privacy/domain/trip_privacy_export.dart';
+import 'package:diary/model/entities/privacy/trip_privacy_export.dart';
 import 'package:diary/repositories/trip_privacy_export_repository.dart';
 import 'package:diary/state_management/cubits/trip_privacy_export_cubit/trip_privacy_export_cubit.dart';
 import 'package:diary/theme/color_palette.dart';
@@ -14,13 +14,17 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 /// Il diario mobile normale resta privato e preciso: questo foglio usa la
 /// Preferenza Privacy salvata e mostra l'anteprima prima di copiare/condividere.
 Future<void> showTripPrivacyExportSheet(BuildContext context, int tripId) {
-  final repository = context.read<TripPrivacyExportRepository>();
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
+    // Il repository va risolto dal context del BlocProvider (ancorato allo
+    // stesso DependencyInjector), mai da un context esterno alla UI: la
+    // schermata deve dipendere solo dal Cubit, mai direttamente dal Repository.
     builder: (_) => BlocProvider<TripPrivacyExportCubit>(
-      create: (_) => TripPrivacyExportCubit(repository)..load(tripId),
+      create: (context) =>
+          TripPrivacyExportCubit(context.read<TripPrivacyExportRepository>())
+            ..load(tripId),
       child: TripPrivacyExportView(tripId: tripId),
     ),
   );

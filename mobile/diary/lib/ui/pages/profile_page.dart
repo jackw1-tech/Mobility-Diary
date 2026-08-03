@@ -1,6 +1,6 @@
 import 'package:auto_route/auto_route.dart';
-import 'package:diary/features/auth/domain/auth_user.dart';
-import 'package:diary/features/privacy/domain/privacy_level.dart';
+import 'package:diary/model/entities/auth/auth_user.dart';
+import 'package:diary/model/entities/privacy/privacy_level.dart';
 import 'package:diary/repositories/privacy_settings_repository.dart';
 import 'package:diary/state_management/cubits/auth_cubit/auth_cubit.dart';
 import 'package:diary/state_management/cubits/auth_cubit/auth_cubit_state.dart';

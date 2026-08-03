@@ -1,4 +1,4 @@
-import 'package:diary/features/acquisition/domain/acquisition_domain.dart';
+import 'package:diary/model/entities/acquisition/acquisition_domain.dart';
 import 'package:latlong2/latlong.dart';
 
 enum AcquisitionCubitStatus {

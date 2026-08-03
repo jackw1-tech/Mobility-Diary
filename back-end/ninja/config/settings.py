@@ -187,5 +187,9 @@ RAW_SENSOR_COPY_FORMAT = os.getenv("RAW_SENSOR_COPY_FORMAT", "binary")
 #Sezione HAR
 HAR_CNN_MODEL_PATH = str(BASE_DIR / "manual_har" / "shl_cnn1d_full_100pct_5class_best.keras")
 HAR_GRU_MODEL_PATH = str(BASE_DIR / "manual_har" / "shl_6ch_5class_gru_best.keras")
+HAR_FUSED_MODEL_PATH = str(BASE_DIR / "manual_har" / "shl_har_fused.keras")
+HAR_FUSED_INFERENCE_PATH = str(BASE_DIR / "manual_har" / "inference.py")
+HAR_MODEL_BACKEND = os.getenv("HAR_MODEL_BACKEND", "auto")
+HAR_FUSED_SEQUENCE_LENGTH = int(os.getenv("HAR_FUSED_SEQUENCE_LENGTH", "128"))
 HAR_GRU_SEQUENCE_LENGTH = 32
 HAR_WINDOW_SAMPLE_COUNT = 500

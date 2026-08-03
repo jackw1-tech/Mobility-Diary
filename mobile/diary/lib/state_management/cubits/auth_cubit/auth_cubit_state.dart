@@ -1,4 +1,4 @@
-import 'package:diary/features/auth/domain/auth_user.dart';
+import 'package:diary/model/entities/auth/auth_user.dart';
 
 enum AuthStatus {
   initial,
