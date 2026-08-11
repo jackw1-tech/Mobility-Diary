@@ -1,5 +1,6 @@
 import 'package:diary/model/entities/trips/trip_reload.dart';
 import 'package:diary/theme/dimensions.dart';
+import 'package:diary/utils/date_time_utils.dart';
 import 'package:flutter/material.dart';
 
 class ReloadSlotSheet extends StatelessWidget {
@@ -39,9 +40,10 @@ class ReloadSlotSheet extends StatelessWidget {
                   final slot = slots[index];
                   return ListTile(
                     leading: const Icon(Icons.event_available_outlined),
-                    title: Text(_formatDate(slot.startedAt.toLocal())),
+                    title: Text(DateTimeUtils.formatDateTime(slot.startedAt)),
                     subtitle: Text(
-                      'Fine prevista ${_formatDate(slot.endedAt.toLocal())}',
+                      'Fine prevista '
+                      '${DateTimeUtils.formatDateTime(slot.endedAt)}',
                     ),
                     onTap: () => Navigator.of(context).pop(slot.startedAt),
                   );
@@ -89,9 +91,4 @@ class ReplaySpeedSheet extends StatelessWidget {
       ),
     );
   }
-}
-
-String _formatDate(DateTime dt) {
-  String two(int n) => n.toString().padLeft(2, '0');
-  return '${two(dt.day)}/${two(dt.month)}/${dt.year} ${two(dt.hour)}:${two(dt.minute)}';
 }

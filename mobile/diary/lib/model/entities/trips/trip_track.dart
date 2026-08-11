@@ -1,5 +1,6 @@
 import 'package:latlong2/latlong.dart';
 import 'package:diary/model/entities/trips/trip_enums.dart';
+import 'package:diary/utils/geo_json_utils.dart';
 
 class TripTrack {
   final int tripId;
@@ -16,24 +17,7 @@ class TripTrack {
     this.bbox,
   });
 
-  List<LatLng> get points {
-    final geometry = geojson;
-    if (geometry == null || geometry['type'] != 'LineString') {
-      return const [];
-    }
-
-    final coordinates = geometry['coordinates'];
-    if (coordinates is! List) return const [];
-
-    return [
-      for (final coordinate in coordinates)
-        if (coordinate is List && coordinate.length >= 2)
-          LatLng(
-            (coordinate[1] as num).toDouble(),
-            (coordinate[0] as num).toDouble(),
-          ),
-    ];
-  }
+  List<LatLng> get points => latLngsFromGeoJsonLineString(geojson);
 }
 
 class TripDiary {
@@ -98,24 +82,7 @@ class TripDiarySegment {
 
   String get activityLabel => activity.wireName;
 
-  List<LatLng> get points {
-    final geometry = pathGeojson;
-    if (geometry == null || geometry['type'] != 'LineString') {
-      return const [];
-    }
-
-    final coordinates = geometry['coordinates'];
-    if (coordinates is! List) return const [];
-
-    return [
-      for (final coordinate in coordinates)
-        if (coordinate is List && coordinate.length >= 2)
-          LatLng(
-            (coordinate[1] as num).toDouble(),
-            (coordinate[0] as num).toDouble(),
-          ),
-    ];
-  }
+  List<LatLng> get points => latLngsFromGeoJsonLineString(pathGeojson);
 }
 
 class TripDiaryPlace {

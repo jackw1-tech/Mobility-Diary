@@ -1,9 +1,9 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:diary/network/service/trip_ingestion_service.dart';
 import 'package:diary/model/entities/privacy/privacy_level.dart';
 import 'package:diary/network/dto/privacy_settings_dto.dart';
+import 'package:diary/network/service/impl/http_json_utils.dart';
 import 'package:diary/other/constants/api_constants.dart';
 
 abstract class PrivacySettingsService {
@@ -42,53 +42,19 @@ class PrivacySettingsHttpService implements PrivacySettingsService {
     String path, {
     Map<String, dynamic>? body,
   }) async {
-    final token = await _tokenProvider();
-    if (token == null || token.isEmpty) {
-      throw const IngestionApiException('Sessione non disponibile');
-    }
+    final response =
+        await sendAuthenticatedJson(_client, _tokenProvider, method, path,
+            body: body);
+    final decoded = tryDecodeJsonMap(response.body);
 
-    final request = await _client.openUrl(method, _uri(path));
-    request.headers.contentType = ContentType.json;
-    request.headers.set(HttpHeaders.acceptHeader, 'application/json');
-    request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
-    if (body == null) {
-      request.contentLength = 0;
-    } else {
-      final encodedBody = utf8.encode(jsonEncode(body));
-      request.contentLength = encodedBody.length;
-      request.add(encodedBody);
-    }
-
-    final response = await request.close().timeout(const Duration(seconds: 30));
-    final responseBody = await response.transform(utf8.decoder).join();
-    final decoded = _tryDecode(responseBody);
-
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      final detail = decoded is Map ? decoded['detail'] : null;
+    if (response.isError) {
+      final detail = decoded?['detail'];
       throw IngestionApiException(
         detail is String ? detail : 'Impostazioni privacy non disponibili',
         statusCode: response.statusCode,
       );
     }
-    if (decoded is Map<String, dynamic>) return decoded;
-    if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    if (decoded != null) return decoded;
     throw const IngestionApiException('Risposta privacy non valida');
-  }
-
-  dynamic _tryDecode(String body) {
-    if (body.isEmpty) return null;
-    try {
-      return jsonDecode(body);
-    } on FormatException {
-      return null;
-    }
-  }
-
-  Uri _uri(String path) {
-    final base = ApiConstants.baseApiUrl.endsWith('/')
-        ? ApiConstants.baseApiUrl
-            .substring(0, ApiConstants.baseApiUrl.length - 1)
-        : ApiConstants.baseApiUrl;
-    return Uri.parse('$base$path');
   }
 }

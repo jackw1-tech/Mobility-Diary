@@ -9,6 +9,7 @@ import 'package:diary/theme/dimensions.dart';
 import 'package:diary/ui/widgets/trip_reload_sheets.dart';
 import 'package:diary/ui/widgets/trips_drawer_presenter.dart';
 import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubit.dart';
+import 'package:diary/utils/date_time_utils.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -256,7 +257,7 @@ class _DayGroupTile extends StatelessWidget {
     final count = group.trips.length;
     return ListTile(
       leading: const Icon(Icons.calendar_today_outlined),
-      title: Text(_formatDay(group.day)),
+      title: Text(DateTimeUtils.formatDate(group.day)),
       subtitle: Text(count == 1 ? '1 percorso' : '$count percorsi'),
       trailing: const Icon(Icons.chevron_right),
       onTap: onTap,
@@ -284,7 +285,7 @@ class _DayTripsView extends StatelessWidget {
             icon: const Icon(Icons.arrow_back),
             onPressed: onBack,
           ),
-          title: Text(_formatDay(group.day)),
+          title: Text(DateTimeUtils.formatDate(group.day)),
           subtitle: Text('${group.trips.length} percorsi nella giornata'),
         ),
         const Divider(height: 1),
@@ -676,13 +677,15 @@ class _TripTile extends StatelessWidget {
 
   String _title(TripListItem trip) {
     final note = trip.note.trim();
-    return note.isEmpty ? _formatDate(trip.startedAt.toLocal()) : note;
+    return note.isEmpty
+        ? DateTimeUtils.formatDateTime(trip.startedAt)
+        : note;
   }
 
   String _subtitle(TripListItem trip) {
     final prefix = trip.note.trim().isEmpty
         ? ''
-        : '${_formatDate(trip.startedAt.toLocal())} - ';
+        : '${DateTimeUtils.formatDateTime(trip.startedAt)} - ';
     final distance = trip.distanceMeters;
     if (distance == null || distance <= 0) {
       return trip.hasTrack
@@ -733,12 +736,3 @@ class _DrawerMessage extends StatelessWidget {
   }
 }
 
-String _formatDate(DateTime dt) {
-  String two(int n) => n.toString().padLeft(2, '0');
-  return '${two(dt.day)}/${two(dt.month)}/${dt.year} ${two(dt.hour)}:${two(dt.minute)}';
-}
-
-String _formatDay(DateTime dt) {
-  String two(int n) => n.toString().padLeft(2, '0');
-  return '${two(dt.day)}/${two(dt.month)}/${dt.year}';
-}

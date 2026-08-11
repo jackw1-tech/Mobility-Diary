@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:diary/network/service/impl/acquisition_local_database.dart';
 import 'package:diary/model/entities/acquisition/sensor_matrix_blob.dart';
+import 'package:diary/utils/date_time_utils.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -106,12 +107,12 @@ class TripPackageBuilder {
             'client_session_id': localSessionId,
             'device_id': session?.deviceId ?? '',
             'device_platform': '',
-            'ended_at': _utcIsoOrNull(session?.endedAt),
+            'ended_at': DateTimeUtils.toUtcIsoOrNull(session?.endedAt),
             'expected_raw_parts': parts.length,
             'gps_points': gpsPoints,
             if (remoteIngestionId != null) 'ingestion_id': remoteIngestionId,
             'schema_version': 1,
-            'started_at': _utcIsoOrNull(session?.startedAt),
+            'started_at': DateTimeUtils.toUtcIsoOrNull(session?.startedAt),
             'state_transitions': transitions,
             'timezone': '',
           });
@@ -147,7 +148,7 @@ class TripPackageBuilder {
           'latitude': point.latitude,
           'longitude': point.longitude,
           'speed_mps': point.speedMps,
-          'timestamp': _utcIso(point.timestamp),
+          'timestamp': DateTimeUtils.toUtcIso(point.timestamp),
         }
     ];
   }
@@ -163,7 +164,7 @@ class TripPackageBuilder {
           'reason': t.reason,
           'sigma': t.sigma,
           'speed_mps': t.speedMps,
-          'timestamp': _utcIso(t.timestamp),
+          'timestamp': DateTimeUtils.toUtcIso(t.timestamp),
           'to_state': t.toState,
         }
     ];
@@ -304,18 +305,3 @@ Object? _stableJsonValue(Object? value) {
   return value;
 }
 
-String? _utcIsoOrNull(DateTime? value) => value == null ? null : _utcIso(value);
-
-String _utcIso(DateTime value) {
-  final utc = value.toUtc();
-  final year = utc.year.toString().padLeft(4, '0');
-  final month = utc.month.toString().padLeft(2, '0');
-  final day = utc.day.toString().padLeft(2, '0');
-  final hour = utc.hour.toString().padLeft(2, '0');
-  final minute = utc.minute.toString().padLeft(2, '0');
-  final second = utc.second.toString().padLeft(2, '0');
-  final fractionMicros = utc.millisecond * 1000 + utc.microsecond;
-  final base = '$year-$month-${day}T$hour:$minute:$second';
-  if (fractionMicros == 0) return '${base}Z';
-  return '$base.${fractionMicros.toString().padLeft(6, '0')}Z';
-}

@@ -1,44 +1,23 @@
-from datetime import datetime
+from django.contrib.auth import authenticate
+from ninja import Router
 
-from django.contrib.auth import authenticate, get_user_model
-from ninja import Router, Schema
-
+from .. import repositories as accounts_repositories
 from ..common import user_payload
 from ..schemas import MessageOut, UserOut
+from . import services
 from .auth import (
     WebAuthError,
     is_web_staff_user,
-    issue_web_tokens,
-    revoke_web_refresh_token,
-    rotate_web_refresh_token,
     web_dashboard_auth,
 )
+from .schemas import WebAuthOut, WebLoginIn, WebRefreshTokenIn
 
 router = Router(tags=["web-auth"])
 
 
-class WebLoginIn(Schema):
-    email: str
-    password: str
-
-
-class WebRefreshTokenIn(Schema):
-    refresh_token: str
-
-
-class WebAuthOut(Schema):
-    user: UserOut
-    access_token: str
-    refresh_token: str
-    token_type: str
-    access_expires_at: datetime
-    refresh_expires_at: datetime
-
-
 def _username_for_login(identifier: str) -> str:
     normalized = identifier.strip()
-    UserModel = get_user_model()
-    user = UserModel._default_manager.filter(email__iexact=normalized).first()
+    user = accounts_repositories.user_by_email(normalized)
     if user is not None:
         return user.get_username()
     return normalized
@@ -56,7 +35,7 @@ def web_login(request, payload: WebLoginIn):
         return 401, {"detail": "Credenziali non valide"}
     if not is_web_staff_user(user):
         return 403, {"detail": "Accesso staff richiesto"}
-    return issue_web_tokens(user)
+    return services.issue_web_tokens(user)
 
 
 @router.post(
@@ -66,7 +45,7 @@ def web_login(request, payload: WebLoginIn):
 )
 def web_refresh(request, payload: WebRefreshTokenIn):
     try:
-        return rotate_web_refresh_token(payload.refresh_token)
+        return services.rotate_web_refresh_token(payload.refresh_token)
     except WebAuthError:
         return 401, {"detail": "Refresh token web non valido"}
 
@@ -78,7 +57,7 @@ def web_refresh(request, payload: WebRefreshTokenIn):
 )
 def web_logout(request, payload: WebRefreshTokenIn):
     try:
-        revoke_web_refresh_token(payload.refresh_token)
+        services.revoke_web_refresh_token(payload.refresh_token)
     except WebAuthError:
         return 401, {"detail": "Refresh token web non valido"}
     return {"detail": "Logout effettuato"}

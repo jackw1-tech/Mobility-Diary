@@ -3,12 +3,23 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from django.conf import settings
 from django.db import transaction
-from django.db.models import Q
 from django.utils import timezone
 
-from ..models import HarJob, Trip, TripIngestion
-from ..replay_raw import regenerate_raw_and_queue_har
+from shared.exceptions import ServiceError
+
+from ..models import TripIngestion, TripIngestionPart
+from ..replay_raw import (
+    ReplayRawError,
+    ReplayStorageUnavailable,
+    regenerate_raw_and_queue_har,
+)
+from ..selectors import har_jobs as har_jobs_repository
+from ..selectors import trips as trips_repository
+from ..tasks import process_trip_har_final
+from . import selectors as ingestion_repository
+from . import storage
 from .materialization import (
     CoreMaterializationConflict,
     materialize_inline_core_ingestion,
@@ -18,12 +29,8 @@ from .selectors import locked_active_ingestions_for_owner
 ACTIVE_INGESTION_STALE_AFTER = timedelta(hours=24)
 
 
-class IngestionServiceError(ValueError):
+class IngestionServiceError(ServiceError):
     status_code = 409
-
-    def __init__(self, message: str):
-        super().__init__(message)
-        self.message = message
 
 
 class IngestionNotFound(IngestionServiceError):
@@ -44,6 +51,18 @@ class IngestionBadRequest(IngestionServiceError):
 
 class IngestionUnprocessable(IngestionServiceError):
     status_code = 422
+
+
+class IngestionPartNotDeclared(IngestionServiceError):
+    status_code = 409
+
+
+class IngestionStorageUnavailable(IngestionServiceError):
+    status_code = 503
+
+
+class IngestionPartMismatch(IngestionServiceError):
+    status_code = 409
 
 
 @dataclass(frozen=True)
@@ -77,7 +96,7 @@ def start_recording(
                     return StartRecordingResult(active, already_exists=True)
                 return StartRecordingResult(active, conflict_ingestion=active)
 
-        ingestion = TripIngestion.objects.create(
+        ingestion = ingestion_repository.create_ingestion(
             user_id=user_id,
             client_session_id=client_session_id,
             device_id=device_id,
@@ -139,8 +158,15 @@ def abandon_recording(
 
 
 
-""" 
-Funzione che esegue tutta la fase di caricamento core del viaggio 
+def validate_expected_parts(count: int) -> int:
+    normalized_count = int(count or 0)
+    if normalized_count < 0:
+        raise IngestionUnprocessable("expected_raw_parts contiene count non valido")
+    return normalized_count
+
+
+"""
+Funzione che esegue tutta la fase di caricamento core del viaggio
 """
 def process_inline_core_ingestion(
     user_id: int,
@@ -227,13 +253,18 @@ def process_inline_core_ingestion(
                     "cutoff_source_timestamp richiesto per il replay"
                 )
             ended_at = ingestion.recording_closed_at or now
-            regenerate_raw_and_queue_har(
-                ingestion,
-                ingestion.source_trip,
-                shift=ended_at - payload.cutoff_source_timestamp,
-                now=now,
-                cutoff=payload.cutoff_source_timestamp,
-            )
+            try:
+                regenerate_raw_and_queue_har(
+                    ingestion,
+                    ingestion.source_trip,
+                    shift=ended_at - payload.cutoff_source_timestamp,
+                    now=now,
+                    cutoff=payload.cutoff_source_timestamp,
+                )
+            except ReplayStorageUnavailable as exc:
+                raise IngestionStorageUnavailable(exc.message) from exc
+            except ReplayRawError as exc:
+                raise IngestionServiceError(exc.message) from exc
 
         return ingestion
 
@@ -252,21 +283,192 @@ def queue_final_har(ingestion: TripIngestion, *, now: datetime) -> None:
             "updated_at",
         ]
     )
-    job = HarJob.objects.create(trip_id=ingestion.trip_id)
-    from ..tasks import process_trip_har_final
-
+    job = har_jobs_repository.create_har_job(ingestion.trip_id)
     transaction.on_commit(lambda: process_trip_har_final.delay(job.id, ingestion.id))
 
 
-""" 
+def _object_key(base_path: str, sequence: int) -> str:
+    return f"{base_path}sensor_windows_part_{sequence:04d}.bin.gz"
+
+
+def _raw_part_count(parts: object) -> int:
+    if isinstance(parts, dict):
+        return int(next(iter(parts.values()), 0) or 0)
+    return int(parts or 0)
+
+
+def _expected_part_sequences(parts: object) -> list[int]:
+    count = _raw_part_count(parts)
+    return list(range(1, count + 1))
+
+
+def _confirmed_raw_sequences(ingestion: TripIngestion) -> set[int]:
+    return {
+        seq
+        for seq in ingestion.parts.filter(
+            received_at__isnull=False,
+        ).values_list("sequence", flat=True)
+    }
+
+
+def missing_raw_parts(ingestion: TripIngestion) -> list[dict[str, int]]:
+    confirmed = _confirmed_raw_sequences(ingestion)
+    expected = _expected_part_sequences(ingestion.expected_raw_parts)
+    return [{"sequence": seq} for seq in expected if seq not in confirmed]
+
+
+def _mark_raw_received_if_complete(ingestion: TripIngestion) -> None:
+    expected = _expected_part_sequences(ingestion.expected_raw_parts)
+    if not expected:
+        return
+    confirmed = _confirmed_raw_sequences(ingestion)
+    if all(sequence in confirmed for sequence in expected):
+        if ingestion.raw_status == TripIngestion.PhaseStatus.RECEIVING:
+            ingestion.raw_status = TripIngestion.PhaseStatus.RECEIVED
+            ingestion.save(update_fields=["raw_status", "updated_at"])
+
+
+def _ensure_part_was_declared(ingestion: TripIngestion, sequence: int) -> None:
+    expected_count = _raw_part_count(ingestion.expected_raw_parts)
+    if sequence < 1 or sequence > expected_count:
+        raise IngestionPartNotDeclared(
+            f"parte non dichiarata nel manifest iniziale: #{sequence}"
+        )
+
+
+def owned_ingestion_or_error(user_id: int, ingestion_id: int) -> TripIngestion:
+    ingestion = ingestion_repository.owned_ingestion(user_id, ingestion_id)
+    if ingestion is None:
+        raise IngestionNotFound("ingestion non trovata")
+    return ingestion
+
+
+@dataclass(frozen=True)
+class PartPresignResult:
+    object_key: str
+    upload_url: str
+    upload_headers: dict[str, str]
+    expires_in: int
+
+
+"""
+Dichiara e presigna una parte raw: valida la dimensione e che la sequenza sia
+stata annunciata nel manifest iniziale, poi apre la fase RECEIVING alla prima
+parte ricevuta.
+"""
+def presign_raw_part(
+    *,
+    user_id: int,
+    ingestion_id: int,
+    sequence: int,
+    sha256: str,
+    size_bytes: int,
+) -> PartPresignResult:
+    if size_bytes <= 0 or size_bytes > settings.INGESTION_MAX_PART_BYTES:
+        raise IngestionUnprocessable(
+            f"size_bytes fuori range (max {settings.INGESTION_MAX_PART_BYTES})"
+        )
+
+    ingestion = owned_ingestion_or_error(user_id, ingestion_id)
+    _ensure_part_was_declared(ingestion, sequence)
+    object_key = _object_key(ingestion.raw_base_path, sequence)
+
+    with transaction.atomic():
+        ingestion_repository.get_or_create_ingestion_part(
+            ingestion,
+            sequence=sequence,
+            defaults={
+                "sha256": sha256,
+                "size_bytes": size_bytes,
+                "object_key": object_key,
+            },
+        )
+        if ingestion.raw_status == TripIngestion.PhaseStatus.PENDING:
+            ingestion.raw_status = TripIngestion.PhaseStatus.RECEIVING
+            ingestion.save(update_fields=["raw_status", "updated_at"])
+
+    upload_url = storage.presigned_put_url(object_key, sha256=sha256)
+    return PartPresignResult(
+        object_key=object_key,
+        upload_url=upload_url,
+        upload_headers={
+            "Content-Type": "application/gzip",
+            "x-amz-meta-sha256": sha256,
+        },
+        expires_in=settings.S3_PRESIGN_EXPIRES_SECONDS,
+    )
+
+
+"""
+Conferma la ricezione di una parte raw gia' presignata: verifica il checksum
+dichiarato contro quello effettivamente salvato sullo storage, poi segna la
+parte come ricevuta e valuta se la fase raw e' completa.
+"""
+def confirm_raw_part(
+    *,
+    user_id: int,
+    ingestion_id: int,
+    sequence: int,
+    sha256: str,
+    now: datetime | None = None,
+) -> TripIngestionPart:
+    now = now or timezone.now()
+    ingestion = owned_ingestion_or_error(user_id, ingestion_id)
+    part = ingestion_repository.ingestion_part_by_sequence(ingestion, sequence)
+    if part is None:
+        raise IngestionNotFound("parte non trovata")
+
+    if part.sha256 != sha256:
+        raise IngestionPartMismatch(
+            "checksum non corrisponde a quello dichiarato in presign"
+        )
+
+    head = storage.head_object(part.object_key)
+    if head is None:
+        raise IngestionPartMismatch("oggetto non presente sullo storage")
+    metadata_sha256 = (head.get("Metadata") or {}).get("sha256")
+    if metadata_sha256 != part.sha256:
+        raise IngestionPartMismatch("sha256 metadata non corrisponde")
+
+    ingestion_repository.mark_part_received(part, received_at=now)
+    _mark_raw_received_if_complete(ingestion)
+    return part
+
+
+"""
+Chiude la fase raw dell'ingestion e accoda l'HAR finale, dopo aver verificato
+che non sia gia' fallita definitivamente e che il conteggio parti dichiarato
+dal client combaci col manifest iniziale.
+"""
+def complete_raw_ingestion(
+    *,
+    user_id: int,
+    ingestion_id: int,
+    total_parts: int | None,
+    now: datetime | None = None,
+) -> TripIngestion:
+    now = now or timezone.now()
+    with transaction.atomic():
+        ingestion = ingestion_repository.locked_owned_ingestion(user_id, ingestion_id)
+        if ingestion is None:
+            raise IngestionNotFound("ingestion non trovata")
+        if ingestion.raw_status == TripIngestion.PhaseStatus.FAILED_FINAL:
+            raise IngestionServiceError("raw sensor ingestion fallita definitivamente")
+        if (
+            total_parts is not None
+            and total_parts != _raw_part_count(ingestion.expected_raw_parts)
+        ):
+            raise IngestionServiceError("numero parti raw diverso dal manifest iniziale")
+
+        queue_final_har(ingestion, now=now)
+    return ingestion
+
+
+"""
 Funzione che ottiene il lock sulla trip ingestion interrogata, se non esiste solleva IngestionNotFound
 """
 def _locked_owned_ingestion(user_id: int, ingestion_id: int) -> TripIngestion:
-    ingestion = (
-        TripIngestion.objects.filter(user_id=user_id, id=ingestion_id)
-        .select_for_update()
-        .first()
-    )
+    ingestion = ingestion_repository.locked_owned_ingestion(user_id, ingestion_id)
     if ingestion is None:
         raise IngestionNotFound("ingestion non trovata")
     return ingestion
@@ -323,12 +525,7 @@ Se il viaggio già esistente è ricaricabile oppure no
 def _validate_source_trip(user_id: int, source_trip_id: int | None) -> int | None:
     if source_trip_id is None:
         return None
-    if not Trip.objects.filter(
-        id=source_trip_id,
-        user_id=user_id,
-        is_reloadable=True,
-        status__in=[Trip.Status.CLOSED, Trip.Status.PROCESSED],
-    ).exists():
+    if not trips_repository.reloadable_source_trip_exists(source_trip_id, user_id):
         raise IngestionUnprocessable("viaggio sorgente non ricaricabile")
     return source_trip_id
 
@@ -347,11 +544,11 @@ def _validate_replay_slot(
         return
     if ended_at > timezone.now():
         raise IngestionServiceError("scegli uno slot nel passato")
-    overlaps = (
-        Trip.objects.filter(user_id=user_id, started_at__lt=ended_at)
-        .filter(Q(ended_at__isnull=True) | Q(ended_at__gt=started_at))
-        .exclude(client_session_id=client_session_id)
-        .exists()
+    overlaps = trips_repository.trip_overlaps_window(
+        user_id,
+        start=started_at,
+        end=ended_at,
+        exclude_client_session_id=client_session_id,
     )
     if overlaps:
         raise IngestionServiceError("slot sovrapposto a un viaggio esistente")

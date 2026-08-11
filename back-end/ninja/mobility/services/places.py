@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from shared.exceptions import ServiceError
+
 from ..models import HabitualPlace, PlaceMiningStatus
 from ..selectors.places import (
     owned_place_for_user,
@@ -9,12 +11,8 @@ from ..selectors.places import (
 )
 
 
-class PlaceServiceError(ValueError):
+class PlaceServiceError(ServiceError):
     status_code = 409
-
-    def __init__(self, message: str):
-        super().__init__(message)
-        self.message = message
 
 
 class PlaceNotFound(PlaceServiceError):

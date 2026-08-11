@@ -14,11 +14,11 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from django.contrib.gis.geos import Point
-from django.db import connection, transaction
-from django.db.models import Q
+from django.db import transaction
 
 from .geo import haversine_meters
-from .models import CandidateVisit, GpsPoint, HabitualPlace, MobilitySegment
+from .models import CandidateVisit, HabitualPlace, MobilitySegment
+from .selectors import place_mining as place_mining_repository
 
 # Soglie della stay-detection (motivazioni in relazione / PRD).
 STAY_RADIUS_METERS = 75.0      # raggio della permanenza
@@ -128,32 +128,26 @@ def detect_visits(points) -> list[DetectedVisit]:
     flush()
     return visits
 
-""" 
-Funzione che prende tutti i GPS dei viaggi dell’utente X e scarta quelli imprecisi 
+"""
+Funzione che prende tutti i GPS dei viaggi dell’utente X e scarta quelli imprecisi
 """
 def _user_points_for_detection(user_id: int):
-    return (
-        GpsPoint.objects.filter(trip__user_id=user_id)
-        .filter(Q(accuracy_meters__isnull=True) | Q(accuracy_meters__lte=MAX_ACCURACY_METERS))
-        .order_by("timestamp", "id")
-        .values_list("timestamp", "point")
-        .iterator(chunk_size=2000)
+    return place_mining_repository.points_for_stay_detection(
+        user_id, max_accuracy_meters=MAX_ACCURACY_METERS
     )
 
-""" 
+"""
 GPS dell’utente -> visite candidate -> cluster di visite -> luoghi abituali
 """
 def mine_user_significant_places(user_id: int) -> dict:
     with transaction.atomic():
         detected = detect_visits(_user_points_for_detection(user_id))
-        manual_places = list(
-            HabitualPlace.objects.filter(user_id=user_id, manually_reviewed=True)
+        manual_places = place_mining_repository.manually_reviewed_places_for_user(
+            user_id
         )
-        CandidateVisit.objects.filter(user_id=user_id).delete()
-        HabitualPlace.objects.filter(
-            user_id=user_id, manually_reviewed=False
-        ).delete()
-        visits = CandidateVisit.objects.bulk_create(
+        place_mining_repository.delete_candidate_visits_for_user(user_id)
+        place_mining_repository.delete_unreviewed_places_for_user(user_id)
+        visits = place_mining_repository.bulk_create_candidate_visits(
             [
                 CandidateVisit(
                     user_id=user_id,
@@ -185,45 +179,20 @@ def _cluster_into_places(user_id: int, visits: list, manual_places: list) -> int
         for visit in cluster_visits:
             visit.place = place
         visits_to_update.extend(cluster_visits)
-    if visits_to_update:
-        CandidateVisit.objects.bulk_update(visits_to_update, ["place"])
+    place_mining_repository.bulk_update_visit_places(visits_to_update)
     return place_count
 
-""" 
+"""
 DB SCAN
 """
 def _postgis_visit_clusters(visits: list) -> list[list[int]]:
-
-    table = CandidateVisit._meta.db_table
     visit_ids = [visit.pk for visit in visits]
-    sql = f"""
-        WITH clustered AS (
-            SELECT
-                id,
-                ST_ClusterDBSCAN(
-                    ST_Transform(center::geometry, %s),
-                    eps => %s,
-                    minpoints => %s
-                ) OVER (ORDER BY id) AS cluster_id
-            FROM {table}
-            WHERE id = ANY(%s)
-        )
-        SELECT id, cluster_id
-        FROM clustered
-        WHERE cluster_id IS NOT NULL
-        ORDER BY cluster_id, id
-    """
-    with connection.cursor() as cursor:
-            cursor.execute(
-                sql,
-                [
-                    CLUSTER_PROJECTION_SRID,
-                    CLUSTER_EPS_METERS,
-                    CLUSTER_MIN_VISITS,
-                    visit_ids,
-                ],
-            )
-            rows = cursor.fetchall()
+    rows = place_mining_repository.cluster_visit_ids(
+        visit_ids,
+        projection_srid=CLUSTER_PROJECTION_SRID,
+        eps_meters=CLUSTER_EPS_METERS,
+        min_visits=CLUSTER_MIN_VISITS,
+    )
 
     clusters: list[list[int]] = []
     current_cluster_id = None
@@ -250,9 +219,11 @@ def _place_for_cluster(user_id: int, visits: list, manual_places: list) -> Habit
     existing = _take_nearby_manual_place(center_lat, center_lon, manual_places)
     if existing is not None:
         # Reattach: rinfresca l'evidenza, conserva stato/etichetta/centro manuali.
-        existing.visit_count = len(visits)
-        existing.distinct_days = distinct_days
-        existing.save(update_fields=["visit_count", "distinct_days", "updated_at"])
+        place_mining_repository.refresh_place_evidence(
+            existing,
+            visit_count=len(visits),
+            distinct_days=distinct_days,
+        )
         return existing
 
     if distinct_days < MIN_CANDIDATE_DISTINCT_DAYS:
@@ -263,9 +234,10 @@ def _place_for_cluster(user_id: int, visits: list, manual_places: list) -> Habit
         for lat, lon in zip(lats, lons)
     )
     confirmed = distinct_days >= AUTO_CONFIRM_DISTINCT_DAYS
-    return HabitualPlace.objects.create(
+    return place_mining_repository.create_habitual_place(
         user_id=user_id,
-        center=Point(center_lon, center_lat, srid=4326),
+        center_lat=center_lat,
+        center_lon=center_lon,
         radius_meters=radius,
         state=(
             HabitualPlace.State.CONFIRMED
@@ -428,16 +400,6 @@ def visible_stop_summary(
         lon=lon,
         matched_place=next(iter(matches.values())) if len(matches) == 1 else None,
     )
-
-
-def visible_stop_place(visible_stop, source_intervals, gps_points, confirmed_places):
-    summary = visible_stop_summary(
-        visible_stop,
-        source_intervals,
-        gps_points,
-        confirmed_places,
-    )
-    return None if summary is None else summary.matched_place
 
 
 def _intervals_touch_or_overlap(first, second) -> bool:

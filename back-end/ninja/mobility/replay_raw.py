@@ -18,8 +18,10 @@ from datetime import timezone as dt_timezone
 from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
-from ninja.errors import HttpError
 
+from shared.exceptions import ServiceError
+
+from .ingestion import selectors as ingestion_selectors
 from .ingestion import storage
 from .ingestion.raw_sensor_codec import (
     InvalidRawSensorPayload,
@@ -30,7 +32,27 @@ from .ingestion.raw_sensor_codec import (
     decode_sensor_windows_payload,
     raw_sensor_payload_format,
 )
-from .models import HarJob, Trip, TripIngestion, TripIngestionPart
+from .models import Trip, TripIngestion
+from .selectors import har_jobs as har_jobs_repository
+from .tasks import process_trip_har_final
+
+
+class ReplayRawError(ServiceError):
+    """Errore di dominio della rigenerazione raw, indipendente dal chiamante.
+
+    E' un modulo di dominio (non un service ne' un router): non deve
+    sollevare `ninja.errors.HttpError` direttamente. I due service che lo
+    invocano (`mobility.services.reload`, `mobility.ingestion.services`)
+    catturano questa eccezione e la ritraducono nel proprio errore di
+    dominio, cosi' il router continua a vedere solo `ReloadServiceError` /
+    `IngestionServiceError` come prima.
+    """
+
+    status_code = 409
+
+
+class ReplayStorageUnavailable(ReplayRawError):
+    status_code = 503
 
 _START_FIELDS = ("window_start", "start")
 _END_FIELDS = ("window_end", "end")
@@ -198,11 +220,7 @@ def source_sensor_window_at(
     Read-only: usato dalla classificazione live dell'assistente durante una
     Riproduzione Live, dove l'offset e' il tempo trascorso dall'avvio del replay.
     """
-    parts = TripIngestionPart.objects.filter(
-        ingestion__trip=source,
-        ingestion__raw_status=TripIngestion.PhaseStatus.COMPLETED,
-        received_at__isnull=False,
-    ).order_by("sequence", "id")
+    parts = ingestion_selectors.completed_raw_parts_for_trip(source)
     windows = []
     for part in parts:
         try:
@@ -236,13 +254,9 @@ def regenerate_raw_and_queue_har(
 ) -> None:
     """Rigenera i raw sorgente nell'ingestion e accoda l'HAR. Rigetta con 409 se
     le telemetrie sorgenti mancano/illeggibili, con 503 se lo storage fallisce."""
-    parts = TripIngestionPart.objects.filter(
-        ingestion__trip=source,
-        ingestion__raw_status=TripIngestion.PhaseStatus.COMPLETED,
-        received_at__isnull=False,
-    ).order_by("sequence", "id")
+    parts = ingestion_selectors.completed_raw_parts_for_trip(source)
     if not parts.exists():
-        raise HttpError(409, "telemetrie sorgente non disponibili")
+        raise ReplayRawError("telemetrie sorgente non disponibili")
     try:
         shifted_parts = [
             shifted
@@ -252,9 +266,9 @@ def regenerate_raw_and_queue_har(
             ) is not None
         ]
     except _DECODE_ERRORS as exc:
-        raise HttpError(409, "telemetrie sorgente non disponibili") from exc
+        raise ReplayRawError("telemetrie sorgente non disponibili") from exc
     if not shifted_parts:
-        raise HttpError(409, "telemetrie sorgente non disponibili")
+        raise ReplayRawError("telemetrie sorgente non disponibili")
 
     written: list[str] = []
     try:
@@ -267,10 +281,10 @@ def regenerate_raw_and_queue_har(
             try:
                 storage.write_object(object_key, body, sha256=sha256)
             except Exception as exc:
-                raise HttpError(503, "storage ricaricamento non disponibile") from exc
+                raise ReplayStorageUnavailable("storage ricaricamento non disponibile") from exc
             written.append(object_key)
-            TripIngestionPart.objects.create(
-                ingestion=ingestion,
+            ingestion_selectors.create_ingestion_part(
+                ingestion,
                 sequence=sequence,
                 sha256=sha256,
                 size_bytes=len(body),
@@ -283,9 +297,7 @@ def regenerate_raw_and_queue_har(
         ingestion.save(
             update_fields=["expected_raw_parts", "raw_status", "queued_at", "updated_at"]
         )
-        job = HarJob.objects.create(trip=ingestion.trip)
-        from .tasks import process_trip_har_final
-
+        job = har_jobs_repository.create_har_job(ingestion.trip_id)
         transaction.on_commit(lambda: process_trip_har_final.delay(job.id, ingestion.id))
     except Exception:
         for object_key in written:

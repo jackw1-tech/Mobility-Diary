@@ -1,21 +1,8 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:diary/network/service/trip_ingestion_service.dart';
 import 'package:diary/network/dto/trip_track_dto.dart';
-import 'package:diary/other/constants/api_constants.dart';
-
-Map<String, dynamic>? _tryDecodeMap(String? body) {
-  if (body == null || body.isEmpty) return null;
-  try {
-    final decoded = jsonDecode(body);
-    if (decoded is Map<String, dynamic>) return decoded;
-    if (decoded is Map) return Map<String, dynamic>.from(decoded);
-  } on FormatException {
-    return null;
-  }
-  return null;
-}
+import 'package:diary/network/service/impl/http_json_utils.dart';
 
 abstract class TripTrackService {
   Future<TripTrackDto> fetchTrack(int tripId);
@@ -51,22 +38,11 @@ class TripTrackHttpService implements TripTrackService {
   }
 
   Future<Map<String, dynamic>> _sendJson(String method, String path) async {
-    final token = await _tokenProvider();
-    if (token == null || token.isEmpty) {
-      throw const IngestionApiException('Sessione non disponibile');
-    }
+    final response =
+        await sendAuthenticatedJson(_client, _tokenProvider, method, path);
+    final decoded = tryDecodeJsonMap(response.body);
 
-    final request = await _client.openUrl(method, _uri(path));
-    request.headers.contentType = ContentType.json;
-    request.headers.set(HttpHeaders.acceptHeader, 'application/json');
-    request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
-    request.contentLength = 0;
-
-    final response = await request.close().timeout(const Duration(seconds: 30));
-    final responseBody = await response.transform(utf8.decoder).join();
-    final decoded = _tryDecodeMap(responseBody);
-
-    if (response.statusCode < 200 || response.statusCode >= 300) {
+    if (response.isError) {
       final detail = decoded?['detail'];
       throw IngestionApiException(
         detail is String ? detail : 'Richiesta traiettoria fallita',
@@ -75,13 +51,5 @@ class TripTrackHttpService implements TripTrackService {
     }
     if (decoded != null) return decoded;
     throw const IngestionApiException('Risposta traiettoria non valida');
-  }
-
-  Uri _uri(String path) {
-    final base = ApiConstants.baseApiUrl.endsWith('/')
-        ? ApiConstants.baseApiUrl
-            .substring(0, ApiConstants.baseApiUrl.length - 1)
-        : ApiConstants.baseApiUrl;
-    return Uri.parse('$base$path');
   }
 }

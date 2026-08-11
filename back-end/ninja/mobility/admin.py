@@ -6,7 +6,6 @@ from .models import (
     HabitualPlace,
     HarJob,
     MobilitySegment,
-    RawSensorReading,
     SensorWindow,
     StateTransition,
     Trip,

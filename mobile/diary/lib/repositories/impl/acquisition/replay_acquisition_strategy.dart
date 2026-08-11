@@ -5,6 +5,8 @@ import 'package:diary/repositories/acquisition_strategy.dart';
 import 'package:diary/repositories/impl/acquisition/trip_package_builder.dart';
 import 'package:diary/network/dto/ingestion/ingestion_start_result_dto.dart';
 import 'package:diary/network/service/trip_ingestion_service.dart';
+import 'package:diary/repositories/impl/acquisition/acquisition_snapshot_emitter.dart';
+import 'package:diary/utils/date_time_utils.dart';
 import 'package:uuid/uuid.dart';
 
 typedef ReplayTimerFactory = Timer Function(
@@ -12,7 +14,9 @@ typedef ReplayTimerFactory = Timer Function(
   void Function(Timer timer) callback,
 );
 
-class ReplayAcquisitionStrategy implements AcquisitionStrategy {
+class ReplayAcquisitionStrategy
+    with AcquisitionSnapshotEmitter
+    implements AcquisitionStrategy {
   final TripIngestionService? _ingestionService;
   final Uuid _uuid;
   final String _deviceId;
@@ -22,10 +26,6 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
   final double _requestedReplaySpeedMultiplier;
   final ReplayTimerFactory _timerFactory;
 
-  final StreamController<AcquisitionSnapshot> _snapshotController =
-      StreamController<AcquisitionSnapshot>.broadcast(sync: true);
-
-  AcquisitionSnapshot _currentSnapshot = AcquisitionSnapshot.idle();
   Timer? _replayTimer;
   String? _currentSessionId;
   int? _currentRemoteIngestionId;
@@ -58,14 +58,8 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
             ((duration, callback) => Timer.periodic(duration, callback));
 
   @override
-  Stream<AcquisitionSnapshot> get snapshots => _snapshotController.stream;
-
-  @override
-  AcquisitionSnapshot get currentSnapshot => _currentSnapshot;
-
-  @override
   Future<void> start() async {
-    if (_currentSnapshot.isTracking) {
+    if (currentSnapshot.isTracking) {
       return;
     }
 
@@ -97,7 +91,7 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
     _latestLongitude = null;
     _latestAccuracyMeters = null;
 
-    _emit(
+    emitSnapshot(
       AcquisitionSnapshot(
         isTracking: true,
         trackingState: TrackingState.stationary,
@@ -150,7 +144,7 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
   @override
   void dispose() {
     _replayTimer?.cancel();
-    _snapshotController.close();
+    closeSnapshots();
   }
 
   double _replaySpeedMultiplier(double value) {
@@ -169,7 +163,7 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
         [];
 
     if (rawPoints.isEmpty && rawTransitions.isEmpty) {
-      _emit(AcquisitionSnapshot.idle());
+      emitSnapshot(AcquisitionSnapshot.idle());
       return;
     }
 
@@ -194,11 +188,11 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
     final endTime = _later(lastPoint, lastTransition);
 
     if (startTime == null || endTime == null) {
-      _emit(AcquisitionSnapshot.idle());
+      emitSnapshot(AcquisitionSnapshot.idle());
       return;
     }
 
-    _emit(
+    emitSnapshot(
       AcquisitionSnapshot(
         isTracking: true,
         trackingState: TrackingState.stationary,
@@ -241,9 +235,9 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
       while (nextTransitionIdx < transitions.length &&
           !pTime(transitions[nextTransitionIdx]).isAfter(currentReplayTime)) {
         final t = transitions[nextTransitionIdx];
-        final nextState = _trackingStateFromWire(t['to_state'] as String);
+        final nextState = TrackingState.fromWire(t['to_state'] as String);
         lastFsmTransition = FsmTransition(
-          from: _trackingStateFromWire(t['from_state'] as String),
+          from: TrackingState.fromWire(t['from_state'] as String),
           to: nextState,
           reason: t['reason'] as String? ?? 'replay',
           timestamp: pTime(t),
@@ -271,7 +265,7 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
       );
 
       if (updated || replaySecondsRemaining != null) {
-        _emit(
+        emitSnapshot(
           AcquisitionSnapshot(
             isTracking: true,
             trackingState: currentState,
@@ -296,7 +290,7 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
   }
 
   Future<ReplayStopResult> _stopReplay() async {
-    final cutoffTimestamp = _currentSnapshot.updatedAt;
+    final cutoffTimestamp = currentSnapshot.updatedAt;
     _replayTimer?.cancel();
 
     if (_currentSessionId == null) {
@@ -329,7 +323,8 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
     final replayEndedAt =
         scheduledStartAt != null ? cutoffTimestamp.add(shift) : now;
 
-    String shiftIso(DateTime original) => _utcIso(original.add(shift));
+    String shiftIso(DateTime original) =>
+        DateTimeUtils.toUtcIso(original.add(shift));
 
     final shiftedPoints = filteredPoints.map((p) {
       return {
@@ -361,14 +356,14 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
       'client_session_id': _currentSessionId,
       'device_id': _currentDeviceId ?? '',
       'device_platform': '',
-      'ended_at': _utcIso(replayEndedAt),
-      'cutoff_source_timestamp': _utcIso(cutoffTimestamp),
+      'ended_at': DateTimeUtils.toUtcIso(replayEndedAt),
+      'cutoff_source_timestamp': DateTimeUtils.toUtcIso(cutoffTimestamp),
       'expected_raw_parts': 0,
       'gps_points': shiftedPoints,
       if (_currentRemoteIngestionId != null)
         'ingestion_id': _currentRemoteIngestionId,
       'schema_version': 1,
-      'started_at': _utcIso(firstShiftedTs),
+      'started_at': DateTimeUtils.toUtcIso(firstShiftedTs),
       'state_transitions': shiftedTransitions,
       'timezone': '',
     };
@@ -387,7 +382,7 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
     _replayStartWallClock = null;
     _replayPoints = null;
     _replayTransitions = null;
-    _emit(AcquisitionSnapshot.idle());
+    emitSnapshot(AcquisitionSnapshot.idle());
 
     return ReplayStopResult(tripId: response.tripId);
   }
@@ -421,36 +416,7 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
     return first.isAfter(second) ? first : second;
   }
 
-  TrackingState _trackingStateFromWire(String? wireName) {
-    switch (wireName) {
-      case 'MOVEMENT':
-        return TrackingState.movement;
-      case 'STATIONARY':
-      default:
-        return TrackingState.stationary;
-    }
-  }
 
-  String _utcIso(DateTime value) {
-    final utc = value.toUtc();
-    final year = utc.year.toString().padLeft(4, '0');
-    final month = utc.month.toString().padLeft(2, '0');
-    final day = utc.day.toString().padLeft(2, '0');
-    final hour = utc.hour.toString().padLeft(2, '0');
-    final minute = utc.minute.toString().padLeft(2, '0');
-    final second = utc.second.toString().padLeft(2, '0');
-    final fractionMicros = utc.millisecond * 1000 + utc.microsecond;
-    final base = '$year-$month-${day}T$hour:$minute:$second';
-    if (fractionMicros == 0) return '${base}Z';
-    return '$base.${fractionMicros.toString().padLeft(6, '0')}Z';
-  }
-
-  void _emit(AcquisitionSnapshot snapshot) {
-    _currentSnapshot = snapshot;
-    if (!_snapshotController.isClosed) {
-      _snapshotController.add(snapshot);
-    }
-  }
 
   Future<String> _resolveDeviceId() async {
     final provider = _deviceIdProvider;

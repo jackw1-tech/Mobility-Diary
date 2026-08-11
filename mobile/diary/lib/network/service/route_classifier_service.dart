@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:diary/model/entities/route_assistant/route_assistant_domain.dart';
-import 'package:diary/other/constants/api_constants.dart';
+import 'package:diary/network/service/impl/http_json_utils.dart';
 
 typedef AccessTokenProvider = Future<String?> Function();
 
@@ -34,8 +34,8 @@ class RouteClassifierHttpService implements RouteClassifierService {
     if (token == null || token.isEmpty) {
       throw const RouteAssistantException('Sessione non disponibile');
     }
-    final request =
-        await _client.postUrl(_uri('/mobility/route-assistant/classify'));
+    final request = await _client
+        .postUrl(resolveApiUri('/mobility/route-assistant/classify'));
     request.headers.contentType = ContentType.json;
     request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
     final encoded = utf8.encode(jsonEncode({'samples': samples}));
@@ -52,13 +52,5 @@ class RouteClassifierHttpService implements RouteClassifierService {
     final decoded = jsonDecode(body);
     final label = decoded is Map ? decoded['label'] : null;
     return label is String ? label : null;
-  }
-
-  Uri _uri(String path) {
-    final base = ApiConstants.baseApiUrl.endsWith('/')
-        ? ApiConstants.baseApiUrl
-            .substring(0, ApiConstants.baseApiUrl.length - 1)
-        : ApiConstants.baseApiUrl;
-    return Uri.parse('$base$path');
   }
 }

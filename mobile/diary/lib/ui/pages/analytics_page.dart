@@ -9,6 +9,8 @@ import 'package:diary/ui/pages/analytics_presenter.dart';
 import 'package:diary/ui/pages/trip_diary_presenter.dart'
     show formatDistance, formatDuration;
 import 'package:diary/ui/widgets/analytics_heatmap_map.dart';
+import 'package:diary/ui/widgets/state_message.dart';
+import 'package:diary/ui/widgets/surface_card.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -44,12 +46,12 @@ class _AnalyticsBody extends StatelessWidget {
           case AnalyticsStatus.loading:
             return const Center(child: CircularProgressIndicator());
           case AnalyticsStatus.empty:
-            return const _AnalyticsMessage(
+            return const StateMessage(
               icon: Icons.insights_outlined,
               text: 'Servono piu\' viaggi per calcolare le tue statistiche',
             );
           case AnalyticsStatus.error:
-            return _AnalyticsMessage(
+            return StateMessage(
               icon: Icons.error_outline,
               text: state.error ?? 'Errore nel caricamento',
               onRetry: () => context.read<AnalyticsCubit>().load(),
@@ -74,7 +76,7 @@ class _AnalyticsBody extends StatelessWidget {
                   ),
                   if (state.granularity == 'week') ...[
                     const SizedBox(height: Dimensions.paddingMedium),
-                    _Section(
+                    SurfaceCard(
                       title: 'Luoghi piu\' frequentati',
                       child: weeklyHeatmaps.isEmpty
                           ? const _SectionEmpty(
@@ -85,7 +87,7 @@ class _AnalyticsBody extends StatelessWidget {
                     ),
                   ],
                   const SizedBox(height: Dimensions.paddingMedium),
-                  _Section(
+                  SurfaceCard(
                     title: 'Abitudini di sempre',
                     child: habits.isEmpty
                         ? const _SectionEmpty(
@@ -158,7 +160,7 @@ class _TrendSectionState extends State<_TrendSection> {
   Widget build(BuildContext context) {
     final allBars = analyticsBars(widget.data);
     if (allBars.isEmpty) {
-      return const _Section(
+      return const SurfaceCard(
         title: 'Tempo per attivita\'',
         child: _SectionEmpty(text: 'Nessun dato in questa finestra'),
       );
@@ -178,7 +180,7 @@ class _TrendSectionState extends State<_TrendSection> {
     final isCurrent = selected == allBars.length - 1;
     final showWindowSlider = analyticsNeedsWindowSlider(allBars.length);
 
-    return _Section(
+    return SurfaceCard(
       title: 'Tempo per attivita\'',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -687,74 +689,3 @@ class _SectionEmpty extends StatelessWidget {
   }
 }
 
-class _Section extends StatelessWidget {
-  final String title;
-  final Widget child;
-
-  const _Section({required this.title, required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: ColorPalette.surface,
-        borderRadius: BorderRadius.circular(Dimensions.borderRadiusLarge),
-        border: Border.all(color: ColorPalette.hairline),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(Dimensions.paddingMedium),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: Theme.of(context)
-                  .textTheme
-                  .titleMedium
-                  ?.copyWith(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: Dimensions.paddingMedium),
-            child,
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _AnalyticsMessage extends StatelessWidget {
-  final IconData icon;
-  final String text;
-  final VoidCallback? onRetry;
-
-  const _AnalyticsMessage({
-    required this.icon,
-    required this.text,
-    this.onRetry,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(Dimensions.paddingLarge),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: ColorPalette.textSecondary),
-            const SizedBox(height: Dimensions.paddingSmall),
-            Text(text, textAlign: TextAlign.center),
-            if (onRetry != null) ...[
-              const SizedBox(height: Dimensions.paddingMedium),
-              FilledButton.icon(
-                onPressed: onRetry,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Riprova'),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}

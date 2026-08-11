@@ -1,31 +1,27 @@
 from __future__ import annotations
 
-from django.conf import settings
-from django.db import transaction
 from django.shortcuts import get_object_or_404
-from django.utils import timezone
 from ninja import Router
 from ninja.errors import HttpError
 from ninja.responses import Status
 
 from accounts.auth_mobile.auth import mobile_bearer_auth
 
-from ..models import (
-    Trip,
-    TripIngestion,
-    TripIngestionPart,
-)
-from . import storage
+from ..models import TripIngestion
 from .selectors import (
     active_ingestions_for_owner,
 )
 from .services import (
     IngestionServiceError,
     abandon_recording,
+    complete_raw_ingestion,
+    confirm_raw_part,
     heartbeat_recording,
+    missing_raw_parts,
+    presign_raw_part,
     process_inline_core_ingestion,
-    queue_final_har,
     start_recording,
+    validate_expected_parts,
 )
 from .schemas import (
     ActiveIngestionConflictOut,
@@ -48,78 +44,6 @@ from .schemas import (
 )
 
 router = Router(tags=["ingestion"])
-
-
-def _object_key(base_path: str, sequence: int) -> str:
-    return f"{base_path}sensor_windows_part_{sequence:04d}.bin.gz"
-
-
-def _raw_part_count(parts: object) -> int:
-    if isinstance(parts, dict):
-        return int(next(iter(parts.values()), 0) or 0)
-    return int(parts or 0)
-
-
-def _expected_part_sequences(parts: object) -> list[int]:
-    count = _raw_part_count(parts)
-    return list(range(1, count + 1))
-
-
-def _confirmed_raw_sequences(ingestion: TripIngestion) -> set[int]:
-    return {
-        seq
-        for seq in ingestion.parts.filter(
-            received_at__isnull=False,
-        ).values_list("sequence", flat=True)
-    }
-
-
-def _missing_raw_parts(ingestion: TripIngestion) -> list[dict[str, int]]:
-    confirmed = _confirmed_raw_sequences(ingestion)
-    expected = _expected_part_sequences(ingestion.expected_raw_parts)
-    return [
-        {"sequence": seq}
-        for seq in expected
-        if seq not in confirmed
-    ]
-
-
-def _mark_raw_received_if_complete(ingestion: TripIngestion) -> None:
-    expected = _expected_part_sequences(ingestion.expected_raw_parts)
-    if not expected:
-        return
-    confirmed = _confirmed_raw_sequences(ingestion)
-    if all(sequence in confirmed for sequence in expected):
-        if ingestion.raw_status == TripIngestion.PhaseStatus.RECEIVING:
-            ingestion.raw_status = TripIngestion.PhaseStatus.RECEIVED
-            ingestion.save(update_fields=["raw_status", "updated_at"])
-
-
-def _get_owned_ingestion(request, ingestion_id: int) -> TripIngestion:
-    return get_object_or_404(
-        TripIngestion,
-        id=ingestion_id,
-        user_id=request.auth.user_id,
-    )
-
-
-def _validate_expected_parts(count: int) -> int:
-    normalized_count = int(count or 0)
-    if normalized_count < 0:
-        raise HttpError(422, "expected_raw_parts contiene count non valido")
-    return normalized_count
-
-
-def _ensure_part_was_declared(
-    ingestion: TripIngestion,
-    sequence: int,
-) -> None:
-    expected_count = _raw_part_count(ingestion.expected_raw_parts)
-    if sequence < 1 or sequence > expected_count:
-        raise HttpError(
-            409,
-            f"parte non dichiarata nel manifest iniziale: #{sequence}",
-        )
 
 
 def _active_response(ingestion: TripIngestion) -> ActiveIngestionOut:
@@ -231,7 +155,10 @@ def create_core_inline(request, payload: InlineCoreIn):
     if not payload.gps_points and not payload.state_transitions:
         raise HttpError(400, "core vuoto: GPS e state transitions assenti")
 
-    expected_raw_parts = _validate_expected_parts(payload.expected_raw_parts)
+    try:
+        expected_raw_parts = validate_expected_parts(payload.expected_raw_parts)
+    except IngestionServiceError as exc:
+        raise HttpError(exc.status_code, exc.message) from exc
 
     if expected_raw_parts:
         raw_status = TripIngestion.PhaseStatus.PENDING
@@ -264,41 +191,22 @@ def create_core_inline(request, payload: InlineCoreIn):
     auth=mobile_bearer_auth,
 )
 def presign_part(request, ingestion_id: int, payload: PartPresignIn):
-    if payload.size_bytes <= 0 or payload.size_bytes > settings.INGESTION_MAX_PART_BYTES:
-        raise HttpError(
-            422,
-            f"size_bytes fuori range (max {settings.INGESTION_MAX_PART_BYTES})",
-        )
-
-    ingestion = _get_owned_ingestion(request, ingestion_id)
-    _ensure_part_was_declared(ingestion, payload.sequence)
-
-    object_key = _object_key(ingestion.raw_base_path, payload.sequence)
-
-    with transaction.atomic():
-        part, _ = TripIngestionPart.objects.select_for_update().get_or_create(
-            ingestion=ingestion,
+    try:
+        result = presign_raw_part(
+            user_id=request.auth.user_id,
+            ingestion_id=ingestion_id,
             sequence=payload.sequence,
-            defaults={
-                "sha256": payload.sha256,
-                "size_bytes": payload.size_bytes,
-                "object_key": object_key,
-            },
+            sha256=payload.sha256,
+            size_bytes=payload.size_bytes,
         )
-        if ingestion.raw_status == TripIngestion.PhaseStatus.PENDING:
-            ingestion.raw_status = TripIngestion.PhaseStatus.RECEIVING
-            ingestion.save(update_fields=["raw_status", "updated_at"])
+    except IngestionServiceError as exc:
+        raise HttpError(exc.status_code, exc.message) from exc
 
-    upload_headers = {
-        "Content-Type": "application/gzip",
-        "x-amz-meta-sha256": payload.sha256,
-    }
-    upload_url = storage.presigned_put_url(object_key, sha256=payload.sha256)
     return PartPresignOut(
-        object_key=object_key,
-        upload_url=upload_url,
-        upload_headers=upload_headers,
-        expires_in=settings.S3_PRESIGN_EXPIRES_SECONDS,
+        object_key=result.object_key,
+        upload_url=result.upload_url,
+        upload_headers=result.upload_headers,
+        expires_in=result.expires_in,
     )
 
 
@@ -308,31 +216,18 @@ def presign_part(request, ingestion_id: int, payload: PartPresignIn):
     auth=mobile_bearer_auth,
 )
 def confirm_part(request, ingestion_id: int, payload: PartConfirmIn):
-    ingestion = _get_owned_ingestion(request, ingestion_id)
-    part = get_object_or_404(
-        TripIngestionPart,
-        ingestion=ingestion,
-        sequence=payload.sequence,
-    )
-
-    if part.sha256 != payload.sha256:
-        raise HttpError(
-            409,
-            "checksum non corrisponde a quello dichiarato in presign",
+    try:
+        part = confirm_raw_part(
+            user_id=request.auth.user_id,
+            ingestion_id=ingestion_id,
+            sequence=payload.sequence,
+            sha256=payload.sha256,
         )
+    except IngestionServiceError as exc:
+        raise HttpError(exc.status_code, exc.message) from exc
 
-    head = storage.head_object(part.object_key)
-    if head is None:
-        raise HttpError(409, "oggetto non presente sullo storage")
-    metadata_sha256 = (head.get("Metadata") or {}).get("sha256")
-    if metadata_sha256 != part.sha256:
-        raise HttpError(409, "sha256 metadata non corrisponde")
-
-    part.received_at = timezone.now()
-    part.save(update_fields=["received_at"])
-    _mark_raw_received_if_complete(ingestion)
     return PartConfirmOut(
-        ingestion_id=ingestion.id,
+        ingestion_id=ingestion_id,
         sequence=part.sequence,
         status="RECEIVED",
     )
@@ -343,26 +238,16 @@ def confirm_part(request, ingestion_id: int, payload: PartConfirmIn):
     response={202: CompleteOut},
     auth=mobile_bearer_auth,
 )
-def complete_raw_ingestion(request, ingestion_id: int, payload: CompleteIn):
-    ingestion = _get_owned_ingestion(request, ingestion_id)
-
-    with transaction.atomic():
-        ingestion = (
-            TripIngestion.objects.select_for_update()
-            .get(id=ingestion.id)
+def complete_raw_ingestion_route(request, ingestion_id: int, payload: CompleteIn):
+    try:
+        ingestion = complete_raw_ingestion(
+            user_id=request.auth.user_id,
+            ingestion_id=ingestion_id,
+            total_parts=payload.total_parts,
         )
-        if ingestion.raw_status == TripIngestion.PhaseStatus.FAILED_FINAL:
-            raise HttpError(409, "raw sensor ingestion fallita definitivamente")
-        if (
-            payload.total_parts is not None
-            and payload.total_parts != _raw_part_count(ingestion.expected_raw_parts)
-        ):
-            raise HttpError(409, "numero parti raw diverso dal manifest iniziale")
+    except IngestionServiceError as exc:
+        raise HttpError(exc.status_code, exc.message) from exc
 
-        try:
-            queue_final_har(ingestion, now=timezone.now())
-        except IngestionServiceError as exc:
-            raise HttpError(exc.status_code, exc.message) from exc
     return 202, CompleteOut(
         ingestion_id=ingestion.id,
         core_status=ingestion.core_status,
@@ -374,13 +259,17 @@ def complete_raw_ingestion(request, ingestion_id: int, payload: CompleteIn):
     "/trips/{ingestion_id}", response=IngestionStatusOut, auth=mobile_bearer_auth
 )
 def ingestion_status(request, ingestion_id: int):
-    ingestion = _get_owned_ingestion(request, ingestion_id)
+    ingestion = get_object_or_404(
+        TripIngestion,
+        id=ingestion_id,
+        user_id=request.auth.user_id,
+    )
 
     return IngestionStatusOut(
         ingestion_id=ingestion.id,
         core_status=ingestion.core_status,
         raw_status=ingestion.raw_status,
-        missing_raw_parts=_missing_raw_parts(ingestion),
+        missing_raw_parts=missing_raw_parts(ingestion),
         trip_id=ingestion.trip_id,
         map_available=bool(ingestion.trip_id and ingestion.trip.path),
     )

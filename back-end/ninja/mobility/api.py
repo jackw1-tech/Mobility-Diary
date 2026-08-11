@@ -5,11 +5,10 @@ from ninja import Router
 from ninja.errors import HttpError
 from ninja.responses import Status
 
+import accounts.repositories as accounts_repositories
 from accounts.schemas import MessageOut
 from accounts.auth_mobile.auth import mobile_bearer_auth
-from accounts.models import UserPrivacySettings
 
-from .diary_projection import project_diary_segments
 from .diary_export import build_trip_privacy_export
 from .replay_raw import source_sensor_window_at
 from .selectors.places import (
@@ -18,10 +17,12 @@ from .selectors.places import (
 )
 from .selectors.trips import (
     reloadable_trip_list_items_for_user,
+    trip_diary_enrichment_failed,
     trip_list_items_for_user,
     trip_track_for_user,
 )
-from .selectors.analytics import personal_analytics_for_user
+from .services.analytics import personal_analytics_for_user
+from .services.diary_view import build_private_diary
 from .services.places import (
     PlaceMutationBlockedError,
     PlaceServiceError,
@@ -45,17 +46,8 @@ from .services.trips import (
     update_trip_note as update_trip_note_service,
     update_trip_reloadable as update_trip_reloadable_service,
 )
-from .models import (
-    HabitualPlace,
-    MobilitySegment,
-    Trip,
-    TripIngestion,
-)
-from .significant_places import (
-    place_label,
-    stop_like_source_intervals,
-    visible_stop_summary,
-)
+from .models import Trip
+from .significant_places import place_label
 from .schemas import (
     AnalyticsOut,
     DiaryOut,
@@ -134,33 +126,25 @@ def get_trip_diary(request, trip_id: int):
 
     I MobilitySegment persistiti non vengono riscritti: la sosta prende a tempo
     di lettura la propria posizione dai GpsPoint dell'intervallo e, se c'e' un
-    match univoco, anche l'etichetta del Luogo Confermato piu' vicino.
+    match univoco, anche l'etichetta del Luogo Confermato piu' vicino. La
+    proiezione vera e propria vive in `services.diary_view.build_private_diary`
+    ed e' condivisa con la dashboard web (stessa regola, stesso posto).
     """
     trip = get_object_or_404(Trip, id=trip_id, user_id=request.auth.user_id)
-    failure_reason = _trip_diary_failure_reason(trip_id, request.auth.user_id)
-    gps = list(trip.gps_points.order_by("timestamp"))
-    confirmed = list(
-        HabitualPlace.objects.filter(
-            user_id=request.auth.user_id,
-            state=HabitualPlace.State.CONFIRMED,
-        )
+    failure_reason = (
+        DIARY_ENRICHMENT_FAILED_REASON
+        if trip_diary_enrichment_failed(trip_id, request.auth.user_id)
+        else None
     )
-    persisted_segments = list(trip.segments.all())
-    virtual_stop_intervals = list(trip.virtual_stop_intervals.all())
-    source_intervals = stop_like_source_intervals(
-        persisted_segments,
-        virtual_stop_intervals,
-    )
+
     segments: list[SegmentOut] = []
     overlaid: dict[int, PlaceOut] = {}
-    for seg in project_diary_segments(persisted_segments, virtual_stop_intervals):
+    for seg in build_private_diary(trip):
         place_out = None
-        if seg.kind == MobilitySegment.Kind.STOP:
-            summary = visible_stop_summary(seg, source_intervals, gps, confirmed)
-            if summary is not None:
-                place_out = _visible_stop_place_out(summary)
-                if summary.matched_place is not None:
-                    overlaid[summary.matched_place.id] = _place_out(summary.matched_place)
+        if seg.place is not None:
+            place_out = _visible_stop_place_out(seg.place)
+            if seg.place.matched_place is not None:
+                overlaid[seg.place.matched_place.id] = _place_out(seg.place.matched_place)
         segments.append(
             SegmentOut(
                 kind=seg.kind,
@@ -321,9 +305,7 @@ def get_trip_privacy_export(request, trip_id: int):
     e le soste usano una dicitura generica.
     """
     trip = get_object_or_404(Trip, id=trip_id, user_id=request.auth.user_id)
-    settings, _ = UserPrivacySettings.objects.get_or_create(
-        user_id=request.auth.user_id
-    )
+    settings = accounts_repositories.get_or_create_privacy_settings(request.auth.user_id)
     level = settings.level
     export = build_trip_privacy_export(trip, level=level)
     return PrivacyExportOut(
@@ -337,15 +319,6 @@ def get_trip_privacy_export(request, trip_id: int):
             _privacy_export_segment_out(segment) for segment in export.segments
         ],
     )
-
-
-def _trip_diary_failure_reason(trip_id: int, user_id: int) -> str | None:
-    failed = TripIngestion.objects.filter(
-        trip_id=trip_id,
-        user_id=user_id,
-        raw_status=TripIngestion.PhaseStatus.FAILED_FINAL,
-    ).exists()
-    return DIARY_ENRICHMENT_FAILED_REASON if failed else None
 
 
 @router.get("/trips", response=list[TripListItemOut], auth=mobile_bearer_auth)

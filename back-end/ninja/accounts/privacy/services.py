@@ -1,0 +1,45 @@
+"""Business logic delle preferenze privacy dell'utente mobile.
+
+Orchestrazione pura: nessuna query ORM diretta, nessuna dipendenza da Ninja.
+Le query passano dal repository condiviso del context (accounts.repositories).
+"""
+
+from __future__ import annotations
+
+from shared.exceptions import ServiceError
+
+from .. import repositories
+from ..models import UserPrivacySettings
+
+
+class PrivacyServiceError(ServiceError):
+    status_code = 400
+
+
+class InvalidPrivacyLevel(PrivacyServiceError):
+    status_code = 400
+
+
+def _payload(settings: UserPrivacySettings) -> dict:
+    return {
+        "privacy_level": settings.level,
+        "is_first_login": settings.is_first_login,
+    }
+
+
+def get_privacy_settings(user_id: int) -> dict:
+    """Preferenza privacy corrente; la crea con i default se e' il primo accesso."""
+    settings = repositories.get_or_create_privacy_settings(user_id)
+    return _payload(settings)
+
+
+def update_privacy_settings(user_id: int, *, privacy_level: str) -> dict:
+    if privacy_level not in set(UserPrivacySettings.Level.values):
+        raise InvalidPrivacyLevel("Livello privacy non valido")
+
+    settings = repositories.update_or_create_privacy_settings(
+        user_id,
+        level=privacy_level,
+        is_first_login=False,
+    )
+    return _payload(settings)

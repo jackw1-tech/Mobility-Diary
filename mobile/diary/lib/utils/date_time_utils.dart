@@ -17,22 +17,23 @@ class DateTimeUtils {
     return formatter.format(dateTime.toLocal());
   }
 
-  static String getRelativeTime(DateTime dateTime) {
-    final now = DateTime.now().toUtc();
-    final difference = now.difference(dateTime.toUtc());
-
-    if (difference.inDays > 365) {
-      return '${(difference.inDays / 365).floor()} anni fa';
-    } else if (difference.inDays > 30) {
-      return '${(difference.inDays / 30).floor()} mesi fa';
-    } else if (difference.inDays > 0) {
-      return '${difference.inDays} giorni fa';
-    } else if (difference.inHours > 0) {
-      return '${difference.inHours} ore fa';
-    } else if (difference.inMinutes > 0) {
-      return '${difference.inMinutes} minuti fa';
-    } else {
-      return 'adesso';
-    }
+  /// ISO 8601 UTC con precisione al microsecondo (a differenza di
+  /// [DateTime.toIso8601String], che si ferma ai millisecondi), usato dai
+  /// payload di ingestion. Omette del tutto la parte frazionaria se zero.
+  static String toUtcIso(DateTime value) {
+    final utc = value.toUtc();
+    final year = utc.year.toString().padLeft(4, '0');
+    final month = utc.month.toString().padLeft(2, '0');
+    final day = utc.day.toString().padLeft(2, '0');
+    final hour = utc.hour.toString().padLeft(2, '0');
+    final minute = utc.minute.toString().padLeft(2, '0');
+    final second = utc.second.toString().padLeft(2, '0');
+    final fractionMicros = utc.millisecond * 1000 + utc.microsecond;
+    final base = '$year-$month-${day}T$hour:$minute:$second';
+    if (fractionMicros == 0) return '${base}Z';
+    return '$base.${fractionMicros.toString().padLeft(6, '0')}Z';
   }
+
+  static String? toUtcIsoOrNull(DateTime? value) =>
+      value == null ? null : toUtcIso(value);
 }

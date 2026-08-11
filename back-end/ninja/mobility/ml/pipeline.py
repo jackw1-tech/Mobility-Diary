@@ -12,7 +12,8 @@ from django.contrib.gis.geos import LineString
 from django.db import transaction
 
 from ..geo import haversine_meters
-from ..models import ActivityLabel, MobilitySegment, Trip, VirtualStopInterval
+from ..models import ActivityLabel, MobilitySegment, Trip
+from ..selectors import segments as segments_repository
 from .classifier import classify_windows, _label_from_speed
 
 STOP_STATE = "STATIONARY"
@@ -111,14 +112,7 @@ def _macro_spans(trip, transitions, gps, windows):
 Salva nel DB un segmento di stop.
 """
 def _build_stop(trip, start, end) -> None:
-    MobilitySegment.objects.create(
-        trip=trip,
-        kind=MobilitySegment.Kind.STOP,
-        start_timestamp=start,
-        end_timestamp=end,
-        activity_label=ActivityLabel.IDLE,
-        path=None,
-    )
+    segments_repository.create_stop_segment(trip, start, end)
 
 
 """
@@ -261,11 +255,7 @@ def _split_move_and_virtual_runs(
 Salva nel DB una pausa virtuale rilevata dentro un macro-movimento.
 """
 def _build_virtual_stop(trip, start, end) -> None:
-    VirtualStopInterval.objects.create(
-        trip=trip,
-        start_timestamp=start,
-        end_timestamp=end,
-    )
+    segments_repository.create_virtual_stop(trip, start, end)
 
 
 """
@@ -282,12 +272,11 @@ Salva nel DB un segmento MOVE con label, path e distanza.
 """
 def _build_move_segment(trip, start, end, label, gps, gps_timestamps) -> None:
     points = _gps_in(gps, gps_timestamps, start, end)
-    MobilitySegment.objects.create(
-        trip=trip,
-        kind=MobilitySegment.Kind.MOVE,
-        start_timestamp=start,
-        end_timestamp=end,
-        activity_label=label,
+    segments_repository.create_move_segment(
+        trip,
+        start=start,
+        end=end,
+        label=label,
         path=_segment_path(points),
         distance_meters=_path_distance(points),
     )

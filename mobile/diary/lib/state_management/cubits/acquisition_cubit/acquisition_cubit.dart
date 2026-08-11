@@ -39,21 +39,6 @@ class AcquisitionCubit extends Cubit<AcquisitionCubitState> {
     unawaited(_restoreAndResume());
   }
 
-  AcquisitionCubit.fromRepository(AcquisitionRepository repository)
-      : _trackingRepository = repository,
-        _syncRepository = repository,
-        super(
-          AcquisitionCubitState.fromSnapshot(
-            repository.currentSnapshot,
-            syncSnapshot: repository.currentSyncSnapshot,
-          ),
-        ) {
-    _snapshotSubscription = _trackingRepository.snapshots.listen(_emitSnapshot);
-    _syncSnapshotSubscription =
-        _syncRepository.syncSnapshots.listen(_emitSyncSnapshot);
-    unawaited(_restoreAndResume());
-  }
-
   /// Da invocare a ogni avvio autenticato (incluso l'autologin): verifica se
   /// esiste un viaggio in corso per questo dispositivo e, se device id e
   /// sessione SQLite corrispondono, lo riprende ridisegnando il percorso sulla

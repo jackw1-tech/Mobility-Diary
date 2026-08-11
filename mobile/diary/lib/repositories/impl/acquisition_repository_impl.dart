@@ -6,6 +6,7 @@ import 'package:diary/repositories/acquisition_strategy.dart';
 import 'package:diary/network/service/impl/acquisition_sensor_runtime.dart';
 import 'package:diary/repositories/impl/acquisition/live_acquisition_strategy.dart'
     hide HeartbeatTimerFactory;
+import 'package:diary/repositories/impl/acquisition/acquisition_snapshot_emitter.dart';
 import 'package:diary/repositories/impl/acquisition/replay_acquisition_strategy.dart';
 import 'package:diary/repositories/trip_sync_queue.dart';
 import 'package:diary/mappers/ingestion_mapper.dart';
@@ -20,6 +21,7 @@ typedef HeartbeatTimerFactory = Timer Function(
 );
 
 class AcquisitionRepositoryImpl extends WidgetsBindingObserver
+    with AcquisitionSnapshotEmitter
     implements AcquisitionRepository {
   final FsmConfig _config;
   final AcquisitionLocalDatabase _database;
@@ -38,14 +40,10 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
   final Stream<AppLifecycleState>? _lifecycleEvents;
   final bool _observesAppLifecycle;
 
-  final StreamController<AcquisitionSnapshot> _snapshotController =
-      StreamController<AcquisitionSnapshot>.broadcast(sync: true);
-
   AcquisitionStrategy? _activeStrategy;
   StreamSubscription<AcquisitionSnapshot>? _activeStrategySubscription;
   StreamSubscription<AppLifecycleState>? _lifecycleSubscription;
   Timer? _syncRetryTimer;
-  AcquisitionSnapshot _currentSnapshot = AcquisitionSnapshot.idle();
   AcquisitionSyncSnapshot _currentSyncSnapshot =
       const AcquisitionSyncSnapshot.none();
 
@@ -90,9 +88,6 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
   }
 
   @override
-  Stream<AcquisitionSnapshot> get snapshots => _snapshotController.stream;
-
-  @override
   Stream<AcquisitionSyncSnapshot> get syncSnapshots {
     return _dao.watchLatestSyncJob().map((job) {
       final snapshot = _syncSnapshotFromJob(job);
@@ -103,14 +98,11 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
   }
 
   @override
-  AcquisitionSnapshot get currentSnapshot => _currentSnapshot;
-
-  @override
   AcquisitionSyncSnapshot get currentSyncSnapshot => _currentSyncSnapshot;
 
   @override
   Future<void> startTracking() async {
-    if (_currentSnapshot.isTracking) {
+    if (currentSnapshot.isTracking) {
       return;
     }
     await _ensureNoUnclosedCoreSyncJob();
@@ -119,11 +111,11 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     _attachStrategy(strategy);
     try {
       await strategy.start();
-      _emit(strategy.currentSnapshot);
+      emitSnapshot(strategy.currentSnapshot);
       await _enqueuePendingLiveSyncIfNeeded(strategy);
     } catch (_) {
       await _disposeActiveStrategy();
-      _emit(AcquisitionSnapshot.idle());
+      emitSnapshot(AcquisitionSnapshot.idle());
       rethrow;
     }
   }
@@ -134,7 +126,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     DateTime? scheduledStartAt,
     double replaySpeedMultiplier = 1,
   }) async {
-    if (_currentSnapshot.isTracking) {
+    if (currentSnapshot.isTracking) {
       return;
     }
     await _ensureNoUnclosedCoreSyncJob();
@@ -151,10 +143,10 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     _attachStrategy(strategy);
     try {
       await strategy.start();
-      _emit(strategy.currentSnapshot);
+      emitSnapshot(strategy.currentSnapshot);
     } catch (_) {
       await _disposeActiveStrategy();
-      _emit(AcquisitionSnapshot.idle());
+      emitSnapshot(AcquisitionSnapshot.idle());
       rethrow;
     }
   }
@@ -163,12 +155,12 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
   Future<void> stopTracking() async {
     final strategy = _activeStrategy;
     if (strategy == null) {
-      _emit(AcquisitionSnapshot.idle());
+      emitSnapshot(AcquisitionSnapshot.idle());
       return;
     }
 
     final result = await strategy.stop();
-    _emit(strategy.currentSnapshot);
+    emitSnapshot(strategy.currentSnapshot);
     await _handleStopResult(result);
     await _disposeActiveStrategy();
   }
@@ -176,12 +168,12 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
   @override
   Future<ReplayStopResult> stopReplay() async {
     final strategy = _activeStrategy;
-    if (strategy == null || !_currentSnapshot.isReplay) {
+    if (strategy == null || !currentSnapshot.isReplay) {
       throw const IngestionApiException('Invalid state for stopReplay');
     }
 
     final result = await strategy.stop();
-    _emit(strategy.currentSnapshot);
+    emitSnapshot(strategy.currentSnapshot);
     await _handleStopResult(result);
     await _disposeActiveStrategy();
 
@@ -199,7 +191,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
       return;
     }
     await strategy.ingestEvent(event);
-    _emit(strategy.currentSnapshot);
+    emitSnapshot(strategy.currentSnapshot);
   }
 
   @override
@@ -210,16 +202,16 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
       final result = await liveStrategy.resumeOrReconcile();
       await _handleStopResult(result);
       if (liveStrategy.currentSnapshot.isTracking) {
-        _emit(liveStrategy.currentSnapshot);
+        emitSnapshot(liveStrategy.currentSnapshot);
       } else {
         await _disposeActiveStrategy();
-        _emit(AcquisitionSnapshot.idle());
+        emitSnapshot(AcquisitionSnapshot.idle());
       }
     } else if (_activeStrategy is LiveAcquisitionStrategy) {
       final liveStrategy = _activeStrategy! as LiveAcquisitionStrategy;
       final result = await liveStrategy.resumeOrReconcile();
       await _handleStopResult(result);
-      _emit(liveStrategy.currentSnapshot);
+      emitSnapshot(liveStrategy.currentSnapshot);
     }
 
     await _syncQueue?.kick();
@@ -257,7 +249,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     }
     _activeStrategySubscription?.cancel();
     _activeStrategy?.dispose();
-    _snapshotController.close();
+    closeSnapshots();
     _database.close();
   }
 
@@ -289,7 +281,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     _activeStrategySubscription?.cancel();
     _activeStrategy?.dispose();
     _activeStrategy = strategy;
-    _activeStrategySubscription = strategy.snapshots.listen(_emit);
+    _activeStrategySubscription = strategy.snapshots.listen(emitSnapshot);
   }
 
   Future<void> _disposeActiveStrategy() async {
@@ -320,13 +312,6 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     final syncSessionId = strategy.takePendingSyncSessionId();
     if (syncSessionId != null) {
       await _handleStopResult(AcquisitionStopResult.syncSession(syncSessionId));
-    }
-  }
-
-  void _emit(AcquisitionSnapshot snapshot) {
-    _currentSnapshot = snapshot;
-    if (!_snapshotController.isClosed) {
-      _snapshotController.add(snapshot);
     }
   }
 

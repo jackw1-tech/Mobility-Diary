@@ -1,6 +1,7 @@
 from ninja.security import HttpBearer
 
 from ..models import AccessToken
+from . import repositories
 from .session_cache import (
     cache_access_token,
     context_from_access_token,
@@ -18,11 +19,7 @@ class MobileBearerAuth(HttpBearer):
             return cached_context
 
         token_hash = AccessToken.hash_raw_token(token)
-        access_token = (
-            AccessToken.objects.select_related("user")
-            .filter(token_hash=token_hash)
-            .first()
-        )
+        access_token = repositories.access_token_by_hash(token_hash)
 
         if access_token is None or not access_token.is_valid:
             return None

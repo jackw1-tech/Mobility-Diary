@@ -37,6 +37,25 @@ class TripIngestionDioService implements TripIngestionService {
     );
   }
 
+  /// Esegue una richiesta Dio e mappa il body con [onSuccess], convertendo
+  /// qualunque errore in [IngestionApiException] via [_handleError]. Fattorizza
+  /// il try/catch identico ripetuto da quasi tutte le chiamate di questo
+  /// service.
+  Future<T> _send<T>(
+    Future<Response<dynamic>> Function() request,
+    T Function(dynamic data) onSuccess,
+  ) async {
+    try {
+      final response = await request();
+      return onSuccess(response.data);
+    } catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<void> _sendVoid(Future<Response<dynamic>> Function() request) =>
+      _send(request, (_) {});
+
   Exception _handleError(Object error) {
     if (error is IngestionApiException) return error;
     if (error is DioException) {
@@ -88,77 +107,62 @@ class TripIngestionDioService implements TripIngestionService {
     required String deviceId,
     String devicePlatform = '',
     int? sourceTripId,
-  }) async {
-    try {
-      final response = await _dio.post(
-        '$_base/start',
-        data: {
-          'client_session_id': clientSessionId,
-          'schema_version': 1,
-          'started_at': startedAt.toUtc().toIso8601String(),
-          'device_id': deviceId,
-          'device_platform': devicePlatform,
-          if (sourceTripId != null) 'source_trip_id': sourceTripId,
-        },
-        options: await _options(),
+  }) =>
+      _send(
+        () async => _dio.post(
+          '$_base/start',
+          data: {
+            'client_session_id': clientSessionId,
+            'schema_version': 1,
+            'started_at': startedAt.toUtc().toIso8601String(),
+            'device_id': deviceId,
+            'device_platform': devicePlatform,
+            if (sourceTripId != null) 'source_trip_id': sourceTripId,
+          },
+          options: await _options(),
+        ),
+        (data) => IngestionStartResultDto.fromJson(data as Map<String, dynamic>),
       );
-      return IngestionStartResultDto.fromJson(response.data);
-    } catch (e) {
-      throw _handleError(e);
-    }
-  }
 
   @override
   Future<void> abandonIngestion({
     required int ingestionId,
     required String deviceId,
-  }) async {
-    try {
-      await _dio.post(
-        '$_base/$ingestionId/abandon',
-        data: {'device_id': deviceId},
-        options: await _options(),
+  }) =>
+      _sendVoid(
+        () async => _dio.post(
+          '$_base/$ingestionId/abandon',
+          data: {'device_id': deviceId},
+          options: await _options(),
+        ),
       );
-    } catch (e) {
-      throw _handleError(e);
-    }
-  }
 
   @override
   Future<void> heartbeatIngestion({
     required int ingestionId,
     required String clientSessionId,
     required String deviceId,
-  }) async {
-    try {
-      await _dio.post(
-        '$_base/$ingestionId/heartbeat',
-        data: {
-          'client_session_id': clientSessionId,
-          'device_id': deviceId,
-        },
-        options: await _options(),
+  }) =>
+      _sendVoid(
+        () async => _dio.post(
+          '$_base/$ingestionId/heartbeat',
+          data: {
+            'client_session_id': clientSessionId,
+            'device_id': deviceId,
+          },
+          options: await _options(),
+        ),
       );
-    } catch (e) {
-      throw _handleError(e);
-    }
-  }
 
   @override
   Future<InlineCoreResultDto> postCoreInline({
     required Map<String, dynamic> body,
-  }) async {
-    try {
-      final response = await _dio.post(
-        '$_base/core',
-        data: body,
-        options: await _options(),
+  }) =>
+      _send(
+        () async =>
+            _dio.post('$_base/core', data: body, options: await _options()),
+        (data) => InlineCoreResultDto.fromJson(data as Map<String, dynamic>),
       );
-      return InlineCoreResultDto.fromJson(response.data);
-    } catch (e) {
-      throw _handleError(e);
-    }
-  }
 
   @override
   Future<PresignResultDto> presignPart(
@@ -166,22 +170,19 @@ class TripIngestionDioService implements TripIngestionService {
     required int sequence,
     required String sha256,
     required int sizeBytes,
-  }) async {
-    try {
-      final response = await _dio.post(
-        '$_base/$ingestionId/parts/presign',
-        data: {
-          'sequence': sequence,
-          'sha256': sha256,
-          'size_bytes': sizeBytes,
-        },
-        options: await _options(),
+  }) =>
+      _send(
+        () async => _dio.post(
+          '$_base/$ingestionId/parts/presign',
+          data: {
+            'sequence': sequence,
+            'sha256': sha256,
+            'size_bytes': sizeBytes,
+          },
+          options: await _options(),
+        ),
+        (data) => PresignResultDto.fromJson(data as Map<String, dynamic>),
       );
-      return PresignResultDto.fromJson(response.data);
-    } catch (e) {
-      throw _handleError(e);
-    }
-  }
 
   @override
   Future<void> uploadPart(
@@ -223,46 +224,34 @@ class TripIngestionDioService implements TripIngestionService {
     int ingestionId, {
     required int sequence,
     required String sha256,
-  }) async {
-    try {
-      await _dio.post(
-        '$_base/$ingestionId/parts/confirm',
-        data: {'sequence': sequence, 'sha256': sha256},
-        options: await _options(),
+  }) =>
+      _sendVoid(
+        () async => _dio.post(
+          '$_base/$ingestionId/parts/confirm',
+          data: {'sequence': sequence, 'sha256': sha256},
+          options: await _options(),
+        ),
       );
-    } catch (e) {
-      throw _handleError(e);
-    }
-  }
 
   @override
   Future<void> completeRawIngestion(
     int ingestionId, {
     required int totalParts,
-  }) async {
-    try {
-      await _dio.post(
-        '$_base/$ingestionId/complete-raw',
-        data: {'total_parts': totalParts},
-        options: await _options(),
+  }) =>
+      _sendVoid(
+        () async => _dio.post(
+          '$_base/$ingestionId/complete-raw',
+          data: {'total_parts': totalParts},
+          options: await _options(),
+        ),
       );
-    } catch (e) {
-      throw _handleError(e);
-    }
-  }
 
   @override
-  Future<IngestionStatusDto> getStatus(int ingestionId) async {
-    try {
-      final response = await _dio.get(
-        '$_base/$ingestionId',
-        options: await _options(),
+  Future<IngestionStatusDto> getStatus(int ingestionId) => _send(
+        () async =>
+            _dio.get('$_base/$ingestionId', options: await _options()),
+        (data) => IngestionStatusDto.fromJson(data as Map<String, dynamic>),
       );
-      return IngestionStatusDto.fromJson(response.data);
-    } catch (e) {
-      throw _handleError(e);
-    }
-  }
 
   @override
   Future<Map<String, dynamic>> getReplayData(int tripId) async {

@@ -6,6 +6,7 @@ from celery.signals import worker_process_init
 from django.db import transaction
 from django.utils import timezone
 
+from .ingestion import selectors as ingestion_repository
 from .ingestion.raw_sensor_loader import load_raw_sensor_windows_with_metrics
 from .models import (
     HarJob,
@@ -14,7 +15,9 @@ from .models import (
 )
 from .ml.har_adapter import HarModelUnavailable, warm_har_model
 from .ml.pipeline import run_pipeline
-from .services.sensor_readings import replace_raw_sensor_readings
+from .selectors import har_jobs as har_jobs_repository
+from .selectors import place_mining_status as place_mining_status_repository
+from .selectors.sensor_readings import replace_raw_sensor_readings
 from .significant_places import mine_user_significant_places
 
 logger = logging.getLogger(__name__)
@@ -45,14 +48,11 @@ def warm_har_model_on_worker_start(**_kwargs) -> None:
 
 
 def _place_mining_status_for_update(user_id: int) -> PlaceMiningStatus:
-    status, _ = PlaceMiningStatus.objects.get_or_create(
-        user_id=user_id,
-        defaults={
-            "status": PlaceMiningStatus.Status.IDLE,
-            "requested_at": timezone.now(),
-        },
+    return place_mining_status_repository.locked_status_for_user(
+        user_id,
+        default_status=PlaceMiningStatus.Status.IDLE,
+        requested_at=timezone.now(),
     )
-    return PlaceMiningStatus.objects.select_for_update().get(pk=status.pk)
 
 
 def _set_place_mining_pending(
@@ -163,13 +163,7 @@ def _schedule_place_mining(user_id: int) -> None:
 
 
 def _merge_har_job_result(job_id: int, updates: dict) -> dict:
-    with transaction.atomic():
-        job = HarJob.objects.select_for_update().get(id=job_id)
-        result = job.result if isinstance(job.result, dict) else {}
-        result = {**result, **updates}
-        job.result = result
-        job.save(update_fields=["result", "updated_at"])
-        return result
+    return har_jobs_repository.merge_har_job_result(job_id, updates)
 
 
 @shared_task(bind=True, max_retries=3, retry_backoff=True, default_retry_delay=30)
@@ -185,11 +179,8 @@ def persist_trip_raw_sensor_readings(self, job_id: int, ingestion_id: int) -> di
 
     try:
         lookup_started = perf_counter()
-        ingestion = (
-            TripIngestion.objects.select_related("trip")
-            .get(id=ingestion_id)
-        )
-        job = HarJob.objects.select_related("trip").get(id=job_id)
+        ingestion = ingestion_repository.ingestion_with_trip(ingestion_id)
+        job = har_jobs_repository.har_job_with_trip(job_id)
         trip = ingestion.trip or job.trip
         if trip is None:
             raise ValueError("trip non disponibile per la persistenza raw sensor")
@@ -284,11 +275,8 @@ def process_trip_har_final(self, job_id: int, ingestion_id: int) -> dict:
 
     status_started = perf_counter()
     with transaction.atomic():
-        ingestion = (
-            TripIngestion.objects.select_for_update()
-            .get(id=ingestion_id)
-        )
-        job = HarJob.objects.select_for_update().select_related("trip").get(id=job_id)
+        ingestion = ingestion_repository.locked_ingestion_by_id(ingestion_id)
+        job = har_jobs_repository.locked_har_job_with_trip(job_id)
         trip = ingestion.trip or job.trip
         trip_id = trip.id
 

@@ -1,10 +1,9 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:diary/network/service/trip_ingestion_service.dart';
 import 'package:diary/network/dto/place_mining_status_dto.dart';
 import 'package:diary/network/dto/place_review_dto.dart';
-import 'package:diary/other/constants/api_constants.dart';
+import 'package:diary/network/service/impl/http_json_utils.dart';
 
 abstract class PlacesService {
   Future<PlaceMiningStatusDto> fetchPlacesStatus();
@@ -94,49 +93,23 @@ class PlacesHttpService implements PlacesService {
     String path, {
     Map<String, dynamic>? body,
   }) async {
-    final token = await _tokenProvider();
-    if (token == null || token.isEmpty) {
-      throw const IngestionApiException('Sessione non disponibile');
-    }
-
-    final request = await _client.openUrl(method, _uri(path));
-    request.headers.contentType = ContentType.json;
-    request.headers.set(HttpHeaders.acceptHeader, 'application/json');
-    request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
-    if (body != null) {
-      final payload = utf8.encode(jsonEncode(body));
-      request.contentLength = payload.length;
-      request.add(payload);
-    } else {
-      request.contentLength = 0;
-    }
-
-    final response = await request.close().timeout(const Duration(seconds: 30));
-    final responseBody = await response.transform(utf8.decoder).join();
-
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      final blocked = _extractBlocked(response.statusCode, responseBody);
+    final response =
+        await sendAuthenticatedJson(_client, _tokenProvider, method, path,
+            body: body);
+    if (response.isError) {
+      final blocked = _extractBlocked(response.statusCode, response.body);
       if (blocked != null) throw blocked;
-      final detail = _extractDetail(responseBody);
+      final detail = _extractDetail(response.body);
       throw IngestionApiException(
         detail ?? 'Richiesta luoghi fallita (HTTP ${response.statusCode})',
         statusCode: response.statusCode,
       );
     }
-    return _tryDecode(responseBody);
-  }
-
-  dynamic _tryDecode(String body) {
-    if (body.isEmpty) return null;
-    try {
-      return jsonDecode(body);
-    } on FormatException {
-      return null;
-    }
+    return tryDecodeJson(response.body);
   }
 
   String? _extractDetail(String body) {
-    final decoded = _tryDecode(body);
+    final decoded = tryDecodeJson(body);
     if (decoded is Map && decoded['detail'] is String) {
       return decoded['detail'] as String;
     }
@@ -144,7 +117,7 @@ class PlacesHttpService implements PlacesService {
   }
 
   PlaceMutationBlockedException? _extractBlocked(int statusCode, String body) {
-    final decoded = _tryDecode(body);
+    final decoded = tryDecodeJson(body);
     if (statusCode != 409 || decoded is! Map) return null;
     if (decoded['code'] != 'place_mining_not_ready') return null;
     final status = decoded['status'] as String?;
@@ -155,13 +128,5 @@ class PlacesHttpService implements PlacesService {
       placeStatus: PlaceMiningStatusDto(status: status),
       statusCode: statusCode,
     );
-  }
-
-  Uri _uri(String path) {
-    final base = ApiConstants.baseApiUrl.endsWith('/')
-        ? ApiConstants.baseApiUrl
-            .substring(0, ApiConstants.baseApiUrl.length - 1)
-        : ApiConstants.baseApiUrl;
-    return Uri.parse('$base$path');
   }
 }

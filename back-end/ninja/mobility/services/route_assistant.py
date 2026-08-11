@@ -4,15 +4,13 @@ from dataclasses import dataclass
 
 from django.conf import settings
 
+from shared.exceptions import ServiceError
+
 from ..ml.har_adapter import predict_window_label
 
 
-class RouteAssistantValidationError(ValueError):
+class RouteAssistantValidationError(ServiceError):
     status_code = 422
-
-    def __init__(self, message: str):
-        super().__init__(message)
-        self.message = message
 
 
 @dataclass(frozen=True)

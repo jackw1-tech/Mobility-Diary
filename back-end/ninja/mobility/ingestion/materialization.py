@@ -3,11 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from django.contrib.gis.db.models.functions import Length
 from django.contrib.gis.geos import LineString, Point
 from django.utils import timezone
 
 from ..models import GpsPoint, StateTransition, Trip, TripIngestion
+from ..selectors import trip_evidence as trip_evidence_repository
+from ..selectors import trips as trips_repository
 
 
 class CoreMaterializationConflict(ValueError):
@@ -38,8 +39,8 @@ def materialized_trip_counts(trip: Trip | None) -> MaterializedTripCounts:
             path_points=0,
             distance_meters=0,
         )
-    gps_count = GpsPoint.objects.filter(trip=trip).count()
-    transition_count = StateTransition.objects.filter(trip=trip).count()
+    gps_count = trip_evidence_repository.gps_point_count(trip)
+    transition_count = trip_evidence_repository.state_transition_count(trip)
     return MaterializedTripCounts(
         gps_points=gps_count,
         state_transitions=transition_count,
@@ -90,9 +91,9 @@ def build_trip_path(trip: Trip) -> int:
     """Deriva la LineString del viaggio dai GPS ordinati nel DB."""
     coords = [
         (point.x, point.y)
-        for point in GpsPoint.objects.filter(trip=trip)
-        .order_by("timestamp", "id")
-        .values_list("point", flat=True)
+        for point in trip_evidence_repository.gps_points_ordered(trip).values_list(
+            "point", flat=True
+        )
     ]
     if len(set(coords)) < 2:
         trip.path = None
@@ -117,8 +118,8 @@ def _materialize_core_rows(
     gps_rows: list[GpsPoint],
     transition_rows: list[StateTransition],
 ) -> CoreMaterializationResult:
-    StateTransition.objects.bulk_create(transition_rows, ignore_conflicts=True)
-    GpsPoint.objects.bulk_create(gps_rows, ignore_conflicts=True)
+    trip_evidence_repository.bulk_create_state_transitions(transition_rows)
+    trip_evidence_repository.bulk_create_gps_points(gps_rows)
     path_points = build_trip_path(trip)
     counts = materialized_trip_counts(trip)
     return CoreMaterializationResult(
@@ -136,10 +137,8 @@ Avviene prima di completare effettivamnete il core, ma per comodità metto comun
 stato a closed tanto il tutto è avvolto in una transazione atomica
 """
 def _get_or_create_inline_trip(ingestion: TripIngestion) -> Trip:
-    trip = (
-        Trip.objects.select_for_update()
-        .filter(client_session_id=ingestion.client_session_id)
-        .first()
+    trip = trips_repository.locked_trip_by_client_session(
+        ingestion.client_session_id
     )
     if trip is not None and trip.user_id not in {None, ingestion.user_id}:
         raise CoreMaterializationConflict(
@@ -148,7 +147,7 @@ def _get_or_create_inline_trip(ingestion: TripIngestion) -> Trip:
     ended_at = ingestion.ended_at or timezone.now()
     started_at = ingestion.started_at or ended_at
     if trip is None:
-        return Trip.objects.create(
+        return trips_repository.create_trip(
             user_id=ingestion.user_id,
             client_session_id=ingestion.client_session_id,
             device_id=ingestion.device_id or "unknown",
@@ -191,13 +190,4 @@ def _get_or_create_inline_trip(ingestion: TripIngestion) -> Trip:
 Usa la funzione di PostGIS per calcolare la distanza del viaggio, in metri, a partire dalla LineString
 """
 def _distance_meters_from_postgis(trip: Trip) -> float:
-    row = (
-        Trip.objects.filter(pk=trip.pk)
-        .annotate(path_length=Length("path"))
-        .values("path_length")
-        .get()
-    )
-    distance = row["path_length"]
-    if distance is None:
-        return 0
-    return float(distance.m if hasattr(distance, "m") else distance)
+    return trips_repository.trip_path_length_meters(trip)

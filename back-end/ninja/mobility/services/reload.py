@@ -8,22 +8,25 @@ from datetime import timezone as dt_timezone
 
 from django.contrib.gis.geos import Point
 from django.db import transaction
-from django.db.models import Q
 from django.utils import timezone
 
-from ..ingestion.materialization import build_trip_path
-from ..ingestion.selectors import active_ingestions_for_owner
+from shared.exceptions import ServiceError
+
+from ..ingestion import selectors as ingestion_repository
+from ..ingestion.materialization import build_trip_path, materialized_trip_counts
 from ..models import GpsPoint, StateTransition, Trip, TripIngestion
-from ..replay_raw import regenerate_raw_and_queue_har
+from ..replay_raw import (
+    ReplayRawError,
+    ReplayStorageUnavailable,
+    regenerate_raw_and_queue_har,
+)
+from ..selectors import trip_evidence as trip_evidence_repository
+from ..selectors import trips as trips_repository
 from ..selectors.trips import source_has_raw_sensor_evidence
 
 
-class ReloadServiceError(ValueError):
+class ReloadServiceError(ServiceError):
     status_code = 409
-
-    def __init__(self, message: str):
-        super().__init__(message)
-        self.message = message
 
 
 class ReloadNotFound(ReloadServiceError):
@@ -32,6 +35,10 @@ class ReloadNotFound(ReloadServiceError):
 
 class ReloadValidationError(ReloadServiceError):
     status_code = 422
+
+
+class ReloadStorageUnavailable(ReloadServiceError):
+    status_code = 503
 
 
 @dataclass(frozen=True)
@@ -83,7 +90,7 @@ def reload_trip_from_source(
 ) -> dict:
     if not reload_request_id:
         raise ReloadValidationError("reload_request_id richiesto")
-    if active_ingestions_for_owner(user_id).exists():
+    if ingestion_repository.active_ingestions_for_owner(user_id).exists():
         raise ReloadServiceError("viaggio in corso attivo")
 
     now = now or timezone.now()
@@ -95,17 +102,15 @@ def reload_trip_from_source(
     )
 
     with transaction.atomic():
-        existing = (
-            TripIngestion.objects.select_for_update()
-            .filter(user_id=user_id, client_session_id=client_session_id)
-            .first()
+        existing = ingestion_repository.locked_ingestion_by_client_session(
+            user_id, client_session_id
         )
         if existing is not None:
             if existing.trip_id is not None:
                 return reload_response(existing)
-            existing.delete()
+            ingestion_repository.delete_ingestion(existing)
 
-        source = Trip.objects.select_for_update().get(id=source.id)
+        source = trips_repository.locked_trip_by_id(source.id)
         if not _is_reloadable_source(source):
             raise ReloadServiceError("viaggio non ricaricabile")
 
@@ -120,7 +125,7 @@ def reload_trip_from_source(
             _ensure_reload_slot_available(user_id, reload_start, reload_end, now)
         shift = reload_start - timeline.start
 
-        ingestion = TripIngestion.objects.create(
+        ingestion = ingestion_repository.create_ingestion_with_fields(
             user_id=user_id,
             client_session_id=client_session_id,
             device_id="reload",
@@ -134,7 +139,7 @@ def reload_trip_from_source(
         ingestion.raw_base_path = f"ingestions/{ingestion.id}/"
         ingestion.save(update_fields=["raw_base_path", "updated_at"])
 
-        trip = Trip.objects.create(
+        trip = trips_repository.create_trip(
             user_id=user_id,
             client_session_id=client_session_id,
             device_id="reload",
@@ -149,7 +154,12 @@ def reload_trip_from_source(
 
         ingestion.trip = trip
         ingestion.save(update_fields=["trip", "updated_at"])
-        regenerate_raw_and_queue_har(ingestion, source, shift=shift, now=reload_end)
+        try:
+            regenerate_raw_and_queue_har(ingestion, source, shift=shift, now=reload_end)
+        except ReplayStorageUnavailable as exc:
+            raise ReloadStorageUnavailable(exc.message) from exc
+        except ReplayRawError as exc:
+            raise ReloadServiceError(exc.message) from exc
         return reload_response(ingestion)
 
 
@@ -157,26 +167,25 @@ def reload_response(ingestion: TripIngestion) -> dict:
     trip = ingestion.trip
     if trip is None:
         raise ReloadServiceError("reload senza trip materializzato")
-    gps_count = GpsPoint.objects.filter(trip=trip).count()
-    transition_count = StateTransition.objects.filter(trip=trip).count()
+    counts = materialized_trip_counts(trip)
     return {
         "ingestion_id": ingestion.id,
         "trip_id": trip.id,
         "core_status": ingestion.core_status,
         "raw_status": ingestion.raw_status,
-        "gps_points": gps_count,
-        "state_transitions": transition_count,
-        "path_points": gps_count,
-        "distance_meters": float(trip.distance_meters or 0),
+        "gps_points": counts.gps_points,
+        "state_transitions": counts.state_transitions,
+        "path_points": counts.path_points,
+        "distance_meters": counts.distance_meters,
         "map_available": trip.path is not None,
     }
 
 
 def _owned_source_or_error(user_id: int, trip_id: int) -> Trip:
-    try:
-        return Trip.objects.get(id=trip_id, user_id=user_id)
-    except Trip.DoesNotExist as exc:
-        raise ReloadNotFound("Trip non trovato") from exc
+    trip = trips_repository.trip_by_id_for_user(trip_id, user_id)
+    if trip is None:
+        raise ReloadNotFound("Trip non trovato")
+    return trip
 
 
 def _reloadable_source_or_error(user_id: int, trip_id: int) -> Trip:
@@ -220,11 +229,7 @@ def _source_timeline(source: Trip) -> ReloadTimeline:
 
 
 def _user_trip_overlaps(user_id: int, start: datetime, end: datetime) -> bool:
-    return (
-        Trip.objects.filter(user_id=user_id, started_at__lt=end)
-        .filter(Q(ended_at__isnull=True) | Q(ended_at__gt=start))
-        .exists()
-    )
+    return trips_repository.trip_overlaps_window(user_id, start=start, end=end)
 
 
 def _ensure_reload_slot_available(
@@ -257,11 +262,8 @@ def _reload_slot_candidates(
     window_start = now - timedelta(days=max(1, min(days, 30)))
     step_minutes = max(5, min(step_minutes, 60))
     limit = max(1, min(limit, 500))
-    busy_rows = (
-        Trip.objects.filter(user_id=user_id, started_at__lt=now)
-        .filter(Q(ended_at__isnull=True) | Q(ended_at__gt=window_start))
-        .order_by("started_at")
-        .values_list("started_at", "ended_at")
+    busy_rows = trips_repository.trip_busy_intervals(
+        user_id, before=now, active_after=window_start
     )
     busy = [
         (max(start, window_start), min(end or now, now))
@@ -297,7 +299,7 @@ def _copy_core_evidence(
     trip: Trip,
     shift: timedelta,
 ) -> None:
-    GpsPoint.objects.bulk_create(
+    trip_evidence_repository.bulk_create_gps_points(
         [
             GpsPoint(
                 trip=trip,
@@ -307,10 +309,9 @@ def _copy_core_evidence(
                 accuracy_meters=point.accuracy_meters,
             )
             for point in timeline.points
-        ],
-        ignore_conflicts=True,
+        ]
     )
-    StateTransition.objects.bulk_create(
+    trip_evidence_repository.bulk_create_state_transitions(
         [
             StateTransition(
                 trip=trip,
@@ -322,6 +323,5 @@ def _copy_core_evidence(
                 speed_mps=transition.speed_mps,
             )
             for transition in timeline.transitions
-        ],
-        ignore_conflicts=True,
+        ]
     )

@@ -7,6 +7,7 @@ import 'package:diary/state_management/cubits/places_cubit/places_cubit_state.da
 import 'package:diary/theme/color_palette.dart';
 import 'package:diary/theme/dimensions.dart';
 import 'package:diary/ui/pages/place_presenter.dart';
+import 'package:diary/ui/widgets/state_message.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -41,12 +42,12 @@ class _PlacesBody extends StatelessWidget {
           case PlacesStatus.loading:
             return const Center(child: CircularProgressIndicator());
           case PlacesStatus.empty:
-            return const _PlacesMessage(
+            return const StateMessage(
               icon: Icons.place_outlined,
               text: 'Nessun luogo significativo ancora riconosciuto',
             );
           case PlacesStatus.error:
-            return _PlacesMessage(
+            return StateMessage(
               icon: Icons.error_outline,
               text: state.error ?? 'Errore nel caricamento',
               onRetry: () => context.read<PlacesCubit>().load(),
@@ -168,43 +169,6 @@ class _PlaceCard extends StatelessWidget {
           // Al ritorno, ricarica la lista per riflettere le azioni manuali.
           if (context.mounted) context.read<PlacesCubit>().load();
         },
-      ),
-    );
-  }
-}
-
-class _PlacesMessage extends StatelessWidget {
-  final IconData icon;
-  final String text;
-  final VoidCallback? onRetry;
-
-  const _PlacesMessage({
-    required this.icon,
-    required this.text,
-    this.onRetry,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(Dimensions.paddingLarge),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: ColorPalette.textSecondary),
-            const SizedBox(height: Dimensions.paddingSmall),
-            Text(text, textAlign: TextAlign.center),
-            if (onRetry != null) ...[
-              const SizedBox(height: Dimensions.paddingMedium),
-              FilledButton.icon(
-                onPressed: onRetry,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Riprova'),
-              ),
-            ],
-          ],
-        ),
       ),
     );
   }

@@ -9,6 +9,7 @@ import 'package:diary/ui/pages/trip_diary_tabs.dart';
 import 'package:diary/ui/pages/trip_map_page.dart';
 import 'package:diary/ui/widgets/trip_privacy_export_sheet.dart';
 import 'package:diary/ui/widgets/trips_drawer_presenter.dart';
+import 'package:diary/utils/date_time_utils.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -172,7 +173,7 @@ class _SameDayTripSelectorState extends State<_SameDayTripSelector> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      _formatTime(selectedTrip.startedAt.toLocal()),
+                      DateTimeUtils.formatTime(selectedTrip.startedAt),
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             fontWeight: FontWeight.w700,
                           ),
@@ -187,7 +188,7 @@ class _SameDayTripSelectorState extends State<_SameDayTripSelector> {
                           min: 0,
                           max: (widget.trips.length - 1).toDouble(),
                           divisions: widget.trips.length - 1,
-                          label: _formatTime(selectedTrip.startedAt.toLocal()),
+                          label: DateTimeUtils.formatTime(selectedTrip.startedAt),
                           onChanged: (value) {
                             final index = value.round();
                             widget.onSelectTrip(widget.trips[index]);
@@ -210,9 +211,4 @@ class _SameDayTripSelectorState extends State<_SameDayTripSelector> {
       ),
     );
   }
-}
-
-String _formatTime(DateTime dt) {
-  String two(int n) => n.toString().padLeft(2, '0');
-  return '${two(dt.hour)}:${two(dt.minute)}';
 }

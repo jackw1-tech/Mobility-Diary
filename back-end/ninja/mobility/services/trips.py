@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import datetime
+
 from django.db import transaction
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
+
+from shared.exceptions import ServiceError
 
 from ..ingestion import storage
-from ..models import SensorWindow, Trip, TripIngestion, TripIngestionPart
+from ..models import Trip
+from ..selectors import trips as trips_repository
 from ..selectors.trips import (
     source_has_raw_sensor_evidence,
     trip_has_reload_usage,
@@ -11,12 +19,8 @@ from ..selectors.trips import (
 )
 
 
-class TripServiceError(ValueError):
+class TripServiceError(ServiceError):
     status_code = 409
-
-    def __init__(self, message: str):
-        super().__init__(message)
-        self.message = message
 
 
 class TripNotFound(TripServiceError):
@@ -25,6 +29,57 @@ class TripNotFound(TripServiceError):
 
 class TripValidationError(TripServiceError):
     status_code = 422
+
+
+@dataclass(frozen=True)
+class RawTripFilterParams:
+    """Parametri grezzi (stringhe) letti dalla querystring della dashboard web."""
+
+    started_from: str | None = None
+    started_to: str | None = None
+    status: str | None = None
+    processed: str | None = None
+    has_track: str | None = None
+
+
+def _parse_datetime_filter(name: str, raw_value: str | None) -> datetime | None:
+    if not raw_value:
+        return None
+    value = parse_datetime(raw_value)
+    if value is None:
+        raise TripValidationError(f"Filtro {name} non valido")
+    return timezone.make_aware(value) if timezone.is_naive(value) else value
+
+
+def _parse_bool_filter(name: str, raw_value: str | None) -> bool | None:
+    if not raw_value:
+        return None
+    normalized = raw_value.lower()
+    if normalized in {"true", "1", "yes"}:
+        return True
+    if normalized in {"false", "0", "no"}:
+        return False
+    raise TripValidationError(f"Filtro {name} non valido")
+
+
+def parse_trip_filters(params: RawTripFilterParams) -> trips_repository.TripFilters:
+    """Valida i filtri grezzi della dashboard web e li normalizza.
+
+    Business logic (validazione, error raising): la queryset viene poi
+    costruita da `selectors.trips.apply_trip_filters`, che non solleva mai
+    eccezioni HTTP/dominio.
+    """
+    status = params.status
+    if status and status not in Trip.Status.values:
+        raise TripValidationError("Filtro status non valido")
+
+    return trips_repository.TripFilters(
+        started_from=_parse_datetime_filter("from", params.started_from),
+        started_to=_parse_datetime_filter("to", params.started_to),
+        status=status,
+        processed=_parse_bool_filter("processed", params.processed),
+        has_track=_parse_bool_filter("has_track", params.has_track),
+    )
 
 
 def update_trip_reloadable(
@@ -57,11 +112,7 @@ def update_trip_note(
     note: str,
 ) -> dict:
     trip = _owned_trip(user_id, trip_id)
-    if not TripIngestion.objects.filter(
-        trip=trip,
-        core_status=TripIngestion.PhaseStatus.COMPLETED,
-        raw_status=TripIngestion.PhaseStatus.COMPLETED,
-    ).exists():
+    if not trips_repository.trip_has_completed_ingestion(trip):
         raise TripServiceError("nota disponibile solo a viaggio completato")
 
     normalized_note = note.strip()
@@ -82,34 +133,22 @@ def delete_trip(
         if trip_has_reload_usage(trip):
             raise TripServiceError("viaggio gia' usato come sorgente")
 
-        object_keys = _trip_object_keys(trip)
+        object_keys = trips_repository.trip_object_keys(trip)
         for object_key in object_keys:
             storage.delete_object(object_key)
-        TripIngestion.objects.filter(trip=trip).delete()
+        trips_repository.delete_trip_ingestions(trip)
         trip.delete()
 
 
 def _owned_trip(user_id: int, trip_id: int) -> Trip:
-    try:
-        return Trip.objects.get(id=trip_id, user_id=user_id)
-    except Trip.DoesNotExist as exc:
-        raise TripNotFound("Trip non trovato") from exc
+    trip = trips_repository.trip_by_id_for_user(trip_id, user_id)
+    if trip is None:
+        raise TripNotFound("Trip non trovato")
+    return trip
 
 
 def _locked_owned_trip(user_id: int, trip_id: int) -> Trip:
-    try:
-        return Trip.objects.select_for_update().get(id=trip_id, user_id=user_id)
-    except Trip.DoesNotExist as exc:
-        raise TripNotFound("Trip non trovato") from exc
-
-
-def _trip_object_keys(trip: Trip) -> list[str]:
-    sensor_keys = (
-        SensorWindow.objects.filter(trip=trip)
-        .exclude(object_key="")
-        .values_list("object_key", flat=True)
-    )
-    ingestion_keys = TripIngestionPart.objects.filter(
-        ingestion__trip=trip
-    ).values_list("object_key", flat=True)
-    return sorted({key for key in [*sensor_keys, *ingestion_keys] if key})
+    trip = trips_repository.locked_trip_by_id_for_user(trip_id, user_id)
+    if trip is None:
+        raise TripNotFound("Trip non trovato")
+    return trip

@@ -9,6 +9,7 @@ import 'package:diary/network/service/impl/acquisition_sensor_runtime.dart';
 import 'package:diary/network/service/trip_ingestion_service.dart';
 import 'package:diary/network/dto/ingestion/active_ingestion_dto.dart';
 import 'package:diary/mappers/ingestion_mapper.dart';
+import 'package:diary/repositories/impl/acquisition/acquisition_snapshot_emitter.dart';
 
 import 'package:flutter/widgets.dart';
 import 'package:uuid/uuid.dart';
@@ -19,6 +20,7 @@ typedef HeartbeatTimerFactory = Timer Function(
 );
 
 class LiveAcquisitionStrategy extends WidgetsBindingObserver
+    with AcquisitionSnapshotEmitter
     implements AcquisitionStrategy {
   static const Duration _backgroundInertialStaleAfter = Duration(seconds: 12);
   static const String _resumeInertialStaleReason = 'resume_inertial_stale';
@@ -44,11 +46,8 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
   // DateTime.now() reale, rendendo i test dipendenti da quando vengono
   // eseguiti rispetto a timestamp fissi nei fixture.
   final DateTime Function() _now;
-  final StreamController<AcquisitionSnapshot> _snapshotController =
-      StreamController<AcquisitionSnapshot>.broadcast(sync: true);
 
   late AcquisitionFsm _fsm;
-  AcquisitionSnapshot _currentSnapshot = AcquisitionSnapshot.idle();
   String? _currentSessionId;
   String? _pendingSyncSessionId;
   Timer? _heartbeatTimer;
@@ -105,18 +104,12 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
   }
 
   @override
-  Stream<AcquisitionSnapshot> get snapshots => _snapshotController.stream;
-
-  @override
-  AcquisitionSnapshot get currentSnapshot => _currentSnapshot;
-
-  @override
   Future<void> start() async {
     await startTracking();
   }
 
   Future<void> startTracking() async {
-    if (_currentSnapshot.isTracking) {
+    if (currentSnapshot.isTracking) {
       return;
     }
     if (await _dao.latestUnclosedCoreSyncJob() != null) {
@@ -165,7 +158,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     _currentRemoteIngestionId = remoteStart?.ingestionId;
     _currentDeviceId = deviceId;
     _restartHeartbeat();
-    _emit(
+    emitSnapshot(
       AcquisitionSnapshot(
         isTracking: true,
         trackingState: TrackingState.stationary,
@@ -207,7 +200,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     _persistedSensorWindowKeys.clear();
     _latestMotionWindowAt = null;
     _fsm = AcquisitionFsm(config: _config);
-    _emit(AcquisitionSnapshot.idle());
+    emitSnapshot(AcquisitionSnapshot.idle());
 
     if (sessionId == null) {
       return const AcquisitionStopResult.none();
@@ -217,7 +210,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
 
   @override
   Future<void> ingestEvent(TrackingEvent event) async {
-    if (!_currentSnapshot.isTracking) {
+    if (!currentSnapshot.isTracking) {
       return;
     }
 
@@ -265,7 +258,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
 
     await _persistCompletedHarWindowsIfNeeded(decision);
 
-    _emit(
+    emitSnapshot(
       AcquisitionSnapshot(
         isTracking: true,
         trackingState: decision.state,
@@ -301,7 +294,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
   @override
   Future<List<AcquisitionRoutePoint>> currentSessionRoute() async {
     final sessionId = _currentSessionId;
-    if (sessionId == null || !_currentSnapshot.isTracking) {
+    if (sessionId == null || !currentSnapshot.isTracking) {
       return const [];
     }
     final points = await _dao.gpsPointsForSession(sessionId);
@@ -314,7 +307,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
   @override
   Future<List<List<double>>> currentSensorWindow() async {
     final sessionId = _currentSessionId;
-    if (sessionId == null || !_currentSnapshot.isTracking) {
+    if (sessionId == null || !currentSnapshot.isTracking) {
       return const [];
     }
     final window = await _dao.latestSensorWindow(sessionId);
@@ -335,19 +328,12 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     if (_ownsRuntime) {
       _runtime?.dispose();
     }
-    _snapshotController.close();
+    closeSnapshots();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _handleLifecycleState(state);
-  }
-
-  void _emit(AcquisitionSnapshot snapshot) {
-    _currentSnapshot = snapshot;
-    if (!_snapshotController.isClosed) {
-      _snapshotController.add(snapshot);
-    }
   }
 
   Future<String> _resolveDeviceId() async {
@@ -399,18 +385,13 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
   ActiveIngestionDto? _activeIngestionFromConflict(
       IngestionApiException error) {
     final active = error.body['active_ingestion'];
-    if (active is Map<String, dynamic>) {
-      return ActiveIngestionDto.fromJson(active);
-    }
-    if (active is Map) {
-      return ActiveIngestionDto.fromJson(Map<String, dynamic>.from(active));
-    }
-    return null;
+    if (active is! Map) return null;
+    return ActiveIngestionDto.fromJson(Map<String, dynamic>.from(active));
   }
 
   Future<void> _reconcileRemoteActiveIngestion() async {
     final api = _ingestionService;
-    if (api == null || _currentSnapshot.isTracking) {
+    if (api == null || currentSnapshot.isTracking) {
       return;
     }
 
@@ -498,7 +479,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     final ingestionId = _currentRemoteIngestionId;
     final clientSessionId = _currentSessionId;
     final deviceId = _currentDeviceId;
-    if (!_currentSnapshot.isTracking ||
+    if (!currentSnapshot.isTracking ||
         api == null ||
         ingestionId == null ||
         clientSessionId == null ||
@@ -518,7 +499,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
   }
 
   Future<void> _resumeOpenTrackingSessionIfNeeded() async {
-    if (_currentSnapshot.isTracking) {
+    if (currentSnapshot.isTracking) {
       return;
     }
 
@@ -560,7 +541,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
       latestTransition: latestTransition,
       latestSensorWindow: latestSensorWindow,
     );
-    final trackingState = _trackingStateFromWire(latestTransition?.toState);
+    final trackingState = TrackingState.fromWire(latestTransition?.toState);
     final profile = SamplingProfile.forState(trackingState);
     final snapshotUpdatedAt = _latestKnownEventAt(
       session,
@@ -579,7 +560,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     _latestLongitude = latestGpsPoint?.longitude;
     _latestAccuracyMeters = latestGpsPoint?.accuracyMeters;
 
-    _emit(
+    emitSnapshot(
       AcquisitionSnapshot(
         isTracking: true,
         trackingState: trackingState,
@@ -590,7 +571,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
         lastTransition: latestTransition == null
             ? null
             : FsmTransition(
-                from: _trackingStateFromWire(latestTransition.fromState),
+                from: TrackingState.fromWire(latestTransition.fromState),
                 to: trackingState,
                 reason: latestTransition.reason,
                 timestamp: latestTransition.timestamp,
@@ -638,7 +619,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     required StateTransition? latestTransition,
     required SensorWindow? latestSensorWindow,
   }) async {
-    if (_trackingStateFromWire(latestTransition?.toState) !=
+    if (TrackingState.fromWire(latestTransition?.toState) !=
         TrackingState.movement) {
       return latestTransition;
     }
@@ -688,18 +669,9 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
   ) async {
     await _dao.endSession(id: sessionId, endedAt: lastKnownAt);
     _pendingSyncSessionId = sessionId;
-    _emit(AcquisitionSnapshot.idle());
+    emitSnapshot(AcquisitionSnapshot.idle());
   }
 
-  TrackingState _trackingStateFromWire(String? wireName) {
-    switch (wireName) {
-      case 'MOVEMENT':
-        return TrackingState.movement;
-      case 'STATIONARY':
-      default:
-        return TrackingState.stationary;
-    }
-  }
 
   Future<void> _persistCompletedHarWindowsIfNeeded(
     FsmDecision decision,
@@ -720,7 +692,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
   Future<void> _persistHarWindowIfActive(HarSensorWindow window) async {
     final sessionId = _currentSessionId;
     if (sessionId == null ||
-        !_currentSnapshot.samplingProfile.persistSensorWindows) {
+        !currentSnapshot.samplingProfile.persistSensorWindows) {
       return;
     }
 

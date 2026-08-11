@@ -17,6 +17,7 @@ import 'package:diary/ui/pages/auth_page.dart';
 import 'package:diary/ui/widgets/live_map.dart';
 import 'package:diary/ui/widgets/privacy_onboarding_dialog.dart';
 import 'package:diary/ui/widgets/route_assistant_search_sheet.dart';
+import 'package:diary/ui/widgets/surface_card.dart';
 import 'package:diary/ui/widgets/trips_drawer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -219,23 +220,6 @@ class _AuthenticatedHomePageState extends State<_AuthenticatedHomePage> {
       ),
     );
   }
-}
-
-int? autoOpenTripDetailId(
-  AcquisitionCubitState previous,
-  AcquisitionCubitState current,
-) {
-  final replayTripId = current.completedReplayTripId;
-  if (replayTripId != null && previous.completedReplayTripId != replayTripId) {
-    return replayTripId;
-  }
-
-  final sync = current.syncSnapshot;
-  if (!previous.syncSnapshot.canOpenCoreDetail && sync.canOpenCoreDetail) {
-    return sync.remoteTripId;
-  }
-
-  return null;
 }
 
 bool shouldShowSyncDebugSnack(
@@ -577,7 +561,7 @@ class _TrackingHeader extends StatelessWidget {
     final statusColor =
         state.isTracking ? ColorPalette.success : ColorPalette.textSecondary;
 
-    return _Panel(
+    return SurfaceCard(
       child: Row(
         children: [
           Container(
@@ -748,7 +732,7 @@ class _MetricTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _Panel(
+    return SurfaceCard(
       child: Row(
         children: [
           Icon(icon, color: color),
@@ -783,23 +767,3 @@ class _MetricTile extends StatelessWidget {
   }
 }
 
-class _Panel extends StatelessWidget {
-  final Widget child;
-
-  const _Panel({required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: ColorPalette.surface,
-        borderRadius: BorderRadius.circular(Dimensions.borderRadiusLarge),
-        border: Border.all(color: ColorPalette.hairline),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(Dimensions.paddingMedium),
-        child: child,
-      ),
-    );
-  }
-}

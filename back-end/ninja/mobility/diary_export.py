@@ -14,6 +14,7 @@ from .privacy import (
     line_geojson,
     privacy_cell_size_meters,
 )
+from .selectors.places import confirmed_places_for_user
 from .significant_places import (
     place_label,
     stop_like_source_intervals,
@@ -84,12 +85,7 @@ def build_trip_privacy_export(trip: Trip, *, level: str) -> DiaryPrivacyExport:
     persisted_segments = list(trip.segments.all())
     virtual_stop_intervals = list(trip.virtual_stop_intervals.all())
     gps = list(trip.gps_points.order_by("timestamp"))
-    confirmed = list(
-        HabitualPlace.objects.filter(
-            user_id=trip.user_id,
-            state=HabitualPlace.State.CONFIRMED,
-        )
-    )
+    confirmed = confirmed_places_for_user(trip.user_id)
     source_intervals = stop_like_source_intervals(
         persisted_segments,
         virtual_stop_intervals,

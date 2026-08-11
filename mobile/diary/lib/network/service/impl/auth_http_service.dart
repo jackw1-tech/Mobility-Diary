@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:diary/network/dto/auth_session_dto.dart';
 import 'package:diary/network/dto/user_dto.dart';
 import 'package:diary/network/service/auth_service.dart';
+import 'package:diary/network/service/impl/http_json_utils.dart';
 import 'package:diary/other/constants/api_constants.dart';
 
 class AuthHttpService implements AuthService {
@@ -82,7 +83,7 @@ class AuthHttpService implements AuthService {
     String? accessToken,
   }) async {
     final request = await _client
-        .openUrl(method, _uri(path))
+        .openUrl(method, resolveApiUri(path))
         .timeout(const Duration(seconds: 10));
 
     request.headers.contentType = ContentType.json;
@@ -115,13 +116,5 @@ class AuthHttpService implements AuthService {
     }
 
     return decoded;
-  }
-
-  Uri _uri(String path) {
-    final base = ApiConstants.baseApiUrl.endsWith('/')
-        ? ApiConstants.baseApiUrl
-            .substring(0, ApiConstants.baseApiUrl.length - 1)
-        : ApiConstants.baseApiUrl;
-    return Uri.parse('$base$path');
   }
 }

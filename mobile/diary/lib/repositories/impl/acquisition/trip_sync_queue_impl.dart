@@ -163,21 +163,7 @@ class TripSyncQueueImpl implements TripSyncQueue {
               ? Value(status.tripId)
               : const Value.absent(),
         );
-        if (status.isRawDone) {
-          await _finalizeAllDone(job, package);
-          return;
-        }
-        if (status.isRawFailedFinal) {
-          await _discardJob(job, remoteTripId: status.tripId);
-          return;
-        }
-        if (status.isRawBackendProcessing) {
-          await _deletePackageDirectory(package);
-          await _waitForRawProcessing(
-            job,
-            remoteIngestionId: ingestionId,
-            delay: _processingDelayFor(status.rawStatus),
-          );
+        if (await _handleRawOutcome(job, package, ingestionId, status)) {
           return;
         }
         if (status.canReceiveRawParts) {
@@ -194,21 +180,7 @@ class TripSyncQueueImpl implements TripSyncQueue {
           );
           status =
               _mapper.mapIngestionStatus(await _service.getStatus(ingestionId));
-          if (status.isRawDone) {
-            await _finalizeAllDone(job, package);
-            return;
-          }
-          if (status.isRawFailedFinal) {
-            await _discardJob(job, remoteTripId: status.tripId);
-            return;
-          }
-          if (status.isRawBackendProcessing) {
-            await _deletePackageDirectory(package);
-            await _waitForRawProcessing(
-              job,
-              remoteIngestionId: ingestionId,
-              delay: _processingDelayFor(status.rawStatus),
-            );
+          if (await _handleRawOutcome(job, package, ingestionId, status)) {
             return;
           }
         }
@@ -219,21 +191,7 @@ class TripSyncQueueImpl implements TripSyncQueue {
           );
           status =
               _mapper.mapIngestionStatus(await _service.getStatus(ingestionId));
-          if (status.isRawDone) {
-            await _finalizeAllDone(job, package);
-            return;
-          }
-          if (status.isRawFailedFinal) {
-            await _discardJob(job, remoteTripId: status.tripId);
-            return;
-          }
-          if (status.isRawBackendProcessing) {
-            await _deletePackageDirectory(package);
-            await _waitForRawProcessing(
-              job,
-              remoteIngestionId: ingestionId,
-              delay: _processingDelayFor(status.rawStatus),
-            );
+          if (await _handleRawOutcome(job, package, ingestionId, status)) {
             return;
           }
         }
@@ -252,6 +210,37 @@ class TripSyncQueueImpl implements TripSyncQueue {
     } catch (error) {
       await _handleFailure(job, error);
     }
+  }
+
+  /// Gestisce gli esiti terminali/di attesa dello stato raw comuni ai tre
+  /// punti in cui viene ricontrollato in [_processJob] (subito dopo il core,
+  /// dopo l'upload delle parti mancanti, dopo il complete). Ritorna `true` se
+  /// lo stato e' stato gestito (il chiamante deve fermarsi), `false` se serve
+  /// proseguire con i passi successivi (upload/complete).
+  Future<bool> _handleRawOutcome(
+    SyncJob job,
+    TripPackage package,
+    int ingestionId,
+    IngestionStatus status,
+  ) async {
+    if (status.isRawDone) {
+      await _finalizeAllDone(job, package);
+      return true;
+    }
+    if (status.isRawFailedFinal) {
+      await _discardJob(job, remoteTripId: status.tripId);
+      return true;
+    }
+    if (status.isRawBackendProcessing) {
+      await _deletePackageDirectory(package);
+      await _waitForRawProcessing(
+        job,
+        remoteIngestionId: ingestionId,
+        delay: _processingDelayFor(status.rawStatus),
+      );
+      return true;
+    }
+    return false;
   }
 
   Future<void> _uploadMissingParts(

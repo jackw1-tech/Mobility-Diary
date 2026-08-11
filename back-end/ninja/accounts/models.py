@@ -1,6 +1,4 @@
 import hashlib
-import secrets
-from datetime import timedelta
 
 from django.conf import settings
 from django.db import models
@@ -27,28 +25,24 @@ class AccessToken(models.Model):
 
     """
     Funzione che prende un token raw e lo converte in una stringa hashata con SHA-256
+
+    E' una pura utility di hashing (nessuna query, nessuna decisione di
+    dominio): resta sul modello perche' descrive il formato di
+    `token_hash`, ma la creazione/emissione del token (che e' business
+    logic: generazione del segreto, calcolo della scadenza, persistenza)
+    vive nel service layer (accounts.auth_mobile.services).
     """
     @staticmethod
     def hash_raw_token(raw_token: str) -> str:
         return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
 
-
-    """
-    Funzione della classe che server per creare un nuovo token di accesso,
-    una volta creato, nel db non salviamo lui, ma salviamo una stringa ottenuto da SHA-256
-    """
-    @classmethod
-    def issue_for_user(cls, user, *, device_name: str = ""):
-        raw_token = secrets.token_urlsafe(48)
-        ttl_days = getattr(settings, "MOBILE_ACCESS_TOKEN_TTL_DAYS", 30)
-
-        access_token = cls.objects.create(
-            user=user,
-            token_hash=cls.hash_raw_token(raw_token),
-            device_name=device_name[:128],
-            expires_at=timezone.now() + timedelta(days=ttl_days),
+    @property
+    def is_valid(self) -> bool:
+        return (
+            self.revoked_at is None
+            and self.expires_at > timezone.now()
+            and self.user.is_active
         )
-        return raw_token, access_token
 
     def revoke(self) -> None:
         self.revoked_at = timezone.now()
