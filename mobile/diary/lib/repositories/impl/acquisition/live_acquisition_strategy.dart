@@ -8,15 +8,16 @@ import 'package:diary/model/entities/acquisition/sensor_matrix_blob.dart';
 import 'package:diary/network/service/impl/acquisition_sensor_runtime.dart';
 import 'package:diary/network/service/trip_ingestion_service.dart';
 import 'package:diary/mappers/ingestion_mapper.dart';
+import 'package:diary/repositories/impl/acquisition/acquisition_resume_timing.dart';
 import 'package:diary/repositories/impl/acquisition/acquisition_snapshot_emitter.dart';
+import 'package:diary/repositories/impl/acquisition/har_window_recorder.dart';
+import 'package:diary/repositories/impl/acquisition/ingestion_heartbeat.dart';
 
 import 'package:flutter/widgets.dart';
 import 'package:uuid/uuid.dart';
 
-typedef HeartbeatTimerFactory = Timer Function(
-  Duration duration,
-  void Function(Timer timer) callback,
-);
+export 'package:diary/repositories/impl/acquisition/ingestion_heartbeat.dart'
+    show HeartbeatTimerFactory;
 
 class LiveAcquisitionStrategy extends WidgetsBindingObserver
     with AcquisitionSnapshotEmitter
@@ -34,8 +35,8 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
   final bool _ownsRuntime;
   final TripIngestionService? _ingestionService;
   final IngestionMapper _mapper;
-  final Duration _heartbeatInterval;
-  final HeartbeatTimerFactory _heartbeatTimerFactory;
+  late final IngestionHeartbeat _heartbeat;
+  late final HarWindowRecorder _harWindows;
   final bool _observesAppLifecycle;
   // Se, riprendendo una sessione aperta, l'ultimo dato registrato e' piu'
   // vecchio di questa soglia (es. telefono spento per ore), la sessione viene
@@ -50,10 +51,8 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
   late AcquisitionFsm _fsm;
   String? _currentSessionId;
   String? _pendingSyncSessionId;
-  Timer? _heartbeatTimer;
   StreamSubscription<AppLifecycleState>? _lifecycleSubscription;
   AppLifecycleState _lifecycleState = AppLifecycleState.resumed;
-  final Set<String> _persistedSensorWindowKeys = {};
   DateTime? _latestMotionWindowAt;
   int? _currentRemoteIngestionId;
   String? _currentDeviceId;
@@ -84,24 +83,43 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
         _deviceIdProvider = deviceIdProvider,
         _ingestionService = ingestionService,
         _mapper = mapper ?? IngestionMapper(),
-        _heartbeatInterval = heartbeatInterval,
         _staleSessionThreshold = staleSessionThreshold,
         _now = now ?? DateTime.now,
-        _heartbeatTimerFactory = heartbeatTimerFactory ??
-            ((duration, callback) => Timer.periodic(
-                  duration,
-                  callback,
-                )),
         _observesAppLifecycle = observeAppLifecycle && lifecycleEvents == null,
         _ownsRuntime = enableRuntime && runtime == null,
         _runtime =
             enableRuntime ? runtime ?? AcquisitionSensorRuntime() : null {
     _dao = _database.acquisitionDao;
     _fsm = AcquisitionFsm(config: _config);
+    _harWindows = HarWindowRecorder(_dao);
+    _heartbeat = IngestionHeartbeat(
+      service: ingestionService,
+      interval: heartbeatInterval,
+      timerFactory: heartbeatTimerFactory ??
+          ((duration, callback) => Timer.periodic(duration, callback)),
+      target: _heartbeatTarget,
+      isTracking: () => currentSnapshot.isTracking,
+    );
     _lifecycleSubscription = lifecycleEvents?.listen(_handleLifecycleState);
     if (_observesAppLifecycle) {
       WidgetsBinding.instance.addObserver(this);
     }
+  }
+
+  /// Sessione remota da tenere viva col battito: `null` finche' non c'e' una
+  /// ingestion agganciata a questo device.
+  HeartbeatTarget? _heartbeatTarget() {
+    final ingestionId = _currentRemoteIngestionId;
+    final clientSessionId = _currentSessionId;
+    final deviceId = _currentDeviceId;
+    if (ingestionId == null || clientSessionId == null || deviceId == null) {
+      return null;
+    }
+    return HeartbeatTarget(
+      ingestionId: ingestionId,
+      clientSessionId: clientSessionId,
+      deviceId: deviceId,
+    );
   }
 
   @override
@@ -145,7 +163,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
       throw const IngestionApiException('Richiesta ingestion fallita');
     }
 
-    _persistedSensorWindowKeys.clear();
+    _harWindows.reset();
     _latestMotionWindowAt = null;
     _latestLatitude = null;
     _latestLongitude = null;
@@ -160,7 +178,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     _currentSessionId = sessionId;
     _currentRemoteIngestionId = remoteStart?.ingestionId;
     _currentDeviceId = deviceId;
-    _restartHeartbeat();
+    _heartbeat.restart();
     emitSnapshot(
       AcquisitionSnapshot(
         isTracking: true,
@@ -186,7 +204,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
 
   Future<AcquisitionStopResult> stopTracking() async {
     await _runtime?.stop();
-    _heartbeatTimer?.cancel();
+    _heartbeat.cancel();
 
     final sessionId = _currentSessionId;
 
@@ -200,7 +218,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     _currentSessionId = null;
     _currentRemoteIngestionId = null;
     _currentDeviceId = null;
-    _persistedSensorWindowKeys.clear();
+    _harWindows.reset();
     _latestMotionWindowAt = null;
     _fsm = AcquisitionFsm(config: _config);
     emitSnapshot(AcquisitionSnapshot.idle());
@@ -323,7 +341,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
 
   @override
   void dispose() {
-    _heartbeatTimer?.cancel();
+    _heartbeat.cancel();
     _lifecycleSubscription?.cancel();
     if (_observesAppLifecycle) {
       WidgetsBinding.instance.removeObserver(this);
@@ -444,7 +462,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
   void _handleLifecycleState(AppLifecycleState state) {
     _lifecycleState = state;
     if (state == AppLifecycleState.resumed) {
-      unawaited(_sendHeartbeatIfTracking());
+      unawaited(_heartbeat.send());
     }
   }
 
@@ -461,43 +479,6 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     return latestMotionWindowAt == null ||
         timestamp.difference(latestMotionWindowAt) >
             _backgroundInertialStaleAfter;
-  }
-
-  void _restartHeartbeat() {
-    _heartbeatTimer?.cancel();
-    if (_ingestionService == null ||
-        _currentRemoteIngestionId == null ||
-        _currentSessionId == null ||
-        _currentDeviceId == null) {
-      return;
-    }
-    _heartbeatTimer = _heartbeatTimerFactory(_heartbeatInterval, (_) {
-      unawaited(_sendHeartbeatIfTracking());
-    });
-  }
-
-  Future<void> _sendHeartbeatIfTracking() async {
-    final api = _ingestionService;
-    final ingestionId = _currentRemoteIngestionId;
-    final clientSessionId = _currentSessionId;
-    final deviceId = _currentDeviceId;
-    if (!currentSnapshot.isTracking ||
-        api == null ||
-        ingestionId == null ||
-        clientSessionId == null ||
-        deviceId == null) {
-      return;
-    }
-
-    try {
-      await api.heartbeatIngestion(
-        ingestionId: ingestionId,
-        clientSessionId: clientSessionId,
-        deviceId: deviceId,
-      );
-    } catch (_) {
-      // Heartbeat best-effort: non deve mai fermare i sensori locali.
-    }
   }
 
   Future<void> _resumeOpenTrackingSessionIfNeeded() async {
@@ -527,7 +508,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     final latestGpsPoint = await _dao.latestGpsPointForSession(session.id);
     final latestSensorWindow = await _dao.latestSensorWindow(session.id);
 
-    final lastKnownAt = _latestKnownEventAt(
+    final lastKnownAt = latestKnownEventAt(
       session,
       latestTransition,
       latestGpsPoint,
@@ -545,14 +526,14 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     );
     final trackingState = TrackingState.fromWire(latestTransition?.toState);
     final profile = SamplingProfile.forState(trackingState);
-    final snapshotUpdatedAt = _latestKnownEventAt(
+    final snapshotUpdatedAt = latestKnownEventAt(
       session,
       latestTransition,
       latestGpsPoint,
       latestSensorWindow,
     );
 
-    _persistedSensorWindowKeys.clear();
+    _harWindows.reset();
     _latestMotionWindowAt = null;
     _currentSessionId = session.id;
     _currentRemoteIngestionId = remoteIngestionId ?? session.remoteIngestionId;
@@ -590,30 +571,8 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
       onEvent: ingestEvent,
       onHarWindow: _persistHarWindowIfActive,
     );
-    _restartHeartbeat();
+    _heartbeat.restart();
     return true;
-  }
-
-  DateTime _latestKnownEventAt(
-    AcquisitionSession session,
-    StateTransition? latestTransition,
-    GpsPoint? latestGpsPoint,
-    SensorWindow? latestSensorWindow,
-  ) {
-    var latest = session.startedAt;
-    final transitionAt = latestTransition?.timestamp;
-    if (transitionAt != null && transitionAt.isAfter(latest)) {
-      latest = transitionAt;
-    }
-    final gpsAt = latestGpsPoint?.timestamp;
-    if (gpsAt != null && gpsAt.isAfter(latest)) {
-      latest = gpsAt;
-    }
-    final sensorAt = latestSensorWindow?.endTimestamp;
-    if (sensorAt != null && sensorAt.isAfter(latest)) {
-      latest = sensorAt;
-    }
-    return latest;
   }
 
   Future<StateTransition?> _correctStaleMovementOnResume({
@@ -626,7 +585,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
       return latestTransition;
     }
 
-    final inertialReferenceAt = _resumeInertialReferenceAt(
+    final inertialReferenceAt = resumeInertialReferenceAt(
       session,
       latestTransition,
       latestSensorWindow,
@@ -647,19 +606,6 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
       speedMps: latestTransition?.speedMps ?? 0,
     );
     return _dao.latestTransitionForSession(session.id);
-  }
-
-  DateTime _resumeInertialReferenceAt(
-    AcquisitionSession session,
-    StateTransition? latestTransition,
-    SensorWindow? latestSensorWindow,
-  ) {
-    var referenceAt = latestSensorWindow?.endTimestamp ?? session.startedAt;
-    final transitionAt = latestTransition?.timestamp;
-    if (transitionAt != null && transitionAt.isAfter(referenceAt)) {
-      referenceAt = transitionAt;
-    }
-    return referenceAt;
   }
 
   /// Chiude localmente una sessione stantia al momento dell'ultimo dato noto
@@ -687,7 +633,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     }
 
     for (final window in runtime.completedHarWindows.reversed) {
-      await _persistHarWindow(sessionId: sessionId, window: window);
+      await _harWindows.persist(sessionId: sessionId, window: window);
     }
   }
 
@@ -698,32 +644,6 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
       return;
     }
 
-    await _persistHarWindow(sessionId: sessionId, window: window);
-  }
-
-  Future<void> _persistHarWindow({
-    required String sessionId,
-    required HarSensorWindow window,
-  }) async {
-    final windowKey = _sensorWindowKey(window);
-    if (_persistedSensorWindowKeys.contains(windowKey)) {
-      return;
-    }
-
-    final modelInput = window.modelInputMatrix;
-    await _dao.insertSensorWindow(
-      sessionId: sessionId,
-      startTimestamp: window.startedAt,
-      endTimestamp: window.endedAt,
-      sampleCount: modelInput.length,
-      frequencyHz: HarSensorWindow.targetSamplingHz,
-      matrixBlob: encodeSensorMatrixBlob(modelInput),
-    );
-    _persistedSensorWindowKeys.add(windowKey);
-  }
-
-  String _sensorWindowKey(HarSensorWindow window) {
-    return '${window.startedAt.microsecondsSinceEpoch}-'
-        '${window.endedAt.microsecondsSinceEpoch}';
+    await _harWindows.persist(sessionId: sessionId, window: window);
   }
 }
