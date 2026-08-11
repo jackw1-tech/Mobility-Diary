@@ -1,7 +1,7 @@
 import 'dart:convert';
 
-import 'package:diary/repositories/location_repository.dart';
 import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubit_state.dart';
+import 'package:diary/state_management/cubits/current_location_cubit/current_location_cubit.dart';
 import 'package:diary/theme/color_palette.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -69,23 +69,24 @@ class _LiveMapState extends State<LiveMap> {
   }
 
   Future<void> _resolveInitialCenter() async {
-    try {
-      // La UI non deve mai parlare direttamente coi plugin di posizione
-      // (quello e' compito del layer Provider/Repository): passiamo dal
-      // LocationRepository iniettato via DI, come fa RouteAssistantCubit.
-      final location = await context.read<LocationRepository>().currentLocation();
-      if (!mounted) return;
-      setState(() {
-        _initialCenter = location == null
-            ? Point(coordinates: Position(0, 0))
-            : Point(
-                coordinates: Position(location.longitude, location.latitude),
-              );
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _error = 'Posizione non disponibile: $e');
+    // La UI non parla mai direttamente col LocationRepository: la posizione
+    // arriva dal CurrentLocationCubit, come vuole il flusso Pine UI -> Cubit
+    // -> Repository.
+    final cubit = context.read<CurrentLocationCubit>();
+    final location = await cubit.resolve();
+    if (!mounted) return;
+    final error = cubit.state.error;
+    if (error != null) {
+      setState(() => _error = error);
+      return;
     }
+    setState(() {
+      _initialCenter = location == null
+          ? Point(coordinates: Position(0, 0))
+          : Point(
+              coordinates: Position(location.longitude, location.latitude),
+            );
+    });
   }
 
   Future<void> _onMapCreated(MapboxMap map) async {
@@ -390,7 +391,7 @@ class _LiveMapState extends State<LiveMap> {
                   await _followTo(latest);
                 } else {
                   final location =
-                      await context.read<LocationRepository>().currentLocation();
+                      await context.read<CurrentLocationCubit>().resolve();
                   if (location != null) {
                     await _followTo(location);
                   }

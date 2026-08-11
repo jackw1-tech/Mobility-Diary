@@ -642,18 +642,17 @@ class _TripTile extends StatelessWidget {
   }
 
   Future<DateTime?> _pickReloadStart(BuildContext context) async {
-    final result = await context.read<TripsRepository>().fetchReloadSlots(
-          trip.id,
-        );
+    final cubit = context.read<TripsListCubit>();
+    final slots = await cubit.loadReloadSlots(trip.id);
     if (!context.mounted) return null;
-    final failure = result.failure;
-    if (failure != null) {
+    if (slots == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(failure.message)),
+        SnackBar(
+          content: Text(cubit.state.reloadError ?? 'Slot non disponibili'),
+        ),
       );
       return null;
     }
-    final slots = result.requireValue;
     if (slots.slots.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Nessuno slot libero nel passato')),

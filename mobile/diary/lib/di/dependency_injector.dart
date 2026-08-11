@@ -49,6 +49,7 @@ import 'package:diary/repositories/trip_track_repository.dart';
 import 'package:diary/repositories/trips_repository.dart';
 import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubit.dart';
 import 'package:diary/state_management/cubits/auth_cubit/auth_cubit.dart';
+import 'package:diary/state_management/cubits/current_location_cubit/current_location_cubit.dart';
 import 'package:diary/state_management/cubits/route_assistant_cubit/route_assistant_cubit.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
