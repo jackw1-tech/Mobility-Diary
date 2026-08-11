@@ -1,13 +1,12 @@
-import 'package:diary/network/dto/ingestion/ingestion_start_result_dto.dart';
 import 'dart:async';
 
 import 'package:diary/network/service/impl/acquisition_local_database.dart';
 import 'package:diary/model/entities/acquisition/acquisition_domain.dart';
+import 'package:diary/model/entities/acquisition/ingestion_models.dart';
 import 'package:diary/repositories/acquisition_strategy.dart';
 import 'package:diary/model/entities/acquisition/sensor_matrix_blob.dart';
 import 'package:diary/network/service/impl/acquisition_sensor_runtime.dart';
 import 'package:diary/network/service/trip_ingestion_service.dart';
-import 'package:diary/network/dto/ingestion/active_ingestion_dto.dart';
 import 'package:diary/mappers/ingestion_mapper.dart';
 import 'package:diary/repositories/impl/acquisition/acquisition_snapshot_emitter.dart';
 
@@ -34,6 +33,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
   final AcquisitionSensorRuntime? _runtime;
   final bool _ownsRuntime;
   final TripIngestionService? _ingestionService;
+  final IngestionMapper _mapper;
   final Duration _heartbeatInterval;
   final HeartbeatTimerFactory _heartbeatTimerFactory;
   final bool _observesAppLifecycle;
@@ -83,6 +83,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
         _deviceId = deviceId,
         _deviceIdProvider = deviceIdProvider,
         _ingestionService = ingestionService,
+        _mapper = mapper ?? IngestionMapper(),
         _heartbeatInterval = heartbeatInterval,
         _staleSessionThreshold = staleSessionThreshold,
         _now = now ?? DateTime.now,
@@ -126,13 +127,15 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     final sessionId = _uuid.v4();
     final deviceId = await _resolveDeviceId();
 
-    IngestionStartResultDto? remoteStart;
+    IngestionStartResult? remoteStart;
     try {
-      remoteStart = await _ingestionService?.startIngestion(
+      final startDto = await _ingestionService?.startIngestion(
         clientSessionId: sessionId,
         startedAt: now,
         deviceId: deviceId,
       );
+      remoteStart =
+          startDto == null ? null : _mapper.mapIngestionStartResult(startDto);
     } on IngestionApiException catch (error) {
       if (allowConflictRecovery &&
           error.statusCode == 409 &&
@@ -382,11 +385,9 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     return true;
   }
 
-  ActiveIngestionDto? _activeIngestionFromConflict(
-      IngestionApiException error) {
-    final active = error.body['active_ingestion'];
-    if (active is! Map) return null;
-    return ActiveIngestionDto.fromJson(Map<String, dynamic>.from(active));
+  ActiveIngestion? _activeIngestionFromConflict(IngestionApiException error) {
+    final dto = activeIngestionFromConflict(error);
+    return dto == null ? null : _mapper.mapActiveIngestion(dto);
   }
 
   Future<void> _reconcileRemoteActiveIngestion() async {
@@ -396,10 +397,11 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     }
 
     try {
-      final active = await api.getActiveIngestion();
-      if (active == null) {
+      final activeDto = await api.getActiveIngestion();
+      if (activeDto == null) {
         return;
       }
+      final active = _mapper.mapActiveIngestion(activeDto);
 
       final deviceId = await _resolveDeviceId();
       if (active.deviceId != deviceId) {

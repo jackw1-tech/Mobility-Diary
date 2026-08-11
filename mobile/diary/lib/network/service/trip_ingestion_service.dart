@@ -20,6 +20,16 @@ class IngestionApiException implements Exception {
   String toString() => message;
 }
 
+/// Estrae l'ingestion attiva dal corpo di un 409 sollevato da
+/// [TripIngestionService.startIngestion]. Sta qui e non nei repository perche'
+/// il parsing del JSON di rete e' responsabilita' del layer network: i
+/// repository ricevono il DTO e lo convertono in entity con IngestionMapper.
+ActiveIngestionDto? activeIngestionFromConflict(IngestionApiException error) {
+  final active = error.body['active_ingestion'];
+  if (active is! Map) return null;
+  return ActiveIngestionDto.fromJson(Map<String, dynamic>.from(active));
+}
+
 abstract class TripIngestionService {
   Future<ActiveIngestionDto?> getActiveIngestion();
 

@@ -1,9 +1,10 @@
 import 'dart:async';
 
+import 'package:diary/mappers/ingestion_mapper.dart';
 import 'package:diary/model/entities/acquisition/acquisition_domain.dart';
+import 'package:diary/model/entities/acquisition/ingestion_models.dart';
 import 'package:diary/repositories/acquisition_strategy.dart';
 import 'package:diary/repositories/impl/acquisition/trip_package_builder.dart';
-import 'package:diary/network/dto/ingestion/ingestion_start_result_dto.dart';
 import 'package:diary/network/service/trip_ingestion_service.dart';
 import 'package:diary/repositories/impl/acquisition/acquisition_snapshot_emitter.dart';
 import 'package:diary/utils/date_time_utils.dart';
@@ -18,6 +19,7 @@ class ReplayAcquisitionStrategy
     with AcquisitionSnapshotEmitter
     implements AcquisitionStrategy {
   final TripIngestionService? _ingestionService;
+  final IngestionMapper _mapper;
   final Uuid _uuid;
   final String _deviceId;
   final Future<String> Function()? _deviceIdProvider;
@@ -43,6 +45,7 @@ class ReplayAcquisitionStrategy
     DateTime? scheduledStartAt,
     double replaySpeedMultiplier = 1,
     TripIngestionService? ingestionService,
+    IngestionMapper? mapper,
     Uuid? uuid,
     String deviceId = 'local_device',
     Future<String> Function()? deviceIdProvider,
@@ -51,6 +54,7 @@ class ReplayAcquisitionStrategy
         _scheduledStartAt = scheduledStartAt?.toUtc(),
         _requestedReplaySpeedMultiplier = replaySpeedMultiplier,
         _ingestionService = ingestionService,
+        _mapper = mapper ?? IngestionMapper(),
         _uuid = uuid ?? const Uuid(),
         _deviceId = deviceId,
         _deviceIdProvider = deviceIdProvider,
@@ -67,14 +71,16 @@ class ReplayAcquisitionStrategy
     final sessionId = _uuid.v4();
     final deviceId = await _resolveDeviceId();
 
-    IngestionStartResultDto? remoteStart;
+    IngestionStartResult? remoteStart;
     try {
-      remoteStart = await _ingestionService?.startIngestion(
+      final startDto = await _ingestionService?.startIngestion(
         clientSessionId: sessionId,
         startedAt: now,
         deviceId: deviceId,
         sourceTripId: _sourceTripId,
       );
+      remoteStart =
+          startDto == null ? null : _mapper.mapIngestionStartResult(startDto);
     } on IngestionApiException {
       throw const IngestionApiException('Richiesta ingestion fallita');
     }
