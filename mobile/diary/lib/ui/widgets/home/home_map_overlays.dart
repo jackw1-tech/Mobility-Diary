@@ -1,0 +1,233 @@
+import 'package:diary/model/entities/route_assistant/route_assistant_domain.dart';
+import 'package:diary/theme/color_palette.dart';
+import 'package:diary/theme/dimensions.dart';
+import 'package:flutter/material.dart';
+
+/// Overlay ancorati sopra il bottom sheet della home: riepilogo del percorso
+/// suggerito dall'assistente e countdown di fine replay.
+class HomeMapOverlays extends StatelessWidget {
+  final RouteAssistantRoute? route;
+  final DateTime? routeUpdatedAt;
+  final int? replaySecondsRemaining;
+
+  const HomeMapOverlays({
+    required this.route,
+    required this.routeUpdatedAt,
+    required this.replaySecondsRemaining,
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (route != null)
+          _RouteSummaryPanel(
+            route: route!,
+            routeUpdatedAt: routeUpdatedAt ?? DateTime.now(),
+          ),
+        if (route != null && replaySecondsRemaining != null)
+          const SizedBox(height: Dimensions.paddingSmall),
+        if (replaySecondsRemaining != null)
+          _ReplayCountdownPill(seconds: replaySecondsRemaining!),
+      ],
+    );
+  }
+}
+
+class _RouteSummaryPanel extends StatelessWidget {
+  final RouteAssistantRoute route;
+  final DateTime routeUpdatedAt;
+
+  const _RouteSummaryPanel({
+    required this.route,
+    required this.routeUpdatedAt,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: ColorPalette.surface,
+            borderRadius: BorderRadius.circular(Dimensions.borderRadiusLarge),
+            border: Border.all(color: ColorPalette.hairline),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.12),
+                blurRadius: 14,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Dimensions.paddingMedium,
+              vertical: Dimensions.paddingSmall,
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _RouteSummaryItem(
+                    icon: Icons.flag_outlined,
+                    label: 'Arrivo',
+                    value: _arrivalTimeLabel(
+                      route.durationSeconds,
+                      routeUpdatedAt,
+                    ),
+                    color: ColorPalette.primary,
+                  ),
+                ),
+                const SizedBox(width: Dimensions.paddingSmall),
+                Expanded(
+                  child: _RouteSummaryItem(
+                    icon: Icons.straighten,
+                    label: 'Mancano',
+                    value: _distanceLabel(route.distanceMeters),
+                    color: ColorPalette.info,
+                  ),
+                ),
+                const SizedBox(width: Dimensions.paddingSmall),
+                Expanded(
+                  child: _RouteSummaryItem(
+                    icon: Icons.schedule,
+                    label: 'Tempo',
+                    value: _durationLabel(route.durationSeconds),
+                    color: ColorPalette.accent,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RouteSummaryItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+
+  const _RouteSummaryItem({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, color: color, size: 18),
+        const SizedBox(width: Dimensions.paddingSmall),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: ColorPalette.textSecondary,
+                    ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ReplayCountdownPill extends StatelessWidget {
+  final int seconds;
+
+  const _ReplayCountdownPill({required this.seconds});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: ColorPalette.surface,
+          borderRadius: BorderRadius.circular(Dimensions.borderRadiusLarge),
+          border: Border.all(color: ColorPalette.warning),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.12),
+              blurRadius: 14,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: Dimensions.paddingMedium,
+            vertical: Dimensions.paddingSmall,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.timer_outlined,
+                color: ColorPalette.warning,
+                size: 18,
+              ),
+              const SizedBox(width: Dimensions.paddingSmall),
+              Text(
+                'Fine tra ${seconds}s',
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: ColorPalette.warning,
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+String _arrivalTimeLabel(double durationSeconds, DateTime routeUpdatedAt) {
+  final arrival = routeUpdatedAt.add(
+    Duration(seconds: durationSeconds.round()),
+  );
+  final hour = arrival.hour.toString().padLeft(2, '0');
+  final minute = arrival.minute.toString().padLeft(2, '0');
+  return '$hour:$minute';
+}
+
+String _distanceLabel(double distanceMeters) {
+  if (distanceMeters < 1000) {
+    return '${distanceMeters.round()} m';
+  }
+  return '${(distanceMeters / 1000).toStringAsFixed(1)} km';
+}
+
+String _durationLabel(double durationSeconds) {
+  final minutes = (durationSeconds / 60).ceil();
+  if (minutes < 60) return '$minutes min';
+  final hours = minutes ~/ 60;
+  final remainingMinutes = minutes % 60;
+  if (remainingMinutes == 0) return '${hours}h';
+  return '${hours}h ${remainingMinutes}m';
+}
