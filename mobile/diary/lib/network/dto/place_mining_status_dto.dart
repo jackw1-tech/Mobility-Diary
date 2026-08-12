@@ -15,11 +15,6 @@ class PlaceMiningStatusDto {
     this.rerunRequested = false,
   });
 
-  bool get isActionable => status == 'SUCCEEDED';
-  bool get isPending => status == 'PENDING';
-  bool get isRunning => status == 'RUNNING';
-  bool get isFailed => status == 'FAILED';
-
   factory PlaceMiningStatusDto.fromJson(Map<String, dynamic> json) {
     DateTime? parseDate(String key) {
       final value = json[key] as String?;

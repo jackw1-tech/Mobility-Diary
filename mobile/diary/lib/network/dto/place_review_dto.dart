@@ -1,5 +1,3 @@
-import 'package:latlong2/latlong.dart';
-
 /// Un Luogo Significativo user-scoped per la schermata di review, con le visite
 /// di supporto (evidenza di mappa) e il contesto che spiega perche' e' proposto.
 class PlaceReviewDto {
@@ -28,12 +26,6 @@ class PlaceReviewDto {
     required this.distinctDays,
     required this.visits,
   });
-
-  bool get isConfirmed => state == 'CONFIRMED';
-  bool get isCandidate => state == 'CANDIDATE';
-  bool get isRejected => state == 'REJECTED';
-
-  LatLng get center => LatLng(latitude, longitude);
 
   factory PlaceReviewDto.fromJson(Map<String, dynamic> json) {
     return PlaceReviewDto(
@@ -70,8 +62,6 @@ class PlaceVisitDto {
     required this.endedAt,
     required this.pointCount,
   });
-
-  LatLng get center => LatLng(latitude, longitude);
 
   factory PlaceVisitDto.fromJson(Map<String, dynamic> json) {
     return PlaceVisitDto(

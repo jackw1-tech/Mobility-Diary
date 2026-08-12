@@ -33,6 +33,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
   final AcquisitionSensorRuntime? _runtime;
   final TripSyncQueue? _syncQueue;
   final TripIngestionService? _ingestionService;
+  final IngestionMapper _mapper;
   final Duration _heartbeatInterval;
   final HeartbeatTimerFactory _heartbeatTimerFactory;
   final Duration _staleSessionThreshold;
@@ -73,6 +74,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
         _runtime = runtime,
         _syncQueue = syncQueue,
         _ingestionService = ingestionService,
+        _mapper = mapper ?? IngestionMapper(),
         _heartbeatInterval = heartbeatInterval,
         _staleSessionThreshold = staleSessionThreshold,
         _now = now ?? DateTime.now,
@@ -136,6 +138,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
       scheduledStartAt: scheduledStartAt,
       replaySpeedMultiplier: replaySpeedMultiplier,
       ingestionService: _ingestionService,
+      mapper: _mapper,
       uuid: _uuid,
       deviceId: _deviceId,
       deviceIdProvider: _deviceIdProvider,
@@ -268,6 +271,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
       enableRuntime: _enableRuntime,
       runtime: _runtime,
       ingestionService: _ingestionService,
+      mapper: _mapper,
       heartbeatInterval: _heartbeatInterval,
       staleSessionThreshold: _staleSessionThreshold,
       now: _now,

@@ -1,4 +1,5 @@
 import 'package:diary/model/entities/privacy/privacy_level.dart';
+import 'package:diary/ui/pages/privacy_presenter.dart';
 import 'package:diary/state_management/cubits/privacy_settings_cubit/privacy_settings_cubit.dart';
 import 'package:diary/theme/dimensions.dart';
 import 'package:flutter/material.dart';
@@ -55,7 +56,7 @@ class _PrivacyOnboardingDialogState extends State<PrivacyOnboardingDialog> {
                     for (final level in PrivacyLevel.values)
                       ButtonSegment(
                         value: level,
-                        icon: Icon(level.icon),
+                        icon: Icon(privacyLevelIcon(level)),
                         label: FittedBox(
                           fit: BoxFit.scaleDown,
                           child: Text(level.label),
