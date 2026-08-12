@@ -5,6 +5,7 @@ import 'package:diary/network/dto/ingestion/ingestion_start_result_dto.dart';
 import 'package:diary/network/dto/ingestion/ingestion_status_dto.dart';
 import 'package:diary/network/dto/ingestion/inline_core_result_dto.dart';
 import 'package:diary/network/dto/ingestion/presign_result_dto.dart';
+import 'package:diary/network/dto/ingestion/replay_data_dto.dart';
 import 'package:diary/network/service/trip_ingestion_service.dart';
 import 'package:diary/other/constants/api_constants.dart';
 import 'package:dio/dio.dart';
@@ -254,13 +255,15 @@ class TripIngestionDioService implements TripIngestionService {
       );
 
   @override
-  Future<Map<String, dynamic>> getReplayData(int tripId) async {
+  Future<ReplayDataDto> getReplayData(int tripId) async {
     try {
       final response = await _dio.get(
         '/mobility/trips/reloadable/$tripId/replay-data',
         options: await _options(),
       );
-      return response.data;
+      return ReplayDataDto.fromJson(
+        Map<String, dynamic>.from(response.data as Map<dynamic, dynamic>),
+      );
     } catch (e) {
       throw _handleError(e);
     }

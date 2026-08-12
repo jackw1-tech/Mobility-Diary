@@ -28,9 +28,14 @@ List<RepositoryProvider> buildRepositories({
           final deviceIdentityStore = context.read<DeviceIdentityStore>();
           final ingestionService = context.read<TripIngestionService>();
           final mapper = context.read<IngestionMapper>();
+          final acquisitionMapper = context.read<AcquisitionMapper>();
           final syncQueue = TripSyncQueueImpl(
             dao: database.acquisitionDao,
-            builder: TripPackageBuilder(dao: database.acquisitionDao),
+            builder: TripPackageBuilder(
+              dao: database.acquisitionDao,
+              acquisitionMapper: acquisitionMapper,
+              ingestionMapper: mapper,
+            ),
             service: ingestionService,
             mapper: mapper,
             tokenProvider: tokenProvider,

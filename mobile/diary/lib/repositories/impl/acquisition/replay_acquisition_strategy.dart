@@ -7,7 +7,6 @@ import 'package:diary/repositories/acquisition_strategy.dart';
 import 'package:diary/repositories/impl/acquisition/trip_package_builder.dart';
 import 'package:diary/network/service/trip_ingestion_service.dart';
 import 'package:diary/repositories/impl/acquisition/acquisition_snapshot_emitter.dart';
-import 'package:diary/utils/date_time_utils.dart';
 import 'package:uuid/uuid.dart';
 
 typedef ReplayTimerFactory = Timer Function(
@@ -18,6 +17,10 @@ typedef ReplayTimerFactory = Timer Function(
 class ReplayAcquisitionStrategy
     with AcquisitionSnapshotEmitter
     implements AcquisitionStrategy {
+  /// Motivo mostrato per le transizioni rigiocate: il backend restituisce solo
+  /// from_state/to_state, non il motivo della decisione originale.
+  static const String _replayTransitionReason = 'replay';
+
   final TripIngestionService? _ingestionService;
   final IngestionMapper _mapper;
   final Uuid _uuid;
@@ -34,8 +37,8 @@ class ReplayAcquisitionStrategy
   String? _currentDeviceId;
   DateTime? _replayStartWallClock;
   double _replaySpeed = 1;
-  List<Map<String, dynamic>>? _replayPoints;
-  List<Map<String, dynamic>>? _replayTransitions;
+  List<CoreGpsPoint>? _replayPoints;
+  List<CoreStateTransition>? _replayTransitions;
   double? _latestLatitude;
   double? _latestLongitude;
   double? _latestAccuracyMeters;
@@ -85,10 +88,12 @@ class ReplayAcquisitionStrategy
       throw const IngestionApiException('Richiesta ingestion fallita');
     }
 
-    final replayData = await _ingestionService?.getReplayData(_sourceTripId);
-    if (replayData == null) {
+    final replayDataDto =
+        await _ingestionService?.getReplayData(_sourceTripId);
+    if (replayDataDto == null) {
       throw const IngestionApiException('Richiesta ingestion fallita');
     }
+    final replaySource = _mapper.mapReplayData(replayDataDto);
 
     _currentSessionId = sessionId;
     _currentRemoteIngestionId = remoteStart?.ingestionId;
@@ -111,7 +116,7 @@ class ReplayAcquisitionStrategy
     );
 
     _startReplayTimer(
-      replayData,
+      replaySource,
       speedMultiplier: _replaySpeedMultiplier(_requestedReplaySpeedMultiplier),
     );
   }
@@ -158,38 +163,26 @@ class ReplayAcquisitionStrategy
   }
 
   void _startReplayTimer(
-    Map<String, dynamic> data, {
+    ReplaySource source, {
     required double speedMultiplier,
   }) {
-    final rawPoints = data['gps_points'] as List<dynamic>? ??
-        data['points'] as List<dynamic>? ??
-        [];
-    final rawTransitions = data['state_transitions'] as List<dynamic>? ??
-        data['transitions'] as List<dynamic>? ??
-        [];
-
-    if (rawPoints.isEmpty && rawTransitions.isEmpty) {
+    if (source.isEmpty) {
       emitSnapshot(AcquisitionSnapshot.idle());
       return;
     }
 
-    DateTime pTime(dynamic p) =>
-        DateTime.parse(p['timestamp'] as String).toUtc();
+    _replayPoints = source.points;
+    _replayTransitions = source.transitions;
 
-    _replayPoints = List<Map<String, dynamic>>.from(rawPoints)
-      ..sort((a, b) => pTime(a).compareTo(pTime(b)));
-    _replayTransitions = List<Map<String, dynamic>>.from(rawTransitions)
-      ..sort((a, b) => pTime(a).compareTo(pTime(b)));
+    final points = source.points;
+    final transitions = source.transitions;
 
-    final points = _replayPoints!;
-    final transitions = _replayTransitions!;
-
-    final firstPoint = points.isNotEmpty ? pTime(points.first) : null;
+    final firstPoint = points.isNotEmpty ? points.first.timestamp : null;
     final firstTransition =
-        transitions.isNotEmpty ? pTime(transitions.first) : null;
-    final lastPoint = points.isNotEmpty ? pTime(points.last) : null;
+        transitions.isNotEmpty ? transitions.first.timestamp : null;
+    final lastPoint = points.isNotEmpty ? points.last.timestamp : null;
     final lastTransition =
-        transitions.isNotEmpty ? pTime(transitions.last) : null;
+        transitions.isNotEmpty ? transitions.last.timestamp : null;
     final startTime = _earlier(firstPoint, firstTransition);
     final endTime = _later(lastPoint, lastTransition);
 
@@ -239,14 +232,17 @@ class ReplayAcquisitionStrategy
       bool updated = false;
 
       while (nextTransitionIdx < transitions.length &&
-          !pTime(transitions[nextTransitionIdx]).isAfter(currentReplayTime)) {
+          !transitions[nextTransitionIdx]
+              .timestamp
+              .isAfter(currentReplayTime)) {
         final t = transitions[nextTransitionIdx];
-        final nextState = TrackingState.fromWire(t['to_state'] as String);
+        final nextState = TrackingState.fromWire(t.toState);
         lastFsmTransition = FsmTransition(
-          from: TrackingState.fromWire(t['from_state'] as String),
+          from: TrackingState.fromWire(t.fromState),
           to: nextState,
-          reason: t['reason'] as String? ?? 'replay',
-          timestamp: pTime(t),
+          // Il backend non restituisce il motivo della transizione originale.
+          reason: _replayTransitionReason,
+          timestamp: t.timestamp,
         );
         currentState = nextState;
         nextTransitionIdx++;
@@ -254,12 +250,12 @@ class ReplayAcquisitionStrategy
       }
 
       while (nextPointIdx < points.length &&
-          !pTime(points[nextPointIdx]).isAfter(currentReplayTime)) {
+          !points[nextPointIdx].timestamp.isAfter(currentReplayTime)) {
         final p = points[nextPointIdx];
-        _latestLatitude = (p['latitude'] as num).toDouble();
-        _latestLongitude = (p['longitude'] as num).toDouble();
-        _latestAccuracyMeters = (p['accuracy_meters'] as num?)?.toDouble();
-        latestSpeedMps = (p['speed_mps'] as num?)?.toDouble() ?? 0;
+        _latestLatitude = p.latitude;
+        _latestLongitude = p.longitude;
+        _latestAccuracyMeters = p.accuracyMeters;
+        latestSpeedMps = p.speedMps;
         nextPointIdx++;
         updated = true;
       }
@@ -303,21 +299,18 @@ class ReplayAcquisitionStrategy
       throw const IngestionApiException('Invalid state for stopReplay');
     }
 
-    DateTime pTime(dynamic p) =>
-        DateTime.parse(p['timestamp'] as String).toUtc();
-
-    final filteredPoints = (_replayPoints ?? const <Map<String, dynamic>>[])
-        .where((p) => !pTime(p).isAfter(cutoffTimestamp))
+    final filteredPoints = (_replayPoints ?? const <CoreGpsPoint>[])
+        .where((p) => !p.timestamp.isAfter(cutoffTimestamp))
         .toList();
-    final filteredTransitions =
-        (_replayTransitions ?? const <Map<String, dynamic>>[])
-            .where((t) => !pTime(t).isAfter(cutoffTimestamp))
-            .toList();
+    final filteredTransitions = (_replayTransitions ??
+            const <CoreStateTransition>[])
+        .where((t) => !t.timestamp.isAfter(cutoffTimestamp))
+        .toList();
 
     final now = DateTime.now().toUtc();
     final firstSourceTimestamp = [
-      ...filteredPoints.map(pTime),
-      ...filteredTransitions.map(pTime),
+      ...filteredPoints.map((p) => p.timestamp),
+      ...filteredTransitions.map((t) => t.timestamp),
     ].fold<DateTime?>(null, (earliest, timestamp) {
       if (earliest == null || timestamp.isBefore(earliest)) return timestamp;
       return earliest;
@@ -329,52 +322,35 @@ class ReplayAcquisitionStrategy
     final replayEndedAt =
         scheduledStartAt != null ? cutoffTimestamp.add(shift) : now;
 
-    String shiftIso(DateTime original) =>
-        DateTimeUtils.toUtcIso(original.add(shift));
-
-    final shiftedPoints = filteredPoints.map((p) {
-      return {
-        ...p,
-        'timestamp': shiftIso(pTime(p)),
-      };
-    }).toList();
-
-    final shiftedTransitions = filteredTransitions.map((t) {
-      return {
-        'from_state': t['from_state'],
-        'to_state': t['to_state'],
-        'reason': t['reason'] ?? '',
-        'sigma': t['sigma'],
-        'speed_mps': t['speed_mps'],
-        'timestamp': shiftIso(pTime(t)),
-      };
-    }).toList();
+    // Il viaggio rigiocato viene ricollocato nel tempo: ogni campione slitta
+    // dello stesso offset, cosi' il backend lo riceve come se fosse appena
+    // accaduto (o allo slot scelto dall'utente).
+    final shiftedPoints = [
+      for (final point in filteredPoints) point.shiftedBy(shift),
+    ];
+    final shiftedTransitions = [
+      for (final transition in filteredTransitions) transition.shiftedBy(shift),
+    ];
 
     final firstShiftedTs = shiftedPoints.isNotEmpty
-        ? DateTime.parse(shiftedPoints.first['timestamp'] as String).toUtc()
+        ? shiftedPoints.first.timestamp
         : (shiftedTransitions.isNotEmpty
-            ? DateTime.parse(shiftedTransitions.first['timestamp'] as String)
-                .toUtc()
+            ? shiftedTransitions.first.timestamp
             : now);
 
-    final payload = {
-      'app_version': '',
-      'client_session_id': _currentSessionId,
-      'device_id': _currentDeviceId ?? '',
-      'device_platform': '',
-      'ended_at': DateTimeUtils.toUtcIso(replayEndedAt),
-      'cutoff_source_timestamp': DateTimeUtils.toUtcIso(cutoffTimestamp),
-      'expected_raw_parts': 0,
-      'gps_points': shiftedPoints,
-      if (_currentRemoteIngestionId != null)
-        'ingestion_id': _currentRemoteIngestionId,
-      'schema_version': 1,
-      'started_at': DateTimeUtils.toUtcIso(firstShiftedTs),
-      'state_transitions': shiftedTransitions,
-      'timezone': '',
-    };
-
-    final corePayload = TripCorePayload(payload);
+    final corePayload = TripCorePayload(
+      _mapper.toCorePayloadJson(
+        clientSessionId: _currentSessionId!,
+        deviceId: _currentDeviceId ?? '',
+        gpsPoints: shiftedPoints,
+        transitions: shiftedTransitions,
+        expectedRawParts: 0,
+        startedAt: firstShiftedTs,
+        endedAt: replayEndedAt,
+        ingestionId: _currentRemoteIngestionId,
+        cutoffSourceTimestamp: cutoffTimestamp,
+      ),
+    );
     final response =
         await _ingestionService?.postCoreInline(body: corePayload.requestBody);
 

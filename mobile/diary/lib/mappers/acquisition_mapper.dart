@@ -46,6 +46,36 @@ class AcquisitionMapper {
     return AcquisitionSyncStatus.none;
   }
 
+  /// Punti GPS di una sessione locale, nella forma condivisa col payload core.
+  List<CoreGpsPoint> mapGpsPoints(List<GpsPoint> rows) {
+    return [
+      for (final row in rows)
+        CoreGpsPoint(
+          timestamp: row.timestamp,
+          latitude: row.latitude,
+          longitude: row.longitude,
+          speedMps: row.speedMps,
+          accuracyMeters: row.accuracyMeters,
+        ),
+    ];
+  }
+
+  /// Transizioni FSM di una sessione locale. A differenza di quelle rigiocate
+  /// portano le evidenze della decisione (sigma e velocita').
+  List<CoreStateTransition> mapStateTransitions(List<StateTransition> rows) {
+    return [
+      for (final row in rows)
+        CoreStateTransition(
+          timestamp: row.timestamp,
+          fromState: row.fromState,
+          toState: row.toState,
+          reason: row.reason,
+          sigma: row.sigma,
+          speedMps: row.speedMps,
+        ),
+    ];
+  }
+
   /// Istante dell'ultimo dato realmente registrato dalla sessione. Serve a
   /// capire se la sessione e' stantia e a chiuderla al momento giusto invece
   /// che "ora", che includerebbe il buco (es. telefono spento per ore).

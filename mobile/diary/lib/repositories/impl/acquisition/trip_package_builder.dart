@@ -4,9 +4,10 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart' as crypto;
+import 'package:diary/mappers/acquisition_mapper.dart';
+import 'package:diary/mappers/ingestion_mapper.dart';
 import 'package:diary/network/service/impl/acquisition_local_database.dart';
 import 'package:diary/model/entities/acquisition/sensor_matrix_blob.dart';
-import 'package:diary/utils/date_time_utils.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -83,11 +84,18 @@ class TripPackageBuilder {
   // parte gzip risultante e' piu' piccola. ~12 MB -> qualche MB compressi.
   final int _sensorWindowsPartBudgetBytes;
 
+  final AcquisitionMapper _acquisitionMapper;
+  final IngestionMapper _ingestionMapper;
+
   TripPackageBuilder({
     required AcquisitionDao dao,
+    AcquisitionMapper? acquisitionMapper,
+    IngestionMapper? ingestionMapper,
     Future<Directory> Function()? baseDirProvider,
     int sensorWindowsPartBudgetBytes = 12 * 1024 * 1024,
   })  : _dao = dao,
+        _acquisitionMapper = acquisitionMapper ?? AcquisitionMapper(),
+        _ingestionMapper = ingestionMapper ?? IngestionMapper(),
         _baseDirProvider = baseDirProvider ?? getTemporaryDirectory,
         _sensorWindowsPartBudgetBytes = sensorWindowsPartBudgetBytes;
 
@@ -96,26 +104,28 @@ class TripPackageBuilder {
     final remoteIngestionId = session?.remoteIngestionId;
     final directory = await _packageDirectory(localSessionId);
 
-    final gpsPoints = await _buildInlineGpsPoints(localSessionId);
-    final transitions = await _buildInlineTransitions(localSessionId);
+    final gpsPoints = _acquisitionMapper.mapGpsPoints(
+      await _dao.gpsPointsForSession(localSessionId),
+    );
+    final transitions = _acquisitionMapper.mapStateTransitions(
+      await _dao.transitionsForSession(localSessionId),
+    );
     final parts = <TripPackagePart>[];
     parts.addAll(await _buildSensorWindowParts(localSessionId, directory));
     final corePayload = gpsPoints.isEmpty && transitions.isEmpty
         ? null
-        : TripCorePayload({
-            'app_version': '',
-            'client_session_id': localSessionId,
-            'device_id': session?.deviceId ?? '',
-            'device_platform': '',
-            'ended_at': DateTimeUtils.toUtcIsoOrNull(session?.endedAt),
-            'expected_raw_parts': parts.length,
-            'gps_points': gpsPoints,
-            if (remoteIngestionId != null) 'ingestion_id': remoteIngestionId,
-            'schema_version': 1,
-            'started_at': DateTimeUtils.toUtcIsoOrNull(session?.startedAt),
-            'state_transitions': transitions,
-            'timezone': '',
-          });
+        : TripCorePayload(
+            _ingestionMapper.toCorePayloadJson(
+              clientSessionId: localSessionId,
+              deviceId: session?.deviceId ?? '',
+              gpsPoints: gpsPoints,
+              transitions: transitions,
+              expectedRawParts: parts.length,
+              startedAt: session?.startedAt,
+              endedAt: session?.endedAt,
+              ingestionId: remoteIngestionId,
+            ),
+          );
     return TripPackage(
       localSessionId: localSessionId,
       remoteIngestionId: remoteIngestionId,
@@ -135,39 +145,6 @@ class TripPackageBuilder {
     }
     await dir.create(recursive: true);
     return dir;
-  }
-
-  Future<List<Map<String, dynamic>>> _buildInlineGpsPoints(
-    String sessionId,
-  ) async {
-    final points = await _dao.gpsPointsForSession(sessionId);
-    return [
-      for (final point in points)
-        {
-          'accuracy_meters': point.accuracyMeters,
-          'latitude': point.latitude,
-          'longitude': point.longitude,
-          'speed_mps': point.speedMps,
-          'timestamp': DateTimeUtils.toUtcIso(point.timestamp),
-        }
-    ];
-  }
-
-  Future<List<Map<String, dynamic>>> _buildInlineTransitions(
-    String sessionId,
-  ) async {
-    final transitions = await _dao.transitionsForSession(sessionId);
-    return [
-      for (final t in transitions)
-        {
-          'from_state': t.fromState,
-          'reason': t.reason,
-          'sigma': t.sigma,
-          'speed_mps': t.speedMps,
-          'timestamp': DateTimeUtils.toUtcIso(t.timestamp),
-          'to_state': t.toState,
-        }
-    ];
   }
 
   Future<List<TripPackagePart>> _buildSensorWindowParts(
