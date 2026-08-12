@@ -7,6 +7,9 @@ final List<SingleChildWidget> _mappers = [
   Provider<IngestionMapper>(
     create: (_) => IngestionMapper(),
   ),
+  Provider<AcquisitionMapper>(
+    create: (_) => AcquisitionMapper(),
+  ),
   Provider<TripsMapper>(
     create: (_) => TripsMapper(),
   ),

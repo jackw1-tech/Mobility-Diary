@@ -41,6 +41,7 @@ List<RepositoryProvider> buildRepositories({
             syncQueue: syncQueue,
             ingestionService: ingestionService,
             mapper: mapper,
+            acquisitionMapper: context.read<AcquisitionMapper>(),
             deviceIdProvider: deviceIdentityStore.getOrCreateDeviceId,
             observeAppLifecycle: true,
           );

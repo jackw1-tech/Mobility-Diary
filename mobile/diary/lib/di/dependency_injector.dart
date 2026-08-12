@@ -9,6 +9,7 @@ import 'package:diary/network/service/auth_session_store.dart';
 import 'package:diary/network/service/auth_service.dart';
 import 'package:diary/network/service/impl/auth_http_service.dart';
 import 'package:diary/mappers/auth_mapper.dart';
+import 'package:diary/mappers/acquisition_mapper.dart';
 import 'package:diary/mappers/analytics_mapper.dart';
 import 'package:diary/network/service/analytics_service.dart';
 import 'package:diary/network/service/places_service.dart';

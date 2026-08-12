@@ -9,6 +9,7 @@ import 'package:diary/repositories/impl/acquisition/live_acquisition_strategy.da
 import 'package:diary/repositories/impl/acquisition/acquisition_snapshot_emitter.dart';
 import 'package:diary/repositories/impl/acquisition/replay_acquisition_strategy.dart';
 import 'package:diary/repositories/trip_sync_queue.dart';
+import 'package:diary/mappers/acquisition_mapper.dart';
 import 'package:diary/mappers/ingestion_mapper.dart';
 import 'package:diary/network/service/trip_ingestion_service.dart';
 import 'package:diary/repositories/acquisition_repository.dart';
@@ -34,6 +35,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
   final TripSyncQueue? _syncQueue;
   final TripIngestionService? _ingestionService;
   final IngestionMapper _mapper;
+  final AcquisitionMapper _acquisitionMapper;
   final Duration _heartbeatInterval;
   final HeartbeatTimerFactory _heartbeatTimerFactory;
   final Duration _staleSessionThreshold;
@@ -59,6 +61,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     TripSyncQueue? syncQueue,
     TripIngestionService? ingestionService,
     IngestionMapper? mapper,
+    AcquisitionMapper? acquisitionMapper,
     Duration heartbeatInterval = const Duration(minutes: 5),
     Duration staleSessionThreshold = const Duration(minutes: 30),
     DateTime Function()? now,
@@ -75,6 +78,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
         _syncQueue = syncQueue,
         _ingestionService = ingestionService,
         _mapper = mapper ?? IngestionMapper(),
+        _acquisitionMapper = acquisitionMapper ?? AcquisitionMapper(),
         _heartbeatInterval = heartbeatInterval,
         _staleSessionThreshold = staleSessionThreshold,
         _now = now ?? DateTime.now,
@@ -272,6 +276,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
       runtime: _runtime,
       ingestionService: _ingestionService,
       mapper: _mapper,
+      acquisitionMapper: _acquisitionMapper,
       heartbeatInterval: _heartbeatInterval,
       staleSessionThreshold: _staleSessionThreshold,
       now: _now,
@@ -345,43 +350,6 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     });
   }
 
-  AcquisitionSyncSnapshot _syncSnapshotFromJob(SyncJob? job) {
-    if (job == null) {
-      return const AcquisitionSyncSnapshot.none();
-    }
-
-    return AcquisitionSyncSnapshot(
-      status: _syncStatusFromWire(job.coreStatus),
-      rawStatus: _syncStatusFromWire(job.rawStatus),
-      localSessionId: job.localSessionId,
-      remoteIngestionId: job.remoteIngestionId,
-      remoteTripId: job.remoteTripId,
-      coreMapAvailable: job.coreMapAvailable,
-      attempts: job.attempts,
-      nextRetryAt: job.nextRetryAt,
-      lastError: job.lastError,
-      updatedAt: job.updatedAt,
-    );
-  }
-
-  AcquisitionSyncStatus _syncStatusFromWire(String status) {
-    switch (status) {
-      case syncJobPending:
-        return AcquisitionSyncStatus.pending;
-      case syncJobPackaging:
-        return AcquisitionSyncStatus.packaging;
-      case syncJobUploading:
-        return AcquisitionSyncStatus.uploading;
-      case syncJobWaitingProcessing:
-        return AcquisitionSyncStatus.waitingProcessing;
-      case syncJobCompleted:
-        return AcquisitionSyncStatus.completed;
-      case syncJobFailedRetryable:
-        return AcquisitionSyncStatus.failedRetryable;
-      case syncJobFailedFinal:
-        return AcquisitionSyncStatus.failedFinal;
-    }
-
-    return AcquisitionSyncStatus.none;
-  }
+  AcquisitionSyncSnapshot _syncSnapshotFromJob(SyncJob? job) =>
+      _acquisitionMapper.mapSyncSnapshot(job);
 }

@@ -8,7 +8,7 @@ import 'package:diary/model/entities/acquisition/sensor_matrix_blob.dart';
 import 'package:diary/network/service/impl/acquisition_sensor_runtime.dart';
 import 'package:diary/network/service/trip_ingestion_service.dart';
 import 'package:diary/mappers/ingestion_mapper.dart';
-import 'package:diary/repositories/impl/acquisition/acquisition_resume_timing.dart';
+import 'package:diary/mappers/acquisition_mapper.dart';
 import 'package:diary/repositories/impl/acquisition/acquisition_snapshot_emitter.dart';
 import 'package:diary/repositories/impl/acquisition/har_window_recorder.dart';
 import 'package:diary/repositories/impl/acquisition/ingestion_heartbeat.dart';
@@ -35,6 +35,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
   final bool _ownsRuntime;
   final TripIngestionService? _ingestionService;
   final IngestionMapper _mapper;
+  final AcquisitionMapper _acquisitionMapper;
   late final IngestionHeartbeat _heartbeat;
   late final HarWindowRecorder _harWindows;
   final bool _observesAppLifecycle;
@@ -70,6 +71,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     AcquisitionSensorRuntime? runtime,
     TripIngestionService? ingestionService,
     IngestionMapper? mapper,
+    AcquisitionMapper? acquisitionMapper,
     Duration heartbeatInterval = const Duration(minutes: 5),
     Duration staleSessionThreshold = const Duration(minutes: 30),
     DateTime Function()? now,
@@ -83,6 +85,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
         _deviceIdProvider = deviceIdProvider,
         _ingestionService = ingestionService,
         _mapper = mapper ?? IngestionMapper(),
+        _acquisitionMapper = acquisitionMapper ?? AcquisitionMapper(),
         _staleSessionThreshold = staleSessionThreshold,
         _now = now ?? DateTime.now,
         _observesAppLifecycle = observeAppLifecycle && lifecycleEvents == null,
@@ -508,7 +511,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     final latestGpsPoint = await _dao.latestGpsPointForSession(session.id);
     final latestSensorWindow = await _dao.latestSensorWindow(session.id);
 
-    final lastKnownAt = latestKnownEventAt(
+    final lastKnownAt = _acquisitionMapper.latestKnownEventAt(
       session,
       latestTransition,
       latestGpsPoint,
@@ -526,7 +529,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     );
     final trackingState = TrackingState.fromWire(latestTransition?.toState);
     final profile = SamplingProfile.forState(trackingState);
-    final snapshotUpdatedAt = latestKnownEventAt(
+    final snapshotUpdatedAt = _acquisitionMapper.latestKnownEventAt(
       session,
       latestTransition,
       latestGpsPoint,
@@ -585,7 +588,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
       return latestTransition;
     }
 
-    final inertialReferenceAt = resumeInertialReferenceAt(
+    final inertialReferenceAt = _acquisitionMapper.resumeInertialReferenceAt(
       session,
       latestTransition,
       latestSensorWindow,
