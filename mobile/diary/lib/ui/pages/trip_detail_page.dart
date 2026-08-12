@@ -3,6 +3,8 @@ import 'package:diary/model/entities/trips/trip_list_item.dart';
 import 'package:diary/repositories/trip_track_repository.dart';
 import 'package:diary/repositories/trips_repository.dart';
 import 'package:diary/state_management/cubits/trip_track_cubit/trip_track_cubit.dart';
+import 'package:diary/state_management/cubits/trips_list_cubit/trips_list_cubit.dart';
+import 'package:diary/state_management/cubits/trips_list_cubit/trips_list_cubit_state.dart';
 import 'package:diary/theme/color_palette.dart';
 import 'package:diary/theme/dimensions.dart';
 import 'package:diary/ui/pages/trip_diary_tabs.dart';
@@ -28,8 +30,6 @@ class TripDetailPage extends StatefulWidget {
 
 class _TripDetailPageState extends State<TripDetailPage> {
   late int _currentTripId;
-  List<TripListItem> _trips = const [];
-  bool _didLoadTrips = false;
 
   @override
   void initState() {
@@ -38,21 +38,24 @@ class _TripDetailPageState extends State<TripDetailPage> {
   }
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (_didLoadTrips) return;
-    _didLoadTrips = true;
-    _loadTrips();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    return BlocProvider(
-      create: (context) => TripTrackCubit(context.read<TripTrackRepository>())
-        ..load(widget.tripId),
-      child: Builder(
-        builder: (context) {
-          final sameDayTrips = sameLocalDayTrackTrips(_trips, _currentTripId);
+    return MultiBlocProvider(
+      providers: [
+        BlocProvider(
+          create: (context) =>
+              TripTrackCubit(context.read<TripTrackRepository>())
+                ..load(widget.tripId),
+        ),
+        BlocProvider(
+          create: (context) =>
+              TripsListCubit(context.read<TripsRepository>())..load(),
+        ),
+      ],
+      child: BlocBuilder<TripsListCubit, TripsListCubitState>(
+        buildWhen: (previous, current) => previous.trips != current.trips,
+        builder: (context, tripsState) {
+          final sameDayTrips =
+              sameLocalDayTrackTrips(tripsState.trips, _currentTripId);
           final selector = sameDayTrips.length > 1
               ? _SameDayTripSelector(
                   trips: sameDayTrips,
@@ -95,12 +98,6 @@ class _TripDetailPageState extends State<TripDetailPage> {
         },
       ),
     );
-  }
-
-  Future<void> _loadTrips() async {
-    final result = await context.read<TripsRepository>().fetchTrips();
-    if (!mounted || result.isFailure) return;
-    setState(() => _trips = result.requireValue);
   }
 
   void _selectTrip(BuildContext context, TripListItem trip) {

@@ -12,6 +12,11 @@ final List<BlocProvider> blocs = [
       syncRepository: context.read<AcquisitionSyncRepository>(),
     ),
   ),
+  BlocProvider<CurrentLocationCubit>(
+    create: (context) => CurrentLocationCubit(
+      context.read<LocationRepository>(),
+    ),
+  ),
   BlocProvider<RouteAssistantCubit>(
     create: (context) => RouteAssistantCubit(
       context.read<RouteAssistantRepository>(),

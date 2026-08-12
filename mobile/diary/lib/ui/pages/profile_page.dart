@@ -1,6 +1,7 @@
 import 'package:auto_route/auto_route.dart';
 import 'package:diary/model/entities/auth/auth_user.dart';
 import 'package:diary/model/entities/privacy/privacy_level.dart';
+import 'package:diary/ui/pages/privacy_presenter.dart';
 import 'package:diary/repositories/privacy_settings_repository.dart';
 import 'package:diary/state_management/cubits/auth_cubit/auth_cubit.dart';
 import 'package:diary/state_management/cubits/auth_cubit/auth_cubit_state.dart';
@@ -104,7 +105,7 @@ class _PrivacySection extends StatelessWidget {
                       .map(
                         (level) => ButtonSegment(
                           value: level,
-                          icon: Icon(level.icon),
+                          icon: Icon(privacyLevelIcon(level)),
                           label: FittedBox(
                             fit: BoxFit.scaleDown,
                             child: Text(level.label),

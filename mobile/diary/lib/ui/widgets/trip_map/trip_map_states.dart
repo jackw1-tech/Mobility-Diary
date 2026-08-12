@@ -1,0 +1,57 @@
+import 'package:diary/theme/color_palette.dart';
+import 'package:diary/theme/dimensions.dart';
+import 'package:flutter/material.dart';
+
+/// Stato "il viaggio non ha una traiettoria da mostrare".
+class EmptyTrack extends StatelessWidget {
+  const EmptyTrack({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.all(Dimensions.paddingLarge),
+        child: Text('Traiettoria non disponibile'),
+      ),
+    );
+  }
+}
+
+/// Stato di errore del caricamento traccia, con possibilita' di riprovare.
+class TrackError extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+
+  const TrackError({
+    required this.message,
+    required this.onRetry,
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(Dimensions.paddingLarge),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline, color: ColorPalette.error),
+            const SizedBox(height: Dimensions.paddingSmall),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: Dimensions.paddingMedium),
+            FilledButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Riprova'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

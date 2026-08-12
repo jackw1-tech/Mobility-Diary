@@ -1,6 +1,3 @@
-import 'package:latlong2/latlong.dart';
-import 'package:diary/utils/geo_json_utils.dart';
-
 class TripTrackDto {
   final int tripId;
   final int pointCount;
@@ -29,8 +26,6 @@ class TripTrackDto {
           .toList(growable: false),
     );
   }
-
-  List<LatLng> get points => latLngsFromGeoJsonLineString(geojson);
 }
 
 class TripDiaryDto {
@@ -69,20 +64,6 @@ class TripDiaryDto {
                 Map<String, dynamic>.from(value as Map<dynamic, dynamic>),
               ))
           .toList(growable: false),
-    );
-  }
-
-  List<TripDiarySegmentDto> get drawableSegments {
-    return segments
-        .where(
-            (segment) => segment.kind == 'MOVE' && segment.points.length >= 2)
-        .toList(growable: false);
-  }
-
-  double get movementDistanceMeters {
-    return segments.fold<double>(
-      0,
-      (total, segment) => total + segment.distanceMeters,
     );
   }
 }
@@ -125,8 +106,6 @@ class TripDiarySegmentDto {
             ),
     );
   }
-
-  List<LatLng> get points => latLngsFromGeoJsonLineString(pathGeojson);
 }
 
 class TripDiaryPlaceDto {

@@ -3,6 +3,7 @@ import 'package:diary/network/dto/ingestion/ingestion_start_result_dto.dart';
 import 'package:diary/network/dto/ingestion/ingestion_status_dto.dart';
 import 'package:diary/network/dto/ingestion/inline_core_result_dto.dart';
 import 'package:diary/network/dto/ingestion/presign_result_dto.dart';
+import 'package:diary/network/dto/ingestion/replay_data_dto.dart';
 
 /// Fornisce il bearer token corrente (da AuthRepository). Null se non loggato.
 typedef AccessTokenProvider = Future<String?> Function();
@@ -18,6 +19,16 @@ class IngestionApiException implements Exception {
   });
   @override
   String toString() => message;
+}
+
+/// Estrae l'ingestion attiva dal corpo di un 409 sollevato da
+/// [TripIngestionService.startIngestion]. Sta qui e non nei repository perche'
+/// il parsing del JSON di rete e' responsabilita' del layer network: i
+/// repository ricevono il DTO e lo convertono in entity con IngestionMapper.
+ActiveIngestionDto? activeIngestionFromConflict(IngestionApiException error) {
+  final active = error.body['active_ingestion'];
+  if (active is! Map) return null;
+  return ActiveIngestionDto.fromJson(Map<String, dynamic>.from(active));
 }
 
 abstract class TripIngestionService {
@@ -69,7 +80,7 @@ abstract class TripIngestionService {
 
   Future<IngestionStatusDto> getStatus(int ingestionId);
 
-  Future<Map<String, dynamic>> getReplayData(int tripId);
+  Future<ReplayDataDto> getReplayData(int tripId);
 
   Future<List<List<double>>> getReplaySensorWindow(
       int tripId, int offsetSeconds);

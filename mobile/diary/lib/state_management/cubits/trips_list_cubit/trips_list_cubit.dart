@@ -1,5 +1,6 @@
 import 'package:diary/utils/app_result.dart';
 import 'package:diary/model/entities/trips/trip_list_item.dart';
+import 'package:diary/model/entities/trips/trip_reload.dart';
 import 'package:diary/repositories/trips_repository.dart';
 import 'package:diary/state_management/cubits/trips_list_cubit/trips_list_cubit_state.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -107,6 +108,26 @@ class TripsListCubit extends Cubit<TripsListCubitState> {
       ),
     );
     return false;
+  }
+
+  /// Slot liberi in cui e' possibile ricollocare [sourceTripId]. Ritorna `null`
+  /// se la chiamata fallisce, esponendo il motivo in `state.reloadError`.
+  Future<TripReloadSlots?> loadReloadSlots(int sourceTripId) async {
+    final result = await _repository.fetchReloadSlots(sourceTripId);
+    final failure = result.failure;
+    if (failure == null) return result.requireValue;
+    emit(
+      TripsListCubitState(
+        status: state.status,
+        trips: state.trips,
+        error: state.error,
+        reloadingTripId: state.reloadingTripId,
+        reloadError: failure.message,
+        mutatingTripId: state.mutatingTripId,
+        mutationError: state.mutationError,
+      ),
+    );
+    return null;
   }
 
   Future<int?> reloadTrip(int sourceTripId,
