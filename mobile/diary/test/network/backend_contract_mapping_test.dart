@@ -11,7 +11,8 @@ import 'package:diary/network/service/trip_ingestion_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('maps the backend ingestion status contract without losing part keys', () {
+  test('maps the backend ingestion status contract without losing part keys',
+      () {
     final dto = IngestionStatusDto.fromJson({
       'ingestion_id': 7,
       'core_status': 'COMPLETED',

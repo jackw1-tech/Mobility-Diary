@@ -113,7 +113,8 @@ void main() {
       expect(confirmed.state, TrackingState.movement);
     });
 
-    test('does not stop when stationary evidence is interrupted by movement', () {
+    test('does not stop when stationary evidence is interrupted by movement',
+        () {
       final startedAt = DateTime.utc(2026, 1, 1, 8);
       final fsm = AcquisitionFsm(initialState: TrackingState.movement);
 

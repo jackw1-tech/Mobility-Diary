@@ -15,6 +15,7 @@ from time import perf_counter
 from typing import Any
 
 import numpy as np
+import requests
 from django.conf import settings
 
 from ..models import ActivityLabel
@@ -212,6 +213,45 @@ def _activity_label_value(model_class_name: str) -> str:
 def predict_window_label(
     matrix,
 ) -> tuple[str, float]:
+    """Classifica una singola finestra 500x6: prova prima il servizio HAR
+    remoto (se configurato), ricade sul modello locale se non risponde in
+    tempo o fallisce."""
+    remote_result = _predict_window_label_remote(matrix)
+    if remote_result is not None:
+        return remote_result
+    return _predict_window_label_local(matrix)
+
+
+def _predict_window_label_remote(matrix) -> tuple[str, float] | None:
+    url = settings.MODAL_HAR_CLASSIFY_URL
+    if not url:
+        return None
+    started = perf_counter()
+    try:
+        response = requests.post(
+            url,
+            json={"samples": matrix},
+            timeout=settings.MODAL_HAR_CLASSIFY_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        label = str(payload["label"])
+        confidence = float(payload["confidence"])
+    except (requests.RequestException, KeyError, TypeError, ValueError) as exc:
+        logger.warning(
+            "Inferenza HAR remota fallita dopo %.2f ms, fallback locale: %s",
+            (perf_counter() - started) * 1000,
+            exc,
+        )
+        return None
+    logger.info(
+        "Inferenza HAR remota completata in %.2f ms",
+        (perf_counter() - started) * 1000,
+    )
+    return label, confidence
+
+
+def _predict_window_label_local(matrix) -> tuple[str, float]:
     started = perf_counter()
     try:
         if _should_use_fused_model():
@@ -234,7 +274,7 @@ def predict_window_label(
         return _activity_label_value(MODEL_CLASS_NAMES[idx]), float(probs[0][idx])
     finally:
         logger.info(
-            "Inferenza HAR (singola finestra) completata in %.2f ms",
+            "Inferenza HAR (singola finestra, locale) completata in %.2f ms",
             (perf_counter() - started) * 1000,
         )
 

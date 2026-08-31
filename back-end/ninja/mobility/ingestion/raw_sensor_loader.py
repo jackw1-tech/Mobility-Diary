@@ -6,6 +6,10 @@ from time import perf_counter
 
 from ..ml.pipeline import PipelineSensorWindow
 from ..models import TripIngestion
+from ..raw_sensor_windows_cache import (
+    cache_raw_sensor_windows,
+    get_cached_raw_sensor_windows,
+)
 from . import storage
 from .raw_sensor_codec import (
     InvalidRawSensorPayload,
@@ -35,6 +39,17 @@ def load_raw_sensor_windows(
 def load_raw_sensor_windows_with_metrics(
     ingestion: TripIngestion,
 ) -> RawSensorLoadResult:
+    cache_started = perf_counter()
+    cached = get_cached_raw_sensor_windows(ingestion.id)
+    if cached is not None:
+        return RawSensorLoadResult(
+            windows=cached.windows,
+            part_count=cached.part_count,
+            compressed_bytes=cached.compressed_bytes,
+            decompressed_bytes=cached.decompressed_bytes,
+            timings_ms={"cache_hit": _elapsed_ms(cache_started)},
+        )
+
     parts = list(
         ingestion.parts.filter(
             received_at__isnull=False,
@@ -62,13 +77,15 @@ def load_raw_sensor_windows_with_metrics(
     windows = sorted(windows, key=lambda window: window.start_timestamp)
     timings_ms["sort_windows"] += _elapsed_ms(sort_started)
 
-    return RawSensorLoadResult(
+    result = RawSensorLoadResult(
         windows=windows,
         part_count=len(parts),
         compressed_bytes=compressed_bytes,
         decompressed_bytes=decompressed_bytes,
         timings_ms=timings_ms,
     )
+    cache_raw_sensor_windows(ingestion.id, result)
+    return result
 
 
 def _load_raw_sensor_part_windows(

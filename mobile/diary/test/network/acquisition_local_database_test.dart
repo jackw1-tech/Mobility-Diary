@@ -15,7 +15,8 @@ void main() {
 
   tearDown(() => database.close());
 
-  test('persists a resumable acquisition session with UTC timestamps', () async {
+  test('persists a resumable acquisition session with UTC timestamps',
+      () async {
     final startedAt = DateTime.parse('2026-08-30T12:00:00+02:00');
     await dao.createSession(
       id: 'session-1',
@@ -84,7 +85,8 @@ void main() {
     expect((await dao.claimableSyncJobs(DateTime.now().toUtc())).length, 1);
   });
 
-  test('purges all local evidence only after synchronization completes', () async {
+  test('purges all local evidence only after synchronization completes',
+      () async {
     await dao.createSession(
       id: 'session-1',
       deviceId: 'iphone-1',
