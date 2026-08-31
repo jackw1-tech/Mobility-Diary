@@ -77,5 +77,89 @@ void main() {
       expect(decision.state, TrackingState.stationary);
       expect(decision.transition?.reason, 'stationary_evidence_confirmed');
     });
+
+    test('requires both motion and walking speed in strict sensor mode', () {
+      final startedAt = DateTime.utc(2026, 1, 1, 8);
+      final fsm = AcquisitionFsm();
+
+      fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: startedAt,
+          sigma: 2,
+          sampleCount: 20,
+        ),
+      );
+      final lowSpeed = fsm.apply(
+        GpsFixReceived(
+          timestamp: startedAt,
+          speedMetersPerSecond: 0.2,
+        ),
+      );
+      final walkingStarted = fsm.apply(
+        GpsFixReceived(
+          timestamp: startedAt.add(const Duration(seconds: 1)),
+          speedMetersPerSecond: 1.4,
+        ),
+      );
+      final confirmed = fsm.apply(
+        GpsFixReceived(
+          timestamp: startedAt.add(const Duration(seconds: 7)),
+          speedMetersPerSecond: 1.4,
+        ),
+      );
+
+      expect(lowSpeed.state, TrackingState.stationary);
+      expect(walkingStarted.didTransition, isFalse);
+      expect(confirmed.state, TrackingState.movement);
+    });
+
+    test('does not stop when stationary evidence is interrupted by movement', () {
+      final startedAt = DateTime.utc(2026, 1, 1, 8);
+      final fsm = AcquisitionFsm(initialState: TrackingState.movement);
+
+      fsm.apply(
+        GpsFixReceived(timestamp: startedAt, speedMetersPerSecond: 0.1),
+        evidenceMode: FsmEvidenceMode.gpsOnly,
+      );
+      fsm.apply(
+        GpsFixReceived(
+          timestamp: startedAt.add(const Duration(seconds: 60)),
+          speedMetersPerSecond: 2,
+        ),
+        evidenceMode: FsmEvidenceMode.gpsOnly,
+      );
+      final decision = fsm.apply(
+        GpsFixReceived(
+          timestamp: startedAt.add(const Duration(seconds: 121)),
+          speedMetersPerSecond: 0.1,
+        ),
+        evidenceMode: FsmEvidenceMode.gpsOnly,
+      );
+
+      expect(decision.state, TrackingState.movement);
+      expect(decision.didTransition, isFalse);
+    });
+
+    test('stale signals cannot trigger a strict-sensor transition', () {
+      final startedAt = DateTime.utc(2026, 1, 1, 8);
+      final fsm = AcquisitionFsm();
+
+      fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: startedAt,
+          sigma: 2,
+          sampleCount: 20,
+        ),
+      );
+      final decision = fsm.apply(
+        GpsFixReceived(
+          timestamp: startedAt.add(const Duration(seconds: 11)),
+          speedMetersPerSecond: 1.5,
+        ),
+      );
+
+      expect(decision.state, TrackingState.stationary);
+      expect(decision.didTransition, isFalse);
+    });
   });
 }

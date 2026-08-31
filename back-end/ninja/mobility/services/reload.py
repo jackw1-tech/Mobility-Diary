@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
+from time import perf_counter
 
 from django.contrib.gis.geos import Point
 from django.db import transaction
@@ -23,6 +25,8 @@ from ..replay_raw import (
 from ..selectors import trip_evidence as trip_evidence_repository
 from ..selectors import trips as trips_repository
 from ..selectors.trips import source_has_raw_sensor_evidence
+
+logger = logging.getLogger(__name__)
 
 
 class ReloadServiceError(ServiceError):
@@ -93,6 +97,11 @@ def reload_trip_from_source(
     if ingestion_repository.active_ingestions_for_owner(user_id).exists():
         raise ReloadServiceError("viaggio in corso attivo")
 
+    task_started = perf_counter()
+    phase_timings_ms: dict[str, float] = {}
+    ingestion_id: int | None = None
+    result_trip_id: int | None = None
+
     now = now or timezone.now()
     source = _owned_source_or_error(user_id, trip_id)
     client_session_id = _reload_client_session_id(
@@ -101,66 +110,127 @@ def reload_trip_from_source(
         reload_request_id,
     )
 
-    with transaction.atomic():
-        existing = ingestion_repository.locked_ingestion_by_client_session(
-            user_id, client_session_id
+    try:
+        with transaction.atomic():
+            lookup_started = perf_counter()
+            existing = ingestion_repository.locked_ingestion_by_client_session(
+                user_id, client_session_id
+            )
+            if existing is not None:
+                if existing.trip_id is not None:
+                    phase_timings_ms["idempotent_lookup"] = _elapsed_ms(lookup_started)
+                    phase_timings_ms["task_total"] = _elapsed_ms(task_started)
+                    _log_reload_timing(
+                        "idempotent_hit",
+                        ingestion_id=existing.id,
+                        trip_id=existing.trip_id,
+                        phase_timings_ms=phase_timings_ms,
+                    )
+                    return reload_response(existing)
+                ingestion_repository.delete_ingestion(existing)
+
+            source = trips_repository.locked_trip_by_id(source.id)
+            if not _is_reloadable_source(source):
+                raise ReloadServiceError("viaggio non ricaricabile")
+            phase_timings_ms["lookup_and_lock"] = _elapsed_ms(lookup_started)
+
+            timeline_started = perf_counter()
+            timeline = _source_timeline(source)
+            duration = timeline.end - timeline.start
+            reload_end = now
+            if scheduled_start_at is None:
+                reload_start = reload_end - duration
+            else:
+                reload_start = scheduled_start_at
+                reload_end = reload_start + duration
+                _ensure_reload_slot_available(user_id, reload_start, reload_end, now)
+            shift = reload_start - timeline.start
+            phase_timings_ms["build_timeline"] = _elapsed_ms(timeline_started)
+
+            create_started = perf_counter()
+            ingestion = ingestion_repository.create_ingestion_with_fields(
+                user_id=user_id,
+                client_session_id=client_session_id,
+                device_id="reload",
+                core_status=TripIngestion.PhaseStatus.COMPLETED,
+                raw_status=TripIngestion.PhaseStatus.PENDING,
+                expected_raw_parts=0,
+                started_at=reload_start,
+                ended_at=reload_end,
+                completed_at=reload_end,
+            )
+            ingestion.raw_base_path = f"ingestions/{ingestion.id}/"
+            ingestion.save(update_fields=["raw_base_path", "updated_at"])
+            ingestion_id = ingestion.id
+
+            trip = trips_repository.create_trip(
+                user_id=user_id,
+                client_session_id=client_session_id,
+                device_id="reload",
+                status=Trip.Status.CLOSED,
+                started_at=reload_start,
+                ended_at=reload_end,
+                reloaded_from_trip=source,
+            )
+            result_trip_id = trip.id
+            phase_timings_ms["create_records"] = _elapsed_ms(create_started)
+
+            copy_started = perf_counter()
+            _copy_core_evidence(timeline, trip, shift)
+            build_trip_path(trip)
+            trip.refresh_from_db(fields=["path", "distance_meters"])
+            phase_timings_ms["copy_core_evidence"] = _elapsed_ms(copy_started)
+
+            ingestion.trip = trip
+            ingestion.save(update_fields=["trip", "updated_at"])
+
+            regen_started = perf_counter()
+            try:
+                regenerate_raw_and_queue_har(
+                    ingestion, source, shift=shift, now=reload_end
+                )
+            finally:
+                phase_timings_ms["regenerate_raw_and_queue_har"] = _elapsed_ms(
+                    regen_started
+                )
+            phase_timings_ms["task_total"] = _elapsed_ms(task_started)
+            _log_reload_timing(
+                "completed",
+                ingestion_id=ingestion_id,
+                trip_id=result_trip_id,
+                phase_timings_ms=phase_timings_ms,
+            )
+            return reload_response(ingestion)
+    except ReplayStorageUnavailable as exc:
+        phase_timings_ms["task_total_until_error"] = _elapsed_ms(task_started)
+        _log_reload_timing(
+            "failed_storage",
+            ingestion_id=ingestion_id,
+            trip_id=result_trip_id,
+            phase_timings_ms=phase_timings_ms,
+            error=exc.message,
         )
-        if existing is not None:
-            if existing.trip_id is not None:
-                return reload_response(existing)
-            ingestion_repository.delete_ingestion(existing)
-
-        source = trips_repository.locked_trip_by_id(source.id)
-        if not _is_reloadable_source(source):
-            raise ReloadServiceError("viaggio non ricaricabile")
-
-        timeline = _source_timeline(source)
-        duration = timeline.end - timeline.start
-        reload_end = now
-        if scheduled_start_at is None:
-            reload_start = reload_end - duration
-        else:
-            reload_start = scheduled_start_at
-            reload_end = reload_start + duration
-            _ensure_reload_slot_available(user_id, reload_start, reload_end, now)
-        shift = reload_start - timeline.start
-
-        ingestion = ingestion_repository.create_ingestion_with_fields(
-            user_id=user_id,
-            client_session_id=client_session_id,
-            device_id="reload",
-            core_status=TripIngestion.PhaseStatus.COMPLETED,
-            raw_status=TripIngestion.PhaseStatus.PENDING,
-            expected_raw_parts=0,
-            started_at=reload_start,
-            ended_at=reload_end,
-            completed_at=reload_end,
+        raise ReloadStorageUnavailable(exc.message) from exc
+    except ReplayRawError as exc:
+        phase_timings_ms["task_total_until_error"] = _elapsed_ms(task_started)
+        _log_reload_timing(
+            "failed_raw",
+            ingestion_id=ingestion_id,
+            trip_id=result_trip_id,
+            phase_timings_ms=phase_timings_ms,
+            error=exc.message,
         )
-        ingestion.raw_base_path = f"ingestions/{ingestion.id}/"
-        ingestion.save(update_fields=["raw_base_path", "updated_at"])
-
-        trip = trips_repository.create_trip(
-            user_id=user_id,
-            client_session_id=client_session_id,
-            device_id="reload",
-            status=Trip.Status.CLOSED,
-            started_at=reload_start,
-            ended_at=reload_end,
-            reloaded_from_trip=source,
+        raise ReloadServiceError(exc.message) from exc
+    except Exception as exc:
+        phase_timings_ms["task_total_until_error"] = _elapsed_ms(task_started)
+        _log_reload_timing(
+            "failed_unexpected",
+            ingestion_id=ingestion_id,
+            trip_id=result_trip_id,
+            phase_timings_ms=phase_timings_ms,
+            error=str(exc),
         )
-        _copy_core_evidence(timeline, trip, shift)
-        build_trip_path(trip)
-        trip.refresh_from_db(fields=["path", "distance_meters"])
-
-        ingestion.trip = trip
-        ingestion.save(update_fields=["trip", "updated_at"])
-        try:
-            regenerate_raw_and_queue_har(ingestion, source, shift=shift, now=reload_end)
-        except ReplayStorageUnavailable as exc:
-            raise ReloadStorageUnavailable(exc.message) from exc
-        except ReplayRawError as exc:
-            raise ReloadServiceError(exc.message) from exc
-        return reload_response(ingestion)
+        raise
 
 
 def reload_response(ingestion: TripIngestion) -> dict:
@@ -325,3 +395,51 @@ def _copy_core_evidence(
             for transition in timeline.transitions
         ]
     )
+
+
+def _elapsed_ms(started_at: float) -> float:
+    return (perf_counter() - started_at) * 1000
+
+
+def _rounded(values: dict[str, float]) -> dict[str, float]:
+    return {key: round(value, 2) for key, value in values.items()}
+
+
+def _percentage(value: float, total_ms: float) -> float:
+    if total_ms <= 0:
+        return 0.0
+    return round((value / total_ms) * 100, 2)
+
+
+def _percentages(values: dict[str, float], total_ms: float) -> dict[str, float]:
+    return {key: _percentage(value, total_ms) for key, value in values.items()}
+
+
+def _log_reload_timing(
+    status: str,
+    *,
+    ingestion_id: int | None,
+    trip_id: int | None,
+    phase_timings_ms: dict[str, float],
+    error: str | None = None,
+) -> None:
+    total_ms = phase_timings_ms.get("task_total") or phase_timings_ms.get(
+        "task_total_until_error"
+    ) or sum(
+        value
+        for key, value in phase_timings_ms.items()
+        if not key.startswith("task_total")
+    )
+
+    log_payload = {
+        "status": status,
+        "ingestion_id": ingestion_id,
+        "trip_id": trip_id,
+        "total_ms": round(total_ms, 2),
+        "phases_ms": _rounded(phase_timings_ms),
+        "phases_pct": _percentages(phase_timings_ms, total_ms),
+    }
+    if error:
+        log_payload["error"] = error
+
+    logger.info("[RELOAD-TRIP-TIMING] %s", log_payload)
