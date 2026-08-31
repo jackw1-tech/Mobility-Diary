@@ -6,16 +6,20 @@ embedding con CNN 1D e predice sequenze da 32 finestre con GRU.
 
 from __future__ import annotations
 
+import logging
 from collections import Counter
 from dataclasses import dataclass
 import importlib.util
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
 import numpy as np
 from django.conf import settings
 
 from ..models import ActivityLabel
+
+logger = logging.getLogger(__name__)
 
 MODEL_CLASS_NAMES = ("IDLE", "WALKING", "RUNNING", "BIKING", "DRIVING")
 FUSED_MODEL_CLASS_NAMES = ("IDLE", "WALKING", "RUNNING", "BIKING", "MOVING_VEHICLE")
@@ -208,24 +212,31 @@ def _activity_label_value(model_class_name: str) -> str:
 def predict_window_label(
     matrix,
 ) -> tuple[str, float]:
-    if _should_use_fused_model():
-        model_bundle = _load_fused_model_bundle()
-        x = np.expand_dims(_prepare_har_window_matrix(matrix), axis=0)
-        prediction = model_bundle.classifier.predict(x)
-        probs = np.asarray(prediction["probs"], dtype=np.float32)
-        idx = int(np.argmax(probs[0]))
-        label = prediction["classes"][idx]
-        return _activity_label_value(label), float(probs[0][idx])
+    started = perf_counter()
+    try:
+        if _should_use_fused_model():
+            model_bundle = _load_fused_model_bundle()
+            x = np.expand_dims(_prepare_har_window_matrix(matrix), axis=0)
+            prediction = model_bundle.classifier.predict(x)
+            probs = np.asarray(prediction["probs"], dtype=np.float32)
+            idx = int(np.argmax(probs[0]))
+            label = prediction["classes"][idx]
+            return _activity_label_value(label), float(probs[0][idx])
 
-    model_bundle = _load_model_bundle()
-    x = np.expand_dims(_prepare_har_window_matrix(matrix), axis=0)
-    probs = np.asarray(_predict(model_bundle.classifier, x), dtype=np.float32)
-    if probs.shape != (1, len(MODEL_CLASS_NAMES)):
-        raise ValueError(
-            f"CNN HAR ha prodotto probabilita con shape inattesa: {probs.shape}"
+        model_bundle = _load_model_bundle()
+        x = np.expand_dims(_prepare_har_window_matrix(matrix), axis=0)
+        probs = np.asarray(_predict(model_bundle.classifier, x), dtype=np.float32)
+        if probs.shape != (1, len(MODEL_CLASS_NAMES)):
+            raise ValueError(
+                f"CNN HAR ha prodotto probabilita con shape inattesa: {probs.shape}"
+            )
+        idx = int(np.argmax(probs[0]))
+        return _activity_label_value(MODEL_CLASS_NAMES[idx]), float(probs[0][idx])
+    finally:
+        logger.info(
+            "Inferenza HAR (singola finestra) completata in %.2f ms",
+            (perf_counter() - started) * 1000,
         )
-    idx = int(np.argmax(probs[0]))
-    return _activity_label_value(MODEL_CLASS_NAMES[idx]), float(probs[0][idx])
 
 """ 
 Prende la lista delle sensor window e le da all HAR

@@ -46,7 +46,7 @@ def _datetime_from_epoch_micros(value: int, field: str) -> datetime:
         raise InvalidRawSensorPayload(f"timestamp raw non valido: {field}") from exc
 
 """
-Da Analizzare 
+Funzione che decodifica i raw sensor windows grezzi in oggetti PipelineSensorWindow
 """
 def _decode_binary_sensor_windows(raw: bytes) -> list[PipelineSensorWindow]:
     if len(raw) < _RAW_SENSOR_BINARY_HEADER.size:
