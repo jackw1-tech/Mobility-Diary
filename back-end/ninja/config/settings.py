@@ -180,6 +180,14 @@ REPLAY_WINDOWS_CACHE_TTL_SECONDS = int(
 RAW_SENSOR_WINDOWS_CACHE_TTL_SECONDS = int(
     os.getenv("RAW_SENSOR_WINDOWS_CACHE_TTL_SECONDS", "300")
 )
+
+# Cache del diario privato di un Trip (build_private_diary): invalidata "a
+# generazione" tramite places_version, non dal TTL — vedi
+# mobility/private_diary_cache.py. TTL lungo di proposito (default una
+# settimana): serve solo a liberare le entry ormai orfane dopo un bump.
+PRIVATE_DIARY_CACHE_TTL_SECONDS = int(
+    os.getenv("PRIVATE_DIARY_CACHE_TTL_SECONDS", str(7 * 24 * 60 * 60))
+)
 CELERY_TASK_TIME_LIMIT = 30 * 60
 
 # Sezione S3

@@ -5,7 +5,7 @@ from pydantic import Field
 
 
 class IngestionStartIn(Schema):
-    client_session_id: str
+    client_session_id: str = Field(min_length=1, max_length=64)
     started_at: datetime | None = None
     device_id: str = ""
     source_trip_id: int | None = None
@@ -53,8 +53,8 @@ class IngestionHeartbeatOut(Schema):
 
 class InlineGpsPointIn(Schema):
     timestamp: datetime
-    latitude: float
-    longitude: float
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
     speed_mps: float = 0
     accuracy_meters: float | None = None
 

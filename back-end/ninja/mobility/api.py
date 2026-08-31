@@ -10,6 +10,11 @@ from accounts.schemas import MessageOut
 from accounts.auth_mobile.auth import mobile_bearer_auth
 
 from .diary_export import build_trip_privacy_export
+from .private_diary_cache import (
+    cache_diary,
+    get_cached_diary,
+    get_places_version,
+)
 from .replay_raw import source_sensor_window_at
 from .selectors.places import (
     place_mining_status_row_for_user,
@@ -137,9 +142,15 @@ def get_trip_diary(request, trip_id: int):
         else None
     )
 
+    places_version = get_places_version(request.user.user_id)
+    diary_segments = get_cached_diary(trip_id, places_version)
+    if diary_segments is None:
+        diary_segments = build_private_diary(trip)
+        cache_diary(trip_id, places_version, diary_segments)
+
     segments: list[SegmentOut] = []
     overlaid: dict[int, PlaceOut] = {}
-    for seg in build_private_diary(trip):
+    for seg in diary_segments:
         place_out = None
         if seg.place is not None:
             place_out = _visible_stop_place_out(seg.place)

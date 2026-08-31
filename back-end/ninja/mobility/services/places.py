@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from shared.exceptions import ServiceError
 
 from ..models import HabitualPlace, PlaceMiningStatus
+from ..private_diary_cache import bump_places_version
 from ..selectors.places import (
     owned_place_for_user,
     place_mining_status_value_for_user,
@@ -57,6 +58,7 @@ def confirm_place_for_user(user_id: int, place_id: int) -> HabitualPlace:
     place.state = HabitualPlace.State.CONFIRMED
     place.manually_reviewed = True
     place.save(update_fields=["state", "manually_reviewed", "updated_at"])
+    bump_places_version(user_id)
     return place
 
 
@@ -65,6 +67,7 @@ def reject_place_for_user(user_id: int, place_id: int) -> HabitualPlace:
     place.state = HabitualPlace.State.REJECTED
     place.manually_reviewed = True
     place.save(update_fields=["state", "manually_reviewed", "updated_at"])
+    bump_places_version(user_id)
     return place
 
 
@@ -73,6 +76,7 @@ def reactivate_place_for_user(user_id: int, place_id: int) -> HabitualPlace:
     place.state = HabitualPlace.State.CANDIDATE
     place.manually_reviewed = False
     place.save(update_fields=["state", "manually_reviewed", "updated_at"])
+    bump_places_version(user_id)
     return place
 
 
@@ -90,6 +94,7 @@ def label_place_for_user(
     place.custom_name = custom_name
     place.manually_reviewed = True
     place.save(update_fields=["category", "custom_name", "manually_reviewed", "updated_at"])
+    bump_places_version(user_id)
     return place
 
 

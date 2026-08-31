@@ -5,6 +5,7 @@ from . import repositories
 from .session_cache import (
     cache_access_token,
     context_from_access_token,
+    delete_cached_auth_context,
     get_cached_auth_context,
 )
 
@@ -15,6 +16,12 @@ class MobileBearerAuth(HttpBearer):
     def authenticate(self, request, token: str):
         cached_context = get_cached_auth_context(token)
         if cached_context is not None:
+            access_token = repositories.access_token_by_hash(
+                cached_context.token_hash
+            )
+            if access_token is None or not access_token.is_valid:
+                delete_cached_auth_context(cached_context.token_hash)
+                return None
             request.user = cached_context.user
             return cached_context
 

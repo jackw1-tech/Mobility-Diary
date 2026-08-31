@@ -15,7 +15,9 @@ from .models import (
 )
 from .ml.har_adapter import HarModelUnavailable, warm_har_model
 from .ml.pipeline import run_pipeline
+from .private_diary_cache import cache_diary, get_places_version
 from .selectors import har_jobs as har_jobs_repository
+from .services.diary_view import build_private_diary
 from .selectors import place_mining_status as place_mining_status_repository
 from .selectors.sensor_readings import replace_raw_sensor_readings
 from .significant_places import mine_user_significant_places
@@ -338,6 +340,18 @@ def process_trip_har_final(self, job_id: int, ingestion_id: int) -> dict:
             job.error = ""
             job.save(update_fields=["status", "result", "error", "updated_at"])
         phase_timings_ms["mark_completed"] = _elapsed_ms(finalize_started)
+
+        # Prewarm: calcola e cache il diario privato ora, fuori dal percorso
+        # critico dell'utente, cosi' il primo click su questo viaggio trova
+        # gia' la cache calda invece di pagare il calcolo al momento. Non
+        # critico: un fallimento qui non deve far fallire l'ingestion.
+        try:
+            places_version = get_places_version(trip.user_id)
+            cache_diary(trip.id, places_version, build_private_diary(trip))
+        except Exception:
+            logger.exception(
+                "Prewarm diario privato fallito per trip_id=%s", trip.id
+            )
     except Exception as exc:
         will_retry = self.request.retries < self.max_retries
         ingestion.raw_status = (

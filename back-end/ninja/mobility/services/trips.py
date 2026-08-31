@@ -73,9 +73,18 @@ def parse_trip_filters(params: RawTripFilterParams) -> trips_repository.TripFilt
     if status and status not in Trip.Status.values:
         raise TripValidationError("Filtro status non valido")
 
+    started_from = _parse_datetime_filter("from", params.started_from)
+    started_to = _parse_datetime_filter("to", params.started_to)
+    if (
+        started_from is not None
+        and started_to is not None
+        and started_from > started_to
+    ):
+        raise TripValidationError("Intervallo temporale non valido")
+
     return trips_repository.TripFilters(
-        started_from=_parse_datetime_filter("from", params.started_from),
-        started_to=_parse_datetime_filter("to", params.started_to),
+        started_from=started_from,
+        started_to=started_to,
         status=status,
         processed=_parse_bool_filter("processed", params.processed),
         has_track=_parse_bool_filter("has_track", params.has_track),

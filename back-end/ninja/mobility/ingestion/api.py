@@ -8,11 +8,9 @@ from ninja.responses import Status
 from accounts.auth_mobile.auth import mobile_bearer_auth
 
 from ..models import TripIngestion
-from .selectors import (
-    active_ingestions_for_owner,
-)
 from .services import (
     IngestionServiceError,
+    active_recording_for_user,
     abandon_recording,
     complete_raw_ingestion,
     confirm_raw_part,
@@ -62,7 +60,7 @@ def _active_response(ingestion: TripIngestion) -> ActiveIngestionOut:
     auth=mobile_bearer_auth,
 )
 def get_active_ingestion(request):
-    active = active_ingestions_for_owner(request.user.user_id).first()
+    active = active_recording_for_user(request.user.user_id)
     if active is None:
         return Status(404, {"detail": "nessun viaggio in corso"})
     return _active_response(active)

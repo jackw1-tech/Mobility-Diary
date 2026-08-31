@@ -117,11 +117,20 @@ def register_user(
 
 
 def login_user(request, *, email: str, password: str) -> dict:
-    user = authenticate(request, username=email, password=password)
+    normalized_email = email.strip().lower()
+    account = repositories.user_by_email(normalized_email)
+    if account is None:
+        raise InvalidCredentials("Credenziali non valide")
+    if not account.is_active:
+        raise UserDisabled("Utente disabilitato")
+
+    user = authenticate(
+        request,
+        username=account.get_username(),
+        password=password,
+    )
     if user is None:
         raise InvalidCredentials("Credenziali non valide")
-    if not user.is_active:
-        raise UserDisabled("Utente disabilitato")
 
     raw_token, access_token = issue_access_token_for_user(user)
     return _login_response(user, access_token, raw_token)

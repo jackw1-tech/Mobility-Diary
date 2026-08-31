@@ -1,7 +1,9 @@
 import 'dart:async';
 
+import 'package:diary/model/entities/trips/trip_track.dart';
 import 'package:diary/repositories/trip_track_repository.dart';
 import 'package:diary/state_management/cubits/trip_track_cubit/trip_track_cubit_state.dart';
+import 'package:diary/utils/app_result.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:latlong2/latlong.dart';
 
@@ -41,7 +43,12 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
       emit(const TripTrackCubitState(status: TripTrackStatus.loading));
     }
     try {
-      final diaryResult = await _repository.fetchDiary(tripId);
+      // diary e track sono richieste indipendenti, servono entrambe in ogni
+      // ramo sotto: partono insieme invece che una dopo l'altra, dimezzando
+      // il tempo di attesa di rete (il caso comune, viaggio gia' processato).
+      final diaryFuture = _repository.fetchDiary(tripId);
+      final trackFuture = _repository.fetchTrack(tripId);
+      final diaryResult = await diaryFuture;
       final diaryFailure = diaryResult.failure;
       if (diaryFailure != null) {
         throw diaryFailure;
@@ -69,7 +76,7 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
         // mostra, ed e' l'unico modo di vedere i fix GPS che restano fuori
         // dalle finestre temporali dei segmenti. Se non arriva, si ripiega
         // sulla concatenazione dei segmenti.
-        final points = await _rawTrackPoints(tripId) ??
+        final points = await _rawTrackPointsFrom(trackFuture) ??
             [
               for (final segment in segments) ...segment.points,
             ];
@@ -87,7 +94,7 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
         return;
       }
 
-      final trackResult = await _repository.fetchTrack(tripId);
+      final trackResult = await trackFuture;
       final trackFailure = trackResult.failure;
       if (trackFailure != null) {
         throw trackFailure;
@@ -127,10 +134,13 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
     }
   }
 
-  /// Punti della traccia grezza, o `null` se non recuperabili: un viaggio con
-  /// il diario gia' pronto resta visualizzabile anche se questa chiamata fallisce.
-  Future<List<LatLng>?> _rawTrackPoints(int tripId) async {
-    final result = await _repository.fetchTrack(tripId);
+  /// Punti della traccia grezza da una richiesta gia' in volo, o `null` se
+  /// non recuperabili: un viaggio con il diario gia' pronto resta
+  /// visualizzabile anche se questa richiesta fallisce.
+  Future<List<LatLng>?> _rawTrackPointsFrom(
+    Future<AppResult<TripTrack>> trackFuture,
+  ) async {
+    final result = await trackFuture;
     if (result.failure != null) {
       return null;
     }

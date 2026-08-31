@@ -63,10 +63,6 @@ def test_invalid_privacy_level_does_not_change_the_saved_preference(
     }
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="known bug: mobile login does not normalize email like registration",
-)
 def test_mobile_login_treats_email_as_case_insensitive(
     api_client, register_mobile_user
 ):
@@ -82,10 +78,6 @@ def test_mobile_login_treats_email_as_case_insensitive(
     assert response.json()["user"]["email"] == "mixed.case@example.com"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="known bug: Django authenticate hides inactive users before 403 handling",
-)
 def test_disabled_mobile_user_receives_the_documented_forbidden_response(
     api_client, register_mobile_user
 ):
@@ -104,10 +96,6 @@ def test_disabled_mobile_user_receives_the_documented_forbidden_response(
     assert response.json() == {"detail": "Utente disabilitato"}
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="known bug: heartbeat accepts an abandoned ingestion",
-)
 def test_abandoned_recording_rejects_heartbeat(api_client, mobile_session):
     headers = mobile_session["headers"]
     ingestion_id = start_recording(api_client, headers).json()["ingestion_id"]
@@ -128,10 +116,6 @@ def test_abandoned_recording_rejects_heartbeat(api_client, mobile_session):
     assert response.status_code == 410
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="known bug: core completion resurrects an abandoned ingestion",
-)
 def test_abandoned_recording_cannot_materialize_a_trip(
     api_client, mobile_session
 ):
@@ -150,10 +134,6 @@ def test_abandoned_recording_cannot_materialize_a_trip(
     assert api_client.get("/api/mobility/trips", **headers).json() == []
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="known bug: active lookup does not expire stale recordings",
-)
 def test_stale_recording_is_not_reported_as_resumable(
     api_client, mobile_session
 ):
@@ -169,10 +149,6 @@ def test_stale_recording_is_not_reported_as_resumable(
     assert response.json() == {"detail": "nessun viaggio in corso"}
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="known bug: heartbeat accepts an already closed ingestion",
-)
 def test_closed_recording_rejects_further_heartbeat(api_client, mobile_session):
     headers = mobile_session["headers"]
     ingestion_id = start_recording(api_client, headers).json()["ingestion_id"]
@@ -188,10 +164,6 @@ def test_closed_recording_rejects_further_heartbeat(api_client, mobile_session):
     assert response.status_code == 410
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="known bug: core ingestion accepts ended_at before started_at",
-)
 def test_core_rejects_an_end_before_the_recording_start(
     api_client, mobile_session
 ):
@@ -221,10 +193,6 @@ def test_core_rejects_an_end_before_the_recording_start(
     assert response.status_code == 422
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="known bug: GPS coordinates are not validated against WGS84 bounds",
-)
 def test_core_rejects_coordinates_outside_wgs84_bounds(
     api_client, mobile_session
 ):
@@ -254,10 +222,6 @@ def test_core_rejects_coordinates_outside_wgs84_bounds(
     assert response.status_code == 422
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="known bug: raw completion does not verify uploaded part coverage",
-)
 def test_raw_completion_rejects_missing_declared_parts(
     api_client, mobile_session
 ):
@@ -284,10 +248,6 @@ def test_raw_completion_rejects_missing_declared_parts(
     assert "mancanti" in response.json()["detail"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="known bug: raw completion without core raises database IntegrityError",
-)
 def test_raw_completion_requires_a_materialized_core_trip(
     api_client, mobile_session
 ):
@@ -462,10 +422,6 @@ def test_invalid_analytics_options_have_stable_safe_fallbacks(
     assert response.json()["has_data"] is False
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="known bug: ingestion start accepts an empty client_session_id",
-)
 def test_start_rejects_an_empty_client_session_id(api_client, mobile_session):
     response = post_json(
         api_client,
@@ -481,10 +437,6 @@ def test_start_rejects_an_empty_client_session_id(api_client, mobile_session):
     assert response.status_code == 422
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="known bug: GPS timestamps are not bounded by the trip interval",
-)
 def test_core_rejects_gps_points_outside_the_trip_interval(
     api_client, mobile_session
 ):
@@ -514,10 +466,6 @@ def test_core_rejects_gps_points_outside_the_trip_interval(
     assert response.status_code == 422
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="known bug: cached mobile sessions bypass later user deactivation",
-)
 def test_mobile_token_stops_working_immediately_when_user_is_disabled(
     api_client, mobile_session
 ):
@@ -530,10 +478,6 @@ def test_mobile_token_stops_working_immediately_when_user_is_disabled(
     assert response.status_code == 401
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="known bug: cached mobile sessions ignore token expiry changed in DB",
-)
 def test_mobile_token_cache_observes_database_expiration(
     api_client, mobile_session
 ):
@@ -546,10 +490,6 @@ def test_mobile_token_cache_observes_database_expiration(
     assert response.status_code == 401
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="known bug: overlong place names reach PostgreSQL and raise DataError",
-)
 def test_place_label_rejects_names_longer_than_the_database_field(
     api_client, mobile_session
 ):
@@ -573,10 +513,6 @@ def test_place_label_rejects_names_longer_than_the_database_field(
     assert response.status_code == 422
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="known bug: web trip filters accept from later than to",
-)
 def test_web_trip_filters_reject_an_inverted_time_range(
     api_client, mobile_session
 ):

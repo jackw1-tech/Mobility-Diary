@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Any
 
 from ninja import Schema
+from pydantic import Field
 
 
 class HealthOut(Schema):
@@ -29,7 +30,7 @@ class PlaceVisitOut(Schema):
 class PlaceLabelIn(Schema):
     # Categoria chiusa (casa/universita/lavoro/palestra/altro) o "" per azzerare.
     category: str = ""
-    custom_name: str = ""
+    custom_name: str = Field(default="", max_length=128)
 
 
 class PlaceMiningStatusOut(Schema):

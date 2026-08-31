@@ -111,6 +111,19 @@ def start_recording(
         return StartRecordingResult(ingestion)
 
 
+def active_recording_for_user(
+    user_id: int,
+    *,
+    now: datetime | None = None,
+) -> TripIngestion | None:
+    now = now or timezone.now()
+    with transaction.atomic():
+        ingestion = locked_active_ingestions_for_owner(user_id).first()
+        if ingestion is None or _abandon_if_stale(ingestion, now=now):
+            return None
+        return ingestion
+
+
 """
 Funzione che aggiorna il last_seen_at della trip ingestion interrogata anche se non è più vecchia d 24 ore
 """
@@ -129,6 +142,11 @@ def heartbeat_recording(
             raise IngestionServiceError("client_session_id non corrisponde")
         if ingestion.device_id != device_id:
             raise IngestionForbidden("device_id non autorizzato")
+        if (
+            ingestion.recording_abandoned_at is not None
+            or ingestion.recording_closed_at is not None
+        ):
+            raise IngestionGone("viaggio non piu' in corso")
         ingestion.last_seen_at = now
         ingestion.save(update_fields=["last_seen_at", "updated_at"])
         
@@ -175,6 +193,7 @@ def process_inline_core_ingestion(
     raw_status: str,
     body_size: int,
 ) -> TripIngestion:
+    _validate_core_timeline(payload)
     with transaction.atomic():
         ingestion = _get_inline_core_ingestion(
             user_id=user_id,
@@ -267,6 +286,26 @@ def process_inline_core_ingestion(
                 raise IngestionServiceError(exc.message) from exc
 
         return ingestion
+
+
+def _validate_core_timeline(payload) -> None:
+    started_at = payload.started_at
+    ended_at = payload.ended_at
+    if started_at is not None and ended_at is not None and ended_at < started_at:
+        raise IngestionUnprocessable("ended_at precedente a started_at")
+
+    evidence_timestamps = [point.timestamp for point in payload.gps_points]
+    evidence_timestamps.extend(
+        transition.timestamp for transition in payload.state_transitions
+    )
+    if started_at is not None and any(
+        timestamp < started_at for timestamp in evidence_timestamps
+    ):
+        raise IngestionUnprocessable("evidenza precedente a started_at")
+    if ended_at is not None and any(
+        timestamp > ended_at for timestamp in evidence_timestamps
+    ):
+        raise IngestionUnprocessable("evidenza successiva a ended_at")
 
 """
 Mette in coda il job che analizza i dati raw
@@ -455,10 +494,19 @@ def complete_raw_ingestion(
         if ingestion.raw_status == TripIngestion.PhaseStatus.FAILED_FINAL:
             raise IngestionServiceError("raw sensor ingestion fallita definitivamente")
         if (
+            ingestion.core_status != TripIngestion.PhaseStatus.COMPLETED
+            or ingestion.trip_id is None
+        ):
+            raise IngestionServiceError("core ingestion non completata")
+        if (
             total_parts is not None
             and total_parts != _raw_part_count(ingestion.expected_raw_parts)
         ):
             raise IngestionServiceError("numero parti raw diverso dal manifest iniziale")
+        missing = missing_raw_parts(ingestion)
+        if missing:
+            sequences = ", ".join(f"#{part['sequence']}" for part in missing)
+            raise IngestionServiceError(f"parti raw mancanti: {sequences}")
 
         queue_final_har(ingestion, now=now)
     return ingestion
@@ -491,6 +539,8 @@ def _get_inline_core_ingestion(
         raise IngestionForbidden("device_id non autorizzato")
     if ingestion.recording_started_at is None:
         raise IngestionServiceError("viaggio non avviato")
+    if ingestion.recording_abandoned_at is not None:
+        raise IngestionGone("viaggio abbandonato")
     return ingestion
 
 
