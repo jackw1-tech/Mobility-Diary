@@ -65,4 +65,4 @@ def web_logout(request, payload: WebRefreshTokenIn):
 
 @router.get("/me", response=UserOut, auth=web_dashboard_auth)
 def web_me(request):
-    return user_payload(request.auth)
+    return user_payload(request.user)

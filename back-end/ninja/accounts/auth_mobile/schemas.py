@@ -8,7 +8,6 @@ from ..schemas import UserOut
 class LoginIn(Schema):
     email: str
     password: str
-    device_name: str = ""
 
 
 class RegisterIn(Schema):
@@ -16,7 +15,6 @@ class RegisterIn(Schema):
     password: str
     first_name: str = ""
     last_name: str = ""
-    device_name: str = ""
 
 
 class LoginOut(Schema):

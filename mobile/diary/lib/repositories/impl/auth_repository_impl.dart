@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:diary/mappers/auth_mapper.dart';
 import 'package:diary/model/entities/auth/auth_session.dart';
 import 'package:diary/model/entities/auth/auth_user.dart';
@@ -8,17 +6,6 @@ import 'package:diary/network/service/auth_session_store.dart';
 import 'package:diary/network/service/impl/auth_http_service.dart';
 import 'package:diary/network/service/impl/secure_auth_session_store.dart';
 import 'package:diary/repositories/auth_repository.dart';
-
-const _guestAccessToken = 'dummy_guest_token';
-
-const _guestUser = AuthUser(
-  id: -1,
-  email: 'guest@mobilitydiary.local',
-  firstName: 'Ospite',
-  lastName: '',
-  isStaff: false,
-  isSuperuser: false,
-);
 
 class AuthRepositoryImpl implements AuthRepository {
   final AuthService _service;
@@ -78,22 +65,8 @@ class AuthRepositoryImpl implements AuthRepository {
     final dto = await _service.login(
       email: email,
       password: password,
-      deviceName: _deviceName,
     );
     final session = _mapper.mapSession(dto);
-    await _persistSession(session);
-    return session;
-  }
-
-  @override
-  Future<AuthSession> loginAsGuest() async {
-    // Modalita' ospite: nessuna chiamata di rete, sessione locale fittizia.
-    final session = AuthSession(
-      user: _guestUser,
-      accessToken: _guestAccessToken,
-      tokenType: 'Bearer',
-      expiresAt: DateTime.now().add(const Duration(days: 365)),
-    );
     await _persistSession(session);
     return session;
   }
@@ -110,7 +83,6 @@ class AuthRepositoryImpl implements AuthRepository {
       password: password,
       firstName: firstName,
       lastName: lastName,
-      deviceName: _deviceName,
     );
     final session = _mapper.mapSession(dto);
     await _persistSession(session);
@@ -119,12 +91,6 @@ class AuthRepositoryImpl implements AuthRepository {
 
   @override
   Future<AuthUser> loadCurrentUser() async {
-    if (_accessToken == _guestAccessToken) {
-      _currentUser = _guestUser;
-      await _sessionStore.saveUser(_guestUser);
-      return _guestUser;
-    }
-
     final token = _accessToken;
     if (token == null || token.isEmpty) {
       throw const AuthApiException('Sessione non disponibile');
@@ -139,7 +105,7 @@ class AuthRepositoryImpl implements AuthRepository {
   @override
   Future<void> logout() async {
     final token = _accessToken;
-    if (token != null && token != _guestAccessToken) {
+    if (token != null) {
       try {
         await _service.logout(accessToken: token);
       } catch (_) {
@@ -159,15 +125,5 @@ class AuthRepositoryImpl implements AuthRepository {
     _accessToken = null;
     _currentUser = null;
     await _sessionStore.clear();
-  }
-
-  String get _deviceName {
-    if (Platform.isIOS) {
-      return 'iOS';
-    }
-    if (Platform.isAndroid) {
-      return 'Android';
-    }
-    return Platform.operatingSystem;
   }
 }

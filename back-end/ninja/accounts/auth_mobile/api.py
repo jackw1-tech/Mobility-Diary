@@ -23,7 +23,6 @@ def register_user(request, payload: RegisterIn):
             password=payload.password,
             first_name=payload.first_name,
             last_name=payload.last_name,
-            device_name=payload.device_name,
         )
     except services.AuthMobileServiceError as exc:
         return exc.status_code, {"detail": exc.message}
@@ -43,7 +42,6 @@ def login_user(request, payload: LoginIn):
             request,
             email=payload.email,
             password=payload.password,
-            device_name=payload.device_name,
         )
     except services.AuthMobileServiceError as exc:
         return exc.status_code, {"detail": exc.message}
@@ -54,9 +52,9 @@ Rotta di login di logout, cancella il token di accesso in redis e lo segna come 
 """
 @router.post("/logout", response=MessageOut, auth=mobile_bearer_auth)
 def logout_user(request):
-    services.logout_user(request.auth.token_hash)
+    services.logout_user(request.user.token_hash)
     return {"detail": "Logout effettuato"}
 
 @router.get("/me", response=UserOut, auth=mobile_bearer_auth)
 def current_user(request):
-    return request.auth.user.as_payload()
+    return request.user.as_payload()

@@ -36,6 +36,19 @@ class StartRequiresConnectionException implements Exception {
   String toString() => message;
 }
 
+class AcquisitionPermissionException implements Exception {
+  static const defaultMessage =
+      'Per registrare un viaggio serve il permesso di posizione "Sempre": '
+      'impostalo dalle impostazioni del telefono.';
+
+  final String message;
+
+  const AcquisitionPermissionException([this.message = defaultMessage]);
+
+  @override
+  String toString() => message;
+}
+
 abstract class AcquisitionTrackingRepository {
   Stream<AcquisitionSnapshot> get snapshots;
 

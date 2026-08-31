@@ -101,18 +101,27 @@ class AcquisitionMapper {
     return latest;
   }
 
-  /// Ultimo istante in cui abbiamo avuto evidenza inerziale. Da qui si misura
-  /// da quanto i sensori tacciono, per correggere uno stato "movimento"
-  /// rimasto appeso mentre l'app era in background.
+  /// Ultimo istante in cui abbiamo avuto evidenza di essere vivi e in moto. Da
+  /// qui si misura da quanto non arriva piu' nulla, per correggere uno stato
+  /// "movimento" rimasto appeso mentre l'app era in background.
+  ///
+  /// Include il GPS e non solo l'inerziale: in background iOS smette di
+  /// consegnare CoreMotion ma continua a mandare fix, quindi un viaggio in auto
+  /// ha evidenza fresca anche senza una sola finestra sensori.
   DateTime resumeInertialReferenceAt(
     AcquisitionSession session,
     StateTransition? latestTransition,
     SensorWindow? latestSensorWindow,
+    GpsPoint? latestGpsPoint,
   ) {
     var referenceAt = latestSensorWindow?.endTimestamp ?? session.startedAt;
     final transitionAt = latestTransition?.timestamp;
     if (transitionAt != null && transitionAt.isAfter(referenceAt)) {
       referenceAt = transitionAt;
+    }
+    final gpsAt = latestGpsPoint?.timestamp;
+    if (gpsAt != null && gpsAt.isAfter(referenceAt)) {
+      referenceAt = gpsAt;
     }
     return referenceAt;
   }

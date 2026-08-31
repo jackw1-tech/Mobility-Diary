@@ -114,12 +114,6 @@ class AcquisitionCubit extends Cubit<AcquisitionCubitState> {
     _emitSnapshot(_trackingRepository.currentSnapshot);
   }
 
-  void dismissNonRecoverableSync() {
-    if (state.syncSnapshot.isNonRecoverable) {
-      emit(state.copyWith(syncSnapshot: const AcquisitionSyncSnapshot.none()));
-    }
-  }
-
   bool _isStoppingReplay = false;
 
   Future<void> startReplay(

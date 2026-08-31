@@ -46,3 +46,6 @@ app.*.map.json
 
 # Token Mapbox (pubblico) per --dart-define-from-file: non committare.
 env/dart_defines.local.json
+
+# Dart-define locali per le build da Xcode (contiene il token Mapbox): non committare.
+ios/Flutter/Dart-Defines.xcconfig

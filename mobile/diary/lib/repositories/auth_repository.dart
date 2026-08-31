@@ -15,8 +15,6 @@ abstract class AuthRepository {
     required String password,
   });
 
-  Future<AuthSession> loginAsGuest();
-
   Future<AuthSession> register({
     required String email,
     required String password,

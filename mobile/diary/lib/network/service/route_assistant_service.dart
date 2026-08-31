@@ -51,8 +51,6 @@ class MapboxRouteAssistantService implements RouteAssistantService {
       if (proximity != null)
         'proximity': '${proximity.longitude},${proximity.latitude}',
     };
-    // Path non pre-codificato: Uri.https percent-codifica gli spazi una volta
-    // sola (pre-codificarlo darebbe doppio encoding e ricerche errate).
     final uri = Uri.https(
       'api.mapbox.com',
       '/geocoding/v5/mapbox.places/$trimmed.json',

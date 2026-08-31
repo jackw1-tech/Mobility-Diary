@@ -11,22 +11,24 @@ from django.utils import timezone
 
 from ..models import AccessToken
 
-
+""" 
+Generato il token casuale e hashato, lo storiamo nel db
+"""
 def create_access_token(
     user,
     *,
     token_hash: str,
-    device_name: str,
     expires_at: datetime,
 ) -> AccessToken:
     return AccessToken.objects.create(
         user=user,
         token_hash=token_hash,
-        device_name=device_name[:128],
         expires_at=expires_at,
     )
 
-
+""" 
+Cerca il token nel db , nella tabella AccessToken
+"""
 def access_token_by_hash(token_hash: str) -> AccessToken | None:
     return (
         AccessToken.objects.select_related("user")

@@ -9,17 +9,19 @@ class FsmConfig {
   final Duration motionSigmaFreshness;
   final Duration gpsSpeedFreshness;
   final double movingGpsSpeedThresholdMps;
+  final double vehicleGpsSpeedThresholdMps;
   final double stationaryGpsSpeedThresholdMps;
   final double movingMotionSigmaThreshold;
   final double stationaryMotionSigmaThreshold;
 
   const FsmConfig({
-    this.movingEvidenceRequired = const Duration(seconds: 15),
+    this.movingEvidenceRequired = const Duration(seconds: 6),
     this.stationaryEvidenceRequired = const Duration(seconds: 120),
     this.stationaryUncertainGrace = const Duration(seconds: 20),
     this.motionSigmaFreshness = const Duration(seconds: 10),
     this.gpsSpeedFreshness = const Duration(seconds: 20),
     this.movingGpsSpeedThresholdMps = 0.8,
+    this.vehicleGpsSpeedThresholdMps = 2.5,
     this.stationaryGpsSpeedThresholdMps = 0.4,
     this.movingMotionSigmaThreshold = 1.2,
     this.stationaryMotionSigmaThreshold = 0.8,
@@ -61,8 +63,15 @@ enum _MotionEvidence {
 }
 
 enum FsmEvidenceMode {
+  /// Inerziale fresco: la decisione incrocia sigma accelerometrico e velocita'
+  /// GPS.
   strictSensors,
-  forceStationary,
+
+  /// App in background: iOS smette di consegnare gli eventi CoreMotion, quindi
+  /// il sigma diventa stale. La velocita' GPS invece continua ad arrivare ed e'
+  /// l'unica prova affidabile: decidere solo con quella, mai dichiarare fermo
+  /// un viaggio solo perche' l'inerziale tace.
+  gpsOnly,
 }
 
 class AcquisitionFsm {
@@ -104,15 +113,6 @@ class AcquisitionFsm {
     FsmEvidenceMode evidenceMode = FsmEvidenceMode.strictSensors,
   }) {
     _updateSignal(event);
-    if (evidenceMode == FsmEvidenceMode.forceStationary &&
-        _state == TrackingState.movement) {
-      return _transitionTo(
-        TrackingState.stationary,
-        'background_inertial_stale',
-        event.timestamp,
-      );
-    }
-
     final evidence = _evidenceAt(event.timestamp, evidenceMode);
 
     switch (_state) {
@@ -191,13 +191,21 @@ class AcquisitionFsm {
     DateTime timestamp,
     FsmEvidenceMode evidenceMode,
   ) {
-    if (evidenceMode == FsmEvidenceMode.forceStationary) {
-      return _forceStationaryEvidence();
+    final gpsSpeed = _freshGpsSpeed(timestamp);
+    if (gpsSpeed == null) {
+      return _MotionEvidence.uncertain;
+    }
+
+    if (gpsSpeed >= config.vehicleGpsSpeedThresholdMps) {
+      return _MotionEvidence.moving;
+    }
+
+    if (evidenceMode == FsmEvidenceMode.gpsOnly) {
+      return _gpsOnlyEvidence(gpsSpeed);
     }
 
     final sigma = _freshSigma(timestamp);
-    final gpsSpeed = _freshGpsSpeed(timestamp);
-    if (sigma == null || gpsSpeed == null) {
+    if (sigma == null) {
       return _MotionEvidence.uncertain;
     }
 
@@ -214,10 +222,17 @@ class AcquisitionFsm {
     return _MotionEvidence.uncertain;
   }
 
-  _MotionEvidence _forceStationaryEvidence() {
-    return _state == TrackingState.movement
-        ? _MotionEvidence.stationary
-        : _MotionEvidence.uncertain;
+  /// Senza inerziale fresco resta solo la velocita' GPS: sopra la soglia di
+  /// movimento e' moto confermato (anche a piedi), sotto quella di fermo e'
+  /// fermo confermato, in mezzo si resta incerti e decidono i debounce.
+  _MotionEvidence _gpsOnlyEvidence(double gpsSpeed) {
+    if (gpsSpeed >= config.movingGpsSpeedThresholdMps) {
+      return _MotionEvidence.moving;
+    }
+    if (gpsSpeed < config.stationaryGpsSpeedThresholdMps) {
+      return _MotionEvidence.stationary;
+    }
+    return _MotionEvidence.uncertain;
   }
 
   double? _freshSigma(DateTime timestamp) {

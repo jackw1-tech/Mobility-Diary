@@ -11,25 +11,24 @@ class PlaceDetailCubit extends Cubit<PlaceDetailState> {
   final PlacesRepository _repository;
 
   PlaceDetailCubit(this._repository, PlaceReview place)
-      : super(PlaceDetailState(place: place));
+      : super(PlaceDetailState.initial(place));
 
   Future<void> loadReviewStatus() async {
     final result = await _repository.fetchPlacesStatus();
     final failure = result.failure;
     if (failure == null) {
-      final placeStatus = result.requireValue;
       emit(
-        PlaceDetailState(
-          place: state.place,
-          canReview: placeStatus.isActionable,
+        state.copyWith(
+          status: PlaceDetailStatus.loaded,
+          canReview: result.requireValue.isActionable,
+          clearError: true,
         ),
       );
       return;
     }
     emit(
-      PlaceDetailState(
-        place: state.place,
-        canReview: state.canReview,
+      state.copyWith(
+        status: PlaceDetailStatus.error,
         error: 'Impossibile verificare lo stato della review dei luoghi',
       ),
     );
@@ -54,38 +53,36 @@ class PlaceDetailCubit extends Cubit<PlaceDetailState> {
   Future<void> _run(Future<AppResult<PlaceReview>> Function() action) async {
     if (!state.canReview) {
       emit(
-        PlaceDetailState(
-          place: state.place,
+        state.copyWith(
+          status: PlaceDetailStatus.error,
           canReview: false,
           error: 'Analisi dei luoghi abituali non completata',
         ),
       );
       return;
     }
-    emit(PlaceDetailState(
-        place: state.place, busy: true, canReview: state.canReview));
+    emit(state.copyWith(status: PlaceDetailStatus.loading, clearError: true));
     final result = await action();
     final failure = result.failure;
     if (failure == null) {
-      emit(PlaceDetailState(place: result.requireValue, canReview: true));
-      return;
-    }
-    final blocked = failure.cause;
-    if (blocked is PlaceReviewBlockedException) {
       emit(
-        PlaceDetailState(
-          place: state.place,
-          canReview: false,
-          error: blocked.message,
+        state.copyWith(
+          status: PlaceDetailStatus.loaded,
+          place: result.requireValue,
+          canReview: true,
+          clearError: true,
         ),
       );
       return;
     }
+    final blocked = failure.cause;
     emit(
-      PlaceDetailState(
-        place: state.place,
-        canReview: state.canReview,
-        error: failure.message,
+      state.copyWith(
+        status: PlaceDetailStatus.error,
+        canReview: blocked is PlaceReviewBlockedException ? false : null,
+        error: blocked is PlaceReviewBlockedException
+            ? blocked.message
+            : failure.message,
       ),
     );
   }

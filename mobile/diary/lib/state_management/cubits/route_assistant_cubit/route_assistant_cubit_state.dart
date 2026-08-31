@@ -1,16 +1,34 @@
 import 'package:diary/model/entities/route_assistant/route_assistant_domain.dart';
 import 'package:latlong2/latlong.dart' as ll;
 
+/// Ricerca dei luoghi e calcolo del percorso sono due operazioni asincrone
+/// indipendenti — possono essere in corso insieme — quindi hanno uno stato
+/// ciascuna invece del singolo `status` degli altri cubit.
+enum RouteAssistantSearchStatus {
+  initial,
+  loading,
+  loaded,
+  error,
+}
+
+enum RouteAssistantRouteStatus {
+  initial,
+  loading,
+  loaded,
+  error,
+}
+
 class RouteAssistantState {
+  final RouteAssistantSearchStatus searchStatus;
+  final RouteAssistantRouteStatus routeStatus;
   final bool isSearchOpen;
   final RouteMode mode;
   final List<GeocodingPlace> searchResults;
-  final bool isSearching;
+  final String? searchError;
   final GeocodingPlace? destination;
   final RouteAssistantRoute? route;
   final DateTime? routeUpdatedAt;
-  final bool isRouting;
-  final String? errorMessage;
+  final String? routeError;
 
   /// Modalita' Live: la modalita' e' guidata dal classificatore, non dai chip.
   final bool isLive;
@@ -20,19 +38,43 @@ class RouteAssistantState {
   final bool hasDetectedModeResult;
 
   const RouteAssistantState({
+    required this.searchStatus,
+    required this.routeStatus,
     this.isSearchOpen = false,
     this.mode = RouteMode.walking,
     this.searchResults = const [],
-    this.isSearching = false,
+    this.searchError,
     this.destination,
     this.route,
     this.routeUpdatedAt,
-    this.isRouting = false,
-    this.errorMessage,
+    this.routeError,
     this.isLive = false,
     this.detectedMode,
     this.hasDetectedModeResult = false,
   });
+
+  const RouteAssistantState.initial()
+      : searchStatus = RouteAssistantSearchStatus.initial,
+        routeStatus = RouteAssistantRouteStatus.initial,
+        isSearchOpen = false,
+        mode = RouteMode.walking,
+        searchResults = const [],
+        searchError = null,
+        destination = null,
+        route = null,
+        routeUpdatedAt = null,
+        routeError = null,
+        isLive = false,
+        detectedMode = null,
+        hasDetectedModeResult = false;
+
+  bool get isSearching => searchStatus == RouteAssistantSearchStatus.loading;
+
+  bool get isRouting => routeStatus == RouteAssistantRouteStatus.loading;
+
+  /// Un solo messaggio per la UI: se il percorso e' fallito e' quello a contare,
+  /// altrimenti resta l'errore della ricerca.
+  String? get errorMessage => routeError ?? searchError;
 
   /// Pallini e selettori sono visibili solo con un percorso calcolato.
   bool get isActive => routePoints.isNotEmpty;
@@ -40,34 +82,37 @@ class RouteAssistantState {
   List<ll.LatLng> get routePoints => route?.points ?? const [];
 
   RouteAssistantState copyWith({
+    RouteAssistantSearchStatus? searchStatus,
+    RouteAssistantRouteStatus? routeStatus,
     bool? isSearchOpen,
     RouteMode? mode,
     List<GeocodingPlace>? searchResults,
-    bool? isSearching,
+    String? searchError,
     GeocodingPlace? destination,
     RouteAssistantRoute? route,
     DateTime? routeUpdatedAt,
-    bool? isRouting,
-    String? errorMessage,
+    String? routeError,
     bool? isLive,
     RouteMode? detectedMode,
     bool? hasDetectedModeResult,
     bool clearDestination = false,
     bool clearRoute = false,
-    bool clearError = false,
+    bool clearSearchError = false,
+    bool clearRouteError = false,
     bool clearDetected = false,
   }) {
     return RouteAssistantState(
+      searchStatus: searchStatus ?? this.searchStatus,
+      routeStatus: routeStatus ?? this.routeStatus,
       isSearchOpen: isSearchOpen ?? this.isSearchOpen,
       mode: mode ?? this.mode,
       searchResults: searchResults ?? this.searchResults,
-      isSearching: isSearching ?? this.isSearching,
+      searchError: clearSearchError ? null : (searchError ?? this.searchError),
       destination: clearDestination ? null : (destination ?? this.destination),
       route: clearRoute ? null : (route ?? this.route),
       routeUpdatedAt:
           clearRoute ? null : (routeUpdatedAt ?? this.routeUpdatedAt),
-      isRouting: isRouting ?? this.isRouting,
-      errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
+      routeError: clearRouteError ? null : (routeError ?? this.routeError),
       isLive: isLive ?? this.isLive,
       detectedMode: clearDetected ? null : (detectedMode ?? this.detectedMode),
       hasDetectedModeResult: hasDetectedModeResult ??

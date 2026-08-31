@@ -1,8 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:diary/di/dependency_injector.dart';
-import 'package:diary/network/service/impl/secure_auth_session_store.dart';
-import 'package:diary/network/service/auth_session_store.dart';
-import 'package:diary/repositories/auth_repository.dart';
 import 'package:diary/repositories/impl/auth_repository_impl.dart';
 import 'package:diary/routers/app_router.dart';
 import 'package:diary/routers/auth_guard.dart';
@@ -13,8 +10,6 @@ import 'package:diary/theme/app_theme.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 
-/// Token PUBBLICO Mapbox (pk....), passato a runtime con
-/// `--dart-define=MAPBOX_ACCESS_TOKEN=pk....`. NON committare il token nel codice.
 const String _mapboxAccessToken = String.fromEnvironment('MAPBOX_ACCESS_TOKEN');
 
 void main() {
@@ -25,32 +20,24 @@ void main() {
   runApp(const DiaryApp());
 }
 
-class DiaryApp extends StatelessWidget {
-  final AuthRepository? authRepository;
-  final AuthSessionStore? authSessionStore;
+class DiaryApp extends StatefulWidget {
+  const DiaryApp({super.key});
 
-  const DiaryApp({
-    this.authRepository,
-    this.authSessionStore,
-    super.key,
-  });
+  @override
+  State<DiaryApp> createState() => _DiaryAppState();
+}
+
+class _DiaryAppState extends State<DiaryApp> {
+  final AuthRepositoryImpl _authRepository = AuthRepositoryImpl();
+  late final AppRouter _appRouter = AppRouter(
+    authGuard: AuthGuard(_authRepository),
+  );
+  late final _routerConfig = _appRouter.config();
 
   @override
   Widget build(BuildContext context) {
-    final resolvedAuthSessionStore =
-        authSessionStore ?? const SecureAuthSessionStore();
-    final resolvedAuthRepository = authRepository ??
-        AuthRepositoryImpl(sessionStore: resolvedAuthSessionStore);
-    final appRouter = AppRouter(
-      authGuard: AuthGuard(resolvedAuthRepository),
-    );
-
     return DependencyInjector(
-      authRepository: resolvedAuthRepository,
-      authSessionStore: resolvedAuthSessionStore,
-      // A ogni avvio autenticato (incluso l'autologin di AuthCubit.initialize)
-      // verifichiamo se c'e' un viaggio in corso da riprendere su questo
-      // dispositivo. Il check e' idempotente e gira anche dopo un login manuale.
+      authRepository: _authRepository,
       child: BlocListener<AuthCubit, AuthCubitState>(
         listenWhen: (previous, current) =>
             previous.status != AuthStatus.authenticated &&
@@ -62,7 +49,7 @@ class DiaryApp extends StatelessWidget {
           theme: AppTheme.lightTheme,
           darkTheme: AppTheme.darkTheme,
           themeMode: ThemeMode.system,
-          routerConfig: appRouter.config(),
+          routerConfig: _routerConfig,
         ),
       ),
     );

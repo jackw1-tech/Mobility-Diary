@@ -1,8 +1,8 @@
-import 'dart:convert';
-
 import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubit_state.dart';
 import 'package:diary/state_management/cubits/current_location_cubit/current_location_cubit.dart';
 import 'package:diary/theme/color_palette.dart';
+import 'package:diary/ui/widgets/live_map_camera_controller.dart';
+import 'package:diary/ui/widgets/live_map_layers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:latlong2/latlong.dart' as ll;
@@ -25,23 +25,11 @@ class LiveMap extends StatefulWidget {
 }
 
 class _LiveMapState extends State<LiveMap> {
-  static const double _followZoom = 16.5;
-  static const String _liveRouteSourceId = 'live-route-source';
-  static const String _liveRouteCasingLayerId = 'live-route-casing';
-  static const String _liveRouteLayerId = 'live-route-line';
-  static const String _replayMarkerSourceId = 'live-replay-position-source';
-  static const String _replayMarkerHaloLayerId = 'live-replay-position-halo';
-  static const String _replayMarkerDotLayerId = 'live-replay-position-dot';
-  static const String _assistantRouteSourceId = 'route-assistant-source';
-  static const String _assistantRouteLayerId = 'route-assistant-line';
-
   MapboxMap? _map;
+  LiveMapLayers? _layers;
+  LiveMapCameraController? _camera;
   Point? _initialCenter;
   String? _error;
-  bool _styleReady = false;
-  bool _liveRouteReady = false;
-  bool _replayMarkerReady = false;
-  bool _assistantRouteReady = false;
   RouteAssistantCubit? _routeAssistantCubit;
 
   /// Se true la camera insegue automaticamente la posizione corrente.
@@ -91,170 +79,33 @@ class _LiveMapState extends State<LiveMap> {
 
   Future<void> _onMapCreated(MapboxMap map) async {
     _map = map;
+    _camera = LiveMapCameraController(map);
     // Niente bussola/scale ridondanti: la UI ha già i suoi overlay.
     await map.scaleBar.updateSettings(ScaleBarSettings(enabled: false));
     await map.compass.updateSettings(CompassSettings(enabled: false));
     // Puck nativo: pallino + alone di accuratezza + freccia di direzione.
-    await map.location.updateSettings(
-      LocationComponentSettings(
-        enabled: true,
-        pulsingEnabled: true,
-        showAccuracyRing: true,
-        puckBearingEnabled: true,
-        puckBearing: PuckBearing.HEADING,
-      ),
-    );
+    await _camera!.syncNativePuck(isReplay: false);
   }
 
   Future<void> _onStyleLoaded(StyleLoadedEventData _) async {
     final map = _map;
     if (map == null) return;
-    // Catturato prima dell'await per non usare context oltre l'async gap.
     final cubit = context.read<AcquisitionCubit>();
     final assistant = context.read<RouteAssistantCubit>();
-    await _installLiveRouteLayer(map);
-    await _installReplayMarkerLayer(map);
-    await _installAssistantRouteLayer(map);
-    _styleReady = true;
-    // Se entriamo con una sessione già in corso, ridisegna subito.
-    await _redrawRoute(cubit.state.routePoints);
-    await _syncNativePuck(cubit.state);
-    await _updateReplayMarker(cubit.state);
-    await _updateAssistantRoute(assistant.state.routePoints);
-  }
-
-  Future<void> _installLiveRouteLayer(MapboxMap map) async {
-    _liveRouteReady = false;
-    await map.style.addSource(GeoJsonSource(
-      id: _liveRouteSourceId,
-      data: _lineGeoJson(const []),
-    ));
-    await map.style.addLayer(LineLayer(
-      id: _liveRouteCasingLayerId,
-      sourceId: _liveRouteSourceId,
-      lineColor: ColorPalette.surface.toARGB32(),
-      lineWidth: 8.0,
-      lineJoin: LineJoin.ROUND,
-      lineCap: LineCap.ROUND,
-    ));
-    await map.style.addLayer(LineLayer(
-      id: _liveRouteLayerId,
-      sourceId: _liveRouteSourceId,
-      lineColor: ColorPalette.primary.toARGB32(),
-      lineWidth: 4.5,
-      lineJoin: LineJoin.ROUND,
-      lineCap: LineCap.ROUND,
-    ));
-    _liveRouteReady = true;
-  }
-
-  Future<void> _installAssistantRouteLayer(MapboxMap map) async {
-    _assistantRouteReady = false;
-    await map.style.addSource(GeoJsonSource(
-      id: _assistantRouteSourceId,
-      data: _lineGeoJson(const []),
-    ));
-    await map.style.addLayer(LineLayer(
-      id: _assistantRouteLayerId,
-      sourceId: _assistantRouteSourceId,
-      lineColor: routeAssistantRouteColor.toARGB32(),
-      lineWidth: 5.0,
-      lineJoin: LineJoin.ROUND,
-      lineCap: LineCap.ROUND,
-    ));
-    _assistantRouteReady = true;
-  }
-
-  Future<void> _updateAssistantRoute(List<ll.LatLng> points) async {
-    final map = _map;
-    if (map == null || !_styleReady || !_assistantRouteReady) return;
-    await map.style.setStyleSourceProperty(
-      _assistantRouteSourceId,
-      'data',
-      _lineGeoJson(points),
+    final layers = await LiveMapLayers.install(map);
+    _layers = layers;
+    await layers.redrawRoute(cubit.state.routePoints);
+    await _camera?.syncNativePuck(isReplay: cubit.state.isReplay);
+    await layers.updateReplayMarker(
+      isReplay: cubit.state.isReplay,
+      latest: cubit.state.latestPosition,
     );
-  }
-
-  String _lineGeoJson(List<ll.LatLng> points) {
-    return jsonEncode({
-      'type': 'FeatureCollection',
-      'features': points.length < 2
-          ? const []
-          : [
-              {
-                'type': 'Feature',
-                'geometry': {
-                  'type': 'LineString',
-                  'coordinates': [
-                    for (final p in points) [p.longitude, p.latitude],
-                  ],
-                },
-                'properties': const {},
-              },
-            ],
-    });
-  }
-
-  String _pointsGeoJson(List<ll.LatLng> points) {
-    return jsonEncode({
-      'type': 'FeatureCollection',
-      'features': [
-        for (final p in points)
-          {
-            'type': 'Feature',
-            'geometry': {
-              'type': 'Point',
-              'coordinates': [p.longitude, p.latitude],
-            },
-            'properties': const {},
-          },
-      ],
-    });
-  }
-
-  Future<void> _installReplayMarkerLayer(MapboxMap map) async {
-    _replayMarkerReady = false;
-    await map.style.addSource(GeoJsonSource(
-      id: _replayMarkerSourceId,
-      data: _pointsGeoJson(const []),
-    ));
-    await map.style.addLayer(CircleLayer(
-      id: _replayMarkerHaloLayerId,
-      sourceId: _replayMarkerSourceId,
-      circleColor: ColorPalette.primary.toARGB32(),
-      circleOpacity: 0.22,
-      circleRadius: 18,
-    ));
-    await map.style.addLayer(CircleLayer(
-      id: _replayMarkerDotLayerId,
-      sourceId: _replayMarkerSourceId,
-      circleColor: ColorPalette.primary.toARGB32(),
-      circleRadius: 8,
-      circleStrokeColor: ColorPalette.surface.toARGB32(),
-      circleStrokeWidth: 3,
-    ));
-    _replayMarkerReady = true;
-  }
-
-  Future<void> _redrawRoute(List<ll.LatLng> points) async {
-    final map = _map;
-    if (map == null || !_styleReady || !_liveRouteReady) return;
-    await map.style.setStyleSourceProperty(
-      _liveRouteSourceId,
-      'data',
-      _lineGeoJson(points),
-    );
+    await layers.updateAssistantRoute(assistant.state.routePoints);
   }
 
   Future<void> _followTo(ll.LatLng target) async {
     if (!_followUser) return;
-    await _map?.flyTo(
-      CameraOptions(
-        center: Point(coordinates: Position(target.longitude, target.latitude)),
-        zoom: _followZoom,
-      ),
-      MapAnimationOptions(duration: 900),
-    );
+    await _camera?.flyTo(target);
   }
 
   void _pauseFollowForGesture(MapContentGestureContext context) {
@@ -262,34 +113,13 @@ class _LiveMapState extends State<LiveMap> {
     setState(() => _followUser = false);
   }
 
-  Future<void> _syncNativePuck(AcquisitionCubitState state) async {
-    await _map?.location.updateSettings(
-      LocationComponentSettings(
-        enabled: !state.isReplay,
-        pulsingEnabled: true,
-        showAccuracyRing: true,
-        puckBearingEnabled: true,
-        puckBearing: PuckBearing.HEADING,
-      ),
-    );
-  }
-
-  Future<void> _updateReplayMarker(AcquisitionCubitState state) async {
-    final map = _map;
-    if (map == null || !_styleReady || !_replayMarkerReady) return;
-
-    final latest = state.latestPosition;
-    await map.style.setStyleSourceProperty(
-      _replayMarkerSourceId,
-      'data',
-      _pointsGeoJson(state.isReplay && latest != null ? [latest] : const []),
-    );
-  }
-
   void _onStateChanged(AcquisitionCubitState state) {
-    _redrawRoute(state.routePoints);
-    _syncNativePuck(state);
-    _updateReplayMarker(state);
+    _layers?.redrawRoute(state.routePoints);
+    _camera?.syncNativePuck(isReplay: state.isReplay);
+    _layers?.updateReplayMarker(
+      isReplay: state.isReplay,
+      latest: state.latestPosition,
+    );
     _syncPassiveModeDetection();
     final latest = state.latestPosition;
     if (latest != null && state.isTracking) {
@@ -331,7 +161,7 @@ class _LiveMapState extends State<LiveMap> {
           listenWhen: (previous, current) =>
               previous.routePoints != current.routePoints,
           listener: (context, state) {
-            _updateAssistantRoute(state.routePoints);
+            _layers?.updateAssistantRoute(state.routePoints);
             _syncPassiveModeDetection();
           },
         ),
@@ -344,7 +174,7 @@ class _LiveMapState extends State<LiveMap> {
             // ignore: deprecated_member_use
             cameraOptions: CameraOptions(
               center: _initialCenter,
-              zoom: _followZoom,
+              zoom: LiveMapCameraController.followZoom,
             ),
             onMapCreated: _onMapCreated,
             onStyleLoadedListener: _onStyleLoaded,

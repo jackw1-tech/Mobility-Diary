@@ -130,10 +130,10 @@ def get_trip_diary(request, trip_id: int):
     proiezione vera e propria vive in `services.diary_view.build_private_diary`
     ed e' condivisa con la dashboard web (stessa regola, stesso posto).
     """
-    trip = get_object_or_404(Trip, id=trip_id, user_id=request.auth.user_id)
+    trip = get_object_or_404(Trip, id=trip_id, user_id=request.user.user_id)
     failure_reason = (
         DIARY_ENRICHMENT_FAILED_REASON
-        if trip_diary_enrichment_failed(trip_id, request.auth.user_id)
+        if trip_diary_enrichment_failed(trip_id, request.user.user_id)
         else None
     )
 
@@ -203,14 +203,14 @@ def list_places(request):
     Restituisce tutti i luoghi dell'utente (il client raggruppa per stato); ogni
     luogo porta il contesto (visite, giorni distinti) e le visite di supporto.
     """
-    places = place_review_queryset_for_user(request.auth.user_id)
+    places = place_review_queryset_for_user(request.user.user_id)
     return [_place_review_out(place) for place in places]
 
 
 @router.get("/places/status", response=PlaceMiningStatusOut, auth=mobile_bearer_auth)
 def get_places_status(request):
     return PlaceMiningStatusOut(
-        **place_mining_status_row_for_user(request.auth.user_id)
+        **place_mining_status_row_for_user(request.user.user_id)
     )
 
 
@@ -221,7 +221,7 @@ def get_places_status(request):
 )
 def confirm_place(request, place_id: int):
     try:
-        place = confirm_place_for_user(request.auth.user_id, place_id)
+        place = confirm_place_for_user(request.user.user_id, place_id)
     except PlaceMutationBlockedError as exc:
         return _place_blocked_status(exc)
     except PlaceServiceError as exc:
@@ -236,7 +236,7 @@ def confirm_place(request, place_id: int):
 )
 def reject_place(request, place_id: int):
     try:
-        place = reject_place_for_user(request.auth.user_id, place_id)
+        place = reject_place_for_user(request.user.user_id, place_id)
     except PlaceMutationBlockedError as exc:
         return _place_blocked_status(exc)
     except PlaceServiceError as exc:
@@ -252,7 +252,7 @@ def reject_place(request, place_id: int):
 def reactivate_place(request, place_id: int):
     """Riattiva un luogo rifiutato: torna candidato e rientra nel flusso automatico."""
     try:
-        place = reactivate_place_for_user(request.auth.user_id, place_id)
+        place = reactivate_place_for_user(request.user.user_id, place_id)
     except PlaceMutationBlockedError as exc:
         return _place_blocked_status(exc)
     except PlaceServiceError as exc:
@@ -268,7 +268,7 @@ def reactivate_place(request, place_id: int):
 def label_place(request, place_id: int, payload: PlaceLabelIn):
     try:
         place = label_place_for_user(
-            request.auth.user_id,
+            request.user.user_id,
             place_id,
             category=payload.category,
             custom_name=payload.custom_name,
@@ -304,8 +304,8 @@ def get_trip_privacy_export(request, trip_id: int):
     resta privato e preciso. Per i livelli non-precise la geometria e' cloaked
     e le soste usano una dicitura generica.
     """
-    trip = get_object_or_404(Trip, id=trip_id, user_id=request.auth.user_id)
-    settings = accounts_repositories.get_or_create_privacy_settings(request.auth.user_id)
+    trip = get_object_or_404(Trip, id=trip_id, user_id=request.user.user_id)
+    settings = accounts_repositories.get_or_create_privacy_settings(request.user.user_id)
     level = settings.level
     export = build_trip_privacy_export(trip, level=level)
     return PrivacyExportOut(
@@ -328,7 +328,7 @@ def list_trips(request):
     `has_track` e' calcolato a DB (path non null) senza caricare la geometria,
     cosi' la UI sa se il pulsante "Vedi su mappa" puo' mostrare qualcosa.
     """
-    return trip_list_items_for_user(request.auth.user_id)
+    return trip_list_items_for_user(request.user.user_id)
 
 
 @router.get(
@@ -337,7 +337,7 @@ def list_trips(request):
     auth=mobile_bearer_auth,
 )
 def list_reloadable_trips(request):
-    return reloadable_trip_list_items_for_user(request.auth.user_id)
+    return reloadable_trip_list_items_for_user(request.user.user_id)
 
 
 @router.patch(
@@ -348,7 +348,7 @@ def list_reloadable_trips(request):
 def update_trip_reloadable(request, trip_id: int, payload: TripReloadableUpdateIn):
     try:
         return update_trip_reloadable_service(
-            user_id=request.auth.user_id,
+            user_id=request.user.user_id,
             trip_id=trip_id,
             is_reloadable=payload.is_reloadable,
         )
@@ -364,7 +364,7 @@ def update_trip_reloadable(request, trip_id: int, payload: TripReloadableUpdateI
 def update_trip_note(request, trip_id: int, payload: TripNoteUpdateIn):
     try:
         return update_trip_note_service(
-            user_id=request.auth.user_id,
+            user_id=request.user.user_id,
             trip_id=trip_id,
             note=payload.note,
         )
@@ -379,7 +379,7 @@ def update_trip_note(request, trip_id: int, payload: TripNoteUpdateIn):
 )
 def delete_trip(request, trip_id: int):
     try:
-        delete_trip_service(user_id=request.auth.user_id, trip_id=trip_id)
+        delete_trip_service(user_id=request.user.user_id, trip_id=trip_id)
     except TripServiceError as exc:
         raise HttpError(exc.status_code, exc.message) from exc
     return Status(204, None)
@@ -394,7 +394,7 @@ def get_replay_data(request, trip_id: int):
     source = get_object_or_404(
         Trip,
         id=trip_id,
-        user_id=request.auth.user_id,
+        user_id=request.user.user_id,
         is_reloadable=True,
         status__in=[Trip.Status.CLOSED, Trip.Status.PROCESSED],
     )
@@ -414,7 +414,7 @@ def get_reloadable_sensor_window(request, trip_id: int, offset_seconds: int):
     source = get_object_or_404(
         Trip,
         id=trip_id,
-        user_id=request.auth.user_id,
+        user_id=request.user.user_id,
         is_reloadable=True,
         status__in=[Trip.Status.CLOSED, Trip.Status.PROCESSED],
     )
@@ -438,7 +438,7 @@ def list_reload_slots(
 ):
     try:
         return reload_slots_for_trip_service(
-            user_id=request.auth.user_id,
+            user_id=request.user.user_id,
             trip_id=trip_id,
             days=days,
             step_minutes=step_minutes,
@@ -456,7 +456,7 @@ def list_reload_slots(
 def reload_trip(request, trip_id: int, payload: TripReloadIn):
     try:
         return reload_trip_from_source(
-            user_id=request.auth.user_id,
+            user_id=request.user.user_id,
             trip_id=trip_id,
             reload_request_id=payload.reload_request_id,
             scheduled_start_at=payload.scheduled_start_at,
@@ -467,7 +467,7 @@ def reload_trip(request, trip_id: int, payload: TripReloadIn):
 
 @router.get("/trips/{trip_id}/track", response=TrackOut, auth=mobile_bearer_auth)
 def get_trip_track(request, trip_id: int):
-    track = trip_track_for_user(trip_id, request.auth.user_id)
+    track = trip_track_for_user(trip_id, request.user.user_id)
     if track is None:
         raise HttpError(404, "Trip non trovato")
     return TrackOut(**track)
@@ -484,7 +484,7 @@ def get_personal_analytics(request, granularity: str = "day", tz: str = "UTC"):
     cumulativi su tutta la storia.
     """
     return personal_analytics_for_user(
-        user_id=request.auth.user_id,
+        user_id=request.user.user_id,
         granularity=granularity,
         tz=tz,
     )

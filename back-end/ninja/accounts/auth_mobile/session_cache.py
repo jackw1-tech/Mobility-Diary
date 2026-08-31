@@ -132,6 +132,9 @@ def delete_cached_auth_context(token_hash: str) -> None:
         return
 
 
+""" 
+Mapper da Acess Token (Tabella) a MobileAuthContext
+"""
 def context_from_access_token(access_token: AccessToken) -> MobileAuthContext:
     return MobileAuthContext.from_payload(
         token_hash=access_token.token_hash,

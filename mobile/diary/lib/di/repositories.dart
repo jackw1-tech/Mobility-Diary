@@ -16,10 +16,6 @@ List<RepositoryProvider> buildRepositories({
       RepositoryProvider<LocationRepository>(
         create: (_) => const GeolocatorLocationRepository(),
       ),
-      // Deve stare dopo TripsService: la coda di sync la usa per eliminare
-      // anche il Trip lato backend (se il core era gia' andato a buon fine)
-      // quando scarta in automatico un viaggio la cui sync e' fallita in modo
-      // definitivo, non solo il residuo locale.
       RepositoryProvider<AcquisitionRepository>(
         create: (context) {
           final database = context.read<AcquisitionLocalDatabase>();

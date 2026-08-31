@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:diary/network/service/impl/acquisition_local_database.dart';
 import 'package:diary/model/entities/acquisition/acquisition_domain.dart';
 import 'package:diary/model/entities/acquisition/ingestion_models.dart';
+import 'package:diary/repositories/acquisition_repository.dart';
 import 'package:diary/repositories/acquisition_strategy.dart';
 import 'package:diary/model/entities/acquisition/sensor_matrix_blob.dart';
 import 'package:diary/network/service/impl/acquisition_sensor_runtime.dart';
@@ -133,6 +134,13 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
   Future<void> startTracking() async {
     if (currentSnapshot.isTracking) {
       return;
+    }
+    // Prima di qualunque scrittura locale o remota: senza permesso "Sempre" la
+    // sessione registrerebbe solo i fix del tempo in cui l'app resta in primo
+    // piano, cioe' partenza e arrivo.
+    final runtime = _runtime;
+    if (runtime != null && !await runtime.hasAcquisitionLocationPermission()) {
+      throw const AcquisitionPermissionException();
     }
     if (await _dao.latestUnclosedCoreSyncJob() != null) {
       throw const IngestionApiException('Richiesta ingestion fallita');
@@ -296,7 +304,10 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
         accuracyMeters: _latestAccuracyMeters,
       ),
     );
-    await _runtime?.configure(decision.samplingProfile);
+    await _runtime?.configure(
+      decision.samplingProfile,
+      allowGpsRestart: _lifecycleState == AppLifecycleState.resumed,
+    );
   }
 
   Future<AcquisitionStopResult> resumeOrReconcile() async {
@@ -466,6 +477,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     _lifecycleState = state;
     if (state == AppLifecycleState.resumed) {
       unawaited(_heartbeat.send());
+      unawaited(_runtime?.applyPendingGpsRestart() ?? Future<void>.value());
     }
   }
 
@@ -474,7 +486,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
         !_isBackgroundInertialStale(timestamp)) {
       return FsmEvidenceMode.strictSensors;
     }
-    return FsmEvidenceMode.forceStationary;
+    return FsmEvidenceMode.gpsOnly;
   }
 
   bool _isBackgroundInertialStale(DateTime timestamp) {
@@ -526,6 +538,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
       session: session,
       latestTransition: latestTransition,
       latestSensorWindow: latestSensorWindow,
+      latestGpsPoint: latestGpsPoint,
     );
     final trackingState = TrackingState.fromWire(latestTransition?.toState);
     final profile = SamplingProfile.forState(trackingState);
@@ -582,6 +595,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     required AcquisitionSession session,
     required StateTransition? latestTransition,
     required SensorWindow? latestSensorWindow,
+    required GpsPoint? latestGpsPoint,
   }) async {
     if (TrackingState.fromWire(latestTransition?.toState) !=
         TrackingState.movement) {
@@ -592,6 +606,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
       session,
       latestTransition,
       latestSensorWindow,
+      latestGpsPoint,
     );
     final correctedAt = inertialReferenceAt.add(_backgroundInertialStaleAfter);
     final now = _now().toUtc();

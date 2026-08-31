@@ -111,7 +111,7 @@ class TripSyncQueueImpl implements TripSyncQueue {
       }
 
       var ingestionId = job.remoteIngestionId ?? package.remoteIngestionId;
-      late IngestionStatus status;
+      IngestionStatus status;
       if (coreAlreadyCompleted) {
         if (ingestionId == null) {
           throw const IngestionApiException('remote ingestion assente');

@@ -33,6 +33,7 @@ from .ingestion.raw_sensor_codec import (
     raw_sensor_payload_format,
 )
 from .models import Trip, TripIngestion
+from .replay_windows_cache import cache_windows, get_cached_windows
 from .selectors import har_jobs as har_jobs_repository
 from .tasks import process_trip_har_final
 
@@ -211,23 +212,26 @@ def _shifted_binary_part_body(
     return gzip.compress(bytes(payload)), "bin.gz"
 
 
+""" 
+Dato il trip e l'offset calcolato come durata * velocità
+Recupera tutte le TripIngestionPart
+Per oguna di esse scarica i dati dei sensori e i dati aggiuntivi se non sono già in cache
+Usa start_us e end_us per trovare la 500 x 6 giusta
+"""
 def source_sensor_window_at(
     source: Trip, offset_seconds: int
 ) -> list[list[float]] | None:
-    """Finestra sensori grezza (500x6, primi 6 canali) attiva a `offset_seconds`
-    dall'inizio del viaggio sorgente. None se fuori range o telemetrie assenti.
-
-    Read-only: usato dalla classificazione live dell'assistente durante una
-    Riproduzione Live, dove l'offset e' il tempo trascorso dall'avvio del replay.
-    """
-    parts = ingestion_selectors.completed_raw_parts_for_trip(source)
-    windows = []
-    for part in parts:
-        try:
-            raw = gzip.decompress(storage.read_object(part.object_key))
-            windows.extend(decode_sensor_windows_payload(raw))
-        except _DECODE_ERRORS:
-            continue
+    windows = get_cached_windows(source.id)
+    if windows is None:
+        parts = ingestion_selectors.completed_raw_parts_for_trip(source)
+        windows = []
+        for part in parts:
+            try:
+                raw = gzip.decompress(storage.read_object(part.object_key))
+                windows.extend(decode_sensor_windows_payload(raw))
+            except _DECODE_ERRORS:
+                continue
+        cache_windows(source.id, windows)
     if not windows:
         return None
 

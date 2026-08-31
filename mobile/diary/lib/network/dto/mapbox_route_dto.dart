@@ -5,8 +5,6 @@ class MapboxRouteDto {
   final num? distanceMeters;
   final num? durationSeconds;
 
-  /// Coordinate grezze `[[lon, lat], ...]` cosi' come restituite da Mapbox
-  /// (`geometry.coordinates`).
   final List<dynamic>? coordinates;
 
   const MapboxRouteDto({
@@ -20,7 +18,8 @@ class MapboxRouteDto {
     return MapboxRouteDto(
       distanceMeters: json['distance'] as num?,
       durationSeconds: json['duration'] as num?,
-      coordinates: geometry is Map ? geometry['coordinates'] as List<dynamic>? : null,
+      coordinates:
+          geometry is Map ? geometry['coordinates'] as List<dynamic>? : null,
     );
   }
 }

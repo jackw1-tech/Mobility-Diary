@@ -200,7 +200,7 @@ class _PlaceActionBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final cubit = context.read<PlaceDetailCubit>();
     final place = state.place;
-    if (state.busy) {
+    if (state.isLoading) {
       return const SafeArea(
         top: false,
         child: Padding(

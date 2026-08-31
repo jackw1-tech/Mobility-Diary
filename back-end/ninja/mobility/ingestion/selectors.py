@@ -5,13 +5,10 @@ from django.db.models import QuerySet
 from ..models import Trip, TripIngestion, TripIngestionPart
 
 
+""" 
+Ottiene tutti i raw parts completati di un trip
+"""
 def completed_raw_parts_for_trip(trip: Trip) -> QuerySet[TripIngestionPart]:
-    """Parti raw ricevute e completate di un Trip, ordinate per sequenza.
-
-    Query unica per questa esigenza: prima era ripetuta identica in
-    `mobility.selectors.trips.source_has_raw_sensor_evidence` e in due punti
-    di `mobility.replay_raw`.
-    """
     return TripIngestionPart.objects.filter(
         ingestion__trip=trip,
         ingestion__raw_status=TripIngestion.PhaseStatus.COMPLETED,

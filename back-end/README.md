@@ -93,7 +93,9 @@ http://localhost:8080/admin/
 ```
 
 Il servizio Django resta raggiungibile solo dalla rete interna Docker come
-`web:8000`; anche PostgreSQL, Redis e MinIO restano privati nella rete Docker.
+`web:8000`. PostgreSQL, Redis e MinIO sono pubblicati esclusivamente sul
+loopback (`127.0.0.1`) per supportare anche `manage.py runserver`, senza essere
+esposti sulla rete locale.
 I presigned upload locali passano da Nginx usando il path del bucket
 `/mobility-trips/...`, cosi' il mobile non deve raggiungere MinIO direttamente.
 Nel compose locale Django gira con Gunicorn + Uvicorn worker ASGI, non con il

@@ -144,33 +144,9 @@ class _ReadyView extends StatelessWidget {
           ),
         ),
         const SizedBox(height: Dimensions.paddingMedium),
-        Row(
-          children: [
-            Expanded(child: _CopyButton(text: export.text)),
-            const SizedBox(width: Dimensions.paddingSmall),
-            Expanded(
-              child: FilledButton.icon(
-                onPressed: () => _shareExport(context, export),
-                icon: const Icon(Icons.ios_share),
-                label: const Text('Condividi'),
-              ),
-            ),
-          ],
-        ),
+        _CopyButton(text: export.text),
       ],
     );
-  }
-
-  Future<void> _shareExport(
-    BuildContext context,
-    TripPrivacyExport export,
-  ) async {
-    try {} catch (_) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Condivisione non disponibile')),
-      );
-    }
   }
 }
 

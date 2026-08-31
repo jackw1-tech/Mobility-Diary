@@ -36,7 +36,7 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
         _activeLocationProvider = activeLocationProvider,
         _sensorWindowProvider = sensorWindowProvider,
         _tickInterval = tickInterval,
-        super(const RouteAssistantState());
+        super(const RouteAssistantState.initial());
 
   void openSearch() => emit(state.copyWith(isSearchOpen: true));
 
@@ -46,14 +46,17 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
     if (query.trim().isEmpty) {
       _searchGeneration++;
       emit(state.copyWith(
+        searchStatus: RouteAssistantSearchStatus.initial,
         searchResults: const [],
-        isSearching: false,
-        clearError: true,
+        clearSearchError: true,
       ));
       return;
     }
     final generation = ++_searchGeneration;
-    emit(state.copyWith(isSearching: true, clearError: true));
+    emit(state.copyWith(
+      searchStatus: RouteAssistantSearchStatus.loading,
+      clearSearchError: true,
+    ));
     try {
       final proximity = await _currentOrigin();
       final result =
@@ -62,18 +65,22 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
       final failure = result.failure;
       if (failure != null) {
         emit(state.copyWith(
-          isSearching: false,
-          errorMessage: failure.message,
+          searchStatus: RouteAssistantSearchStatus.error,
+          searchError: failure.message,
         ));
         return;
       }
       emit(state.copyWith(
+        searchStatus: RouteAssistantSearchStatus.loaded,
         searchResults: result.requireValue,
-        isSearching: false,
+        clearSearchError: true,
       ));
     } catch (error) {
       if (isClosed || generation != _searchGeneration) return;
-      emit(state.copyWith(isSearching: false, errorMessage: error.toString()));
+      emit(state.copyWith(
+        searchStatus: RouteAssistantSearchStatus.error,
+        searchError: error.toString(),
+      ));
     }
   }
 
@@ -169,7 +176,7 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
     _passiveModeDetectionEnabled = false;
     _searchGeneration++;
     _routeGeneration++;
-    emit(const RouteAssistantState());
+    emit(const RouteAssistantState.initial());
   }
 
   @override
@@ -182,19 +189,20 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
   Future<void> _fetchRoute() async {
     final destination = state.destination;
     if (destination == null) return;
-    // Una nuova richiesta (o un dismiss) invalida quelle in volo: cosi' una
-    // risposta tardiva non riattiva l'assistente dopo la chiusura.
     final generation = ++_routeGeneration;
     final from = await _currentOrigin();
     if (isClosed || generation != _routeGeneration) return;
     if (from == null) {
       emit(state.copyWith(
-        isRouting: false,
-        errorMessage: 'Posizione corrente non disponibile',
+        routeStatus: RouteAssistantRouteStatus.error,
+        routeError: 'Posizione corrente non disponibile',
       ));
       return;
     }
-    emit(state.copyWith(isRouting: true, clearError: true));
+    emit(state.copyWith(
+      routeStatus: RouteAssistantRouteStatus.loading,
+      clearRouteError: true,
+    ));
     try {
       final result = await _repository.fetchRoute(
         from: from,
@@ -205,20 +213,24 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
       final failure = result.failure;
       if (failure != null) {
         emit(state.copyWith(
-          isRouting: false,
-          errorMessage: failure.message,
+          routeStatus: RouteAssistantRouteStatus.error,
+          routeError: failure.message,
         ));
         return;
       }
       emit(state.copyWith(
+        routeStatus: RouteAssistantRouteStatus.loaded,
         route: result.requireValue,
         routeUpdatedAt: DateTime.now(),
-        isRouting: false,
+        clearRouteError: true,
       ));
-      _ensureTimer(); // avvia il tick periodico al primo percorso calcolato
+      _ensureTimer();
     } catch (error) {
       if (isClosed || generation != _routeGeneration) return;
-      emit(state.copyWith(isRouting: false, errorMessage: error.toString()));
+      emit(state.copyWith(
+        routeStatus: RouteAssistantRouteStatus.error,
+        routeError: error.toString(),
+      ));
     }
   }
 

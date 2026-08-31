@@ -62,7 +62,7 @@ def _active_response(ingestion: TripIngestion) -> ActiveIngestionOut:
     auth=mobile_bearer_auth,
 )
 def get_active_ingestion(request):
-    active = active_ingestions_for_owner(request.auth.user_id).first()
+    active = active_ingestions_for_owner(request.user.user_id).first()
     if active is None:
         return Status(404, {"detail": "nessun viaggio in corso"})
     return _active_response(active)
@@ -76,7 +76,7 @@ def get_active_ingestion(request):
 def abandon_ingestion(request, ingestion_id: int, payload: IngestionAbandonIn):
     try:
         ingestion = abandon_recording(
-            user_id=request.auth.user_id,
+            user_id=request.user.user_id,
             ingestion_id=ingestion_id,
             device_id=payload.device_id,
         )
@@ -97,7 +97,7 @@ def abandon_ingestion(request, ingestion_id: int, payload: IngestionAbandonIn):
 def heartbeat_ingestion(request, ingestion_id: int, payload: IngestionHeartbeatIn):
     try:
         ingestion = heartbeat_recording(
-            user_id=request.auth.user_id,
+            user_id=request.user.user_id,
             ingestion_id=ingestion_id,
             client_session_id=payload.client_session_id,
             device_id=payload.device_id,
@@ -119,7 +119,7 @@ def heartbeat_ingestion(request, ingestion_id: int, payload: IngestionHeartbeatI
 def start_ingestion(request, payload: IngestionStartIn):
     try:
         result = start_recording(
-            user_id=request.auth.user_id,
+            user_id=request.user.user_id,
             client_session_id=payload.client_session_id,
             device_id=payload.device_id,
             started_at=payload.started_at,
@@ -167,7 +167,7 @@ def create_core_inline(request, payload: InlineCoreIn):
 
     try:
         ingestion = process_inline_core_ingestion(
-            user_id=request.auth.user_id,
+            user_id=request.user.user_id,
             payload=payload,
             expected_raw_parts=expected_raw_parts,
             raw_status=raw_status,
@@ -193,7 +193,7 @@ def create_core_inline(request, payload: InlineCoreIn):
 def presign_part(request, ingestion_id: int, payload: PartPresignIn):
     try:
         result = presign_raw_part(
-            user_id=request.auth.user_id,
+            user_id=request.user.user_id,
             ingestion_id=ingestion_id,
             sequence=payload.sequence,
             sha256=payload.sha256,
@@ -218,7 +218,7 @@ def presign_part(request, ingestion_id: int, payload: PartPresignIn):
 def confirm_part(request, ingestion_id: int, payload: PartConfirmIn):
     try:
         part = confirm_raw_part(
-            user_id=request.auth.user_id,
+            user_id=request.user.user_id,
             ingestion_id=ingestion_id,
             sequence=payload.sequence,
             sha256=payload.sha256,
@@ -241,7 +241,7 @@ def confirm_part(request, ingestion_id: int, payload: PartConfirmIn):
 def complete_raw_ingestion_route(request, ingestion_id: int, payload: CompleteIn):
     try:
         ingestion = complete_raw_ingestion(
-            user_id=request.auth.user_id,
+            user_id=request.user.user_id,
             ingestion_id=ingestion_id,
             total_parts=payload.total_parts,
         )
@@ -262,7 +262,7 @@ def ingestion_status(request, ingestion_id: int):
     ingestion = get_object_or_404(
         TripIngestion,
         id=ingestion_id,
-        user_id=request.auth.user_id,
+        user_id=request.user.user_id,
     )
 
     return IngestionStatusOut(

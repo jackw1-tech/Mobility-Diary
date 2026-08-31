@@ -165,6 +165,13 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6381/0")
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", REDIS_URL)
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6381/1")
 CELERY_TASK_TRACK_STARTED = True
+
+# Cache delle finestre sensore decodificate di un viaggio sorgente (Riproduzione
+# Live): evita di riscaricare/decomprimere/decodificare da object storage ad
+# ogni tick di classificazione durante lo stesso replay.
+REPLAY_WINDOWS_CACHE_TTL_SECONDS = int(
+    os.getenv("REPLAY_WINDOWS_CACHE_TTL_SECONDS", "3600")
+)
 CELERY_TASK_TIME_LIMIT = 30 * 60
 
 # Sezione S3

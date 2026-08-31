@@ -16,7 +16,6 @@ class AuthHttpService implements AuthService {
   Future<AuthSessionDto> login({
     required String email,
     required String password,
-    required String deviceName,
   }) async {
     final data = await _sendJson(
       method: 'POST',
@@ -24,7 +23,6 @@ class AuthHttpService implements AuthService {
       body: {
         'email': email,
         'password': password,
-        'device_name': deviceName,
       },
       requiresAuth: false,
     );
@@ -37,7 +35,6 @@ class AuthHttpService implements AuthService {
     required String password,
     required String firstName,
     required String lastName,
-    required String deviceName,
   }) async {
     final data = await _sendJson(
       method: 'POST',
@@ -47,9 +44,9 @@ class AuthHttpService implements AuthService {
         'password': password,
         'first_name': firstName,
         'last_name': lastName,
-        'device_name': deviceName,
       },
-      requiresAuth: false,
+      requiresAuth:
+          false, //non aggiunge Authorization: Bearer <token> all header
     );
     return AuthSessionDto.fromJson(data);
   }
@@ -92,7 +89,8 @@ class AuthHttpService implements AuthService {
       if (accessToken == null || accessToken.isEmpty) {
         throw const AuthApiException('Sessione non disponibile');
       }
-      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $accessToken');
+      request.headers
+          .set(HttpHeaders.authorizationHeader, 'Bearer $accessToken');
     }
     if (body != null) {
       final encodedBody = utf8.encode(jsonEncode(body));

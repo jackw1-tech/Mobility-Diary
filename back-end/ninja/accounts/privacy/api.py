@@ -14,7 +14,7 @@ e nelle impostazioni
 """
 @router.get("/settings", response=PrivacySettingsOut, auth=mobile_bearer_auth)
 def get_privacy_settings(request):
-    return services.get_privacy_settings(request.auth.user_id)
+    return services.get_privacy_settings(request.user.user_id)
 
 
 """
@@ -24,7 +24,7 @@ Rotta per cambiare il livello di privacy dell'utente
 def update_privacy_settings(request, payload: PrivacySettingsIn):
     try:
         return services.update_privacy_settings(
-            request.auth.user_id,
+            request.user.user_id,
             privacy_level=payload.privacy_level,
         )
     except services.PrivacyServiceError as exc:

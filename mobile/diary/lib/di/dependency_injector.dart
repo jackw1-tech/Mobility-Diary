@@ -65,12 +65,10 @@ part 'repositories.dart';
 class DependencyInjector extends StatelessWidget {
   final Widget child;
   final AuthRepository? authRepository;
-  final AuthSessionStore? authSessionStore;
 
   const DependencyInjector({
     required this.child,
     this.authRepository,
-    this.authSessionStore,
     Key? key,
   }) : super(key: key);
 
@@ -79,7 +77,7 @@ class DependencyInjector extends StatelessWidget {
         blocs: blocs,
         mappers: _mappers,
         repositories: buildRepositories(authRepository: authRepository),
-        providers: buildProviders(authSessionStore: authSessionStore),
+        providers: buildProviders(),
         child: child,
       );
 }

@@ -17,7 +17,6 @@ abstract class AuthService {
   Future<AuthSessionDto> login({
     required String email,
     required String password,
-    required String deviceName,
   });
 
   Future<AuthSessionDto> register({
@@ -25,7 +24,6 @@ abstract class AuthService {
     required String password,
     required String firstName,
     required String lastName,
-    required String deviceName,
   });
 
   Future<UserDto> fetchCurrentUser({required String accessToken});

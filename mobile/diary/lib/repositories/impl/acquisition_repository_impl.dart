@@ -40,8 +40,14 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
   final HeartbeatTimerFactory _heartbeatTimerFactory;
   final Duration _staleSessionThreshold;
   final DateTime Function() _now;
-  final Stream<AppLifecycleState>? _lifecycleEvents;
   final bool _observesAppLifecycle;
+
+  /// Ripete alla strategia attiva il lifecycle che arriva qui: e' il repository
+  /// a essere registrato come osservatore, la strategia ne ha bisogno per
+  /// sapere quando l'app e' in background (evidenza solo-GPS e riavvii dello
+  /// stream di posizione rimandati al foreground).
+  final StreamController<AppLifecycleState> _lifecycleRelay =
+      StreamController<AppLifecycleState>.broadcast();
 
   AcquisitionStrategy? _activeStrategy;
   StreamSubscription<AcquisitionSnapshot>? _activeStrategySubscription;
@@ -84,7 +90,6 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
         _now = now ?? DateTime.now,
         _heartbeatTimerFactory = heartbeatTimerFactory ??
             ((duration, callback) => Timer.periodic(duration, callback)),
-        _lifecycleEvents = lifecycleEvents,
         _observesAppLifecycle = observeAppLifecycle && lifecycleEvents == null {
     _dao = _database.acquisitionDao;
     _lifecycleSubscription = lifecycleEvents?.listen(_handleLifecycleState);
@@ -251,6 +256,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
   void dispose() {
     _syncRetryTimer?.cancel();
     _lifecycleSubscription?.cancel();
+    _lifecycleRelay.close();
     if (_observesAppLifecycle) {
       WidgetsBinding.instance.removeObserver(this);
     }
@@ -281,7 +287,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
       staleSessionThreshold: _staleSessionThreshold,
       now: _now,
       heartbeatTimerFactory: _heartbeatTimerFactory,
-      lifecycleEvents: _lifecycleEvents,
+      lifecycleEvents: _lifecycleRelay.stream,
       observeAppLifecycle: false,
     );
   }
@@ -325,6 +331,9 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
   }
 
   void _handleLifecycleState(AppLifecycleState state) {
+    if (!_lifecycleRelay.isClosed) {
+      _lifecycleRelay.add(state);
+    }
     if (state == AppLifecycleState.resumed) {
       unawaited(_syncQueue?.kick() ?? Future<void>.value());
     }

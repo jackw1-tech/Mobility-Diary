@@ -28,10 +28,17 @@ class AcquisitionSensorRuntime {
   HarWindowSink? _harWindowSink;
   SamplingProfile? _currentProfile;
   bool _isStarted = false;
+  bool _gpsRestartPending = false;
 
   List<HarSensorWindow> get completedHarWindows {
     return List<HarSensorWindow>.unmodifiable(_completedHarWindows);
   }
+
+  /// Da chiamare *prima* di aprire una sessione: se manca il permesso, il
+  /// tracking non deve nemmeno cominciare, altrimenti resta aperta una sessione
+  /// (locale e remota) che non registrera' mai un punto.
+  Future<bool> hasAcquisitionLocationPermission() =>
+      _ensureLocationPermission();
 
   Future<void> start({
     required SamplingProfile profile,
@@ -45,7 +52,15 @@ class AcquisitionSensorRuntime {
     await configure(profile);
   }
 
-  Future<void> configure(SamplingProfile profile) async {
+  /// [allowGpsRestart] a false quando l'app e' in background: riaprire lo
+  /// stream di posizione significa chiudere l'unica sottoscrizione che tiene
+  /// viva l'app, e iOS puo' sospenderci nel buco tra `cancel` e `listen`
+  /// lasciando il viaggio senza piu' un solo fix. In quel caso il cambio di
+  /// profilo GPS resta in sospeso e viene applicato al ritorno in foreground.
+  Future<void> configure(
+    SamplingProfile profile, {
+    bool allowGpsRestart = true,
+  }) async {
     if (!_isStarted) {
       return;
     }
@@ -74,14 +89,31 @@ class AcquisitionSensorRuntime {
             profile.gpsDistanceFilterMeters ||
         previousProfile?.gpsAccuracy != profile.gpsAccuracy;
 
-    if (gpsChanged) {
-      await _restartGps(profile);
+    if (gpsChanged || _gpsRestartPending) {
+      if (allowGpsRestart) {
+        _gpsRestartPending = false;
+        await _restartGps(profile);
+      } else {
+        _gpsRestartPending = true;
+      }
     }
+  }
+
+  /// Applica in foreground il riavvio GPS rimandato mentre eravamo in
+  /// background.
+  Future<void> applyPendingGpsRestart() async {
+    final profile = _currentProfile;
+    if (!_isStarted || !_gpsRestartPending || profile == null) {
+      return;
+    }
+    _gpsRestartPending = false;
+    await _restartGps(profile);
   }
 
   Future<void> stop() async {
     _isStarted = false;
     _currentProfile = null;
+    _gpsRestartPending = false;
     _eventSink = null;
     _harWindowSink = null;
     _accelerationWindow.clear();
@@ -348,7 +380,11 @@ class AcquisitionSensorRuntime {
   }
 }
 
+/// Solo `always` basta per registrare un viaggio. Con `whileInUse` iOS ci
+/// consegna i fix finche' l'app e' viva, ma se viene terminata (memoria, o
+/// swipe dell'utente) non puo' piu' rilanciarla: il viaggio si interrompe a
+/// meta' senza che nessuno se ne accorga, ed e' esattamente il modo in cui si
+/// ottiene una traccia con il solo punto di partenza e quello di arrivo.
 bool canStartAcquisitionLocationStream(LocationPermission permission) {
-  return permission == LocationPermission.always ||
-      permission == LocationPermission.whileInUse;
+  return permission == LocationPermission.always;
 }

@@ -12,7 +12,6 @@ class AccessToken(models.Model):
         on_delete=models.CASCADE,
     )
     token_hash = models.CharField(max_length=64, unique=True)
-    device_name = models.CharField(max_length=128, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
     revoked_at = models.DateTimeField(null=True, blank=True)
@@ -25,12 +24,6 @@ class AccessToken(models.Model):
 
     """
     Funzione che prende un token raw e lo converte in una stringa hashata con SHA-256
-
-    E' una pura utility di hashing (nessuna query, nessuna decisione di
-    dominio): resta sul modello perche' descrive il formato di
-    `token_hash`, ma la creazione/emissione del token (che e' business
-    logic: generazione del segreto, calcolo della scadenza, persistenza)
-    vive nel service layer (accounts.auth_mobile.services).
     """
     @staticmethod
     def hash_raw_token(raw_token: str) -> str:

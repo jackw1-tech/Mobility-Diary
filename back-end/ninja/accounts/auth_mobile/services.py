@@ -60,15 +60,13 @@ def _clean_email(email: str) -> str:
         raise InvalidEmail("Email non valida") from exc
     return normalized
 
-
-def issue_access_token_for_user(user, *, device_name: str) -> tuple[str, AccessToken]:
-    """Genera un nuovo token opaco, lo persiste hashato e lo mette in cache."""
-    raw_token = secrets.token_urlsafe(48)
+"""Genera il token , lo stora hashato e lo mette in cache."""
+def issue_access_token_for_user(user) -> tuple[str, AccessToken]:
+    raw_token = secrets.token_urlsafe(48) # 64 caratteri
     ttl_days = getattr(settings, "MOBILE_ACCESS_TOKEN_TTL_DAYS", 30)
     access_token = auth_mobile_repositories.create_access_token(
         user,
         token_hash=AccessToken.hash_raw_token(raw_token),
-        device_name=device_name,
         expires_at=timezone.now() + timedelta(days=ttl_days),
     )
     cache_access_token(raw_token, access_token)
@@ -90,7 +88,6 @@ def register_user(
     password: str,
     first_name: str,
     last_name: str,
-    device_name: str,
 ) -> dict:
     """Registra un nuovo utente, gli assegna le impostazioni privacy di default e lo autentica."""
     clean_email = _clean_email(email)
@@ -115,18 +112,18 @@ def register_user(
     except IntegrityError as exc:
         raise EmailAlreadyRegistered("Email gia registrata") from exc
 
-    raw_token, access_token = issue_access_token_for_user(user, device_name=device_name)
+    raw_token, access_token = issue_access_token_for_user(user)
     return _login_response(user, access_token, raw_token)
 
 
-def login_user(request, *, email: str, password: str, device_name: str) -> dict:
+def login_user(request, *, email: str, password: str) -> dict:
     user = authenticate(request, username=email, password=password)
     if user is None:
         raise InvalidCredentials("Credenziali non valide")
     if not user.is_active:
         raise UserDisabled("Utente disabilitato")
 
-    raw_token, access_token = issue_access_token_for_user(user, device_name=device_name)
+    raw_token, access_token = issue_access_token_for_user(user)
     return _login_response(user, access_token, raw_token)
 
 

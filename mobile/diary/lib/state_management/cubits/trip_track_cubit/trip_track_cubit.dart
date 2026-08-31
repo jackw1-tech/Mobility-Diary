@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:diary/repositories/trip_track_repository.dart';
 import 'package:diary/state_management/cubits/trip_track_cubit/trip_track_cubit_state.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:latlong2/latlong.dart';
 
 class TripTrackCubit extends Cubit<TripTrackCubitState> {
   static const _diaryPollingInterval = Duration(seconds: 1);
@@ -64,9 +65,14 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
               endTimestamp: segment.endTimestamp,
             ),
         ];
-        final points = [
-          for (final segment in segments) ...segment.points,
-        ];
+        // La traccia grezza serve comunque: e' quella che la vista "Traccia"
+        // mostra, ed e' l'unico modo di vedere i fix GPS che restano fuori
+        // dalle finestre temporali dei segmenti. Se non arriva, si ripiega
+        // sulla concatenazione dei segmenti.
+        final points = await _rawTrackPoints(tripId) ??
+            [
+              for (final segment in segments) ...segment.points,
+            ];
         emit(
           TripTrackCubitState(
             status: TripTrackStatus.loaded,
@@ -119,6 +125,17 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
         ),
       );
     }
+  }
+
+  /// Punti della traccia grezza, o `null` se non recuperabili: un viaggio con
+  /// il diario gia' pronto resta visualizzabile anche se questa chiamata fallisce.
+  Future<List<LatLng>?> _rawTrackPoints(int tripId) async {
+    final result = await _repository.fetchTrack(tripId);
+    if (result.failure != null) {
+      return null;
+    }
+    final points = result.requireValue.points;
+    return points.isEmpty ? null : points;
   }
 
   void _pollPendingDiaryIfNeeded(int tripId, {required bool pending}) {

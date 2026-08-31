@@ -30,7 +30,7 @@ class _RouteAssistantSearchSheetState extends State<RouteAssistantSearchSheet> {
   void _onChanged(String value) {
     _debounce?.cancel();
     _debounce = Timer(
-      const Duration(milliseconds: 400),
+      const Duration(milliseconds: 300),
       () => context.read<RouteAssistantCubit>().search(value),
     );
   }
