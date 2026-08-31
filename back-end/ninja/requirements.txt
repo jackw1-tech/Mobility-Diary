@@ -15,6 +15,5 @@ orjson>=3.10,<4.0
 # x86_64 sia ARM64 e permette di costruire l'immagine su Mac Apple Silicon.
 tensorflow>=2.16,<3.0
 boto3>=1.34,<2.0
-requests>=2.32,<3.0
 pytest>=8.0,<9.0
 pytest-django>=4.8,<5.0

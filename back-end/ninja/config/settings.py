@@ -208,13 +208,3 @@ HAR_MODEL_BACKEND = os.getenv("HAR_MODEL_BACKEND", "auto")
 HAR_FUSED_SEQUENCE_LENGTH = int(os.getenv("HAR_FUSED_SEQUENCE_LENGTH", "128"))
 HAR_GRU_SEQUENCE_LENGTH = 32
 HAR_WINDOW_SAMPLE_COUNT = 500
-
-# Classificazione HAR remota (GPU serverless, es. Modal): endpoint HTTP
-# provato PRIMA del modello locale. Vuoto = remoto disattivato, si usa
-# sempre e solo il modello locale (comportamento invariato). Timeout basso
-# apposta: se il servizio remoto non risponde in tempo, si ricade subito
-# sul modello locale invece di far attendere la richiesta.
-MODAL_HAR_CLASSIFY_URL = os.getenv("MODAL_HAR_CLASSIFY_URL", "")
-MODAL_HAR_CLASSIFY_TIMEOUT_SECONDS = float(
-    os.getenv("MODAL_HAR_CLASSIFY_TIMEOUT_SECONDS", "3")
-)
