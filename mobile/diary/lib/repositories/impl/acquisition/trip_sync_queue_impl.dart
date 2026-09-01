@@ -99,8 +99,6 @@ class TripSyncQueueImpl implements TripSyncQueue {
       if (!coreAlreadyCompleted &&
           package.corePayload == null &&
           package.rawParts.isEmpty) {
-        // Sessione senza dati da caricare: niente da fare, ma non deve
-        // restare in giro per sempre — pulizia locale come un successo vuoto.
         await _deletePackageDirectory(package);
         await _dao.purgeSyncedSession(job.localSessionId);
         return;

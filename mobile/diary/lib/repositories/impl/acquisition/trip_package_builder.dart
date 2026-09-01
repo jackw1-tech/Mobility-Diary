@@ -80,8 +80,6 @@ class TripPackageBuilder {
   final AcquisitionDao _dao;
   final Future<Directory> Function() _baseDirProvider;
 
-  // Budget per parte sensor window, misurato sul binario NON compresso. Una
-  // parte gzip risultante e' piu' piccola. ~12 MB -> qualche MB compressi.
   final int _sensorWindowsPartBudgetBytes;
 
   final AcquisitionMapper _acquisitionMapper;
@@ -104,12 +102,14 @@ class TripPackageBuilder {
     final remoteIngestionId = session?.remoteIngestionId;
     final directory = await _packageDirectory(localSessionId);
 
-    final gpsPoints = _acquisitionMapper.mapGpsPoints(
-      await _dao.gpsPointsForSession(localSessionId),
-    );
-    final transitions = _acquisitionMapper.mapStateTransitions(
-      await _dao.transitionsForSession(localSessionId),
-    );
+    final gpsPoints = _acquisitionMapper
+        .mapGpsPoints(await _dao.gpsPointsForSession(localSessionId))
+        .where((point) => _belongsToSession(point.timestamp, session))
+        .toList(growable: false);
+    final transitions = _acquisitionMapper
+        .mapStateTransitions(await _dao.transitionsForSession(localSessionId))
+        .where((transition) => _belongsToSession(transition.timestamp, session))
+        .toList(growable: false);
     final parts = <TripPackagePart>[];
     parts.addAll(await _buildSensorWindowParts(localSessionId, directory));
     final corePayload = gpsPoints.isEmpty && transitions.isEmpty
@@ -147,6 +147,7 @@ class TripPackageBuilder {
     return dir;
   }
 
+  // Divide in parti le sensor window, circa 12 MB ciascuna
   Future<List<TripPackagePart>> _buildSensorWindowParts(
     String sessionId,
     Directory directory,
@@ -156,7 +157,7 @@ class TripPackageBuilder {
 
     final parts = <TripPackagePart>[];
     var sequence = 1;
-    var bufferedWindows = <SensorWindow>[];
+    var bufferedWindows = <SensorWindow>[]; // Buffer di accumulo
     var bufferedBytes = 0;
 
     Future<void> flush() async {
@@ -209,6 +210,13 @@ class TripPackageBuilder {
       sizeBytes: gzipped.length,
     );
   }
+}
+
+bool _belongsToSession(DateTime timestamp, AcquisitionSession? session) {
+  if (session == null) return true;
+  if (timestamp.isBefore(session.startedAt)) return false;
+  final endedAt = session.endedAt;
+  return endedAt == null || !timestamp.isAfter(endedAt);
 }
 
 const List<int> _sensorWindowsBinaryMagic = [
@@ -281,4 +289,3 @@ Object? _stableJsonValue(Object? value) {
   }
   return value;
 }
-

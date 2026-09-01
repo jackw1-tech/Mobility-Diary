@@ -183,6 +183,24 @@ void main() {
     expect(await dao.syncJobForSession('session-1'), isNull);
   });
 
+  test('does not upload cached GPS fixes older than the session', () async {
+    await createStoppedSession();
+    await dao.insertGpsPoint(
+      sessionId: 'session-1',
+      latitude: 45.4639,
+      longitude: 9.1897,
+      timestamp: DateTime.utc(2026, 8, 30, 9, 59, 59),
+      speedMps: 0,
+      accuracyMeters: 10,
+    );
+
+    await queue(() async => 'mobile-token').kick();
+
+    final points = service.lastCoreBody?['gps_points'] as List<dynamic>;
+    expect(points, hasLength(1));
+    expect(points.single['timestamp'], '2026-08-30T10:00:00Z');
+  });
+
   test('keeps the durable job untouched while the user is logged out',
       () async {
     await createStoppedSession();

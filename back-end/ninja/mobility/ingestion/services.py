@@ -193,7 +193,7 @@ def process_inline_core_ingestion(
     raw_status: str,
     body_size: int,
 ) -> TripIngestion:
-    _validate_core_timeline(payload)
+    payload = _normalize_and_validate_core_timeline(payload)
     with transaction.atomic():
         ingestion = _get_inline_core_ingestion(
             user_id=user_id,
@@ -288,24 +288,42 @@ def process_inline_core_ingestion(
         return ingestion
 
 
-def _validate_core_timeline(payload) -> None:
+def _normalize_and_validate_core_timeline(payload):
     started_at = payload.started_at
     ended_at = payload.ended_at
     if started_at is not None and ended_at is not None and ended_at < started_at:
         raise IngestionUnprocessable("ended_at precedente a started_at")
 
-    evidence_timestamps = [point.timestamp for point in payload.gps_points]
+    gps_points = payload.gps_points
+    state_transitions = payload.state_transitions
+    if started_at is not None:
+        gps_points = [
+            point for point in gps_points if point.timestamp >= started_at
+        ]
+        state_transitions = [
+            transition
+            for transition in state_transitions
+            if transition.timestamp >= started_at
+        ]
+
+    evidence_timestamps = [point.timestamp for point in gps_points]
     evidence_timestamps.extend(
-        transition.timestamp for transition in payload.state_transitions
+        transition.timestamp for transition in state_transitions
     )
-    if started_at is not None and any(
-        timestamp < started_at for timestamp in evidence_timestamps
-    ):
-        raise IngestionUnprocessable("evidenza precedente a started_at")
     if ended_at is not None and any(
         timestamp > ended_at for timestamp in evidence_timestamps
     ):
         raise IngestionUnprocessable("evidenza successiva a ended_at")
+    if not gps_points and not state_transitions:
+        raise IngestionBadRequest(
+            "core vuoto: nessuna evidenza interna all'intervallo del viaggio"
+        )
+    return payload.model_copy(
+        update={
+            "gps_points": gps_points,
+            "state_transitions": state_transitions,
+        }
+    )
 
 """
 Mette in coda il job che analizza i dati raw

@@ -466,6 +466,49 @@ def test_core_rejects_gps_points_outside_the_trip_interval(
     assert response.status_code == 422
 
 
+def test_core_discards_a_cached_gps_fix_from_before_recording_start(
+    api_client, mobile_session
+):
+    headers = mobile_session["headers"]
+    ingestion_id = start_recording(api_client, headers).json()["ingestion_id"]
+
+    core = post_json(
+        api_client,
+        "/api/ingestion/trips/core",
+        {
+            "ingestion_id": ingestion_id,
+            "client_session_id": "session-001",
+            "device_id": "iphone-mario",
+            "started_at": STARTED_AT,
+            "ended_at": "2026-08-30T10:10:00Z",
+            "gps_points": [
+                {
+                    "timestamp": "2026-08-30T09:59:59Z",
+                    "latitude": 45.4640,
+                    "longitude": 9.1898,
+                },
+                {
+                    "timestamp": "2026-08-30T10:00:01Z",
+                    "latitude": 45.4642,
+                    "longitude": 9.1900,
+                },
+                {
+                    "timestamp": "2026-08-30T10:10:00Z",
+                    "latitude": 45.4680,
+                    "longitude": 9.1950,
+                },
+            ],
+        },
+        headers,
+    )
+
+    assert core.status_code == 200
+    track = api_client.get(
+        f"/api/mobility/trips/{core.json()['trip_id']}/track", **headers
+    )
+    assert track.json()["point_count"] == 2
+
+
 def test_mobile_token_stops_working_immediately_when_user_is_disabled(
     api_client, mobile_session
 ):

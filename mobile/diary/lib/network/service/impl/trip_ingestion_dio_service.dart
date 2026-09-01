@@ -122,7 +122,8 @@ class TripIngestionDioService implements TripIngestionService {
           },
           options: await _options(),
         ),
-        (data) => IngestionStartResultDto.fromJson(data as Map<String, dynamic>),
+        (data) =>
+            IngestionStartResultDto.fromJson(data as Map<String, dynamic>),
       );
 
   @override
@@ -155,6 +156,7 @@ class TripIngestionDioService implements TripIngestionService {
         ),
       );
 
+  // Mando i dati Gps e Transizioni al backend
   @override
   Future<InlineCoreResultDto> postCoreInline({
     required Map<String, dynamic> body,
@@ -249,8 +251,7 @@ class TripIngestionDioService implements TripIngestionService {
 
   @override
   Future<IngestionStatusDto> getStatus(int ingestionId) => _send(
-        () async =>
-            _dio.get('$_base/$ingestionId', options: await _options()),
+        () async => _dio.get('$_base/$ingestionId', options: await _options()),
         (data) => IngestionStatusDto.fromJson(data as Map<String, dynamic>),
       );
 
