@@ -11,7 +11,7 @@ from mobility.models import (
     Trip,
 )
 
-from .test_ingestion_and_trips_api import complete_core, post_json, start_recording
+from .test_upload_and_trips_api import complete_core, post_json, start_recording
 
 
 pytestmark = pytest.mark.django_db
@@ -133,8 +133,8 @@ def test_diary_and_analytics_expose_enriched_segments_through_public_apis(
     api_client, mobile_session
 ):
     headers = mobile_session["headers"]
-    ingestion_id = start_recording(api_client, headers).json()["ingestion_id"]
-    trip_id = complete_core(api_client, headers, ingestion_id).json()["trip_id"]
+    upload_id = start_recording(api_client, headers).json()["upload_id"]
+    trip_id = complete_core(api_client, headers, upload_id).json()["trip_id"]
     trip = Trip.objects.get(id=trip_id)
     start = datetime(2026, 8, 30, 10, 0, tzinfo=timezone.utc)
     MobilitySegment.objects.create(

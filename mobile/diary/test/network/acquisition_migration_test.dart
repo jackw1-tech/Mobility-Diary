@@ -148,4 +148,21 @@ void main() {
     expect(await db.acquisitionDao.findSession('session-1'), isNot(null));
     await db.close();
   });
+
+  test('v10 rinomina remote_ingestion_id in remote_upload_id', () async {
+    final db = openFromV8(seed: [
+      "INSERT INTO acquisition_sessions (id, device_id, remote_ingestion_id, "
+          "started_at) VALUES ('session-1', 'device-1', 42, 0)",
+    ]);
+
+    for (final table in ['acquisition_sessions', 'sync_jobs']) {
+      final columns = await columnsOf(db, table);
+      expect(columns, contains('remote_upload_id'), reason: table);
+      expect(columns, isNot(contains('remote_ingestion_id')), reason: table);
+    }
+    // Il rename non deve perdere il valore gia' presente.
+    final session = await db.acquisitionDao.findSession('session-1');
+    expect(session?.remoteUploadId, 42);
+    await db.close();
+  });
 }

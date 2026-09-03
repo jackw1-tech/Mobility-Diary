@@ -17,8 +17,8 @@ from django.db.models import (
     When,
 )
 
-from ..ingestion import selectors as ingestion_selectors
-from ..models import SensorWindow, Trip, TripIngestion, TripIngestionPart
+from ..upload import selectors as upload_selectors
+from ..models import SensorWindow, Trip, TripUpload, TripUploadPart
 
 
 @dataclass(frozen=True)
@@ -78,11 +78,11 @@ def trips_queryset_for_user(user_id: int):
     return Trip.objects.filter(user_id=user_id)
 
 
-def trip_has_completed_ingestion(trip: Trip) -> bool:
-    return TripIngestion.objects.filter(
+def trip_has_completed_upload(trip: Trip) -> bool:
+    return TripUpload.objects.filter(
         trip=trip,
-        core_status=TripIngestion.PhaseStatus.COMPLETED,
-        raw_status=TripIngestion.PhaseStatus.COMPLETED,
+        core_status=TripUpload.PhaseStatus.COMPLETED,
+        raw_status=TripUpload.PhaseStatus.COMPLETED,
     ).exists()
 
 
@@ -93,14 +93,14 @@ def trip_object_keys(trip: Trip) -> list[str]:
         .exclude(object_key="")
         .values_list("object_key", flat=True)
     )
-    ingestion_keys = TripIngestionPart.objects.filter(
-        ingestion__trip=trip
+    upload_keys = TripUploadPart.objects.filter(
+        upload__trip=trip
     ).values_list("object_key", flat=True)
-    return sorted({key for key in [*sensor_keys, *ingestion_keys] if key})
+    return sorted({key for key in [*sensor_keys, *upload_keys] if key})
 
 
-def delete_trip_ingestions(trip: Trip) -> None:
-    TripIngestion.objects.filter(trip=trip).delete()
+def delete_trip_uploads(trip: Trip) -> None:
+    TripUpload.objects.filter(trip=trip).delete()
 
 
 def apply_trip_filters(queryset, filters: TripFilters):
@@ -161,7 +161,7 @@ def trip_overlaps_window(
 
     Query unica per questa esigenza: prima era ripetuta quasi identica in
     `mobility.services.reload._user_trip_overlaps` e in
-    `mobility.ingestion.services._validate_replay_slot`.
+    `mobility.upload.services._validate_replay_slot`.
     """
     queryset = Trip.objects.filter(user_id=user_id, started_at__lt=end).filter(
         Q(ended_at__isnull=True) | Q(ended_at__gt=start)
@@ -195,10 +195,10 @@ def reloadable_source_trip_exists(source_trip_id: int, user_id: int) -> bool:
 
 def trip_diary_enrichment_failed(trip_id: int, user_id: int) -> bool:
     """True se l'arricchimento del diario (fase raw) e' fallito in modo definitivo."""
-    return TripIngestion.objects.filter(
+    return TripUpload.objects.filter(
         trip_id=trip_id,
         user_id=user_id,
-        raw_status=TripIngestion.PhaseStatus.FAILED_FINAL,
+        raw_status=TripUpload.PhaseStatus.FAILED_FINAL,
     ).exists()
 
 
@@ -251,11 +251,11 @@ def trip_track_for_user(trip_id: int, user_id: int) -> dict[str, Any] | None:
 
 
 def source_has_raw_sensor_evidence(source: Trip) -> bool:
-    return ingestion_selectors.completed_raw_parts_for_trip(source).exists()
+    return upload_selectors.completed_raw_parts_for_trip(source).exists()
 
 
 def trip_has_reload_usage(trip: Trip) -> bool:
-    return trip.reloads.exists() or trip.replay_ingestions.exists()
+    return trip.reloads.exists() or trip.replay_uploads.exists()
 
 
 def _trip_list_items(queryset) -> list[dict[str, Any]]:
@@ -273,28 +273,28 @@ def _trip_list_annotations():
         "has_reload_descendants": Exists(
             Trip.objects.filter(reloaded_from_trip=OuterRef("pk"))
         ),
-        "has_replay_ingestions": Exists(
-            TripIngestion.objects.filter(source_trip=OuterRef("pk"))
+        "has_replay_uploads": Exists(
+            TripUpload.objects.filter(source_trip=OuterRef("pk"))
         ),
         "has_raw_sensor_evidence": Exists(
-            TripIngestionPart.objects.filter(
-                ingestion__trip=OuterRef("pk"),
-                ingestion__raw_status=TripIngestion.PhaseStatus.COMPLETED,
+            TripUploadPart.objects.filter(
+                upload__trip=OuterRef("pk"),
+                upload__raw_status=TripUpload.PhaseStatus.COMPLETED,
                 received_at__isnull=False,
             )
         ),
-        "has_completed_ingestion": Exists(
-            TripIngestion.objects.filter(
+        "has_completed_upload": Exists(
+            TripUpload.objects.filter(
                 trip=OuterRef("pk"),
-                core_status=TripIngestion.PhaseStatus.COMPLETED,
-                raw_status=TripIngestion.PhaseStatus.COMPLETED,
+                core_status=TripUpload.PhaseStatus.COMPLETED,
+                raw_status=TripUpload.PhaseStatus.COMPLETED,
             )
         ),
     }
 
 
 def _trip_can_delete(trip: Trip) -> bool:
-    return not trip.has_reload_descendants and not trip.has_replay_ingestions
+    return not trip.has_reload_descendants and not trip.has_replay_uploads
 
 
 def _trip_can_toggle_reloadable(trip: Trip) -> bool:
@@ -306,7 +306,7 @@ def _trip_can_toggle_reloadable(trip: Trip) -> bool:
 
 
 def _trip_can_edit_note(trip: Trip) -> bool:
-    return trip.has_completed_ingestion
+    return trip.has_completed_upload
 
 
 def _trip_list_item(trip: Trip) -> dict[str, Any]:

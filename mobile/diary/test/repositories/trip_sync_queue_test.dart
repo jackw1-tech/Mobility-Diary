@@ -1,20 +1,20 @@
 import 'dart:io';
 
-import 'package:diary/mappers/ingestion_mapper.dart';
-import 'package:diary/network/dto/ingestion/active_ingestion_dto.dart';
-import 'package:diary/network/dto/ingestion/ingestion_start_result_dto.dart';
-import 'package:diary/network/dto/ingestion/ingestion_status_dto.dart';
-import 'package:diary/network/dto/ingestion/inline_core_result_dto.dart';
-import 'package:diary/network/dto/ingestion/presign_result_dto.dart';
-import 'package:diary/network/dto/ingestion/replay_data_dto.dart';
+import 'package:diary/mappers/upload_mapper.dart';
+import 'package:diary/network/dto/upload/active_upload_dto.dart';
+import 'package:diary/network/dto/upload/upload_start_result_dto.dart';
+import 'package:diary/network/dto/upload/upload_status_dto.dart';
+import 'package:diary/network/dto/upload/inline_core_result_dto.dart';
+import 'package:diary/network/dto/upload/presign_result_dto.dart';
+import 'package:diary/network/dto/upload/replay_data_dto.dart';
 import 'package:diary/network/service/impl/acquisition_local_database.dart';
-import 'package:diary/network/service/trip_ingestion_service.dart';
+import 'package:diary/network/service/trip_upload_service.dart';
 import 'package:diary/repositories/impl/acquisition/trip_package_builder.dart';
 import 'package:diary/repositories/impl/acquisition/trip_sync_queue_impl.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-class BoundaryIngestionService implements TripIngestionService {
+class BoundaryUploadService implements TripUploadService {
   Object? postCoreError;
   int postCoreCalls = 0;
   Map<String, dynamic>? lastCoreBody;
@@ -28,7 +28,7 @@ class BoundaryIngestionService implements TripIngestionService {
     final error = postCoreError;
     if (error != null) throw error;
     return const InlineCoreResultDto(
-      ingestionId: 77,
+      uploadId: 77,
       tripId: 12,
       coreStatus: 'COMPLETED',
       rawStatus: 'COMPLETED',
@@ -37,14 +37,14 @@ class BoundaryIngestionService implements TripIngestionService {
   }
 
   @override
-  Future<ActiveIngestionDto?> getActiveIngestion() async => null;
+  Future<ActiveUploadDto?> getActiveUpload() async => null;
 
   @override
-  Future<IngestionStatusDto> getStatus(int ingestionId) =>
+  Future<UploadStatusDto> getStatus(int uploadId) =>
       throw UnimplementedError();
 
   @override
-  Future<IngestionStartResultDto> startIngestion({
+  Future<UploadStartResultDto> startUpload({
     required String clientSessionId,
     required DateTime startedAt,
     required String deviceId,
@@ -54,15 +54,15 @@ class BoundaryIngestionService implements TripIngestionService {
       throw UnimplementedError();
 
   @override
-  Future<void> abandonIngestion({
-    required int ingestionId,
+  Future<void> abandonUpload({
+    required int uploadId,
     required String deviceId,
   }) =>
       throw UnimplementedError();
 
   @override
-  Future<void> heartbeatIngestion({
-    required int ingestionId,
+  Future<void> heartbeatUpload({
+    required int uploadId,
     required String clientSessionId,
     required String deviceId,
   }) =>
@@ -70,7 +70,7 @@ class BoundaryIngestionService implements TripIngestionService {
 
   @override
   Future<PresignResultDto> presignPart(
-    int ingestionId, {
+    int uploadId, {
     required int sequence,
     required String sha256,
   }) =>
@@ -86,15 +86,15 @@ class BoundaryIngestionService implements TripIngestionService {
 
   @override
   Future<void> confirmPart(
-    int ingestionId, {
+    int uploadId, {
     required int sequence,
     required String sha256,
   }) =>
       throw UnimplementedError();
 
   @override
-  Future<void> completeRawIngestion(
-    int ingestionId, {
+  Future<void> completeRawUpload(
+    int uploadId, {
     required int totalParts,
   }) =>
       throw UnimplementedError();
@@ -113,13 +113,13 @@ class BoundaryIngestionService implements TripIngestionService {
 void main() {
   late AcquisitionLocalDatabase database;
   late AcquisitionDao dao;
-  late BoundaryIngestionService service;
+  late BoundaryUploadService service;
   late Directory tempDirectory;
 
   setUp(() async {
     database = AcquisitionLocalDatabase(NativeDatabase.memory());
     dao = AcquisitionDao(database);
-    service = BoundaryIngestionService();
+    service = BoundaryUploadService();
     tempDirectory =
         await Directory.systemTemp.createTemp('mobility-sync-test-');
   });
@@ -136,7 +136,7 @@ void main() {
       id: 'session-1',
       deviceId: 'iphone-1',
       startedAt: DateTime.utc(2026, 8, 30, 10),
-      remoteIngestionId: 77,
+      remoteUploadId: 77,
     );
     await dao.endSession(
       id: 'session-1',
@@ -161,7 +161,7 @@ void main() {
         baseDirProvider: () async => tempDirectory,
       ),
       service: service,
-      mapper: IngestionMapper(),
+      mapper: UploadMapper(),
       tokenProvider: tokenProvider,
       backoff: const [Duration.zero],
       pollDelay: Duration.zero,
@@ -176,7 +176,7 @@ void main() {
 
     expect(service.postCoreCalls, 1);
     expect(service.lastCoreBody?['client_session_id'], 'session-1');
-    expect(service.lastCoreBody?['ingestion_id'], 77);
+    expect(service.lastCoreBody?['upload_id'], 77);
     expect(service.lastCoreBody?['gps_points'], hasLength(1));
     expect(await dao.findSession('session-1'), isNull);
     expect(await dao.syncJobForSession('session-1'), isNull);
@@ -213,7 +213,7 @@ void main() {
 
   test('keeps transient upload failures retryable', () async {
     await createStoppedSession();
-    service.postCoreError = const IngestionApiException(
+    service.postCoreError = const UploadApiException(
       'rete non disponibile',
       statusCode: 503,
     );

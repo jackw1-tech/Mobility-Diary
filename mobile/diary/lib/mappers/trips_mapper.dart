@@ -28,7 +28,7 @@ class TripsMapper {
   }
 
   TripReload mapTripReload(TripReloadDto dto) => TripReload(
-        ingestionId: dto.ingestionId,
+        uploadId: dto.uploadId,
         tripId: dto.tripId,
         coreStatus: dto.coreStatus,
         rawStatus: dto.rawStatus,

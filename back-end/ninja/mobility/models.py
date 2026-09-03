@@ -336,7 +336,7 @@ class HarJob(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
 
-class TripIngestion(models.Model):
+class TripUpload(models.Model):
     class PhaseStatus(models.TextChoices):
         PENDING = "PENDING", "Pending"
         RECEIVING = "RECEIVING", "Receiving"
@@ -349,10 +349,10 @@ class TripIngestion(models.Model):
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        related_name="trip_ingestions",
+        related_name="trip_uploads",
         on_delete=models.CASCADE,
     )
-    # Chiave di idempotenza dell'upload: stessa sessione mobile -> stessa ingestion.
+    # Chiave di idempotenza dell'upload: stessa sessione mobile -> stessa upload.
     client_session_id = models.CharField(max_length=64)
     device_id = models.CharField(max_length=128, blank=True)
     core_status = models.CharField(
@@ -365,39 +365,29 @@ class TripIngestion(models.Model):
         choices=PhaseStatus.choices,
         default=PhaseStatus.PENDING,
     )
-    # Numero di parti raw attese dopo il core.
     expected_raw_parts = models.JSONField(default=int)
-    # Prefisso degli oggetti raw nello storage, es. "ingestions/<id>/".
     raw_base_path = models.CharField(max_length=512, blank=True)
     core_payload_size_bytes = models.BigIntegerField(default=0)
     total_size_bytes = models.BigIntegerField(default=0)
-
-    # Metadati del viaggio, dichiarati dal client.
     started_at = models.DateTimeField(null=True, blank=True)
     ended_at = models.DateTimeField(null=True, blank=True)
 
-    # Lifecycle della registrazione attiva: il Trip visibile nasce solo a core
-    # ingestion completata, ma il lock account-wide vive gia' qui dallo Start.
     recording_started_at = models.DateTimeField(null=True, blank=True)
     recording_closed_at = models.DateTimeField(null=True, blank=True)
     recording_abandoned_at = models.DateTimeField(null=True, blank=True)
     last_seen_at = models.DateTimeField(null=True, blank=True)
 
-    # Trip materializzato da Celery (null finche' non processato).
     trip = models.ForeignKey(
         Trip,
-        related_name="ingestions",
+        related_name="uploads",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
     )
 
-    # Viaggio Ricaricabile sorgente, valorizzato solo per la Riproduzione Live:
-    # se presente, il core fa bucket-to-bucket dei raw invece di attenderne
-    # l'upload dal mobile.
     source_trip = models.ForeignKey(
         Trip,
-        related_name="replay_ingestions",
+        related_name="replay_uploads",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
@@ -420,7 +410,7 @@ class TripIngestion(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=["user", "client_session_id"],
-                name="unique_ingestion_per_user_session",
+                name="unique_upload_per_user_session",
             ),
             models.UniqueConstraint(
                 fields=["user"],
@@ -429,20 +419,20 @@ class TripIngestion(models.Model):
                     recording_closed_at__isnull=True,
                     recording_abandoned_at__isnull=True,
                 ),
-                name="unique_active_ingestion_per_user",
+                name="unique_active_upload_per_user",
             ),
         ]
 
     def __str__(self) -> str:
         return (
-            f"TripIngestion {self.id} "
+            f"TripUpload {self.id} "
             f"(core={self.core_status}, raw={self.raw_status})"
         )
 
 
-class TripIngestionPart(models.Model):
-    ingestion = models.ForeignKey(
-        TripIngestion, related_name="parts", on_delete=models.CASCADE
+class TripUploadPart(models.Model):
+    upload = models.ForeignKey(
+        TripUpload, related_name="parts", on_delete=models.CASCADE
     )
     sequence = models.PositiveIntegerField()
     sha256 = models.CharField(max_length=64)
@@ -453,10 +443,10 @@ class TripIngestionPart(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["ingestion", "sequence"],
-                name="unique_part_per_ingestion_sequence",
+                fields=["upload", "sequence"],
+                name="unique_part_per_upload_sequence",
             )
         ]
 
     def __str__(self) -> str:
-        return f"part #{self.sequence} of ingestion {self.ingestion_id}"
+        return f"part #{self.sequence} of upload {self.upload_id}"

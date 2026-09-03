@@ -4,50 +4,50 @@ from ninja import Schema
 from pydantic import Field
 
 
-class IngestionStartIn(Schema):
+class UploadStartIn(Schema):
     client_session_id: str = Field(min_length=1, max_length=64)
     started_at: datetime | None = None
     device_id: str = ""
     source_trip_id: int | None = None
 
 
-class IngestionStartOut(Schema):
-    ingestion_id: int
+class UploadStartOut(Schema):
+    upload_id: int
     client_session_id: str
     device_id: str
     recording_started_at: datetime
     already_exists: bool
 
 
-class ActiveIngestionOut(Schema):
-    ingestion_id: int
+class ActiveUploadOut(Schema):
+    upload_id: int
     client_session_id: str
     device_id: str
     recording_started_at: datetime
     last_seen_at: datetime | None
 
 
-class ActiveIngestionConflictOut(Schema):
+class ActiveUploadConflictOut(Schema):
     detail: str
-    active_ingestion: ActiveIngestionOut
+    active_upload: ActiveUploadOut
 
 
-class IngestionAbandonIn(Schema):
+class UploadAbandonIn(Schema):
     device_id: str
 
 
-class IngestionAbandonOut(Schema):
-    ingestion_id: int
+class UploadAbandonOut(Schema):
+    upload_id: int
     recording_abandoned_at: datetime
 
 
-class IngestionHeartbeatIn(Schema):
+class UploadHeartbeatIn(Schema):
     client_session_id: str
     device_id: str
 
 
-class IngestionHeartbeatOut(Schema):
-    ingestion_id: int
+class UploadHeartbeatOut(Schema):
+    upload_id: int
     last_seen_at: datetime
 
 
@@ -69,7 +69,7 @@ class InlineStateTransitionIn(Schema):
 
 
 class InlineCoreIn(Schema):
-    ingestion_id: int | None = None
+    upload_id: int | None = None
     cutoff_source_timestamp: datetime | None = None
     client_session_id: str
     started_at: datetime | None = None
@@ -81,7 +81,7 @@ class InlineCoreIn(Schema):
 
 
 class InlineCoreOut(Schema):
-    ingestion_id: int
+    upload_id: int
     trip_id: int | None
     core_status: str
     raw_status: str
@@ -106,7 +106,7 @@ class PartConfirmIn(Schema):
 
 
 class PartConfirmOut(Schema):
-    ingestion_id: int
+    upload_id: int
     sequence: int
     status: str
 
@@ -116,7 +116,7 @@ class CompleteIn(Schema):
 
 
 class CompleteOut(Schema):
-    ingestion_id: int
+    upload_id: int
     core_status: str
     raw_status: str
 
@@ -125,8 +125,8 @@ class PartStateOut(Schema):
     sequence: int
 
 
-class IngestionStatusOut(Schema):
-    ingestion_id: int
+class UploadStatusOut(Schema):
+    upload_id: int
     core_status: str
     raw_status: str
     missing_raw_parts: list[PartStateOut]

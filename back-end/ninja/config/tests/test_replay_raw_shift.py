@@ -13,7 +13,7 @@ from datetime import timedelta
 import pytest
 
 from mobility import replay_raw
-from mobility.ingestion.raw_sensor_codec import (
+from mobility.upload.raw_sensor_codec import (
     EXPECTED_CHANNEL_COUNT,
     EXPECTED_SAMPLE_COUNT,
     decode_sensor_windows_payload,

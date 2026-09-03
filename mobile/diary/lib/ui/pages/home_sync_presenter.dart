@@ -14,7 +14,7 @@ bool shouldShowSyncDebugSnack(
   return previous.localSessionId != current.localSessionId ||
       previous.status != current.status ||
       previous.rawStatus != current.rawStatus ||
-      previous.remoteIngestionId != current.remoteIngestionId ||
+      previous.remoteUploadId != current.remoteUploadId ||
       previous.remoteTripId != current.remoteTripId ||
       previous.attempts != current.attempts ||
       previous.lastError != current.lastError;

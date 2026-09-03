@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:diary/network/service/trip_ingestion_service.dart';
+import 'package:diary/network/service/trip_upload_service.dart';
 import 'package:diary/network/dto/trip_list_item_dto.dart';
 import 'package:diary/network/dto/trip_reload_dto.dart';
 import 'package:diary/network/dto/trip_reload_slots_dto.dart';
@@ -122,7 +122,7 @@ class TripsHttpService implements TripsService {
   Future<List<dynamic>> _sendJsonList(String method, String path) async {
     final decoded = await _sendJson(method, path);
     if (decoded is List) return decoded;
-    throw const IngestionApiException('Risposta lista viaggi non valida');
+    throw const UploadApiException('Risposta lista viaggi non valida');
   }
 
   Future<Map<String, dynamic>> _sendJsonMap(
@@ -132,7 +132,7 @@ class TripsHttpService implements TripsService {
   }) async {
     final decoded = await _sendJson(method, path, body: body);
     if (decoded is Map) return Map<String, dynamic>.from(decoded);
-    throw const IngestionApiException('Risposta ricaricamento non valida');
+    throw const UploadApiException('Risposta ricaricamento non valida');
   }
 
   Future<dynamic> _sendJson(
@@ -145,7 +145,7 @@ class TripsHttpService implements TripsService {
             body: body);
     if (response.isError) {
       final detail = _extractDetail(response.body);
-      throw IngestionApiException(
+      throw UploadApiException(
         detail ?? 'Richiesta viaggi fallita (HTTP ${response.statusCode})',
         statusCode: response.statusCode,
       );

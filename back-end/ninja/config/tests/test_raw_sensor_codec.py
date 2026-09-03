@@ -9,7 +9,7 @@ import json
 import numpy as np
 import pytest
 
-from mobility.ingestion.raw_sensor_codec import (
+from mobility.upload.raw_sensor_codec import (
     EXPECTED_CHANNEL_COUNT,
     EXPECTED_SAMPLE_COUNT,
     InvalidRawSensorPayload,

@@ -1,16 +1,70 @@
 PODS:
   - Flutter (1.0.0)
+  - flutter_secure_storage_darwin (10.0.0):
+    - Flutter
+    - FlutterMacOS
+  - geolocator_apple (1.2.0):
+    - Flutter
+    - FlutterMacOS
+  - mapbox_maps_flutter (2.25.0):
+    - Flutter
+    - MapboxMaps (= 11.25.0)
+    - Turf (= 4.0.0)
+  - MapboxCommon (24.25.0):
+    - Turf (= 4.0.0)
+  - MapboxCoreMaps (11.25.0):
+    - MapboxCommon (= 24.25.0)
+  - MapboxMaps (11.25.0):
+    - MapboxCommon (= 24.25.0)
+    - MapboxCoreMaps (= 11.25.0)
+    - Turf (= 4.0.0)
+  - package_info_plus (0.4.5):
+    - Flutter
+  - sensors_plus (0.0.1):
+    - Flutter
+  - Turf (4.0.0)
 
 DEPENDENCIES:
   - Flutter (from `Flutter`)
+  - flutter_secure_storage_darwin (from `.symlinks/plugins/flutter_secure_storage_darwin/darwin`)
+  - geolocator_apple (from `.symlinks/plugins/geolocator_apple/darwin`)
+  - mapbox_maps_flutter (from `.symlinks/plugins/mapbox_maps_flutter/ios`)
+  - package_info_plus (from `.symlinks/plugins/package_info_plus/ios`)
+  - sensors_plus (from `.symlinks/plugins/sensors_plus/ios`)
+
+SPEC REPOS:
+  trunk:
+    - MapboxCommon
+    - MapboxCoreMaps
+    - MapboxMaps
+    - Turf
 
 EXTERNAL SOURCES:
   Flutter:
     :path: Flutter
+  flutter_secure_storage_darwin:
+    :path: ".symlinks/plugins/flutter_secure_storage_darwin/darwin"
+  geolocator_apple:
+    :path: ".symlinks/plugins/geolocator_apple/darwin"
+  mapbox_maps_flutter:
+    :path: ".symlinks/plugins/mapbox_maps_flutter/ios"
+  package_info_plus:
+    :path: ".symlinks/plugins/package_info_plus/ios"
+  sensors_plus:
+    :path: ".symlinks/plugins/sensors_plus/ios"
 
 SPEC CHECKSUMS:
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  flutter_secure_storage_darwin: 557817588b80e60213cbecb573c45c76b788018d
+  geolocator_apple: 66b711889fd333205763b83c9dcf0a57a28c7afd
+  mapbox_maps_flutter: 622edbe25ed0784f7ac0535febf6ada08b231a12
+  MapboxCommon: 6840791a55beca2be90c6251462d8994fc972824
+  MapboxCoreMaps: ebf447a998dc312366e05764c00adbb0f245a1b5
+  MapboxMaps: 8bb1372be05039df5e92cc8f2782bd39f260e0e7
+  package_info_plus: c0502532a26c7662a62a356cebe2692ec5fe4ec4
+  sensors_plus: 7229095999f30740798f0eeef5cd120357a8f4f2
+  Turf: c9eb11a65d96af58cac523460fd40fec5061b081
 
-PODFILE CHECKSUM: d71a8f9d234bf288cee64b372c30c196c8075224
+PODFILE CHECKSUM: 3e1f5ff4b3f85a849d29ca424b941b2d81696be1
 
 COCOAPODS: 1.16.2

@@ -6,17 +6,15 @@ import 'package:diary/network/service/impl/gps_speed_estimator.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 
-typedef AcquisitionRuntimeEventSink = Future<void> Function(
+typedef AcquisitionEventCallback = Future<void> Function(
     TrackingEvent event);
-typedef HarWindowSink = Future<void> Function(HarSensorWindow window);
+typedef HarWindowCallback = Future<void> Function(HarSensorWindow window);
 
 class AcquisitionSensorRuntime {
   static const Duration _harWindowDuration = HarSensorWindow.targetDuration;
-  static const int _maxCompletedHarWindows = 12;
 
   final List<AccelerationSample> _accelerationWindow = [];
   final List<HarSensorSample> _harWindowSamples = [];
-  final List<HarSensorWindow> _completedHarWindows = [];
   final GpsSpeedEstimator _gpsSpeedEstimator = GpsSpeedEstimator();
 
   StreamSubscription<AccelerometerEvent>? _accelerometerSubscription;
@@ -24,29 +22,23 @@ class AcquisitionSensorRuntime {
   StreamSubscription<Position>? _positionSubscription;
   GyroscopeEvent? _latestGyroscopeEvent;
   DateTime? _harWindowStartedAt;
-  AcquisitionRuntimeEventSink? _eventSink;
-  HarWindowSink? _harWindowSink;
+  AcquisitionEventCallback? _onEvent;
+  HarWindowCallback? _onHarWindow;
   SamplingProfile? _currentProfile;
   bool _isStarted = false;
   bool _gpsRestartPending = false;
 
-  List<HarSensorWindow> get completedHarWindows {
-    return List<HarSensorWindow>.unmodifiable(_completedHarWindows);
-  }
-
-  /// Da chiamare *prima* di aprire una sessione: se manca il permesso, il
-  /// tracking non deve nemmeno cominciare, altrimenti resta aperta una sessione
-  /// (locale e remota) che non registrera' mai un punto.
+  /// Blocca l acquisizione nel caso non ci sia il permesso Always
   Future<bool> hasAcquisitionLocationPermission() =>
       _ensureLocationPermission();
 
   Future<void> start({
     required SamplingProfile profile,
-    required AcquisitionRuntimeEventSink onEvent,
-    HarWindowSink? onHarWindow,
+    required AcquisitionEventCallback onEvent,
+    HarWindowCallback? onHarWindow,
   }) async {
-    _eventSink = onEvent;
-    _harWindowSink = onHarWindow;
+    _onEvent = onEvent;
+    _onHarWindow = onHarWindow;
     _isStarted = true;
     _gpsSpeedEstimator.reset();
     await configure(profile);
@@ -78,16 +70,12 @@ class AcquisitionSensorRuntime {
 
     if (previousProfile?.harWindowEnabled != profile.harWindowEnabled) {
       _resetHarWindow();
-      if (!profile.harWindowEnabled) {
-        _completedHarWindows.clear();
-      }
     }
 
     final gpsChanged = previousProfile?.gpsEnabled != profile.gpsEnabled ||
         previousProfile?.gpsInterval != profile.gpsInterval ||
         previousProfile?.gpsDistanceFilterMeters !=
-            profile.gpsDistanceFilterMeters ||
-        previousProfile?.gpsAccuracy != profile.gpsAccuracy;
+            profile.gpsDistanceFilterMeters;
 
     if (gpsChanged || _gpsRestartPending) {
       if (allowGpsRestart) {
@@ -113,11 +101,10 @@ class AcquisitionSensorRuntime {
     _isStarted = false;
     _currentProfile = null;
     _gpsRestartPending = false;
-    _eventSink = null;
-    _harWindowSink = null;
+    _onEvent = null;
+    _onHarWindow = null;
     _accelerationWindow.clear();
     _resetHarWindow();
-    _completedHarWindows.clear();
     await _accelerometerSubscription?.cancel();
     await _gyroscopeSubscription?.cancel();
     await _positionSubscription?.cancel();
@@ -200,8 +187,8 @@ class AcquisitionSensorRuntime {
 
   Future<void> _onAccelerometerEvent(AccelerometerEvent event) async {
     final profile = _currentProfile;
-    final eventSink = _eventSink;
-    if (!_isStarted || profile == null || eventSink == null) {
+    final onEvent = _onEvent;
+    if (!_isStarted || profile == null || onEvent == null) {
       return;
     }
 
@@ -224,7 +211,7 @@ class AcquisitionSensorRuntime {
     _accelerationWindow.clear();
     final sigma = MotionMetrics.accelerationMagnitudeSigma(window);
 
-    await eventSink(
+    await onEvent(
       MotionWindowEvaluated(
         timestamp: timestamp,
         sigma: sigma,
@@ -246,7 +233,8 @@ class AcquisitionSensorRuntime {
       return;
     }
 
-    _harWindowStartedAt ??= timestamp;
+    _harWindowStartedAt ??=
+        timestamp; // assegna solo se_harWindowStartedAt è null -> il primo campione dopo _resetHarWindow
     final gyroscopeEvent = _latestGyroscopeEvent;
 
     _harWindowSamples.add(
@@ -264,7 +252,8 @@ class AcquisitionSensorRuntime {
     final startedAt = _harWindowStartedAt!;
     if (timestamp.difference(startedAt) < _harWindowDuration) {
       return;
-    }
+    } //se siamo all'interno dei 5 secondi, non faccio nulla
+    // Se sono alla fine, inserisco la HarSensorWindow nel db
 
     final window = HarSensorWindow(
       startedAt: startedAt,
@@ -274,12 +263,8 @@ class AcquisitionSensorRuntime {
       magnetometerHz: profile.magnetometerHz,
       samples: List<HarSensorSample>.from(_harWindowSamples),
     );
-    _completedHarWindows.insert(0, window);
-    if (_completedHarWindows.length > _maxCompletedHarWindows) {
-      _completedHarWindows.removeLast();
-    }
     _resetHarWindow();
-    await _harWindowSink?.call(window);
+    await _onHarWindow?.call(window);
   }
 
   void _resetHarWindow() {
@@ -289,8 +274,8 @@ class AcquisitionSensorRuntime {
 
   //Prende un il gps, lo ripulisce e lo converte in un GpsFixReceived
   Future<void> _onPosition(Position position) async {
-    final eventSink = _eventSink;
-    if (!_isStarted || eventSink == null) {
+    final onEvent = _onEvent;
+    if (!_isStarted || onEvent == null) {
       return;
     }
 
@@ -305,7 +290,7 @@ class AcquisitionSensorRuntime {
       ),
     );
 
-    await eventSink(
+    await onEvent(
       GpsFixReceived(
         timestamp: timestamp,
         latitude: position.latitude,
@@ -321,7 +306,7 @@ class AcquisitionSensorRuntime {
     int distanceFilter,
   ) {
     final interval = profile.gpsInterval;
-    final accuracy = _locationAccuracyFor(profile.gpsAccuracy);
+    const accuracy = LocationAccuracy.high;
     if (Platform.isAndroid && interval != null) {
       return AndroidSettings(
         accuracy: accuracy,
@@ -345,9 +330,7 @@ class AcquisitionSensorRuntime {
         // During an active trip, pausing in the stationary profile can let iOS
         // suspend the app long enough that the user comes back to a cold start.
         pauseLocationUpdatesAutomatically: false,
-        activityType: profile.gpsAccuracy == GpsAccuracyProfile.highAccuracy
-            ? ActivityType.fitness
-            : ActivityType.other,
+        activityType: ActivityType.fitness,
         showBackgroundLocationIndicator: true,
         allowBackgroundLocationUpdates: true,
       );
@@ -357,15 +340,6 @@ class AcquisitionSensorRuntime {
       accuracy: accuracy,
       distanceFilter: distanceFilter,
     );
-  }
-
-  LocationAccuracy _locationAccuracyFor(GpsAccuracyProfile accuracyProfile) {
-    switch (accuracyProfile) {
-      case GpsAccuracyProfile.lowPower:
-        return LocationAccuracy.low;
-      case GpsAccuracyProfile.highAccuracy:
-        return LocationAccuracy.high;
-    }
   }
 
   Duration _samplingPeriodFor(int frequencyHz) {

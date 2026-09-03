@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:diary/network/service/trip_ingestion_service.dart';
+import 'package:diary/network/service/trip_upload_service.dart';
 import 'package:diary/network/dto/analytics_dto.dart';
 import 'package:diary/network/service/impl/http_json_utils.dart';
 
@@ -35,12 +35,12 @@ class AnalyticsHttpService implements AnalyticsService {
 
     if (response.isError) {
       final detail = decoded?['detail'];
-      throw IngestionApiException(
+      throw UploadApiException(
         detail is String ? detail : 'Statistiche non disponibili',
         statusCode: response.statusCode,
       );
     }
     if (decoded != null) return decoded;
-    throw const IngestionApiException('Risposta statistiche non valida');
+    throw const UploadApiException('Risposta statistiche non valida');
   }
 }

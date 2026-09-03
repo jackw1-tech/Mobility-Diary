@@ -3,7 +3,7 @@
 Questo modulo e' l'unico punto in cui vive la forma comune delle eccezioni di
 servizio (messaggio + status code HTTP suggerito). Prima della sua
 introduzione, ogni context (mobility.services.places, mobility.services.trips,
-mobility.services.reload, mobility.ingestion.services, ...) ridefiniva la
+mobility.services.reload, mobility.upload.services, ...) ridefiniva la
 stessa classe `XxxServiceError(ValueError)` con identico `__init__` e
 `status_code`: la stessa invariante ("un errore di servizio trasporta un
 messaggio e uno status code") era duplicata in piu' punti (regola 5

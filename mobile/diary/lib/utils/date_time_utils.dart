@@ -19,7 +19,7 @@ class DateTimeUtils {
 
   /// ISO 8601 UTC con precisione al microsecondo (a differenza di
   /// [DateTime.toIso8601String], che si ferma ai millisecondi), usato dai
-  /// payload di ingestion. Omette del tutto la parte frazionaria se zero.
+  /// payload di upload. Omette del tutto la parte frazionaria se zero.
   static String toUtcIso(DateTime value) {
     final utc = value.toUtc();
     final year = utc.year.toString().padLeft(4, '0');

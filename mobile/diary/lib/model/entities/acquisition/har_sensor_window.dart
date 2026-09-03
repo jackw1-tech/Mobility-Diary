@@ -59,26 +59,6 @@ class HarSensorWindow {
     required this.samples,
   });
 
-  int get samplingHz => accelerometerHz;
-
-  int get sampleCount => samples.length;
-
-  int get channelCount => channelNames.length;
-
-  bool get hasTargetSamplingRate {
-    return accelerometerHz == targetSamplingHz &&
-        gyroscopeHz == targetSamplingHz;
-  }
-
-  bool get hasTargetShape {
-    return modelInputMatrix.length == targetSampleCount &&
-        modelInputMatrix.every((row) => row.length == channelCount);
-  }
-
-  bool get hasCompleteInertialData {
-    return gyroscopeHz > 0;
-  }
-
   List<List<double>> get matrix {
     return samples.map((sample) => sample.channels).toList(growable: false);
   }
@@ -87,7 +67,7 @@ class HarSensorWindow {
     if (samples.isEmpty) {
       return List<List<double>>.generate(
         targetSampleCount,
-        (_) => List<double>.filled(channelCount, 0),
+        (_) => List<double>.filled(channelNames.length, 0),
         growable: false,
       );
     }
@@ -125,7 +105,7 @@ class HarSensorWindow {
         final upperChannels = samples[upperIndex].channels;
 
         return List<double>.generate(
-          channelCount,
+          channelNames.length,
           (channelIndex) {
             final lowerValue = lowerChannels[channelIndex];
             final upperValue = upperChannels[channelIndex];

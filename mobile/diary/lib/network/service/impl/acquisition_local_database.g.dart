@@ -20,11 +20,11 @@ class $AcquisitionSessionsTable extends AcquisitionSessions
   late final GeneratedColumn<String> deviceId = GeneratedColumn<String>(
       'device_id', aliasedName, false,
       type: DriftSqlType.string, requiredDuringInsert: true);
-  static const VerificationMeta _remoteIngestionIdMeta =
-      const VerificationMeta('remoteIngestionId');
+  static const VerificationMeta _remoteUploadIdMeta =
+      const VerificationMeta('remoteUploadId');
   @override
-  late final GeneratedColumn<int> remoteIngestionId = GeneratedColumn<int>(
-      'remote_ingestion_id', aliasedName, true,
+  late final GeneratedColumn<int> remoteUploadId = GeneratedColumn<int>(
+      'remote_upload_id', aliasedName, true,
       type: DriftSqlType.int, requiredDuringInsert: false);
   static const VerificationMeta _startedAtMeta =
       const VerificationMeta('startedAt');
@@ -40,7 +40,7 @@ class $AcquisitionSessionsTable extends AcquisitionSessions
       type: DriftSqlType.dateTime, requiredDuringInsert: false);
   @override
   List<GeneratedColumn> get $columns =>
-      [id, deviceId, remoteIngestionId, startedAt, endedAt];
+      [id, deviceId, remoteUploadId, startedAt, endedAt];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -62,11 +62,11 @@ class $AcquisitionSessionsTable extends AcquisitionSessions
     } else if (isInserting) {
       context.missing(_deviceIdMeta);
     }
-    if (data.containsKey('remote_ingestion_id')) {
+    if (data.containsKey('remote_upload_id')) {
       context.handle(
-          _remoteIngestionIdMeta,
-          remoteIngestionId.isAcceptableOrUnknown(
-              data['remote_ingestion_id']!, _remoteIngestionIdMeta));
+          _remoteUploadIdMeta,
+          remoteUploadId.isAcceptableOrUnknown(
+              data['remote_upload_id']!, _remoteUploadIdMeta));
     }
     if (data.containsKey('started_at')) {
       context.handle(_startedAtMeta,
@@ -91,8 +91,8 @@ class $AcquisitionSessionsTable extends AcquisitionSessions
           .read(DriftSqlType.string, data['${effectivePrefix}id'])!,
       deviceId: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}device_id'])!,
-      remoteIngestionId: attachedDatabase.typeMapping.read(
-          DriftSqlType.int, data['${effectivePrefix}remote_ingestion_id']),
+      remoteUploadId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}remote_upload_id']),
       startedAt: attachedDatabase.typeMapping
           .read(DriftSqlType.dateTime, data['${effectivePrefix}started_at'])!,
       endedAt: attachedDatabase.typeMapping
@@ -110,13 +110,13 @@ class AcquisitionSession extends DataClass
     implements Insertable<AcquisitionSession> {
   final String id;
   final String deviceId;
-  final int? remoteIngestionId;
+  final int? remoteUploadId;
   final DateTime startedAt;
   final DateTime? endedAt;
   const AcquisitionSession(
       {required this.id,
       required this.deviceId,
-      this.remoteIngestionId,
+      this.remoteUploadId,
       required this.startedAt,
       this.endedAt});
   @override
@@ -124,8 +124,8 @@ class AcquisitionSession extends DataClass
     final map = <String, Expression>{};
     map['id'] = Variable<String>(id);
     map['device_id'] = Variable<String>(deviceId);
-    if (!nullToAbsent || remoteIngestionId != null) {
-      map['remote_ingestion_id'] = Variable<int>(remoteIngestionId);
+    if (!nullToAbsent || remoteUploadId != null) {
+      map['remote_upload_id'] = Variable<int>(remoteUploadId);
     }
     map['started_at'] = Variable<DateTime>(startedAt);
     if (!nullToAbsent || endedAt != null) {
@@ -138,9 +138,9 @@ class AcquisitionSession extends DataClass
     return AcquisitionSessionsCompanion(
       id: Value(id),
       deviceId: Value(deviceId),
-      remoteIngestionId: remoteIngestionId == null && nullToAbsent
+      remoteUploadId: remoteUploadId == null && nullToAbsent
           ? const Value.absent()
-          : Value(remoteIngestionId),
+          : Value(remoteUploadId),
       startedAt: Value(startedAt),
       endedAt: endedAt == null && nullToAbsent
           ? const Value.absent()
@@ -154,7 +154,7 @@ class AcquisitionSession extends DataClass
     return AcquisitionSession(
       id: serializer.fromJson<String>(json['id']),
       deviceId: serializer.fromJson<String>(json['deviceId']),
-      remoteIngestionId: serializer.fromJson<int?>(json['remoteIngestionId']),
+      remoteUploadId: serializer.fromJson<int?>(json['remoteUploadId']),
       startedAt: serializer.fromJson<DateTime>(json['startedAt']),
       endedAt: serializer.fromJson<DateTime?>(json['endedAt']),
     );
@@ -165,7 +165,7 @@ class AcquisitionSession extends DataClass
     return <String, dynamic>{
       'id': serializer.toJson<String>(id),
       'deviceId': serializer.toJson<String>(deviceId),
-      'remoteIngestionId': serializer.toJson<int?>(remoteIngestionId),
+      'remoteUploadId': serializer.toJson<int?>(remoteUploadId),
       'startedAt': serializer.toJson<DateTime>(startedAt),
       'endedAt': serializer.toJson<DateTime?>(endedAt),
     };
@@ -174,15 +174,14 @@ class AcquisitionSession extends DataClass
   AcquisitionSession copyWith(
           {String? id,
           String? deviceId,
-          Value<int?> remoteIngestionId = const Value.absent(),
+          Value<int?> remoteUploadId = const Value.absent(),
           DateTime? startedAt,
           Value<DateTime?> endedAt = const Value.absent()}) =>
       AcquisitionSession(
         id: id ?? this.id,
         deviceId: deviceId ?? this.deviceId,
-        remoteIngestionId: remoteIngestionId.present
-            ? remoteIngestionId.value
-            : this.remoteIngestionId,
+        remoteUploadId:
+            remoteUploadId.present ? remoteUploadId.value : this.remoteUploadId,
         startedAt: startedAt ?? this.startedAt,
         endedAt: endedAt.present ? endedAt.value : this.endedAt,
       );
@@ -190,9 +189,9 @@ class AcquisitionSession extends DataClass
     return AcquisitionSession(
       id: data.id.present ? data.id.value : this.id,
       deviceId: data.deviceId.present ? data.deviceId.value : this.deviceId,
-      remoteIngestionId: data.remoteIngestionId.present
-          ? data.remoteIngestionId.value
-          : this.remoteIngestionId,
+      remoteUploadId: data.remoteUploadId.present
+          ? data.remoteUploadId.value
+          : this.remoteUploadId,
       startedAt: data.startedAt.present ? data.startedAt.value : this.startedAt,
       endedAt: data.endedAt.present ? data.endedAt.value : this.endedAt,
     );
@@ -203,7 +202,7 @@ class AcquisitionSession extends DataClass
     return (StringBuffer('AcquisitionSession(')
           ..write('id: $id, ')
           ..write('deviceId: $deviceId, ')
-          ..write('remoteIngestionId: $remoteIngestionId, ')
+          ..write('remoteUploadId: $remoteUploadId, ')
           ..write('startedAt: $startedAt, ')
           ..write('endedAt: $endedAt')
           ..write(')'))
@@ -212,14 +211,14 @@ class AcquisitionSession extends DataClass
 
   @override
   int get hashCode =>
-      Object.hash(id, deviceId, remoteIngestionId, startedAt, endedAt);
+      Object.hash(id, deviceId, remoteUploadId, startedAt, endedAt);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is AcquisitionSession &&
           other.id == this.id &&
           other.deviceId == this.deviceId &&
-          other.remoteIngestionId == this.remoteIngestionId &&
+          other.remoteUploadId == this.remoteUploadId &&
           other.startedAt == this.startedAt &&
           other.endedAt == this.endedAt);
 }
@@ -227,14 +226,14 @@ class AcquisitionSession extends DataClass
 class AcquisitionSessionsCompanion extends UpdateCompanion<AcquisitionSession> {
   final Value<String> id;
   final Value<String> deviceId;
-  final Value<int?> remoteIngestionId;
+  final Value<int?> remoteUploadId;
   final Value<DateTime> startedAt;
   final Value<DateTime?> endedAt;
   final Value<int> rowid;
   const AcquisitionSessionsCompanion({
     this.id = const Value.absent(),
     this.deviceId = const Value.absent(),
-    this.remoteIngestionId = const Value.absent(),
+    this.remoteUploadId = const Value.absent(),
     this.startedAt = const Value.absent(),
     this.endedAt = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -242,7 +241,7 @@ class AcquisitionSessionsCompanion extends UpdateCompanion<AcquisitionSession> {
   AcquisitionSessionsCompanion.insert({
     required String id,
     required String deviceId,
-    this.remoteIngestionId = const Value.absent(),
+    this.remoteUploadId = const Value.absent(),
     required DateTime startedAt,
     this.endedAt = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -252,7 +251,7 @@ class AcquisitionSessionsCompanion extends UpdateCompanion<AcquisitionSession> {
   static Insertable<AcquisitionSession> custom({
     Expression<String>? id,
     Expression<String>? deviceId,
-    Expression<int>? remoteIngestionId,
+    Expression<int>? remoteUploadId,
     Expression<DateTime>? startedAt,
     Expression<DateTime>? endedAt,
     Expression<int>? rowid,
@@ -260,7 +259,7 @@ class AcquisitionSessionsCompanion extends UpdateCompanion<AcquisitionSession> {
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (deviceId != null) 'device_id': deviceId,
-      if (remoteIngestionId != null) 'remote_ingestion_id': remoteIngestionId,
+      if (remoteUploadId != null) 'remote_upload_id': remoteUploadId,
       if (startedAt != null) 'started_at': startedAt,
       if (endedAt != null) 'ended_at': endedAt,
       if (rowid != null) 'rowid': rowid,
@@ -270,14 +269,14 @@ class AcquisitionSessionsCompanion extends UpdateCompanion<AcquisitionSession> {
   AcquisitionSessionsCompanion copyWith(
       {Value<String>? id,
       Value<String>? deviceId,
-      Value<int?>? remoteIngestionId,
+      Value<int?>? remoteUploadId,
       Value<DateTime>? startedAt,
       Value<DateTime?>? endedAt,
       Value<int>? rowid}) {
     return AcquisitionSessionsCompanion(
       id: id ?? this.id,
       deviceId: deviceId ?? this.deviceId,
-      remoteIngestionId: remoteIngestionId ?? this.remoteIngestionId,
+      remoteUploadId: remoteUploadId ?? this.remoteUploadId,
       startedAt: startedAt ?? this.startedAt,
       endedAt: endedAt ?? this.endedAt,
       rowid: rowid ?? this.rowid,
@@ -293,8 +292,8 @@ class AcquisitionSessionsCompanion extends UpdateCompanion<AcquisitionSession> {
     if (deviceId.present) {
       map['device_id'] = Variable<String>(deviceId.value);
     }
-    if (remoteIngestionId.present) {
-      map['remote_ingestion_id'] = Variable<int>(remoteIngestionId.value);
+    if (remoteUploadId.present) {
+      map['remote_upload_id'] = Variable<int>(remoteUploadId.value);
     }
     if (startedAt.present) {
       map['started_at'] = Variable<DateTime>(startedAt.value);
@@ -313,7 +312,7 @@ class AcquisitionSessionsCompanion extends UpdateCompanion<AcquisitionSession> {
     return (StringBuffer('AcquisitionSessionsCompanion(')
           ..write('id: $id, ')
           ..write('deviceId: $deviceId, ')
-          ..write('remoteIngestionId: $remoteIngestionId, ')
+          ..write('remoteUploadId: $remoteUploadId, ')
           ..write('startedAt: $startedAt, ')
           ..write('endedAt: $endedAt, ')
           ..write('rowid: $rowid')
@@ -1633,11 +1632,11 @@ class $SyncJobsTable extends SyncJobs with TableInfo<$SyncJobsTable, SyncJob> {
       requiredDuringInsert: true,
       defaultConstraints: GeneratedColumn.constraintIsAlways(
           'REFERENCES acquisition_sessions (id)'));
-  static const VerificationMeta _remoteIngestionIdMeta =
-      const VerificationMeta('remoteIngestionId');
+  static const VerificationMeta _remoteUploadIdMeta =
+      const VerificationMeta('remoteUploadId');
   @override
-  late final GeneratedColumn<int> remoteIngestionId = GeneratedColumn<int>(
-      'remote_ingestion_id', aliasedName, true,
+  late final GeneratedColumn<int> remoteUploadId = GeneratedColumn<int>(
+      'remote_upload_id', aliasedName, true,
       type: DriftSqlType.int, requiredDuringInsert: false);
   static const VerificationMeta _remoteTripIdMeta =
       const VerificationMeta('remoteTripId');
@@ -1715,7 +1714,7 @@ class $SyncJobsTable extends SyncJobs with TableInfo<$SyncJobsTable, SyncJob> {
   List<GeneratedColumn> get $columns => [
         id,
         localSessionId,
-        remoteIngestionId,
+        remoteUploadId,
         remoteTripId,
         corePayloadSizeBytes,
         coreMapAvailable,
@@ -1748,11 +1747,11 @@ class $SyncJobsTable extends SyncJobs with TableInfo<$SyncJobsTable, SyncJob> {
     } else if (isInserting) {
       context.missing(_localSessionIdMeta);
     }
-    if (data.containsKey('remote_ingestion_id')) {
+    if (data.containsKey('remote_upload_id')) {
       context.handle(
-          _remoteIngestionIdMeta,
-          remoteIngestionId.isAcceptableOrUnknown(
-              data['remote_ingestion_id']!, _remoteIngestionIdMeta));
+          _remoteUploadIdMeta,
+          remoteUploadId.isAcceptableOrUnknown(
+              data['remote_upload_id']!, _remoteUploadIdMeta));
     }
     if (data.containsKey('remote_trip_id')) {
       context.handle(
@@ -1825,8 +1824,8 @@ class $SyncJobsTable extends SyncJobs with TableInfo<$SyncJobsTable, SyncJob> {
           .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
       localSessionId: attachedDatabase.typeMapping.read(
           DriftSqlType.string, data['${effectivePrefix}local_session_id'])!,
-      remoteIngestionId: attachedDatabase.typeMapping.read(
-          DriftSqlType.int, data['${effectivePrefix}remote_ingestion_id']),
+      remoteUploadId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}remote_upload_id']),
       remoteTripId: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}remote_trip_id']),
       corePayloadSizeBytes: attachedDatabase.typeMapping.read(
@@ -1859,7 +1858,7 @@ class $SyncJobsTable extends SyncJobs with TableInfo<$SyncJobsTable, SyncJob> {
 class SyncJob extends DataClass implements Insertable<SyncJob> {
   final int id;
   final String localSessionId;
-  final int? remoteIngestionId;
+  final int? remoteUploadId;
   final int? remoteTripId;
   final int corePayloadSizeBytes;
   final bool coreMapAvailable;
@@ -1873,7 +1872,7 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
   const SyncJob(
       {required this.id,
       required this.localSessionId,
-      this.remoteIngestionId,
+      this.remoteUploadId,
       this.remoteTripId,
       required this.corePayloadSizeBytes,
       required this.coreMapAvailable,
@@ -1889,8 +1888,8 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
     final map = <String, Expression>{};
     map['id'] = Variable<int>(id);
     map['local_session_id'] = Variable<String>(localSessionId);
-    if (!nullToAbsent || remoteIngestionId != null) {
-      map['remote_ingestion_id'] = Variable<int>(remoteIngestionId);
+    if (!nullToAbsent || remoteUploadId != null) {
+      map['remote_upload_id'] = Variable<int>(remoteUploadId);
     }
     if (!nullToAbsent || remoteTripId != null) {
       map['remote_trip_id'] = Variable<int>(remoteTripId);
@@ -1915,9 +1914,9 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
     return SyncJobsCompanion(
       id: Value(id),
       localSessionId: Value(localSessionId),
-      remoteIngestionId: remoteIngestionId == null && nullToAbsent
+      remoteUploadId: remoteUploadId == null && nullToAbsent
           ? const Value.absent()
-          : Value(remoteIngestionId),
+          : Value(remoteUploadId),
       remoteTripId: remoteTripId == null && nullToAbsent
           ? const Value.absent()
           : Value(remoteTripId),
@@ -1943,7 +1942,7 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
     return SyncJob(
       id: serializer.fromJson<int>(json['id']),
       localSessionId: serializer.fromJson<String>(json['localSessionId']),
-      remoteIngestionId: serializer.fromJson<int?>(json['remoteIngestionId']),
+      remoteUploadId: serializer.fromJson<int?>(json['remoteUploadId']),
       remoteTripId: serializer.fromJson<int?>(json['remoteTripId']),
       corePayloadSizeBytes:
           serializer.fromJson<int>(json['corePayloadSizeBytes']),
@@ -1963,7 +1962,7 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
     return <String, dynamic>{
       'id': serializer.toJson<int>(id),
       'localSessionId': serializer.toJson<String>(localSessionId),
-      'remoteIngestionId': serializer.toJson<int?>(remoteIngestionId),
+      'remoteUploadId': serializer.toJson<int?>(remoteUploadId),
       'remoteTripId': serializer.toJson<int?>(remoteTripId),
       'corePayloadSizeBytes': serializer.toJson<int>(corePayloadSizeBytes),
       'coreMapAvailable': serializer.toJson<bool>(coreMapAvailable),
@@ -1980,7 +1979,7 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
   SyncJob copyWith(
           {int? id,
           String? localSessionId,
-          Value<int?> remoteIngestionId = const Value.absent(),
+          Value<int?> remoteUploadId = const Value.absent(),
           Value<int?> remoteTripId = const Value.absent(),
           int? corePayloadSizeBytes,
           bool? coreMapAvailable,
@@ -1994,9 +1993,8 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
       SyncJob(
         id: id ?? this.id,
         localSessionId: localSessionId ?? this.localSessionId,
-        remoteIngestionId: remoteIngestionId.present
-            ? remoteIngestionId.value
-            : this.remoteIngestionId,
+        remoteUploadId:
+            remoteUploadId.present ? remoteUploadId.value : this.remoteUploadId,
         remoteTripId:
             remoteTripId.present ? remoteTripId.value : this.remoteTripId,
         corePayloadSizeBytes: corePayloadSizeBytes ?? this.corePayloadSizeBytes,
@@ -2015,9 +2013,9 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
       localSessionId: data.localSessionId.present
           ? data.localSessionId.value
           : this.localSessionId,
-      remoteIngestionId: data.remoteIngestionId.present
-          ? data.remoteIngestionId.value
-          : this.remoteIngestionId,
+      remoteUploadId: data.remoteUploadId.present
+          ? data.remoteUploadId.value
+          : this.remoteUploadId,
       remoteTripId: data.remoteTripId.present
           ? data.remoteTripId.value
           : this.remoteTripId,
@@ -2044,7 +2042,7 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
     return (StringBuffer('SyncJob(')
           ..write('id: $id, ')
           ..write('localSessionId: $localSessionId, ')
-          ..write('remoteIngestionId: $remoteIngestionId, ')
+          ..write('remoteUploadId: $remoteUploadId, ')
           ..write('remoteTripId: $remoteTripId, ')
           ..write('corePayloadSizeBytes: $corePayloadSizeBytes, ')
           ..write('coreMapAvailable: $coreMapAvailable, ')
@@ -2063,7 +2061,7 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
   int get hashCode => Object.hash(
       id,
       localSessionId,
-      remoteIngestionId,
+      remoteUploadId,
       remoteTripId,
       corePayloadSizeBytes,
       coreMapAvailable,
@@ -2080,7 +2078,7 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
       (other is SyncJob &&
           other.id == this.id &&
           other.localSessionId == this.localSessionId &&
-          other.remoteIngestionId == this.remoteIngestionId &&
+          other.remoteUploadId == this.remoteUploadId &&
           other.remoteTripId == this.remoteTripId &&
           other.corePayloadSizeBytes == this.corePayloadSizeBytes &&
           other.coreMapAvailable == this.coreMapAvailable &&
@@ -2096,7 +2094,7 @@ class SyncJob extends DataClass implements Insertable<SyncJob> {
 class SyncJobsCompanion extends UpdateCompanion<SyncJob> {
   final Value<int> id;
   final Value<String> localSessionId;
-  final Value<int?> remoteIngestionId;
+  final Value<int?> remoteUploadId;
   final Value<int?> remoteTripId;
   final Value<int> corePayloadSizeBytes;
   final Value<bool> coreMapAvailable;
@@ -2110,7 +2108,7 @@ class SyncJobsCompanion extends UpdateCompanion<SyncJob> {
   const SyncJobsCompanion({
     this.id = const Value.absent(),
     this.localSessionId = const Value.absent(),
-    this.remoteIngestionId = const Value.absent(),
+    this.remoteUploadId = const Value.absent(),
     this.remoteTripId = const Value.absent(),
     this.corePayloadSizeBytes = const Value.absent(),
     this.coreMapAvailable = const Value.absent(),
@@ -2125,7 +2123,7 @@ class SyncJobsCompanion extends UpdateCompanion<SyncJob> {
   SyncJobsCompanion.insert({
     this.id = const Value.absent(),
     required String localSessionId,
-    this.remoteIngestionId = const Value.absent(),
+    this.remoteUploadId = const Value.absent(),
     this.remoteTripId = const Value.absent(),
     this.corePayloadSizeBytes = const Value.absent(),
     this.coreMapAvailable = const Value.absent(),
@@ -2142,7 +2140,7 @@ class SyncJobsCompanion extends UpdateCompanion<SyncJob> {
   static Insertable<SyncJob> custom({
     Expression<int>? id,
     Expression<String>? localSessionId,
-    Expression<int>? remoteIngestionId,
+    Expression<int>? remoteUploadId,
     Expression<int>? remoteTripId,
     Expression<int>? corePayloadSizeBytes,
     Expression<bool>? coreMapAvailable,
@@ -2157,7 +2155,7 @@ class SyncJobsCompanion extends UpdateCompanion<SyncJob> {
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (localSessionId != null) 'local_session_id': localSessionId,
-      if (remoteIngestionId != null) 'remote_ingestion_id': remoteIngestionId,
+      if (remoteUploadId != null) 'remote_upload_id': remoteUploadId,
       if (remoteTripId != null) 'remote_trip_id': remoteTripId,
       if (corePayloadSizeBytes != null)
         'core_payload_size_bytes': corePayloadSizeBytes,
@@ -2175,7 +2173,7 @@ class SyncJobsCompanion extends UpdateCompanion<SyncJob> {
   SyncJobsCompanion copyWith(
       {Value<int>? id,
       Value<String>? localSessionId,
-      Value<int?>? remoteIngestionId,
+      Value<int?>? remoteUploadId,
       Value<int?>? remoteTripId,
       Value<int>? corePayloadSizeBytes,
       Value<bool>? coreMapAvailable,
@@ -2189,7 +2187,7 @@ class SyncJobsCompanion extends UpdateCompanion<SyncJob> {
     return SyncJobsCompanion(
       id: id ?? this.id,
       localSessionId: localSessionId ?? this.localSessionId,
-      remoteIngestionId: remoteIngestionId ?? this.remoteIngestionId,
+      remoteUploadId: remoteUploadId ?? this.remoteUploadId,
       remoteTripId: remoteTripId ?? this.remoteTripId,
       corePayloadSizeBytes: corePayloadSizeBytes ?? this.corePayloadSizeBytes,
       coreMapAvailable: coreMapAvailable ?? this.coreMapAvailable,
@@ -2212,8 +2210,8 @@ class SyncJobsCompanion extends UpdateCompanion<SyncJob> {
     if (localSessionId.present) {
       map['local_session_id'] = Variable<String>(localSessionId.value);
     }
-    if (remoteIngestionId.present) {
-      map['remote_ingestion_id'] = Variable<int>(remoteIngestionId.value);
+    if (remoteUploadId.present) {
+      map['remote_upload_id'] = Variable<int>(remoteUploadId.value);
     }
     if (remoteTripId.present) {
       map['remote_trip_id'] = Variable<int>(remoteTripId.value);
@@ -2254,7 +2252,7 @@ class SyncJobsCompanion extends UpdateCompanion<SyncJob> {
     return (StringBuffer('SyncJobsCompanion(')
           ..write('id: $id, ')
           ..write('localSessionId: $localSessionId, ')
-          ..write('remoteIngestionId: $remoteIngestionId, ')
+          ..write('remoteUploadId: $remoteUploadId, ')
           ..write('remoteTripId: $remoteTripId, ')
           ..write('corePayloadSizeBytes: $corePayloadSizeBytes, ')
           ..write('coreMapAvailable: $coreMapAvailable, ')
@@ -2300,7 +2298,7 @@ typedef $$AcquisitionSessionsTableCreateCompanionBuilder
     = AcquisitionSessionsCompanion Function({
   required String id,
   required String deviceId,
-  Value<int?> remoteIngestionId,
+  Value<int?> remoteUploadId,
   required DateTime startedAt,
   Value<DateTime?> endedAt,
   Value<int> rowid,
@@ -2309,7 +2307,7 @@ typedef $$AcquisitionSessionsTableUpdateCompanionBuilder
     = AcquisitionSessionsCompanion Function({
   Value<String> id,
   Value<String> deviceId,
-  Value<int?> remoteIngestionId,
+  Value<int?> remoteUploadId,
   Value<DateTime> startedAt,
   Value<DateTime?> endedAt,
   Value<int> rowid,
@@ -2398,8 +2396,8 @@ class $$AcquisitionSessionsTableFilterComposer
   ColumnFilters<String> get deviceId => $composableBuilder(
       column: $table.deviceId, builder: (column) => ColumnFilters(column));
 
-  ColumnFilters<int> get remoteIngestionId => $composableBuilder(
-      column: $table.remoteIngestionId,
+  ColumnFilters<int> get remoteUploadId => $composableBuilder(
+      column: $table.remoteUploadId,
       builder: (column) => ColumnFilters(column));
 
   ColumnFilters<DateTime> get startedAt => $composableBuilder(
@@ -2508,8 +2506,8 @@ class $$AcquisitionSessionsTableOrderingComposer
   ColumnOrderings<String> get deviceId => $composableBuilder(
       column: $table.deviceId, builder: (column) => ColumnOrderings(column));
 
-  ColumnOrderings<int> get remoteIngestionId => $composableBuilder(
-      column: $table.remoteIngestionId,
+  ColumnOrderings<int> get remoteUploadId => $composableBuilder(
+      column: $table.remoteUploadId,
       builder: (column) => ColumnOrderings(column));
 
   ColumnOrderings<DateTime> get startedAt => $composableBuilder(
@@ -2534,8 +2532,8 @@ class $$AcquisitionSessionsTableAnnotationComposer
   GeneratedColumn<String> get deviceId =>
       $composableBuilder(column: $table.deviceId, builder: (column) => column);
 
-  GeneratedColumn<int> get remoteIngestionId => $composableBuilder(
-      column: $table.remoteIngestionId, builder: (column) => column);
+  GeneratedColumn<int> get remoteUploadId => $composableBuilder(
+      column: $table.remoteUploadId, builder: (column) => column);
 
   GeneratedColumn<DateTime> get startedAt =>
       $composableBuilder(column: $table.startedAt, builder: (column) => column);
@@ -2660,7 +2658,7 @@ class $$AcquisitionSessionsTableTableManager extends RootTableManager<
           updateCompanionCallback: ({
             Value<String> id = const Value.absent(),
             Value<String> deviceId = const Value.absent(),
-            Value<int?> remoteIngestionId = const Value.absent(),
+            Value<int?> remoteUploadId = const Value.absent(),
             Value<DateTime> startedAt = const Value.absent(),
             Value<DateTime?> endedAt = const Value.absent(),
             Value<int> rowid = const Value.absent(),
@@ -2668,7 +2666,7 @@ class $$AcquisitionSessionsTableTableManager extends RootTableManager<
               AcquisitionSessionsCompanion(
             id: id,
             deviceId: deviceId,
-            remoteIngestionId: remoteIngestionId,
+            remoteUploadId: remoteUploadId,
             startedAt: startedAt,
             endedAt: endedAt,
             rowid: rowid,
@@ -2676,7 +2674,7 @@ class $$AcquisitionSessionsTableTableManager extends RootTableManager<
           createCompanionCallback: ({
             required String id,
             required String deviceId,
-            Value<int?> remoteIngestionId = const Value.absent(),
+            Value<int?> remoteUploadId = const Value.absent(),
             required DateTime startedAt,
             Value<DateTime?> endedAt = const Value.absent(),
             Value<int> rowid = const Value.absent(),
@@ -2684,7 +2682,7 @@ class $$AcquisitionSessionsTableTableManager extends RootTableManager<
               AcquisitionSessionsCompanion.insert(
             id: id,
             deviceId: deviceId,
-            remoteIngestionId: remoteIngestionId,
+            remoteUploadId: remoteUploadId,
             startedAt: startedAt,
             endedAt: endedAt,
             rowid: rowid,
@@ -3754,7 +3752,7 @@ typedef $$SensorWindowsTableProcessedTableManager = ProcessedTableManager<
 typedef $$SyncJobsTableCreateCompanionBuilder = SyncJobsCompanion Function({
   Value<int> id,
   required String localSessionId,
-  Value<int?> remoteIngestionId,
+  Value<int?> remoteUploadId,
   Value<int?> remoteTripId,
   Value<int> corePayloadSizeBytes,
   Value<bool> coreMapAvailable,
@@ -3769,7 +3767,7 @@ typedef $$SyncJobsTableCreateCompanionBuilder = SyncJobsCompanion Function({
 typedef $$SyncJobsTableUpdateCompanionBuilder = SyncJobsCompanion Function({
   Value<int> id,
   Value<String> localSessionId,
-  Value<int?> remoteIngestionId,
+  Value<int?> remoteUploadId,
   Value<int?> remoteTripId,
   Value<int> corePayloadSizeBytes,
   Value<bool> coreMapAvailable,
@@ -3816,8 +3814,8 @@ class $$SyncJobsTableFilterComposer
   ColumnFilters<int> get id => $composableBuilder(
       column: $table.id, builder: (column) => ColumnFilters(column));
 
-  ColumnFilters<int> get remoteIngestionId => $composableBuilder(
-      column: $table.remoteIngestionId,
+  ColumnFilters<int> get remoteUploadId => $composableBuilder(
+      column: $table.remoteUploadId,
       builder: (column) => ColumnFilters(column));
 
   ColumnFilters<int> get remoteTripId => $composableBuilder(
@@ -3885,8 +3883,8 @@ class $$SyncJobsTableOrderingComposer
   ColumnOrderings<int> get id => $composableBuilder(
       column: $table.id, builder: (column) => ColumnOrderings(column));
 
-  ColumnOrderings<int> get remoteIngestionId => $composableBuilder(
-      column: $table.remoteIngestionId,
+  ColumnOrderings<int> get remoteUploadId => $composableBuilder(
+      column: $table.remoteUploadId,
       builder: (column) => ColumnOrderings(column));
 
   ColumnOrderings<int> get remoteTripId => $composableBuilder(
@@ -3956,8 +3954,8 @@ class $$SyncJobsTableAnnotationComposer
   GeneratedColumn<int> get id =>
       $composableBuilder(column: $table.id, builder: (column) => column);
 
-  GeneratedColumn<int> get remoteIngestionId => $composableBuilder(
-      column: $table.remoteIngestionId, builder: (column) => column);
+  GeneratedColumn<int> get remoteUploadId => $composableBuilder(
+      column: $table.remoteUploadId, builder: (column) => column);
 
   GeneratedColumn<int> get remoteTripId => $composableBuilder(
       column: $table.remoteTripId, builder: (column) => column);
@@ -4037,7 +4035,7 @@ class $$SyncJobsTableTableManager extends RootTableManager<
           updateCompanionCallback: ({
             Value<int> id = const Value.absent(),
             Value<String> localSessionId = const Value.absent(),
-            Value<int?> remoteIngestionId = const Value.absent(),
+            Value<int?> remoteUploadId = const Value.absent(),
             Value<int?> remoteTripId = const Value.absent(),
             Value<int> corePayloadSizeBytes = const Value.absent(),
             Value<bool> coreMapAvailable = const Value.absent(),
@@ -4052,7 +4050,7 @@ class $$SyncJobsTableTableManager extends RootTableManager<
               SyncJobsCompanion(
             id: id,
             localSessionId: localSessionId,
-            remoteIngestionId: remoteIngestionId,
+            remoteUploadId: remoteUploadId,
             remoteTripId: remoteTripId,
             corePayloadSizeBytes: corePayloadSizeBytes,
             coreMapAvailable: coreMapAvailable,
@@ -4067,7 +4065,7 @@ class $$SyncJobsTableTableManager extends RootTableManager<
           createCompanionCallback: ({
             Value<int> id = const Value.absent(),
             required String localSessionId,
-            Value<int?> remoteIngestionId = const Value.absent(),
+            Value<int?> remoteUploadId = const Value.absent(),
             Value<int?> remoteTripId = const Value.absent(),
             Value<int> corePayloadSizeBytes = const Value.absent(),
             Value<bool> coreMapAvailable = const Value.absent(),
@@ -4082,7 +4080,7 @@ class $$SyncJobsTableTableManager extends RootTableManager<
               SyncJobsCompanion.insert(
             id: id,
             localSessionId: localSessionId,
-            remoteIngestionId: remoteIngestionId,
+            remoteUploadId: remoteUploadId,
             remoteTripId: remoteTripId,
             corePayloadSizeBytes: corePayloadSizeBytes,
             coreMapAvailable: coreMapAvailable,

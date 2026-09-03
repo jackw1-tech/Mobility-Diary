@@ -9,7 +9,7 @@ from django.utils.dateparse import parse_datetime
 
 from shared.exceptions import ServiceError
 
-from ..ingestion import storage
+from ..upload import storage
 from ..models import Trip
 from ..selectors import trips as trips_repository
 from ..selectors.trips import (
@@ -121,7 +121,7 @@ def update_trip_note(
     note: str,
 ) -> dict:
     trip = _owned_trip(user_id, trip_id)
-    if not trips_repository.trip_has_completed_ingestion(trip):
+    if not trips_repository.trip_has_completed_upload(trip):
         raise TripServiceError("nota disponibile solo a viaggio completato")
 
     normalized_note = note.strip()
@@ -145,7 +145,7 @@ def delete_trip(
         object_keys = trips_repository.trip_object_keys(trip)
         for object_key in object_keys:
             storage.delete_object(object_key)
-        trips_repository.delete_trip_ingestions(trip)
+        trips_repository.delete_trip_uploads(trip)
         trip.delete()
 
 

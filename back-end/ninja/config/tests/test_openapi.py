@@ -3,7 +3,7 @@ from django.test import Client
 
 EXPECTED_TAGS = {
     "auth",
-    "ingestion",
+    "upload",
     "mobility",
     "privacy",
     "web-auth",
@@ -16,7 +16,7 @@ REPRESENTATIVE_PATHS = {
     "/api/web/auth/login",
     "/api/web/users",
     "/api/mobility/trips",
-    "/api/ingestion/trips/start",
+    "/api/upload/trips/start",
 }
 
 

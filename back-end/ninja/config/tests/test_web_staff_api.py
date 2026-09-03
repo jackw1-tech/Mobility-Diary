@@ -4,7 +4,7 @@ import pytest
 from django.contrib.auth import get_user_model
 
 from .conftest import TEST_PASSWORD
-from .test_ingestion_and_trips_api import complete_core, start_recording
+from .test_upload_and_trips_api import complete_core, start_recording
 
 
 pytestmark = pytest.mark.django_db
@@ -85,8 +85,8 @@ def test_staff_can_browse_owners_trips_and_privacy_dashboard(
     api_client, staff_user, mobile_session
 ):
     mobile_headers = mobile_session["headers"]
-    ingestion_id = start_recording(api_client, mobile_headers).json()["ingestion_id"]
-    trip_id = complete_core(api_client, mobile_headers, ingestion_id).json()["trip_id"]
+    upload_id = start_recording(api_client, mobile_headers).json()["upload_id"]
+    trip_id = complete_core(api_client, mobile_headers, upload_id).json()["trip_id"]
     owner_id = mobile_session["user"]["id"]
     auth = web_login(api_client).json()
     headers = web_headers(auth)

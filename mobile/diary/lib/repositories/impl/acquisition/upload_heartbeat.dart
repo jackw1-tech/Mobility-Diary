@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:diary/network/service/trip_ingestion_service.dart';
+import 'package:diary/network/service/trip_upload_service.dart';
 
 typedef HeartbeatTimerFactory = Timer Function(
   Duration duration,
@@ -9,24 +9,24 @@ typedef HeartbeatTimerFactory = Timer Function(
 
 /// Coordinate della sessione remota da tenere viva.
 class HeartbeatTarget {
-  final int ingestionId;
+  final int uploadId;
   final String clientSessionId;
   final String deviceId;
 
   const HeartbeatTarget({
-    required this.ingestionId,
+    required this.uploadId,
     required this.clientSessionId,
     required this.deviceId,
   });
 }
 
-/// Tiene viva l'ingestion sul backend mentre il viaggio e' in corso.
+/// Tiene viva l'upload sul backend mentre il viaggio e' in corso.
 ///
 /// Bersaglio e stato di tracking vengono riletti a ogni battito invece di
 /// essere catturati all'avvio del timer: la sessione puo' cambiare (resume,
 /// stop, recupero da conflitto) mentre il timer e' gia' in piedi.
-class IngestionHeartbeat {
-  final TripIngestionService? _service;
+class UploadHeartbeat {
+  final TripUploadService? _service;
   final Duration _interval;
   final HeartbeatTimerFactory _timerFactory;
   final HeartbeatTarget? Function() _target;
@@ -34,8 +34,8 @@ class IngestionHeartbeat {
 
   Timer? _timer;
 
-  IngestionHeartbeat({
-    required TripIngestionService? service,
+  UploadHeartbeat({
+    required TripUploadService? service,
     required Duration interval,
     required HeartbeatTimerFactory timerFactory,
     required HeartbeatTarget? Function() target,
@@ -65,8 +65,8 @@ class IngestionHeartbeat {
     }
 
     try {
-      await api.heartbeatIngestion(
-        ingestionId: target.ingestionId,
+      await api.heartbeatUpload(
+        uploadId: target.uploadId,
         clientSessionId: target.clientSessionId,
         deviceId: target.deviceId,
       );

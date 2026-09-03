@@ -2,22 +2,22 @@ import 'dart:async';
 
 import 'package:diary/network/service/impl/acquisition_local_database.dart';
 import 'package:diary/model/entities/acquisition/acquisition_domain.dart';
-import 'package:diary/model/entities/acquisition/ingestion_models.dart';
+import 'package:diary/model/entities/acquisition/upload_models.dart';
 import 'package:diary/repositories/acquisition_repository.dart';
 import 'package:diary/repositories/acquisition_strategy.dart';
 import 'package:diary/model/entities/acquisition/sensor_matrix_json.dart';
 import 'package:diary/network/service/impl/acquisition_sensor_runtime.dart';
-import 'package:diary/network/service/trip_ingestion_service.dart';
-import 'package:diary/mappers/ingestion_mapper.dart';
+import 'package:diary/network/service/trip_upload_service.dart';
+import 'package:diary/mappers/upload_mapper.dart';
 import 'package:diary/mappers/acquisition_mapper.dart';
 import 'package:diary/repositories/impl/acquisition/acquisition_snapshot_emitter.dart';
 import 'package:diary/repositories/impl/acquisition/har_window_recorder.dart';
-import 'package:diary/repositories/impl/acquisition/ingestion_heartbeat.dart';
+import 'package:diary/repositories/impl/acquisition/upload_heartbeat.dart';
 
 import 'package:flutter/widgets.dart';
 import 'package:uuid/uuid.dart';
 
-export 'package:diary/repositories/impl/acquisition/ingestion_heartbeat.dart'
+export 'package:diary/repositories/impl/acquisition/upload_heartbeat.dart'
     show HeartbeatTimerFactory;
 
 class LiveAcquisitionStrategy extends WidgetsBindingObserver
@@ -34,10 +34,10 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
   final Future<String> Function()? _deviceIdProvider;
   final AcquisitionSensorRuntime? _runtime;
   final bool _ownsRuntime;
-  final TripIngestionService? _ingestionService;
-  final IngestionMapper _mapper;
+  final TripUploadService? _uploadService;
+  final UploadMapper _mapper;
   final AcquisitionMapper _acquisitionMapper;
-  late final IngestionHeartbeat _heartbeat;
+  late final UploadHeartbeat _heartbeat;
   late final HarWindowRecorder _harWindows;
   final bool _observesAppLifecycle;
   // Se, riprendendo una sessione aperta, l'ultimo dato registrato e' piu'
@@ -56,7 +56,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
   StreamSubscription<AppLifecycleState>? _lifecycleSubscription;
   AppLifecycleState _lifecycleState = AppLifecycleState.resumed;
   DateTime? _latestMotionWindowAt;
-  int? _currentRemoteIngestionId;
+  int? _currentRemoteUploadId;
   String? _currentDeviceId;
   double? _latestLatitude;
   double? _latestLongitude;
@@ -70,8 +70,8 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     Future<String> Function()? deviceIdProvider,
     bool enableRuntime = true,
     AcquisitionSensorRuntime? runtime,
-    TripIngestionService? ingestionService,
-    IngestionMapper? mapper,
+    TripUploadService? uploadService,
+    UploadMapper? mapper,
     AcquisitionMapper? acquisitionMapper,
     Duration heartbeatInterval = const Duration(minutes: 5),
     Duration staleSessionThreshold = const Duration(minutes: 30),
@@ -84,8 +84,8 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
         _uuid = uuid ?? const Uuid(),
         _deviceId = deviceId,
         _deviceIdProvider = deviceIdProvider,
-        _ingestionService = ingestionService,
-        _mapper = mapper ?? IngestionMapper(),
+        _uploadService = uploadService,
+        _mapper = mapper ?? UploadMapper(),
         _acquisitionMapper = acquisitionMapper ?? AcquisitionMapper(),
         _staleSessionThreshold = staleSessionThreshold,
         _now = now ?? DateTime.now,
@@ -96,8 +96,8 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     _dao = _database.acquisitionDao;
     _fsm = AcquisitionFsm(config: _config);
     _harWindows = HarWindowRecorder(_dao);
-    _heartbeat = IngestionHeartbeat(
-      service: ingestionService,
+    _heartbeat = UploadHeartbeat(
+      service: uploadService,
       interval: heartbeatInterval,
       timerFactory: heartbeatTimerFactory ??
           ((duration, callback) => Timer.periodic(duration, callback)),
@@ -113,14 +113,14 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
   }
 
   HeartbeatTarget? _heartbeatTarget() {
-    final ingestionId = _currentRemoteIngestionId;
+    final uploadId = _currentRemoteUploadId;
     final clientSessionId = _currentSessionId;
     final deviceId = _currentDeviceId;
-    if (ingestionId == null || clientSessionId == null || deviceId == null) {
+    if (uploadId == null || clientSessionId == null || deviceId == null) {
       return null;
     }
     return HeartbeatTarget(
-      ingestionId: ingestionId,
+      uploadId: uploadId,
       clientSessionId: clientSessionId,
       deviceId: deviceId,
     );
@@ -140,7 +140,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
       throw const AcquisitionPermissionException();
     }
     if (await _dao.latestUnclosedCoreSyncJob() != null) {
-      throw const IngestionApiException('Richiesta ingestion fallita');
+      throw const UploadApiException('Richiesta upload fallita');
     }
 
     await _startNewTrackingSession(allowConflictRecovery: true);
@@ -153,22 +153,22 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     final sessionId = _uuid.v4();
     final deviceId = await _resolveDeviceId();
 
-    IngestionStartResult? remoteStart;
+    UploadStartResult? remoteStart;
     try {
-      final startDto = await _ingestionService?.startIngestion(
+      final startDto = await _uploadService?.startUpload(
         clientSessionId: sessionId,
         startedAt: now,
         deviceId: deviceId,
       );
       remoteStart =
-          startDto == null ? null : _mapper.mapIngestionStartResult(startDto);
-    } on IngestionApiException catch (error) {
+          startDto == null ? null : _mapper.mapUploadStartResult(startDto);
+    } on UploadApiException catch (error) {
       if (allowConflictRecovery &&
           error.statusCode == 409 &&
           await _recoverFromStartConflict(error, deviceId)) {
         return;
       }
-      throw const IngestionApiException('Richiesta ingestion fallita');
+      throw const UploadApiException('Richiesta upload fallita');
     }
 
     _harWindows.reset();
@@ -181,10 +181,10 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
       id: sessionId,
       deviceId: deviceId,
       startedAt: now,
-      remoteIngestionId: remoteStart?.ingestionId,
+      remoteUploadId: remoteStart?.uploadId,
     );
     _currentSessionId = sessionId;
-    _currentRemoteIngestionId = remoteStart?.ingestionId;
+    _currentRemoteUploadId = remoteStart?.uploadId;
     _currentDeviceId = deviceId;
     _heartbeat.restart();
     emitSnapshot(
@@ -224,7 +224,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     }
 
     _currentSessionId = null;
-    _currentRemoteIngestionId = null;
+    _currentRemoteUploadId = null;
     _currentDeviceId = null;
     _harWindows.reset();
     _latestMotionWindowAt = null;
@@ -285,8 +285,6 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
       }
     }
 
-    await _persistCompletedHarWindowsIfNeeded(decision);
-
     emitSnapshot(
       AcquisitionSnapshot(
         isTracking: true,
@@ -309,7 +307,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
 
   Future<AcquisitionStopResult> resumeOrReconcile() async {
     await _resumeOpenTrackingSessionIfNeeded();
-    await _reconcileRemoteActiveIngestion();
+    await _reconcileRemoteActiveUpload();
     final syncSessionId = takePendingSyncSessionId();
     if (syncSessionId == null) {
       return const AcquisitionStopResult.none();
@@ -375,60 +373,60 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
   }
 
   Future<bool> _recoverFromStartConflict(
-    IngestionApiException error,
+    UploadApiException error,
     String deviceId,
   ) async {
-    final active = _activeIngestionFromConflict(error);
+    final active = _activeUploadFromConflict(error);
     if (active == null) {
       return false;
     }
     if (active.deviceId != deviceId) {
-      throw const IngestionApiException('Richiesta ingestion fallita');
+      throw const UploadApiException('Richiesta upload fallita');
     }
 
     final localSession = await _dao.findOpenSession(active.clientSessionId);
     if (localSession != null) {
       final resumed = await _resumeSession(
         localSession,
-        remoteIngestionId: active.ingestionId,
+        remoteUploadId: active.uploadId,
       );
       if (!resumed) {
         // La sessione era stantia: e' stata chiusa e messa in coda di sync,
         // ma il backend continua a considerarla attiva finche' il suo core
         // non arriva (non possiamo abbandonarla: perderemmo i dati raccolti
-        // prima del buco, il backend rifiuta il core di un'ingestion
+        // prima del buco, il backend rifiuta il core di un'upload
         // abbandonata). L'utente deve attendere che quella sync completi,
         // come per qualunque altro sync pendente.
-        throw const IngestionApiException('Richiesta ingestion fallita');
+        throw const UploadApiException('Richiesta upload fallita');
       }
       return true;
     }
 
-    await _ingestionService?.abandonIngestion(
-      ingestionId: active.ingestionId,
+    await _uploadService?.abandonUpload(
+      uploadId: active.uploadId,
       deviceId: deviceId,
     );
     await _startNewTrackingSession(allowConflictRecovery: false);
     return true;
   }
 
-  ActiveIngestion? _activeIngestionFromConflict(IngestionApiException error) {
-    final dto = activeIngestionFromConflict(error);
-    return dto == null ? null : _mapper.mapActiveIngestion(dto);
+  ActiveUpload? _activeUploadFromConflict(UploadApiException error) {
+    final dto = activeUploadFromConflict(error);
+    return dto == null ? null : _mapper.mapActiveUpload(dto);
   }
 
-  Future<void> _reconcileRemoteActiveIngestion() async {
-    final api = _ingestionService;
+  Future<void> _reconcileRemoteActiveUpload() async {
+    final api = _uploadService;
     if (api == null || currentSnapshot.isTracking) {
       return;
     }
 
     try {
-      final activeDto = await api.getActiveIngestion();
+      final activeDto = await api.getActiveUpload();
       if (activeDto == null) {
         return;
       }
-      final active = _mapper.mapActiveIngestion(activeDto);
+      final active = _mapper.mapActiveUpload(activeDto);
 
       final deviceId = await _resolveDeviceId();
       if (active.deviceId != deviceId) {
@@ -438,7 +436,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
       final localSession = await _dao.findOpenSession(active.clientSessionId);
       if (localSession != null) {
         await _resumeSession(localSession,
-            remoteIngestionId: active.ingestionId);
+            remoteUploadId: active.uploadId);
         return;
       }
 
@@ -451,11 +449,11 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
         return;
       }
 
-      await api.abandonIngestion(
-        ingestionId: active.ingestionId,
+      await api.abandonUpload(
+        uploadId: active.uploadId,
         deviceId: deviceId,
       );
-    } on IngestionApiException {
+    } on UploadApiException {
       // La riconciliazione all'avvio non deve bloccare la UI o la sync locale.
     }
   }
@@ -514,7 +512,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
   /// continuare a registrare come se il buco non fosse mai successo.
   Future<bool> _resumeSession(
     AcquisitionSession session, {
-    int? remoteIngestionId,
+    int? remoteUploadId,
   }) async {
     var latestTransition = await _dao.latestTransitionForSession(session.id);
     final latestGpsPoint = await _dao.latestGpsPointForSession(session.id);
@@ -549,7 +547,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     _harWindows.reset();
     _latestMotionWindowAt = null;
     _currentSessionId = session.id;
-    _currentRemoteIngestionId = remoteIngestionId ?? session.remoteIngestionId;
+    _currentRemoteUploadId = remoteUploadId ?? session.remoteUploadId;
     _currentDeviceId = session.deviceId;
     _fsm = AcquisitionFsm(config: _config, initialState: trackingState);
     _latestLatitude = latestGpsPoint?.latitude;
@@ -633,22 +631,6 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     await _dao.endSession(id: sessionId, endedAt: lastKnownAt);
     _pendingSyncSessionId = sessionId;
     emitSnapshot(AcquisitionSnapshot.idle());
-  }
-
-  Future<void> _persistCompletedHarWindowsIfNeeded(
-    FsmDecision decision,
-  ) async {
-    final runtime = _runtime;
-    final sessionId = _currentSessionId;
-    if (!decision.samplingProfile.persistSensorWindows ||
-        runtime == null ||
-        sessionId == null) {
-      return;
-    }
-
-    for (final window in runtime.completedHarWindows.reversed) {
-      await _harWindows.persist(sessionId: sessionId, window: window);
-    }
   }
 
   Future<void> _persistHarWindowIfActive(HarSensorWindow window) async {

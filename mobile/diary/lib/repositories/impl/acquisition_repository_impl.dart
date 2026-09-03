@@ -10,8 +10,8 @@ import 'package:diary/repositories/impl/acquisition/acquisition_snapshot_emitter
 import 'package:diary/repositories/impl/acquisition/replay_acquisition_strategy.dart';
 import 'package:diary/repositories/trip_sync_queue.dart';
 import 'package:diary/mappers/acquisition_mapper.dart';
-import 'package:diary/mappers/ingestion_mapper.dart';
-import 'package:diary/network/service/trip_ingestion_service.dart';
+import 'package:diary/mappers/upload_mapper.dart';
+import 'package:diary/network/service/trip_upload_service.dart';
 import 'package:diary/repositories/acquisition_repository.dart';
 import 'package:flutter/widgets.dart';
 import 'package:uuid/uuid.dart';
@@ -33,8 +33,8 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
   final bool _enableRuntime;
   final AcquisitionSensorRuntime? _runtime;
   final TripSyncQueue? _syncQueue;
-  final TripIngestionService? _ingestionService;
-  final IngestionMapper _mapper;
+  final TripUploadService? _uploadService;
+  final UploadMapper _mapper;
   final AcquisitionMapper _acquisitionMapper;
   final Duration _heartbeatInterval;
   final HeartbeatTimerFactory _heartbeatTimerFactory;
@@ -65,8 +65,8 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     bool enableRuntime = true,
     AcquisitionSensorRuntime? runtime,
     TripSyncQueue? syncQueue,
-    TripIngestionService? ingestionService,
-    IngestionMapper? mapper,
+    TripUploadService? uploadService,
+    UploadMapper? mapper,
     AcquisitionMapper? acquisitionMapper,
     Duration heartbeatInterval = const Duration(minutes: 5),
     Duration staleSessionThreshold = const Duration(minutes: 30),
@@ -82,8 +82,8 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
         _enableRuntime = enableRuntime,
         _runtime = runtime,
         _syncQueue = syncQueue,
-        _ingestionService = ingestionService,
-        _mapper = mapper ?? IngestionMapper(),
+        _uploadService = uploadService,
+        _mapper = mapper ?? UploadMapper(),
         _acquisitionMapper = acquisitionMapper ?? AcquisitionMapper(),
         _heartbeatInterval = heartbeatInterval,
         _staleSessionThreshold = staleSessionThreshold,
@@ -146,7 +146,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
       sourceTripId: sourceTripId,
       scheduledStartAt: scheduledStartAt,
       replaySpeedMultiplier: replaySpeedMultiplier,
-      ingestionService: _ingestionService,
+      uploadService: _uploadService,
       mapper: _mapper,
       uuid: _uuid,
       deviceId: _deviceId,
@@ -181,7 +181,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
   Future<ReplayStopResult> stopReplay() async {
     final strategy = _activeStrategy;
     if (strategy == null || !currentSnapshot.isReplay) {
-      throw const IngestionApiException('Invalid state for stopReplay');
+      throw const UploadApiException('Invalid state for stopReplay');
     }
 
     final result = await strategy.stop();
@@ -191,7 +191,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
 
     final replayResult = result.replayResult;
     if (replayResult == null) {
-      throw const IngestionApiException('Invalid state for stopReplay');
+      throw const UploadApiException('Invalid state for stopReplay');
     }
     return replayResult;
   }
@@ -284,7 +284,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
       deviceIdProvider: _deviceIdProvider,
       enableRuntime: _enableRuntime,
       runtime: _runtime,
-      ingestionService: _ingestionService,
+      uploadService: _uploadService,
       mapper: _mapper,
       acquisitionMapper: _acquisitionMapper,
       heartbeatInterval: _heartbeatInterval,
@@ -312,7 +312,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
 
   Future<void> _ensureNoUnclosedCoreSyncJob() async {
     if (await _dao.latestUnclosedCoreSyncJob() != null) {
-      throw const IngestionApiException('Richiesta ingestion fallita');
+      throw const UploadApiException('Richiesta upload fallita');
     }
   }
 

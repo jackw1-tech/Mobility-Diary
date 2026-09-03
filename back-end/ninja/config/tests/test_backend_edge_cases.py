@@ -6,10 +6,10 @@ from django.contrib.gis.geos import Point
 from django.utils import timezone
 
 from accounts.models import AccessToken
-from mobility.models import HabitualPlace, PlaceMiningStatus, TripIngestion
+from mobility.models import HabitualPlace, PlaceMiningStatus, TripUpload
 
 from .conftest import TEST_PASSWORD
-from .test_ingestion_and_trips_api import (
+from .test_upload_and_trips_api import (
     STARTED_AT,
     complete_core,
     start_recording,
@@ -98,17 +98,17 @@ def test_disabled_mobile_user_receives_the_documented_forbidden_response(
 
 def test_abandoned_recording_rejects_heartbeat(api_client, mobile_session):
     headers = mobile_session["headers"]
-    ingestion_id = start_recording(api_client, headers).json()["ingestion_id"]
+    upload_id = start_recording(api_client, headers).json()["upload_id"]
     post_json(
         api_client,
-        f"/api/ingestion/trips/{ingestion_id}/abandon",
+        f"/api/upload/trips/{upload_id}/abandon",
         {"device_id": "iphone-mario"},
         headers,
     )
 
     response = post_json(
         api_client,
-        f"/api/ingestion/trips/{ingestion_id}/heartbeat",
+        f"/api/upload/trips/{upload_id}/heartbeat",
         {"client_session_id": "session-001", "device_id": "iphone-mario"},
         headers,
     )
@@ -120,15 +120,15 @@ def test_abandoned_recording_cannot_materialize_a_trip(
     api_client, mobile_session
 ):
     headers = mobile_session["headers"]
-    ingestion_id = start_recording(api_client, headers).json()["ingestion_id"]
+    upload_id = start_recording(api_client, headers).json()["upload_id"]
     post_json(
         api_client,
-        f"/api/ingestion/trips/{ingestion_id}/abandon",
+        f"/api/upload/trips/{upload_id}/abandon",
         {"device_id": "iphone-mario"},
         headers,
     )
 
-    response = complete_core(api_client, headers, ingestion_id)
+    response = complete_core(api_client, headers, upload_id)
 
     assert response.status_code == 410
     assert api_client.get("/api/mobility/trips", **headers).json() == []
@@ -138,12 +138,12 @@ def test_stale_recording_is_not_reported_as_resumable(
     api_client, mobile_session
 ):
     headers = mobile_session["headers"]
-    ingestion_id = start_recording(api_client, headers).json()["ingestion_id"]
-    TripIngestion.objects.filter(id=ingestion_id).update(
+    upload_id = start_recording(api_client, headers).json()["upload_id"]
+    TripUpload.objects.filter(id=upload_id).update(
         last_seen_at=timezone.now() - timezone.timedelta(hours=25)
     )
 
-    response = api_client.get("/api/ingestion/trips/active", **headers)
+    response = api_client.get("/api/upload/trips/active", **headers)
 
     assert response.status_code == 404
     assert response.json() == {"detail": "nessun viaggio in corso"}
@@ -151,12 +151,12 @@ def test_stale_recording_is_not_reported_as_resumable(
 
 def test_closed_recording_rejects_further_heartbeat(api_client, mobile_session):
     headers = mobile_session["headers"]
-    ingestion_id = start_recording(api_client, headers).json()["ingestion_id"]
-    assert complete_core(api_client, headers, ingestion_id).status_code == 200
+    upload_id = start_recording(api_client, headers).json()["upload_id"]
+    assert complete_core(api_client, headers, upload_id).status_code == 200
 
     response = post_json(
         api_client,
-        f"/api/ingestion/trips/{ingestion_id}/heartbeat",
+        f"/api/upload/trips/{upload_id}/heartbeat",
         {"client_session_id": "session-001", "device_id": "iphone-mario"},
         headers,
     )
@@ -168,13 +168,13 @@ def test_core_rejects_an_end_before_the_recording_start(
     api_client, mobile_session
 ):
     headers = mobile_session["headers"]
-    ingestion_id = start_recording(api_client, headers).json()["ingestion_id"]
+    upload_id = start_recording(api_client, headers).json()["upload_id"]
 
     response = post_json(
         api_client,
-        "/api/ingestion/trips/core",
+        "/api/upload/trips/core",
         {
-            "ingestion_id": ingestion_id,
+            "upload_id": upload_id,
             "client_session_id": "session-001",
             "device_id": "iphone-mario",
             "started_at": STARTED_AT,
@@ -197,13 +197,13 @@ def test_core_rejects_coordinates_outside_wgs84_bounds(
     api_client, mobile_session
 ):
     headers = mobile_session["headers"]
-    ingestion_id = start_recording(api_client, headers).json()["ingestion_id"]
+    upload_id = start_recording(api_client, headers).json()["upload_id"]
 
     response = post_json(
         api_client,
-        "/api/ingestion/trips/core",
+        "/api/upload/trips/core",
         {
-            "ingestion_id": ingestion_id,
+            "upload_id": upload_id,
             "client_session_id": "session-001",
             "device_id": "iphone-mario",
             "started_at": STARTED_AT,
@@ -226,12 +226,12 @@ def test_raw_completion_rejects_missing_declared_parts(
     api_client, mobile_session
 ):
     headers = mobile_session["headers"]
-    ingestion_id = start_recording(api_client, headers).json()["ingestion_id"]
+    upload_id = start_recording(api_client, headers).json()["upload_id"]
     assert (
         complete_core(
             api_client,
             headers,
-            ingestion_id,
+            upload_id,
             expected_raw_parts=1,
         ).status_code
         == 200
@@ -239,7 +239,7 @@ def test_raw_completion_rejects_missing_declared_parts(
 
     response = post_json(
         api_client,
-        f"/api/ingestion/trips/{ingestion_id}/complete-raw",
+        f"/api/upload/trips/{upload_id}/complete-raw",
         {"total_parts": 1},
         headers,
     )
@@ -252,25 +252,25 @@ def test_raw_completion_requires_a_materialized_core_trip(
     api_client, mobile_session
 ):
     headers = mobile_session["headers"]
-    ingestion_id = start_recording(api_client, headers).json()["ingestion_id"]
+    upload_id = start_recording(api_client, headers).json()["upload_id"]
 
     response = post_json(
         api_client,
-        f"/api/ingestion/trips/{ingestion_id}/complete-raw",
+        f"/api/upload/trips/{upload_id}/complete-raw",
         {"total_parts": 0},
         headers,
     )
 
     assert response.status_code == 409
-    assert response.json() == {"detail": "core ingestion non completata"}
+    assert response.json() == {"detail": "core upload non completata"}
 
 
 def test_note_rejects_more_than_five_hundred_characters(
     api_client, mobile_session
 ):
     headers = mobile_session["headers"]
-    ingestion_id = start_recording(api_client, headers).json()["ingestion_id"]
-    trip_id = complete_core(api_client, headers, ingestion_id).json()["trip_id"]
+    upload_id = start_recording(api_client, headers).json()["upload_id"]
+    trip_id = complete_core(api_client, headers, upload_id).json()["trip_id"]
 
     response = api_client.patch(
         f"/api/mobility/trips/{trip_id}/note",
@@ -283,15 +283,15 @@ def test_note_rejects_more_than_five_hundred_characters(
     assert response.json() == {"detail": "nota troppo lunga"}
 
 
-def test_note_is_blocked_until_raw_ingestion_is_complete(
+def test_note_is_blocked_until_raw_upload_is_complete(
     api_client, mobile_session
 ):
     headers = mobile_session["headers"]
-    ingestion_id = start_recording(api_client, headers).json()["ingestion_id"]
+    upload_id = start_recording(api_client, headers).json()["upload_id"]
     trip_id = complete_core(
         api_client,
         headers,
-        ingestion_id,
+        upload_id,
         expected_raw_parts=1,
     ).json()["trip_id"]
 
@@ -312,8 +312,8 @@ def test_other_user_cannot_edit_or_delete_a_trip(
     api_client, mobile_session, register_mobile_user
 ):
     owner_headers = mobile_session["headers"]
-    ingestion_id = start_recording(api_client, owner_headers).json()["ingestion_id"]
-    trip_id = complete_core(api_client, owner_headers, ingestion_id).json()["trip_id"]
+    upload_id = start_recording(api_client, owner_headers).json()["upload_id"]
+    trip_id = complete_core(api_client, owner_headers, upload_id).json()["trip_id"]
     other = register_mobile_user("trip-attacker@example.com").json()
     other_headers = {
         "HTTP_AUTHORIZATION": f"Bearer {other['access_token']}"
@@ -354,8 +354,8 @@ def test_completed_trip_without_raw_telemetry_cannot_be_reloadable(
     api_client, mobile_session
 ):
     headers = mobile_session["headers"]
-    ingestion_id = start_recording(api_client, headers).json()["ingestion_id"]
-    trip_id = complete_core(api_client, headers, ingestion_id).json()["trip_id"]
+    upload_id = start_recording(api_client, headers).json()["upload_id"]
+    trip_id = complete_core(api_client, headers, upload_id).json()["trip_id"]
 
     response = api_client.patch(
         f"/api/mobility/trips/{trip_id}/reloadable",
@@ -394,12 +394,12 @@ def test_negative_expected_raw_part_count_is_rejected(
     api_client, mobile_session
 ):
     headers = mobile_session["headers"]
-    ingestion_id = start_recording(api_client, headers).json()["ingestion_id"]
+    upload_id = start_recording(api_client, headers).json()["upload_id"]
 
     response = complete_core(
         api_client,
         headers,
-        ingestion_id,
+        upload_id,
         expected_raw_parts=-1,
     )
 
@@ -425,7 +425,7 @@ def test_invalid_analytics_options_have_stable_safe_fallbacks(
 def test_start_rejects_an_empty_client_session_id(api_client, mobile_session):
     response = post_json(
         api_client,
-        "/api/ingestion/trips/start",
+        "/api/upload/trips/start",
         {
             "client_session_id": "",
             "device_id": "iphone-mario",
@@ -441,13 +441,13 @@ def test_core_rejects_gps_points_outside_the_trip_interval(
     api_client, mobile_session
 ):
     headers = mobile_session["headers"]
-    ingestion_id = start_recording(api_client, headers).json()["ingestion_id"]
+    upload_id = start_recording(api_client, headers).json()["upload_id"]
 
     response = post_json(
         api_client,
-        "/api/ingestion/trips/core",
+        "/api/upload/trips/core",
         {
-            "ingestion_id": ingestion_id,
+            "upload_id": upload_id,
             "client_session_id": "session-001",
             "device_id": "iphone-mario",
             "started_at": STARTED_AT,
@@ -470,13 +470,13 @@ def test_core_discards_a_cached_gps_fix_from_before_recording_start(
     api_client, mobile_session
 ):
     headers = mobile_session["headers"]
-    ingestion_id = start_recording(api_client, headers).json()["ingestion_id"]
+    upload_id = start_recording(api_client, headers).json()["upload_id"]
 
     core = post_json(
         api_client,
-        "/api/ingestion/trips/core",
+        "/api/upload/trips/core",
         {
-            "ingestion_id": ingestion_id,
+            "upload_id": upload_id,
             "client_session_id": "session-001",
             "device_id": "iphone-mario",
             "started_at": STARTED_AT,

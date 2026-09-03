@@ -20,19 +20,17 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
     with _$AcquisitionDaoMixin {
   AcquisitionDao(super.db);
 
-  // --- Sessioni ---------------------------------------------------------- //
-
   Future<void> createSession({
     required String id,
     required String deviceId,
     required DateTime startedAt,
-    int? remoteIngestionId,
+    int? remoteUploadId,
   }) {
     return into(acquisitionSessions).insert(
       AcquisitionSessionsCompanion.insert(
         id: id,
         deviceId: deviceId,
-        remoteIngestionId: Value(remoteIngestionId),
+        remoteUploadId: Value(remoteUploadId),
         startedAt: asUtc(startedAt),
       ),
     );
@@ -178,8 +176,6 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
     return query.map((row) => row.read(count) ?? 0).getSingle();
   }
 
-  // --- Finestre sensori -------------------------------------------------- //
-
   Future<int> insertSensorWindow({
     required String sessionId,
     required DateTime startTimestamp,
@@ -275,7 +271,7 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
     await into(syncJobs).insert(
       SyncJobsCompanion.insert(
         localSessionId: localSessionId,
-        remoteIngestionId: Value(session?.remoteIngestionId),
+        remoteUploadId: Value(session?.remoteUploadId),
         createdAt: now,
         updatedAt: now,
       ),
@@ -331,7 +327,7 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
     String? coreStatus,
     String? rawStatus,
     int? attempts,
-    Value<int?> remoteIngestionId = const Value.absent(),
+    Value<int?> remoteUploadId = const Value.absent(),
     Value<int?> remoteTripId = const Value.absent(),
     int? corePayloadSizeBytes,
     bool? coreMapAvailable,
@@ -344,7 +340,7 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
             coreStatus == null ? const Value.absent() : Value(coreStatus),
         rawStatus: rawStatus == null ? const Value.absent() : Value(rawStatus),
         attempts: attempts == null ? const Value.absent() : Value(attempts),
-        remoteIngestionId: remoteIngestionId,
+        remoteUploadId: remoteUploadId,
         remoteTripId: remoteTripId,
         corePayloadSizeBytes: corePayloadSizeBytes == null
             ? const Value.absent()

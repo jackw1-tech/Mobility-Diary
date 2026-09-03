@@ -7,59 +7,59 @@ from ninja.responses import Status
 
 from accounts.auth_mobile.auth import mobile_bearer_auth
 
-from ..models import TripIngestion
+from ..models import TripUpload
 from .services import (
-    IngestionServiceError,
+    UploadServiceError,
     active_recording_for_user,
     abandon_recording,
-    complete_raw_ingestion,
+    complete_raw_upload,
     confirm_raw_part,
     heartbeat_recording,
     missing_raw_parts,
     presign_raw_part,
-    process_inline_core_ingestion,
+    process_inline_core_upload,
     start_recording,
     validate_expected_parts,
 )
 from .schemas import (
-    ActiveIngestionConflictOut,
-    ActiveIngestionOut,
+    ActiveUploadConflictOut,
+    ActiveUploadOut,
     CompleteIn,
     CompleteOut,
     InlineCoreIn,
     InlineCoreOut,
-    IngestionAbandonIn,
-    IngestionAbandonOut,
-    IngestionHeartbeatIn,
-    IngestionHeartbeatOut,
-    IngestionStartIn,
-    IngestionStartOut,
-    IngestionStatusOut,
+    UploadAbandonIn,
+    UploadAbandonOut,
+    UploadHeartbeatIn,
+    UploadHeartbeatOut,
+    UploadStartIn,
+    UploadStartOut,
+    UploadStatusOut,
     PartConfirmIn,
     PartConfirmOut,
     PartPresignIn,
     PartPresignOut,
 )
 
-router = Router(tags=["ingestion"])
+router = Router(tags=["upload"])
 
 
-def _active_response(ingestion: TripIngestion) -> ActiveIngestionOut:
-    return ActiveIngestionOut(
-        ingestion_id=ingestion.id,
-        client_session_id=ingestion.client_session_id,
-        device_id=ingestion.device_id,
-        recording_started_at=ingestion.recording_started_at,
-        last_seen_at=ingestion.last_seen_at,
+def _active_response(upload: TripUpload) -> ActiveUploadOut:
+    return ActiveUploadOut(
+        upload_id=upload.id,
+        client_session_id=upload.client_session_id,
+        device_id=upload.device_id,
+        recording_started_at=upload.recording_started_at,
+        last_seen_at=upload.last_seen_at,
     )
 
 
 @router.get(
     "/trips/active",
-    response={200: ActiveIngestionOut, 404: dict},
+    response={200: ActiveUploadOut, 404: dict},
     auth=mobile_bearer_auth,
 )
-def get_active_ingestion(request):
+def get_active_upload(request):
     active = active_recording_for_user(request.user.user_id)
     if active is None:
         return Status(404, {"detail": "nessun viaggio in corso"})
@@ -67,54 +67,54 @@ def get_active_ingestion(request):
 
 
 @router.post(
-    "/trips/{ingestion_id}/abandon",
-    response=IngestionAbandonOut,
+    "/trips/{upload_id}/abandon",
+    response=UploadAbandonOut,
     auth=mobile_bearer_auth,
 )
-def abandon_ingestion(request, ingestion_id: int, payload: IngestionAbandonIn):
+def abandon_upload(request, upload_id: int, payload: UploadAbandonIn):
     try:
-        ingestion = abandon_recording(
+        upload = abandon_recording(
             user_id=request.user.user_id,
-            ingestion_id=ingestion_id,
+            upload_id=upload_id,
             device_id=payload.device_id,
         )
-    except IngestionServiceError as exc:
+    except UploadServiceError as exc:
         raise HttpError(exc.status_code, exc.message) from exc
 
-    return IngestionAbandonOut(
-        ingestion_id=ingestion.id,
-        recording_abandoned_at=ingestion.recording_abandoned_at,
+    return UploadAbandonOut(
+        upload_id=upload.id,
+        recording_abandoned_at=upload.recording_abandoned_at,
     )
 
 
 @router.post(
-    "/trips/{ingestion_id}/heartbeat",
-    response=IngestionHeartbeatOut,
+    "/trips/{upload_id}/heartbeat",
+    response=UploadHeartbeatOut,
     auth=mobile_bearer_auth,
 )
-def heartbeat_ingestion(request, ingestion_id: int, payload: IngestionHeartbeatIn):
+def heartbeat_upload(request, upload_id: int, payload: UploadHeartbeatIn):
     try:
-        ingestion = heartbeat_recording(
+        upload = heartbeat_recording(
             user_id=request.user.user_id,
-            ingestion_id=ingestion_id,
+            upload_id=upload_id,
             client_session_id=payload.client_session_id,
             device_id=payload.device_id,
         )
-    except IngestionServiceError as exc:
+    except UploadServiceError as exc:
         raise HttpError(exc.status_code, exc.message) from exc
 
-    return IngestionHeartbeatOut(
-        ingestion_id=ingestion.id,
-        last_seen_at=ingestion.last_seen_at,
+    return UploadHeartbeatOut(
+        upload_id=upload.id,
+        last_seen_at=upload.last_seen_at,
     )
 
 
 @router.post(
     "/trips/start",
-    response={200: IngestionStartOut, 409: ActiveIngestionConflictOut},
+    response={200: UploadStartOut, 409: ActiveUploadConflictOut},
     auth=mobile_bearer_auth,
 )
-def start_ingestion(request, payload: IngestionStartIn):
+def start_upload(request, payload: UploadStartIn):
     try:
         result = start_recording(
             user_id=request.user.user_id,
@@ -123,22 +123,22 @@ def start_ingestion(request, payload: IngestionStartIn):
             started_at=payload.started_at,
             source_trip_id=payload.source_trip_id,
         )
-    except IngestionServiceError as exc:
+    except UploadServiceError as exc:
         raise HttpError(exc.status_code, exc.message) from exc
 
-    if result.conflict_ingestion is not None:
+    if result.conflict_upload is not None:
         return Status(
             409,
-            ActiveIngestionConflictOut(
+            ActiveUploadConflictOut(
                 detail="viaggio in corso gia' presente",
-                active_ingestion=_active_response(result.conflict_ingestion),
+                active_upload=_active_response(result.conflict_upload),
             ),
         )
-    return IngestionStartOut(
-        ingestion_id=result.ingestion.id,
-        client_session_id=result.ingestion.client_session_id,
-        device_id=result.ingestion.device_id,
-        recording_started_at=result.ingestion.recording_started_at,
+    return UploadStartOut(
+        upload_id=result.upload.id,
+        client_session_id=result.upload.client_session_id,
+        device_id=result.upload.device_id,
+        recording_started_at=result.upload.recording_started_at,
         already_exists=result.already_exists,
     )
 
@@ -155,48 +155,48 @@ def create_core_inline(request, payload: InlineCoreIn):
 
     try:
         expected_raw_parts = validate_expected_parts(payload.expected_raw_parts)
-    except IngestionServiceError as exc:
+    except UploadServiceError as exc:
         raise HttpError(exc.status_code, exc.message) from exc
 
     if expected_raw_parts:
-        raw_status = TripIngestion.PhaseStatus.PENDING
+        raw_status = TripUpload.PhaseStatus.PENDING
     else:
-        raw_status = TripIngestion.PhaseStatus.COMPLETED
+        raw_status = TripUpload.PhaseStatus.COMPLETED
 
     try:
-        ingestion = process_inline_core_ingestion(
+        upload = process_inline_core_upload(
             user_id=request.user.user_id,
             payload=payload,
             expected_raw_parts=expected_raw_parts,
             raw_status=raw_status,
             body_size=body_size,
         )
-    except IngestionServiceError as exc:
+    except UploadServiceError as exc:
         raise HttpError(exc.status_code, exc.message) from exc
 
     return InlineCoreOut(
-        ingestion_id=ingestion.id,
-        trip_id=ingestion.trip_id,
-        core_status=ingestion.core_status,
-        raw_status=ingestion.raw_status,
-        map_available=bool(ingestion.trip_id and ingestion.trip.path),
+        upload_id=upload.id,
+        trip_id=upload.trip_id,
+        core_status=upload.core_status,
+        raw_status=upload.raw_status,
+        map_available=bool(upload.trip_id and upload.trip.path),
     )
 
 ## Rotta che genera l'url per il caricamento diretto di un singolo blocco 
 @router.post(
-    "/trips/{ingestion_id}/parts/presign",
+    "/trips/{upload_id}/parts/presign",
     response=PartPresignOut,
     auth=mobile_bearer_auth,
 )
-def presign_part(request, ingestion_id: int, payload: PartPresignIn):
+def presign_part(request, upload_id: int, payload: PartPresignIn):
     try:
         result = presign_raw_part(
             user_id=request.user.user_id,
-            ingestion_id=ingestion_id,
+            upload_id=upload_id,
             sequence=payload.sequence,
             sha256=payload.sha256,
         )
-    except IngestionServiceError as exc:
+    except UploadServiceError as exc:
         raise HttpError(exc.status_code, exc.message) from exc
 
     return PartPresignOut(
@@ -208,65 +208,65 @@ def presign_part(request, ingestion_id: int, payload: PartPresignIn):
 
 
 @router.post(
-    "/trips/{ingestion_id}/parts/confirm",
+    "/trips/{upload_id}/parts/confirm",
     response=PartConfirmOut,
     auth=mobile_bearer_auth,
 )
-def confirm_part(request, ingestion_id: int, payload: PartConfirmIn):
+def confirm_part(request, upload_id: int, payload: PartConfirmIn):
     try:
         part = confirm_raw_part(
             user_id=request.user.user_id,
-            ingestion_id=ingestion_id,
+            upload_id=upload_id,
             sequence=payload.sequence,
             sha256=payload.sha256,
         )
-    except IngestionServiceError as exc:
+    except UploadServiceError as exc:
         raise HttpError(exc.status_code, exc.message) from exc
 
     return PartConfirmOut(
-        ingestion_id=ingestion_id,
+        upload_id=upload_id,
         sequence=part.sequence,
         status="RECEIVED",
     )
 
 
 @router.post(
-    "/trips/{ingestion_id}/complete-raw",
+    "/trips/{upload_id}/complete-raw",
     response={202: CompleteOut},
     auth=mobile_bearer_auth,
 )
-def complete_raw_ingestion_route(request, ingestion_id: int, payload: CompleteIn):
+def complete_raw_upload_route(request, upload_id: int, payload: CompleteIn):
     try:
-        ingestion = complete_raw_ingestion(
+        upload = complete_raw_upload(
             user_id=request.user.user_id,
-            ingestion_id=ingestion_id,
+            upload_id=upload_id,
             total_parts=payload.total_parts,
         )
-    except IngestionServiceError as exc:
+    except UploadServiceError as exc:
         raise HttpError(exc.status_code, exc.message) from exc
 
     return 202, CompleteOut(
-        ingestion_id=ingestion.id,
-        core_status=ingestion.core_status,
-        raw_status=ingestion.raw_status,
+        upload_id=upload.id,
+        core_status=upload.core_status,
+        raw_status=upload.raw_status,
     )
 
 
 @router.get(
-    "/trips/{ingestion_id}", response=IngestionStatusOut, auth=mobile_bearer_auth
+    "/trips/{upload_id}", response=UploadStatusOut, auth=mobile_bearer_auth
 )
-def ingestion_status(request, ingestion_id: int):
-    ingestion = get_object_or_404(
-        TripIngestion,
-        id=ingestion_id,
+def upload_status(request, upload_id: int):
+    upload = get_object_or_404(
+        TripUpload,
+        id=upload_id,
         user_id=request.user.user_id,
     )
 
-    return IngestionStatusOut(
-        ingestion_id=ingestion.id,
-        core_status=ingestion.core_status,
-        raw_status=ingestion.raw_status,
-        missing_raw_parts=missing_raw_parts(ingestion),
-        trip_id=ingestion.trip_id,
-        map_available=bool(ingestion.trip_id and ingestion.trip.path),
+    return UploadStatusOut(
+        upload_id=upload.id,
+        core_status=upload.core_status,
+        raw_status=upload.raw_status,
+        missing_raw_parts=missing_raw_parts(upload),
+        trip_id=upload.trip_id,
+        map_available=bool(upload.trip_id and upload.trip.path),
     )

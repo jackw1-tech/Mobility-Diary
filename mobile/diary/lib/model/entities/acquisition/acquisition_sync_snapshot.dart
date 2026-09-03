@@ -13,7 +13,7 @@ class AcquisitionSyncSnapshot {
   final AcquisitionSyncStatus status;
   final AcquisitionSyncStatus rawStatus;
   final String? localSessionId;
-  final int? remoteIngestionId;
+  final int? remoteUploadId;
   final int? remoteTripId;
   final bool coreMapAvailable;
   final int attempts;
@@ -25,7 +25,7 @@ class AcquisitionSyncSnapshot {
     required this.status,
     this.rawStatus = AcquisitionSyncStatus.none,
     this.localSessionId,
-    this.remoteIngestionId,
+    this.remoteUploadId,
     this.remoteTripId,
     this.coreMapAvailable = false,
     this.attempts = 0,
@@ -38,7 +38,7 @@ class AcquisitionSyncSnapshot {
       : status = AcquisitionSyncStatus.none,
         rawStatus = AcquisitionSyncStatus.none,
         localSessionId = null,
-        remoteIngestionId = null,
+        remoteUploadId = null,
         remoteTripId = null,
         coreMapAvailable = false,
         attempts = 0,

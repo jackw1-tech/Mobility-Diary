@@ -34,7 +34,12 @@ def get_cached_windows(trip_id: int) -> list[PipelineSensorWindow] | None:
         return None
     try:
         return pickle.loads(raw)
-    except (pickle.PickleError, EOFError, TypeError, ValueError):
+    except (pickle.PickleError, EOFError, TypeError, ValueError,
+            ImportError, AttributeError):
+        # Una entry scritta da una versione precedente del codice puo'
+        # riferirsi a un modulo o a una classe che nel frattempo sono
+        # stati rinominati (ModuleNotFoundError/AttributeError): la
+        # cache deve degradare a miss, mai far fallire il chiamante.
         return None
 
 """ 

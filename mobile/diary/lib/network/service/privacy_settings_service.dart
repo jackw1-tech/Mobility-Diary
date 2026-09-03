@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:diary/network/service/trip_ingestion_service.dart';
+import 'package:diary/network/service/trip_upload_service.dart';
 import 'package:diary/model/entities/privacy/privacy_level.dart';
 import 'package:diary/network/dto/privacy_settings_dto.dart';
 import 'package:diary/network/service/impl/http_json_utils.dart';
@@ -49,12 +49,12 @@ class PrivacySettingsHttpService implements PrivacySettingsService {
 
     if (response.isError) {
       final detail = decoded?['detail'];
-      throw IngestionApiException(
+      throw UploadApiException(
         detail is String ? detail : 'Impostazioni privacy non disponibili',
         statusCode: response.statusCode,
       );
     }
     if (decoded != null) return decoded;
-    throw const IngestionApiException('Risposta privacy non valida');
+    throw const UploadApiException('Risposta privacy non valida');
   }
 }

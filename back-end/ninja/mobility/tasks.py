@@ -6,12 +6,12 @@ from celery.signals import worker_process_init
 from django.db import transaction
 from django.utils import timezone
 
-from .ingestion import selectors as ingestion_repository
-from .ingestion.raw_sensor_loader import load_raw_sensor_windows_with_metrics
+from .upload import selectors as upload_repository
+from .upload.raw_sensor_loader import load_raw_sensor_windows_with_metrics
 from .models import (
     HarJob,
     PlaceMiningStatus,
-    TripIngestion,
+    TripUpload,
 )
 from .ml.har_adapter import HarModelUnavailable, warm_har_model
 from .ml.pipeline import run_pipeline
@@ -169,7 +169,7 @@ def _merge_har_job_result(job_id: int, updates: dict) -> dict:
 
 
 @shared_task(bind=True, max_retries=3, retry_backoff=True, default_retry_delay=30)
-def persist_trip_raw_sensor_readings(self, job_id: int, ingestion_id: int) -> dict:
+def persist_trip_raw_sensor_readings(self, job_id: int, upload_id: int) -> dict:
     task_started = perf_counter()
     phase_timings_ms: dict[str, float] = {}
     raw_load_timings_ms: dict[str, float] = {}
@@ -181,16 +181,16 @@ def persist_trip_raw_sensor_readings(self, job_id: int, ingestion_id: int) -> di
 
     try:
         lookup_started = perf_counter()
-        ingestion = ingestion_repository.ingestion_with_trip(ingestion_id)
+        upload = upload_repository.upload_with_trip(upload_id)
         job = har_jobs_repository.har_job_with_trip(job_id)
-        trip = ingestion.trip or job.trip
+        trip = upload.trip or job.trip
         if trip is None:
             raise ValueError("trip non disponibile per la persistenza raw sensor")
         trip_id = trip.id
         phase_timings_ms["lookup_context"] = _elapsed_ms(lookup_started)
 
         raw_load_started = perf_counter()
-        raw_load = load_raw_sensor_windows_with_metrics(ingestion)
+        raw_load = load_raw_sensor_windows_with_metrics(upload)
         sensor_windows = raw_load.windows
         phase_timings_ms["raw_load_total"] = _elapsed_ms(raw_load_started)
         raw_load_timings_ms = raw_load.timings_ms
@@ -216,7 +216,7 @@ def persist_trip_raw_sensor_readings(self, job_id: int, ingestion_id: int) -> di
         )
         _log_raw_sensor_persistence_timing(
             "completed",
-            ingestion_id=ingestion_id,
+            upload_id=upload_id,
             trip_id=trip_id,
             job_id=job_id,
             phase_timings_ms=phase_timings_ms,
@@ -237,7 +237,7 @@ def persist_trip_raw_sensor_readings(self, job_id: int, ingestion_id: int) -> di
         phase_timings_ms["task_total_until_error"] = _elapsed_ms(task_started)
         _log_raw_sensor_persistence_timing(
             "failed_retryable" if will_retry else "failed_final",
-            ingestion_id=ingestion_id,
+            upload_id=upload_id,
             trip_id=trip_id,
             job_id=job_id,
             phase_timings_ms=phase_timings_ms,
@@ -263,7 +263,7 @@ def persist_trip_raw_sensor_readings(self, job_id: int, ingestion_id: int) -> di
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
-def process_trip_har_final(self, job_id: int, ingestion_id: int) -> dict:
+def process_trip_har_final(self, job_id: int, upload_id: int) -> dict:
     task_started = perf_counter()
     phase_timings_ms: dict[str, float] = {}
     raw_load_timings_ms: dict[str, float] = {}
@@ -277,16 +277,16 @@ def process_trip_har_final(self, job_id: int, ingestion_id: int) -> dict:
 
     status_started = perf_counter()
     with transaction.atomic():
-        ingestion = ingestion_repository.locked_ingestion_by_id(ingestion_id)
+        upload = upload_repository.locked_upload_by_id(upload_id)
         job = har_jobs_repository.locked_har_job_with_trip(job_id)
-        trip = ingestion.trip or job.trip
+        trip = upload.trip or job.trip
         trip_id = trip.id
 
         now = timezone.now()
-        ingestion.raw_status = TripIngestion.PhaseStatus.PROCESSING
-        ingestion.started_processing_at = now
-        ingestion.error_message = ""
-        ingestion.save(
+        upload.raw_status = TripUpload.PhaseStatus.PROCESSING
+        upload.started_processing_at = now
+        upload.error_message = ""
+        upload.save(
             update_fields=[
                 "raw_status",
                 "started_processing_at",
@@ -301,7 +301,7 @@ def process_trip_har_final(self, job_id: int, ingestion_id: int) -> dict:
 
     try:
         raw_load_started = perf_counter()
-        raw_load = load_raw_sensor_windows_with_metrics(ingestion)
+        raw_load = load_raw_sensor_windows_with_metrics(upload)
         sensor_windows = raw_load.windows
         phase_timings_ms["raw_load_total"] = _elapsed_ms(raw_load_started)
         raw_load_timings_ms = raw_load.timings_ms
@@ -322,11 +322,11 @@ def process_trip_har_final(self, job_id: int, ingestion_id: int) -> dict:
             result["raw_readings_persistence_status"] = "QUEUED"
 
             finalize_started = perf_counter()
-            ingestion.raw_status = TripIngestion.PhaseStatus.COMPLETED
-            ingestion.error_message = ""
-            ingestion.completed_at = timezone.now()
-            ingestion.failed_at = None
-            ingestion.save(
+            upload.raw_status = TripUpload.PhaseStatus.COMPLETED
+            upload.error_message = ""
+            upload.completed_at = timezone.now()
+            upload.failed_at = None
+            upload.save(
                 update_fields=[
                     "raw_status",
                     "error_message",
@@ -344,7 +344,7 @@ def process_trip_har_final(self, job_id: int, ingestion_id: int) -> dict:
         # Prewarm: calcola e cache il diario privato ora, fuori dal percorso
         # critico dell'utente, cosi' il primo click su questo viaggio trova
         # gia' la cache calda invece di pagare il calcolo al momento. Non
-        # critico: un fallimento qui non deve far fallire l'ingestion.
+        # critico: un fallimento qui non deve far fallire l'upload.
         try:
             places_version = get_places_version(trip.user_id)
             cache_diary(trip.id, places_version, build_private_diary(trip))
@@ -354,14 +354,14 @@ def process_trip_har_final(self, job_id: int, ingestion_id: int) -> dict:
             )
     except Exception as exc:
         will_retry = self.request.retries < self.max_retries
-        ingestion.raw_status = (
-            TripIngestion.PhaseStatus.FAILED_RETRYABLE
+        upload.raw_status = (
+            TripUpload.PhaseStatus.FAILED_RETRYABLE
             if will_retry
-            else TripIngestion.PhaseStatus.FAILED_FINAL
+            else TripUpload.PhaseStatus.FAILED_FINAL
         )
-        ingestion.error_message = str(exc)
-        ingestion.failed_at = timezone.now()
-        ingestion.save(
+        upload.error_message = str(exc)
+        upload.failed_at = timezone.now()
+        upload.save(
             update_fields=["raw_status", "error_message", "failed_at", "updated_at"]
         )
         job.status = HarJob.Status.FAILURE
@@ -370,7 +370,7 @@ def process_trip_har_final(self, job_id: int, ingestion_id: int) -> dict:
         phase_timings_ms["task_total_until_error"] = _elapsed_ms(task_started)
         _log_har_phase2_timing(
             "failed",
-            ingestion_id=ingestion_id,
+            upload_id=upload_id,
             trip_id=trip_id,
             job_id=job_id,
             phase_timings_ms=phase_timings_ms,
@@ -389,7 +389,7 @@ def process_trip_har_final(self, job_id: int, ingestion_id: int) -> dict:
 
     raw_persist_enqueue_started = perf_counter()
     try:
-        persist_trip_raw_sensor_readings.delay(job_id, ingestion_id)
+        persist_trip_raw_sensor_readings.delay(job_id, upload_id)
     except Exception as exc:
         _merge_har_job_result(
             job_id,
@@ -401,8 +401,8 @@ def process_trip_har_final(self, job_id: int, ingestion_id: int) -> dict:
         )
         logger.exception(
             "Impossibile accodare la persistenza raw sensor "
-            "per ingestion_id=%s job_id=%s",
-            ingestion_id,
+            "per upload_id=%s job_id=%s",
+            upload_id,
             job_id,
         )
     phase_timings_ms["raw_sensor_reading_enqueue"] = _elapsed_ms(
@@ -415,7 +415,7 @@ def process_trip_har_final(self, job_id: int, ingestion_id: int) -> dict:
     phase_timings_ms["task_total"] = _elapsed_ms(task_started)
     _log_har_phase2_timing(
         "completed",
-        ingestion_id=ingestion_id,
+        upload_id=upload_id,
         trip_id=trip_id,
         job_id=job_id,
         phase_timings_ms=phase_timings_ms,
@@ -437,7 +437,7 @@ def _elapsed_ms(started_at: float) -> float:
 def _log_har_phase2_timing(
     status: str,
     *,
-    ingestion_id: int,
+    upload_id: int,
     trip_id: int | None,
     job_id: int,
     phase_timings_ms: dict[str, float],
@@ -472,7 +472,7 @@ def _log_har_phase2_timing(
 
     log_payload = {
         "status": status,
-        "ingestion_id": ingestion_id,
+        "upload_id": upload_id,
         "trip_id": trip_id,
         "job_id": job_id,
         "total_ms": round(total_ms, 2),
@@ -499,7 +499,7 @@ def _log_har_phase2_timing(
 def _log_raw_sensor_persistence_timing(
     status: str,
     *,
-    ingestion_id: int,
+    upload_id: int,
     trip_id: int | None,
     job_id: int,
     phase_timings_ms: dict[str, float],
@@ -522,7 +522,7 @@ def _log_raw_sensor_persistence_timing(
 
     log_payload = {
         "status": status,
-        "ingestion_id": ingestion_id,
+        "upload_id": upload_id,
         "trip_id": trip_id,
         "job_id": job_id,
         "total_ms": round(total_ms, 2),

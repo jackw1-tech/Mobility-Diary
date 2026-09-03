@@ -173,9 +173,9 @@ REPLAY_WINDOWS_CACHE_TTL_SECONDS = int(
     os.getenv("REPLAY_WINDOWS_CACHE_TTL_SECONDS", "3600")
 )
 
-# Cache del risultato di lettura raw sensor di una TripIngestion: evita il
+# Cache del risultato di lettura raw sensor di una TripUpload: evita il
 # doppio download/decodifica da object storage tra process_trip_har_final e
-# persist_trip_raw_sensor_readings per la stessa ingestion. TTL breve: il
+# persist_trip_raw_sensor_readings per la stessa upload. TTL breve: il
 # secondo task arriva tipicamente entro pochi secondi dal primo.
 RAW_SENSOR_WINDOWS_CACHE_TTL_SECONDS = int(
     os.getenv("RAW_SENSOR_WINDOWS_CACHE_TTL_SECONDS", "300")
@@ -203,7 +203,6 @@ S3_SECRET_ACCESS_KEY = os.getenv("S3_SECRET_ACCESS_KEY", "minioadmin")
 S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", os.getenv("S3_BUCKET", "mobility-trips"))
 S3_REGION = os.getenv("S3_REGION", "us-east-1")
 S3_PRESIGN_EXPIRES_SECONDS = int("900")
-INGESTION_MAX_PART_BYTES = int(25 * 1024 * 1024) #25 mb
 RAW_SENSOR_COPY_FORMAT = os.getenv("RAW_SENSOR_COPY_FORMAT", "binary")
 
 

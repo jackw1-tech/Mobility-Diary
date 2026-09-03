@@ -1,19 +1,19 @@
-import 'package:diary/mappers/ingestion_mapper.dart';
+import 'package:diary/mappers/upload_mapper.dart';
 import 'package:diary/mappers/privacy_settings_mapper.dart';
 import 'package:diary/mappers/trips_mapper.dart';
 import 'package:diary/model/entities/privacy/privacy_level.dart';
 import 'package:diary/model/entities/trips/trip_enums.dart';
-import 'package:diary/network/dto/ingestion/ingestion_status_dto.dart';
+import 'package:diary/network/dto/upload/upload_status_dto.dart';
 import 'package:diary/network/dto/privacy_settings_dto.dart';
 import 'package:diary/network/dto/trip_list_item_dto.dart';
 import 'package:diary/network/dto/trip_track_dto.dart';
-import 'package:diary/network/service/trip_ingestion_service.dart';
+import 'package:diary/network/service/trip_upload_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('maps the backend ingestion status contract', () {
-    final dto = IngestionStatusDto.fromJson({
-      'ingestion_id': 7,
+  test('maps the backend upload status contract', () {
+    final dto = UploadStatusDto.fromJson({
+      'upload_id': 7,
       'core_status': 'COMPLETED',
       'raw_status': 'RECEIVING',
       'missing_raw_parts': [
@@ -24,7 +24,7 @@ void main() {
       'map_available': true,
     });
 
-    final status = IngestionMapper().mapIngestionStatus(dto);
+    final status = UploadMapper().mapUploadStatus(dto);
 
     expect(status.coreStatus, 'COMPLETED');
     expect(status.rawStatus, 'RECEIVING');
@@ -33,12 +33,12 @@ void main() {
   });
 
   test('parses the active recording embedded in a backend conflict', () {
-    const error = IngestionApiException(
+    const error = UploadApiException(
       'conflict',
       statusCode: 409,
       body: {
-        'active_ingestion': {
-          'ingestion_id': 9,
+        'active_upload': {
+          'upload_id': 9,
           'client_session_id': 'session-active',
           'device_id': 'iphone-owner',
           'recording_started_at': '2026-08-30T10:00:00Z',
@@ -47,9 +47,9 @@ void main() {
       },
     );
 
-    final active = activeIngestionFromConflict(error);
+    final active = activeUploadFromConflict(error);
 
-    expect(active?.ingestionId, 9);
+    expect(active?.uploadId, 9);
     expect(active?.clientSessionId, 'session-active');
     expect(active?.deviceId, 'iphone-owner');
   });

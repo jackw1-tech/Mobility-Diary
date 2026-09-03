@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from time import perf_counter
 
 from ..ml.pipeline import PipelineSensorWindow
-from ..models import TripIngestion
+from ..models import TripUpload
 from ..raw_sensor_windows_cache import (
     cache_raw_sensor_windows,
     get_cached_raw_sensor_windows,
@@ -27,14 +27,14 @@ class RawSensorLoadResult:
 
 
 """
-Dato il trip, ne estrae tutte le trip ingestion completate (receivet at not null)
+Dato il trip, ne estrae tutte le trip upload completate (receivet at not null)
 Mette tutte insieme le sensor window
 """
 def load_raw_sensor_windows_with_metrics(
-    ingestion: TripIngestion,
+    upload: TripUpload,
 ) -> RawSensorLoadResult:
     cache_started = perf_counter()
-    cached = get_cached_raw_sensor_windows(ingestion.id)
+    cached = get_cached_raw_sensor_windows(upload.id)
     if cached is not None:
         return RawSensorLoadResult(
             windows=cached.windows,
@@ -45,7 +45,7 @@ def load_raw_sensor_windows_with_metrics(
         )
 
     parts = list(
-        ingestion.parts.filter(
+        upload.parts.filter(
             received_at__isnull=False,
         ).order_by("sequence")
     )
@@ -78,7 +78,7 @@ def load_raw_sensor_windows_with_metrics(
         decompressed_bytes=decompressed_bytes,
         timings_ms=timings_ms,
     )
-    cache_raw_sensor_windows(ingestion.id, result)
+    cache_raw_sensor_windows(upload.id, result)
     return result
 
 

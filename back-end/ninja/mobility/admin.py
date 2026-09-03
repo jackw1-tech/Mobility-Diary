@@ -9,8 +9,8 @@ from .models import (
     SensorWindow,
     StateTransition,
     Trip,
-    TripIngestion,
-    TripIngestionPart,
+    TripUpload,
+    TripUploadPart,
     VirtualStopInterval,
     PlaceMiningStatus,
 )
@@ -122,15 +122,15 @@ class HarJobAdmin(admin.ModelAdmin):
     raw_id_fields = ("trip",)
 
 
-class TripIngestionPartInline(admin.TabularInline):
-    model = TripIngestionPart
+class TripUploadPartInline(admin.TabularInline):
+    model = TripUploadPart
     extra = 0
     fields = ("sequence", "object_key", "received_at", "created_at")
     readonly_fields = ("created_at",)
 
 
-@admin.register(TripIngestion)
-class TripIngestionAdmin(admin.ModelAdmin):
+@admin.register(TripUpload)
+class TripUploadAdmin(admin.ModelAdmin):
     list_display = (
         "id",
         "user",
@@ -164,23 +164,23 @@ class TripIngestionAdmin(admin.ModelAdmin):
         "failed_at",
     )
     raw_id_fields = ("user", "trip")
-    inlines = (TripIngestionPartInline,)
+    inlines = (TripUploadPartInline,)
     ordering = ("-created_at",)
 
 
-@admin.register(TripIngestionPart)
-class TripIngestionPartAdmin(admin.ModelAdmin):
+@admin.register(TripUploadPart)
+class TripUploadPartAdmin(admin.ModelAdmin):
     list_display = (
         "id",
-        "ingestion",
+        "upload",
         "sequence",
         "received_at",
         "created_at",
     )
     list_filter = ("received_at", "created_at")
-    search_fields = ("id", "ingestion__client_session_id", "object_key", "sha256")
+    search_fields = ("id", "upload__client_session_id", "object_key", "sha256")
     readonly_fields = ("created_at",)
-    raw_id_fields = ("ingestion",)
+    raw_id_fields = ("upload",)
     ordering = ("-created_at",)
 
 @admin.register(PlaceMiningStatus)

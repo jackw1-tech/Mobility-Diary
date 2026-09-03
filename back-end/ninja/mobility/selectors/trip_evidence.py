@@ -3,7 +3,7 @@
 Unico punto del progetto in cui compaiono `GpsPoint.objects` e
 `StateTransition.objects`. Prima della sua introduzione, il conteggio e
 l'inserimento bulk di questi due model erano duplicati fra
-`mobility.ingestion.materialization` e `mobility.services.reload`.
+`mobility.upload.materialization` e `mobility.services.reload`.
 """
 
 from __future__ import annotations

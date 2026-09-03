@@ -6,7 +6,7 @@ from typing import Any
 from django.contrib.gis.geos import LineString, Point
 from django.utils import timezone
 
-from ..models import GpsPoint, StateTransition, Trip, TripIngestion
+from ..models import GpsPoint, StateTransition, Trip, TripUpload
 from ..selectors import trip_evidence as trip_evidence_repository
 from ..selectors import trips as trips_repository
 
@@ -51,11 +51,11 @@ def materialized_trip_counts(trip: Trip | None) -> MaterializedTripCounts:
 """ 
 Crea il record trip, e i record gps e state transistion
 """
-def materialize_inline_core_ingestion(
-    ingestion: TripIngestion,
+def materialize_inline_core_upload(
+    upload: TripUpload,
     payload: Any,
 ) -> CoreMaterializationResult:
-    trip = _get_or_create_inline_trip(ingestion)
+    trip = _get_or_create_inline_trip(upload)
     gps_rows = [
         GpsPoint(
             trip=trip,
@@ -136,43 +136,43 @@ più volte per politiche di retry, controlla e aggiorna i campi del trip se esis
 Avviene prima di completare effettivamnete il core, ma per comodità metto comunque il suo 
 stato a closed tanto il tutto è avvolto in una transazione atomica
 """
-def _get_or_create_inline_trip(ingestion: TripIngestion) -> Trip:
+def _get_or_create_inline_trip(upload: TripUpload) -> Trip:
     trip = trips_repository.locked_trip_by_client_session(
-        ingestion.client_session_id
+        upload.client_session_id
     )
-    if trip is not None and trip.user_id not in {None, ingestion.user_id}:
+    if trip is not None and trip.user_id not in {None, upload.user_id}:
         raise CoreMaterializationConflict(
             "client_session_id gia' associato a un altro utente"
         )
-    ended_at = ingestion.ended_at or timezone.now()
-    started_at = ingestion.started_at or ended_at
+    ended_at = upload.ended_at or timezone.now()
+    started_at = upload.started_at or ended_at
     if trip is None:
         return trips_repository.create_trip(
-            user_id=ingestion.user_id,
-            client_session_id=ingestion.client_session_id,
-            device_id=ingestion.device_id or "unknown",
+            user_id=upload.user_id,
+            client_session_id=upload.client_session_id,
+            device_id=upload.device_id or "unknown",
             status=Trip.Status.CLOSED,
             started_at=started_at,
             ended_at=ended_at,
-            reloaded_from_trip_id=ingestion.source_trip_id,
+            reloaded_from_trip_id=upload.source_trip_id,
         )
 
     update_fields = ["updated_at"]
     if (
         trip.reloaded_from_trip_id is not None
-        and trip.reloaded_from_trip_id != ingestion.source_trip_id
+        and trip.reloaded_from_trip_id != upload.source_trip_id
     ):
         raise CoreMaterializationConflict(
             "client_session_id gia' associato a un'altra sorgente"
         )
     if trip.user_id is None:
-        trip.user_id = ingestion.user_id
+        trip.user_id = upload.user_id
         update_fields.append("user")
-    if trip.reloaded_from_trip_id is None and ingestion.source_trip_id is not None:
-        trip.reloaded_from_trip_id = ingestion.source_trip_id
+    if trip.reloaded_from_trip_id is None and upload.source_trip_id is not None:
+        trip.reloaded_from_trip_id = upload.source_trip_id
         update_fields.append("reloaded_from_trip")
-    if not trip.device_id and ingestion.device_id:
-        trip.device_id = ingestion.device_id
+    if not trip.device_id and upload.device_id:
+        trip.device_id = upload.device_id
         update_fields.append("device_id")
     if trip.status == Trip.Status.OPEN:
         trip.status = Trip.Status.CLOSED

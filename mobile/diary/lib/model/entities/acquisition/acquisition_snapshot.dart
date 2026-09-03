@@ -11,14 +11,10 @@ class AcquisitionSnapshot {
   final FsmTransition? lastTransition;
   final DateTime updatedAt;
 
-  /// Ultima posizione GPS nota durante la sessione corrente.
-  /// `null` finché non arriva il primo fix (o quando non si sta tracciando).
   final double? latitude;
   final double? longitude;
   final double? accuracyMeters;
 
-  /// Countdown dei secondi rimanenti alla fine della riproduzione live.
-  /// `null` se non in replay o se mancano più di 15 secondi alla fine.
   final int? replaySecondsRemaining;
   final bool isReplay;
 

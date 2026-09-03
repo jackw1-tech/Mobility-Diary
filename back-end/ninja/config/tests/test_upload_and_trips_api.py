@@ -27,7 +27,7 @@ def start_recording(
 ):
     return post_json(
         client,
-        "/api/ingestion/trips/start",
+        "/api/upload/trips/start",
         {
             "client_session_id": session_id,
             "device_id": device_id,
@@ -40,7 +40,7 @@ def start_recording(
 def complete_core(
     client,
     headers,
-    ingestion_id,
+    upload_id,
     *,
     session_id="session-001",
     device_id="iphone-mario",
@@ -48,9 +48,9 @@ def complete_core(
 ):
     return post_json(
         client,
-        "/api/ingestion/trips/core",
+        "/api/upload/trips/core",
         {
-            "ingestion_id": ingestion_id,
+            "upload_id": upload_id,
             "client_session_id": session_id,
             "device_id": device_id,
             "started_at": STARTED_AT,
@@ -87,7 +87,7 @@ def complete_core(
 
 def test_user_has_no_active_recording_before_start(api_client, mobile_session):
     response = api_client.get(
-        "/api/ingestion/trips/active", **mobile_session["headers"]
+        "/api/upload/trips/active", **mobile_session["headers"]
     )
 
     assert response.status_code == 404
@@ -102,7 +102,7 @@ def test_start_is_idempotent_for_the_same_session_and_device(
 
     assert first.status_code == 200
     assert retry.status_code == 200
-    assert retry.json()["ingestion_id"] == first.json()["ingestion_id"]
+    assert retry.json()["upload_id"] == first.json()["upload_id"]
     assert retry.json()["already_exists"] is True
 
 
@@ -116,27 +116,27 @@ def test_only_one_recording_can_be_active_per_user(api_client, mobile_session):
     )
 
     assert conflict.status_code == 409
-    assert conflict.json()["active_ingestion"]["ingestion_id"] == first.json()[
-        "ingestion_id"
+    assert conflict.json()["active_upload"]["upload_id"] == first.json()[
+        "upload_id"
     ]
-    assert conflict.json()["active_ingestion"]["device_id"] == "iphone-mario"
+    assert conflict.json()["active_upload"]["device_id"] == "iphone-mario"
 
 
 def test_only_the_origin_device_can_heartbeat_or_abandon_a_recording(
     api_client, mobile_session
 ):
     headers = mobile_session["headers"]
-    ingestion_id = start_recording(api_client, headers).json()["ingestion_id"]
+    upload_id = start_recording(api_client, headers).json()["upload_id"]
 
     forbidden_heartbeat = post_json(
         api_client,
-        f"/api/ingestion/trips/{ingestion_id}/heartbeat",
+        f"/api/upload/trips/{upload_id}/heartbeat",
         {"client_session_id": "session-001", "device_id": "other-device"},
         headers,
     )
     forbidden_abandon = post_json(
         api_client,
-        f"/api/ingestion/trips/{ingestion_id}/abandon",
+        f"/api/upload/trips/{upload_id}/abandon",
         {"device_id": "other-device"},
         headers,
     )
@@ -149,10 +149,10 @@ def test_abandoning_a_recording_releases_the_active_trip_lock(
     api_client, mobile_session
 ):
     headers = mobile_session["headers"]
-    ingestion_id = start_recording(api_client, headers).json()["ingestion_id"]
+    upload_id = start_recording(api_client, headers).json()["upload_id"]
     abandoned = post_json(
         api_client,
-        f"/api/ingestion/trips/{ingestion_id}/abandon",
+        f"/api/upload/trips/{upload_id}/abandon",
         {"device_id": "iphone-mario"},
         headers,
     )
@@ -166,16 +166,16 @@ def test_abandoning_a_recording_releases_the_active_trip_lock(
 
     assert abandoned.status_code == 200
     assert next_recording.status_code == 200
-    assert next_recording.json()["ingestion_id"] != ingestion_id
+    assert next_recording.json()["upload_id"] != upload_id
 
 
-def test_core_ingestion_makes_the_trip_visible_with_a_track(
+def test_core_upload_makes_the_trip_visible_with_a_track(
     api_client, mobile_session
 ):
     headers = mobile_session["headers"]
-    ingestion_id = start_recording(api_client, headers).json()["ingestion_id"]
+    upload_id = start_recording(api_client, headers).json()["upload_id"]
 
-    core = complete_core(api_client, headers, ingestion_id)
+    core = complete_core(api_client, headers, upload_id)
     trips = api_client.get("/api/mobility/trips", **headers)
     track = api_client.get(
         f"/api/mobility/trips/{core.json()['trip_id']}/track", **headers
@@ -195,10 +195,10 @@ def test_core_ingestion_makes_the_trip_visible_with_a_track(
 
 def test_core_retry_does_not_duplicate_trip_evidence(api_client, mobile_session):
     headers = mobile_session["headers"]
-    ingestion_id = start_recording(api_client, headers).json()["ingestion_id"]
+    upload_id = start_recording(api_client, headers).json()["upload_id"]
 
-    first = complete_core(api_client, headers, ingestion_id)
-    retry = complete_core(api_client, headers, ingestion_id)
+    first = complete_core(api_client, headers, upload_id)
+    retry = complete_core(api_client, headers, upload_id)
     track = api_client.get(
         f"/api/mobility/trips/{first.json()['trip_id']}/track", **headers
     )
@@ -210,13 +210,13 @@ def test_core_retry_does_not_duplicate_trip_evidence(api_client, mobile_session)
 
 def test_core_rejects_empty_evidence(api_client, mobile_session):
     headers = mobile_session["headers"]
-    ingestion_id = start_recording(api_client, headers).json()["ingestion_id"]
+    upload_id = start_recording(api_client, headers).json()["upload_id"]
 
     response = post_json(
         api_client,
-        "/api/ingestion/trips/core",
+        "/api/upload/trips/core",
         {
-            "ingestion_id": ingestion_id,
+            "upload_id": upload_id,
             "client_session_id": "session-001",
             "device_id": "iphone-mario",
             "gps_points": [],
@@ -229,12 +229,12 @@ def test_core_rejects_empty_evidence(api_client, mobile_session):
     assert response.json() == {"detail": "core vuoto: GPS e state transitions assenti"}
 
 
-def test_ingestion_and_trip_are_isolated_between_users(
+def test_upload_and_trip_are_isolated_between_users(
     api_client, mobile_session, register_mobile_user
 ):
     owner_headers = mobile_session["headers"]
-    ingestion_id = start_recording(api_client, owner_headers).json()["ingestion_id"]
-    trip_id = complete_core(api_client, owner_headers, ingestion_id).json()["trip_id"]
+    upload_id = start_recording(api_client, owner_headers).json()["upload_id"]
+    trip_id = complete_core(api_client, owner_headers, upload_id).json()["trip_id"]
 
     other_registration = register_mobile_user("other@example.com")
     other_headers = {
@@ -242,7 +242,7 @@ def test_ingestion_and_trip_are_isolated_between_users(
     }
 
     assert (
-        api_client.get(f"/api/ingestion/trips/{ingestion_id}", **other_headers).status_code
+        api_client.get(f"/api/upload/trips/{upload_id}", **other_headers).status_code
         == 404
     )
     assert (
@@ -252,12 +252,12 @@ def test_ingestion_and_trip_are_isolated_between_users(
     assert api_client.get("/api/mobility/trips", **other_headers).json() == []
 
 
-def test_completed_ingestion_allows_note_update_and_trip_deletion(
+def test_completed_upload_allows_note_update_and_trip_deletion(
     api_client, mobile_session
 ):
     headers = mobile_session["headers"]
-    ingestion_id = start_recording(api_client, headers).json()["ingestion_id"]
-    trip_id = complete_core(api_client, headers, ingestion_id).json()["trip_id"]
+    upload_id = start_recording(api_client, headers).json()["upload_id"]
+    trip_id = complete_core(api_client, headers, upload_id).json()["trip_id"]
 
     note = api_client.patch(
         f"/api/mobility/trips/{trip_id}/note",
@@ -277,8 +277,8 @@ def test_privacy_export_reflects_the_current_user_preference(
     api_client, mobile_session
 ):
     headers = mobile_session["headers"]
-    ingestion_id = start_recording(api_client, headers).json()["ingestion_id"]
-    trip_id = complete_core(api_client, headers, ingestion_id).json()["trip_id"]
+    upload_id = start_recording(api_client, headers).json()["upload_id"]
+    trip_id = complete_core(api_client, headers, upload_id).json()["trip_id"]
 
     precise = api_client.get(
         f"/api/mobility/trips/{trip_id}/privacy-export", **headers

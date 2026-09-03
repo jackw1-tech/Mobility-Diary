@@ -1,25 +1,25 @@
 import 'package:json_annotation/json_annotation.dart';
 
-part 'active_ingestion_dto.g.dart';
+part 'active_upload_dto.g.dart';
 
 @JsonSerializable(fieldRename: FieldRename.snake)
-class ActiveIngestionDto {
-  final int ingestionId;
+class ActiveUploadDto {
+  final int uploadId;
   final String clientSessionId;
   final String deviceId;
   final DateTime recordingStartedAt;
   final DateTime? lastSeenAt;
 
-  const ActiveIngestionDto({
-    required this.ingestionId,
+  const ActiveUploadDto({
+    required this.uploadId,
     required this.clientSessionId,
     required this.deviceId,
     required this.recordingStartedAt,
     this.lastSeenAt,
   });
 
-  factory ActiveIngestionDto.fromJson(Map<String, dynamic> json) =>
-      _$ActiveIngestionDtoFromJson(json);
+  factory ActiveUploadDto.fromJson(Map<String, dynamic> json) =>
+      _$ActiveUploadDtoFromJson(json);
 
-  Map<String, dynamic> toJson() => _$ActiveIngestionDtoToJson(this);
+  Map<String, dynamic> toJson() => _$ActiveUploadDtoToJson(this);
 }

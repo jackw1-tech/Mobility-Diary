@@ -1,7 +1,7 @@
 /// Contenuto del payload "core" di un viaggio: la traccia GPS e le transizioni
 /// FSM. Ci arrivano per due strade — dal DB locale per un viaggio registrato
 /// dal vivo, dal backend per un viaggio rigiocato — e da entrambe escono con
-/// la stessa forma verso POST /ingestion/core-inline.
+/// la stessa forma verso POST /upload/core-inline.
 
 class CoreGpsPoint {
   final DateTime timestamp;

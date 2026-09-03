@@ -6,7 +6,7 @@ import 'package:drift/drift.dart';
 class AcquisitionSessions extends Table {
   TextColumn get id => text()();
   TextColumn get deviceId => text()();
-  IntColumn get remoteIngestionId => integer().nullable()();
+  IntColumn get remoteUploadId => integer().nullable()();
   DateTimeColumn get startedAt => dateTime()();
   DateTimeColumn get endedAt => dateTime().nullable()();
 
@@ -50,12 +50,12 @@ class SensorWindows extends Table {
 /// Coda di sincronizzazione persistente: un job per sessione conclusa.
 /// Disaccoppia lo stato del viaggio dallo stato di upload, cosi' lo STOP non
 /// resta bloccato sulla rete e la sync riprende all'apertura app
-/// (REPORT_STRATEGIA_INGESTION_ASINCRONA.md D5, SyncJob).
+/// (REPORT_STRATEGIA_UPLOAD_ASINCRONA.md D5, SyncJob).
 class SyncJobs extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get localSessionId =>
       text().references(AcquisitionSessions, #id)();
-  IntColumn get remoteIngestionId => integer().nullable()();
+  IntColumn get remoteUploadId => integer().nullable()();
   // Trip di dominio materializzato dal backend (null finche' il core non completa).
   IntColumn get remoteTripId => integer().nullable()();
   IntColumn get corePayloadSizeBytes =>

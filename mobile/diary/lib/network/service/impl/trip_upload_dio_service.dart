@@ -1,20 +1,20 @@
 import 'dart:io';
 
-import 'package:diary/network/dto/ingestion/active_ingestion_dto.dart';
-import 'package:diary/network/dto/ingestion/ingestion_start_result_dto.dart';
-import 'package:diary/network/dto/ingestion/ingestion_status_dto.dart';
-import 'package:diary/network/dto/ingestion/inline_core_result_dto.dart';
-import 'package:diary/network/dto/ingestion/presign_result_dto.dart';
-import 'package:diary/network/dto/ingestion/replay_data_dto.dart';
-import 'package:diary/network/service/trip_ingestion_service.dart';
+import 'package:diary/network/dto/upload/active_upload_dto.dart';
+import 'package:diary/network/dto/upload/upload_start_result_dto.dart';
+import 'package:diary/network/dto/upload/upload_status_dto.dart';
+import 'package:diary/network/dto/upload/inline_core_result_dto.dart';
+import 'package:diary/network/dto/upload/presign_result_dto.dart';
+import 'package:diary/network/dto/upload/replay_data_dto.dart';
+import 'package:diary/network/service/trip_upload_service.dart';
 import 'package:diary/other/constants/api_constants.dart';
 import 'package:dio/dio.dart';
 
-class TripIngestionDioService implements TripIngestionService {
+class TripUploadDioService implements TripUploadService {
   final AccessTokenProvider _tokenProvider;
   final Dio _dio;
 
-  TripIngestionDioService({
+  TripUploadDioService({
     required AccessTokenProvider tokenProvider,
     Dio? dio,
   })  : _tokenProvider = tokenProvider,
@@ -22,12 +22,12 @@ class TripIngestionDioService implements TripIngestionService {
     _dio.options.baseUrl = ApiConstants.baseApiUrl;
   }
 
-  static const String _base = '/ingestion/trips';
+  static const String _base = '/upload/trips';
 
   Future<Options> _options() async {
     final token = await _tokenProvider();
     if (token == null || token.isEmpty) {
-      throw const IngestionApiException('Sessione non disponibile');
+      throw const UploadApiException('Sessione non disponibile');
     }
     return Options(
       headers: {
@@ -39,7 +39,7 @@ class TripIngestionDioService implements TripIngestionService {
   }
 
   /// Esegue una richiesta Dio e mappa il body con [onSuccess], convertendo
-  /// qualunque errore in [IngestionApiException] via [_handleError]. Fattorizza
+  /// qualunque errore in [UploadApiException] via [_handleError]. Fattorizza
   /// il try/catch identico ripetuto da quasi tutte le chiamate di questo
   /// service.
   Future<T> _send<T>(
@@ -58,31 +58,31 @@ class TripIngestionDioService implements TripIngestionService {
       _send(request, (_) {});
 
   Exception _handleError(Object error) {
-    if (error is IngestionApiException) return error;
+    if (error is UploadApiException) return error;
     if (error is DioException) {
       final response = error.response;
       if (response != null) {
         final data = response.data;
         if (data is Map<String, dynamic>) {
           final detail = data['detail'];
-          return IngestionApiException(
-            detail is String ? detail : 'Richiesta ingestion fallita',
+          return UploadApiException(
+            detail is String ? detail : 'Richiesta upload fallita',
             statusCode: response.statusCode,
             body: data,
           );
         }
-        return IngestionApiException(
-          'Richiesta ingestion fallita (HTTP ${response.statusCode})',
+        return UploadApiException(
+          'Richiesta upload fallita (HTTP ${response.statusCode})',
           statusCode: response.statusCode,
         );
       }
-      return IngestionApiException(error.message ?? 'Errore di rete');
+      return UploadApiException(error.message ?? 'Errore di rete');
     }
     return Exception(error.toString());
   }
 
   @override
-  Future<ActiveIngestionDto?> getActiveIngestion() async {
+  Future<ActiveUploadDto?> getActiveUpload() async {
     try {
       final response = await _dio.get(
         '$_base/active',
@@ -90,7 +90,7 @@ class TripIngestionDioService implements TripIngestionService {
       );
       final data = response.data;
       if (data is Map<String, dynamic>) {
-        return ActiveIngestionDto.fromJson(data);
+        return ActiveUploadDto.fromJson(data);
       }
       return null;
     } catch (e) {
@@ -102,7 +102,7 @@ class TripIngestionDioService implements TripIngestionService {
   }
 
   @override
-  Future<IngestionStartResultDto> startIngestion({
+  Future<UploadStartResultDto> startUpload({
     required String clientSessionId,
     required DateTime startedAt,
     required String deviceId,
@@ -118,36 +118,37 @@ class TripIngestionDioService implements TripIngestionService {
             'started_at': startedAt.toUtc().toIso8601String(),
             'device_id': deviceId,
             'device_platform': devicePlatform,
-            if (sourceTripId != null) 'source_trip_id': sourceTripId,
+            if (sourceTripId != null)
+              'source_trip_id': sourceTripId, // Nel caso replay
           },
           options: await _options(),
         ),
         (data) =>
-            IngestionStartResultDto.fromJson(data as Map<String, dynamic>),
+            UploadStartResultDto.fromJson(data as Map<String, dynamic>),
       );
 
   @override
-  Future<void> abandonIngestion({
-    required int ingestionId,
+  Future<void> abandonUpload({
+    required int uploadId,
     required String deviceId,
   }) =>
       _sendVoid(
         () async => _dio.post(
-          '$_base/$ingestionId/abandon',
+          '$_base/$uploadId/abandon',
           data: {'device_id': deviceId},
           options: await _options(),
         ),
       );
 
   @override
-  Future<void> heartbeatIngestion({
-    required int ingestionId,
+  Future<void> heartbeatUpload({
+    required int uploadId,
     required String clientSessionId,
     required String deviceId,
   }) =>
       _sendVoid(
         () async => _dio.post(
-          '$_base/$ingestionId/heartbeat',
+          '$_base/$uploadId/heartbeat',
           data: {
             'client_session_id': clientSessionId,
             'device_id': deviceId,
@@ -169,13 +170,13 @@ class TripIngestionDioService implements TripIngestionService {
 
   @override
   Future<PresignResultDto> presignPart(
-    int ingestionId, {
+    int uploadId, {
     required int sequence,
     required String sha256,
   }) =>
       _send(
         () async => _dio.post(
-          '$_base/$ingestionId/parts/presign',
+          '$_base/$uploadId/parts/presign',
           data: {
             'sequence': sequence,
             'sha256': sha256,
@@ -211,7 +212,7 @@ class TripIngestionDioService implements TripIngestionService {
       );
     } catch (e) {
       if (e is DioException) {
-        throw IngestionApiException(
+        throw UploadApiException(
           'Upload parte fallito',
           statusCode: e.response?.statusCode,
         );
@@ -222,35 +223,35 @@ class TripIngestionDioService implements TripIngestionService {
 
   @override
   Future<void> confirmPart(
-    int ingestionId, {
+    int uploadId, {
     required int sequence,
     required String sha256,
   }) =>
       _sendVoid(
         () async => _dio.post(
-          '$_base/$ingestionId/parts/confirm',
+          '$_base/$uploadId/parts/confirm',
           data: {'sequence': sequence, 'sha256': sha256},
           options: await _options(),
         ),
       );
 
   @override
-  Future<void> completeRawIngestion(
-    int ingestionId, {
+  Future<void> completeRawUpload(
+    int uploadId, {
     required int totalParts,
   }) =>
       _sendVoid(
         () async => _dio.post(
-          '$_base/$ingestionId/complete-raw',
+          '$_base/$uploadId/complete-raw',
           data: {'total_parts': totalParts},
           options: await _options(),
         ),
       );
 
   @override
-  Future<IngestionStatusDto> getStatus(int ingestionId) => _send(
-        () async => _dio.get('$_base/$ingestionId', options: await _options()),
-        (data) => IngestionStatusDto.fromJson(data as Map<String, dynamic>),
+  Future<UploadStatusDto> getStatus(int uploadId) => _send(
+        () async => _dio.get('$_base/$uploadId', options: await _options()),
+        (data) => UploadStatusDto.fromJson(data as Map<String, dynamic>),
       );
 
   @override

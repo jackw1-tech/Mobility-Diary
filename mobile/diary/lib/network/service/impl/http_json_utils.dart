@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:diary/network/service/trip_ingestion_service.dart';
+import 'package:diary/network/service/trip_upload_service.dart';
 import 'package:diary/other/constants/api_constants.dart';
 
 /// Provider layer (Pine): helper puri condivisi dai vari `*HttpService` che
@@ -40,7 +40,7 @@ Future<HttpJsonResponse> sendAuthenticatedJson(
 }) async {
   final token = await tokenProvider();
   if (token == null || token.isEmpty) {
-    throw const IngestionApiException('Sessione non disponibile');
+    throw const UploadApiException('Sessione non disponibile');
   }
 
   final request = await client.openUrl(method, resolveApiUri(path));

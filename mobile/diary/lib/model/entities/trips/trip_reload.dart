@@ -1,5 +1,5 @@
 class TripReload {
-  final int ingestionId;
+  final int uploadId;
   final int tripId;
   final String coreStatus;
   final String rawStatus;
@@ -10,7 +10,7 @@ class TripReload {
   final bool mapAvailable;
 
   const TripReload({
-    required this.ingestionId,
+    required this.uploadId,
     required this.tripId,
     required this.coreStatus,
     required this.rawStatus,

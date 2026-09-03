@@ -1,17 +1,17 @@
 import 'package:diary/model/entities/acquisition/core_payload.dart';
-import 'package:diary/model/entities/acquisition/ingestion_models.dart';
-import 'package:diary/network/dto/ingestion/active_ingestion_dto.dart';
-import 'package:diary/network/dto/ingestion/ingestion_start_result_dto.dart';
-import 'package:diary/network/dto/ingestion/ingestion_status_dto.dart';
-import 'package:diary/network/dto/ingestion/inline_core_result_dto.dart';
-import 'package:diary/network/dto/ingestion/presign_result_dto.dart';
-import 'package:diary/network/dto/ingestion/replay_data_dto.dart';
+import 'package:diary/model/entities/acquisition/upload_models.dart';
+import 'package:diary/network/dto/upload/active_upload_dto.dart';
+import 'package:diary/network/dto/upload/upload_start_result_dto.dart';
+import 'package:diary/network/dto/upload/upload_status_dto.dart';
+import 'package:diary/network/dto/upload/inline_core_result_dto.dart';
+import 'package:diary/network/dto/upload/presign_result_dto.dart';
+import 'package:diary/network/dto/upload/replay_data_dto.dart';
 import 'package:diary/utils/date_time_utils.dart';
 
-class IngestionMapper {
-  ActiveIngestion mapActiveIngestion(ActiveIngestionDto dto) {
-    return ActiveIngestion(
-      ingestionId: dto.ingestionId,
+class UploadMapper {
+  ActiveUpload mapActiveUpload(ActiveUploadDto dto) {
+    return ActiveUpload(
+      uploadId: dto.uploadId,
       clientSessionId: dto.clientSessionId,
       deviceId: dto.deviceId,
       recordingStartedAt: dto.recordingStartedAt,
@@ -19,9 +19,9 @@ class IngestionMapper {
     );
   }
 
-  IngestionStartResult mapIngestionStartResult(IngestionStartResultDto dto) {
-    return IngestionStartResult(
-      ingestionId: dto.ingestionId,
+  UploadStartResult mapUploadStartResult(UploadStartResultDto dto) {
+    return UploadStartResult(
+      uploadId: dto.uploadId,
       clientSessionId: dto.clientSessionId,
       deviceId: dto.deviceId,
       recordingStartedAt: dto.recordingStartedAt,
@@ -37,8 +37,8 @@ class IngestionMapper {
     );
   }
 
-  IngestionStatus mapIngestionStatus(IngestionStatusDto dto) {
-    return IngestionStatus(
+  UploadStatus mapUploadStatus(UploadStatusDto dto) {
+    return UploadStatus(
       coreStatus: dto.coreStatus,
       rawStatus: dto.rawStatus,
       tripId: dto.tripId,
@@ -77,7 +77,7 @@ class IngestionMapper {
     );
   }
 
-  /// Corpo di POST /ingestion/core-inline. Unico punto in cui il payload core
+  /// Corpo di POST /upload/core-inline. Unico punto in cui il payload core
   /// prende la sua forma wire: prima veniva costruito due volte, una in
   /// TripPackageBuilder per i viaggi live e una in ReplayAcquisitionStrategy
   /// per quelli rigiocati.
@@ -89,7 +89,7 @@ class IngestionMapper {
     required int expectedRawParts,
     DateTime? startedAt,
     DateTime? endedAt,
-    int? ingestionId,
+    int? uploadId,
     DateTime? cutoffSourceTimestamp,
   }) {
     return {
@@ -106,7 +106,7 @@ class IngestionMapper {
       'gps_points': [
         for (final point in gpsPoints) _gpsPointJson(point),
       ],
-      if (ingestionId != null) 'ingestion_id': ingestionId,
+      if (uploadId != null) 'upload_id': uploadId,
       'schema_version': 1,
       'started_at': DateTimeUtils.toUtcIsoOrNull(startedAt),
       'state_transitions': [
@@ -135,7 +135,7 @@ class IngestionMapper {
 
   InlineCoreResult mapInlineCoreResult(InlineCoreResultDto dto) {
     return InlineCoreResult(
-      ingestionId: dto.ingestionId,
+      uploadId: dto.uploadId,
       tripId: dto.tripId,
       coreStatus: dto.coreStatus,
       rawStatus: dto.rawStatus,

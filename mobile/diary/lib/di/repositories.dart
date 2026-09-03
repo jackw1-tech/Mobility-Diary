@@ -22,17 +22,17 @@ List<RepositoryProvider> buildRepositories({
           final auth = context.read<AuthRepository>();
           Future<String?> tokenProvider() async => auth.accessToken;
           final deviceIdentityStore = context.read<DeviceIdentityStore>();
-          final ingestionService = context.read<TripIngestionService>();
-          final mapper = context.read<IngestionMapper>();
+          final uploadService = context.read<TripUploadService>();
+          final mapper = context.read<UploadMapper>();
           final acquisitionMapper = context.read<AcquisitionMapper>();
           final syncQueue = TripSyncQueueImpl(
             dao: database.acquisitionDao,
             builder: TripPackageBuilder(
               dao: database.acquisitionDao,
               acquisitionMapper: acquisitionMapper,
-              ingestionMapper: mapper,
+              uploadMapper: mapper,
             ),
-            service: ingestionService,
+            service: uploadService,
             mapper: mapper,
             tokenProvider: tokenProvider,
             tripsService: context.read<TripsService>(),
@@ -40,7 +40,7 @@ List<RepositoryProvider> buildRepositories({
           return AcquisitionRepositoryImpl(
             database: database,
             syncQueue: syncQueue,
-            ingestionService: ingestionService,
+            uploadService: uploadService,
             mapper: mapper,
             acquisitionMapper: context.read<AcquisitionMapper>(),
             deviceIdProvider: deviceIdentityStore.getOrCreateDeviceId,

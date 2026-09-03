@@ -4,7 +4,7 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:diary/mappers/acquisition_mapper.dart';
-import 'package:diary/mappers/ingestion_mapper.dart';
+import 'package:diary/mappers/upload_mapper.dart';
 import 'package:diary/network/service/impl/acquisition_local_database.dart';
 import 'package:diary/model/entities/acquisition/sensor_matrix_json.dart';
 import 'package:path/path.dart' as p;
@@ -43,10 +43,10 @@ class TripCorePayload {
 }
 
 /// Il pacchetto viaggio locale: metadati + parti compresse su disco
-/// (REPORT_STRATEGIA_INGESTION_ASINCRONA.md, "Creazione del Pacchetto Locale").
+/// (REPORT_STRATEGIA_UPLOAD_ASINCRONA.md, "Creazione del Pacchetto Locale").
 class TripPackage {
   final String localSessionId;
-  final int? remoteIngestionId;
+  final int? remoteUploadId;
   final DateTime? startedAt;
   final DateTime? endedAt;
   final Directory directory;
@@ -55,7 +55,7 @@ class TripPackage {
 
   const TripPackage({
     required this.localSessionId,
-    required this.remoteIngestionId,
+    required this.remoteUploadId,
     required this.startedAt,
     required this.endedAt,
     required this.directory,
@@ -80,12 +80,12 @@ class TripPackageBuilder {
   final int _sensorWindowsPartBudgetBytes;
 
   final AcquisitionMapper _acquisitionMapper;
-  final IngestionMapper _ingestionMapper;
+  final UploadMapper _uploadMapper;
 
   TripPackageBuilder({
     required AcquisitionDao dao,
     AcquisitionMapper? acquisitionMapper,
-    IngestionMapper? ingestionMapper,
+    UploadMapper? uploadMapper,
     Future<Directory> Function()? baseDirProvider,
     // Budget misurato sul JSON non compresso: una finestra pesa ~29 KB, quindi
     // ~12 MB sono circa 430 finestre (~36 min di registrazione) e diventano
@@ -94,13 +94,13 @@ class TripPackageBuilder {
     int sensorWindowsPartBudgetBytes = 12 * 1024 * 1024,
   })  : _dao = dao,
         _acquisitionMapper = acquisitionMapper ?? AcquisitionMapper(),
-        _ingestionMapper = ingestionMapper ?? IngestionMapper(),
+        _uploadMapper = uploadMapper ?? UploadMapper(),
         _baseDirProvider = baseDirProvider ?? getTemporaryDirectory,
         _sensorWindowsPartBudgetBytes = sensorWindowsPartBudgetBytes;
 
   Future<TripPackage> build(String localSessionId) async {
     final session = await _dao.findSession(localSessionId);
-    final remoteIngestionId = session?.remoteIngestionId;
+    final remoteUploadId = session?.remoteUploadId;
     final directory = await _packageDirectory(localSessionId);
 
     final gpsPoints = _acquisitionMapper
@@ -116,7 +116,7 @@ class TripPackageBuilder {
     final corePayload = gpsPoints.isEmpty && transitions.isEmpty
         ? null
         : TripCorePayload(
-            _ingestionMapper.toCorePayloadJson(
+            _uploadMapper.toCorePayloadJson(
               clientSessionId: localSessionId,
               deviceId: session?.deviceId ?? '',
               gpsPoints: gpsPoints,
@@ -124,12 +124,12 @@ class TripPackageBuilder {
               expectedRawParts: parts.length,
               startedAt: session?.startedAt,
               endedAt: session?.endedAt,
-              ingestionId: remoteIngestionId,
+              uploadId: remoteUploadId,
             ),
           );
     return TripPackage(
       localSessionId: localSessionId,
-      remoteIngestionId: remoteIngestionId,
+      remoteUploadId: remoteUploadId,
       startedAt: session?.startedAt,
       endedAt: session?.endedAt,
       directory: directory,

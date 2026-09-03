@@ -1,5 +1,5 @@
 class TripReloadDto {
-  final int ingestionId;
+  final int uploadId;
   final int tripId;
   final String coreStatus;
   final String rawStatus;
@@ -10,7 +10,7 @@ class TripReloadDto {
   final bool mapAvailable;
 
   const TripReloadDto({
-    required this.ingestionId,
+    required this.uploadId,
     required this.tripId,
     required this.coreStatus,
     required this.rawStatus,
@@ -23,7 +23,7 @@ class TripReloadDto {
 
   factory TripReloadDto.fromJson(Map<String, dynamic> json) {
     return TripReloadDto(
-      ingestionId: json['ingestion_id'] as int,
+      uploadId: json['upload_id'] as int,
       tripId: json['trip_id'] as int,
       coreStatus: json['core_status'] as String,
       rawStatus: json['raw_status'] as String,

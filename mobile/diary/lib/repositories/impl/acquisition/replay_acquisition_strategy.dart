@@ -1,11 +1,11 @@
 import 'dart:async';
 
-import 'package:diary/mappers/ingestion_mapper.dart';
+import 'package:diary/mappers/upload_mapper.dart';
 import 'package:diary/model/entities/acquisition/acquisition_domain.dart';
-import 'package:diary/model/entities/acquisition/ingestion_models.dart';
+import 'package:diary/model/entities/acquisition/upload_models.dart';
 import 'package:diary/repositories/acquisition_strategy.dart';
 import 'package:diary/repositories/impl/acquisition/trip_package_builder.dart';
-import 'package:diary/network/service/trip_ingestion_service.dart';
+import 'package:diary/network/service/trip_upload_service.dart';
 import 'package:diary/repositories/impl/acquisition/acquisition_snapshot_emitter.dart';
 import 'package:uuid/uuid.dart';
 
@@ -21,8 +21,8 @@ class ReplayAcquisitionStrategy
   /// from_state/to_state, non il motivo della decisione originale.
   static const String _replayTransitionReason = 'replay';
 
-  final TripIngestionService? _ingestionService;
-  final IngestionMapper _mapper;
+  final TripUploadService? _uploadService;
+  final UploadMapper _mapper;
   final Uuid _uuid;
   final String _deviceId;
   final Future<String> Function()? _deviceIdProvider;
@@ -33,7 +33,7 @@ class ReplayAcquisitionStrategy
 
   Timer? _replayTimer;
   String? _currentSessionId;
-  int? _currentRemoteIngestionId;
+  int? _currentRemoteUploadId;
   String? _currentDeviceId;
   DateTime? _replayStartWallClock;
   double _replaySpeed = 1;
@@ -47,8 +47,8 @@ class ReplayAcquisitionStrategy
     required int sourceTripId,
     DateTime? scheduledStartAt,
     double replaySpeedMultiplier = 1,
-    TripIngestionService? ingestionService,
-    IngestionMapper? mapper,
+    TripUploadService? uploadService,
+    UploadMapper? mapper,
     Uuid? uuid,
     String deviceId = 'local_device',
     Future<String> Function()? deviceIdProvider,
@@ -56,8 +56,8 @@ class ReplayAcquisitionStrategy
   })  : _sourceTripId = sourceTripId,
         _scheduledStartAt = scheduledStartAt?.toUtc(),
         _requestedReplaySpeedMultiplier = replaySpeedMultiplier,
-        _ingestionService = ingestionService,
-        _mapper = mapper ?? IngestionMapper(),
+        _uploadService = uploadService,
+        _mapper = mapper ?? UploadMapper(),
         _uuid = uuid ?? const Uuid(),
         _deviceId = deviceId,
         _deviceIdProvider = deviceIdProvider,
@@ -74,29 +74,29 @@ class ReplayAcquisitionStrategy
     final sessionId = _uuid.v4();
     final deviceId = await _resolveDeviceId();
 
-    IngestionStartResult? remoteStart;
+    UploadStartResult? remoteStart;
     try {
-      final startDto = await _ingestionService?.startIngestion(
+      final startDto = await _uploadService?.startUpload(
         clientSessionId: sessionId,
         startedAt: now,
         deviceId: deviceId,
         sourceTripId: _sourceTripId,
       );
       remoteStart =
-          startDto == null ? null : _mapper.mapIngestionStartResult(startDto);
-    } on IngestionApiException {
-      throw const IngestionApiException('Richiesta ingestion fallita');
+          startDto == null ? null : _mapper.mapUploadStartResult(startDto);
+    } on UploadApiException {
+      throw const UploadApiException('Richiesta upload fallita');
     }
 
     final replayDataDto =
-        await _ingestionService?.getReplayData(_sourceTripId);
+        await _uploadService?.getReplayData(_sourceTripId);
     if (replayDataDto == null) {
-      throw const IngestionApiException('Richiesta ingestion fallita');
+      throw const UploadApiException('Richiesta upload fallita');
     }
     final replaySource = _mapper.mapReplayData(replayDataDto);
 
     _currentSessionId = sessionId;
-    _currentRemoteIngestionId = remoteStart?.ingestionId;
+    _currentRemoteUploadId = remoteStart?.uploadId;
     _currentDeviceId = deviceId;
     _latestLatitude = null;
     _latestLongitude = null;
@@ -142,12 +142,12 @@ class ReplayAcquisitionStrategy
     final offset = _currentReplayOffsetSeconds();
     if (offset == null) return const [];
     try {
-      return await _ingestionService?.getReplaySensorWindow(
+      return await _uploadService?.getReplaySensorWindow(
             _sourceTripId,
             offset,
           ) ??
           const [];
-    } on IngestionApiException {
+    } on UploadApiException {
       return const [];
     }
   }
@@ -296,7 +296,7 @@ class ReplayAcquisitionStrategy
     _replayTimer?.cancel();
 
     if (_currentSessionId == null) {
-      throw const IngestionApiException('Invalid state for stopReplay');
+      throw const UploadApiException('Invalid state for stopReplay');
     }
 
     final filteredPoints = (_replayPoints ?? const <CoreGpsPoint>[])
@@ -347,19 +347,19 @@ class ReplayAcquisitionStrategy
         expectedRawParts: 0,
         startedAt: firstShiftedTs,
         endedAt: replayEndedAt,
-        ingestionId: _currentRemoteIngestionId,
+        uploadId: _currentRemoteUploadId,
         cutoffSourceTimestamp: cutoffTimestamp,
       ),
     );
     final response =
-        await _ingestionService?.postCoreInline(body: corePayload.requestBody);
+        await _uploadService?.postCoreInline(body: corePayload.requestBody);
 
     if (response == null) {
-      throw const IngestionApiException('Network error during stopReplay');
+      throw const UploadApiException('Network error during stopReplay');
     }
 
     _currentSessionId = null;
-    _currentRemoteIngestionId = null;
+    _currentRemoteUploadId = null;
     _currentDeviceId = null;
     _replayStartWallClock = null;
     _replayPoints = null;

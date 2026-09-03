@@ -10,13 +10,13 @@ class PresignResult {
   });
 }
 
-class IngestionStatus {
+class UploadStatus {
   final String coreStatus;
   final String rawStatus;
   final int? tripId;
   final bool mapAvailable;
 
-  const IngestionStatus({
+  const UploadStatus({
     required this.coreStatus,
     required this.rawStatus,
     this.tripId,
@@ -44,14 +44,14 @@ class IngestionStatus {
 }
 
 class InlineCoreResult {
-  final int ingestionId;
+  final int uploadId;
   final int? tripId;
   final String coreStatus;
   final String rawStatus;
   final bool mapAvailable;
 
   const InlineCoreResult({
-    required this.ingestionId,
+    required this.uploadId,
     required this.tripId,
     required this.coreStatus,
     required this.rawStatus,
@@ -77,15 +77,15 @@ class InlineCoreResult {
       rawStatus == 'PENDING' || rawStatus == 'RECEIVING';
 }
 
-class IngestionStartResult {
-  final int ingestionId;
+class UploadStartResult {
+  final int uploadId;
   final String clientSessionId;
   final String deviceId;
   final DateTime recordingStartedAt;
   final bool alreadyExists;
 
-  const IngestionStartResult({
-    required this.ingestionId,
+  const UploadStartResult({
+    required this.uploadId,
     required this.clientSessionId,
     required this.deviceId,
     required this.recordingStartedAt,
@@ -93,15 +93,15 @@ class IngestionStartResult {
   });
 }
 
-class ActiveIngestion {
-  final int ingestionId;
+class ActiveUpload {
+  final int uploadId;
   final String clientSessionId;
   final String deviceId;
   final DateTime recordingStartedAt;
   final DateTime? lastSeenAt;
 
-  const ActiveIngestion({
-    required this.ingestionId,
+  const ActiveUpload({
+    required this.uploadId,
     required this.clientSessionId,
     required this.deviceId,
     required this.recordingStartedAt,

@@ -11,7 +11,7 @@ List<SingleChildWidget> buildProviders() => [
         create: (_) => AcquisitionLocalDatabase(),
       ),
       Provider<DeviceIdentityStore>(
-        create: (_) => SecureDeviceIdentityStore(),
+        create: (_) => const SecureDeviceIdentityStore(),
       ),
       Provider<TripTrackService>(
         create: (context) => TripTrackHttpService(
@@ -23,8 +23,8 @@ List<SingleChildWidget> buildProviders() => [
           tokenProvider: context.read<AuthSessionStore>().readAccessToken,
         ),
       ),
-      Provider<TripIngestionService>(
-        create: (context) => TripIngestionDioService(
+      Provider<TripUploadService>(
+        create: (context) => TripUploadDioService(
           tokenProvider: context.read<AuthSessionStore>().readAccessToken,
         ),
       ),

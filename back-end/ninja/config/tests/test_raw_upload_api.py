@@ -3,9 +3,9 @@ from urllib.request import Request, urlopen
 
 import pytest
 
-from mobility.ingestion import storage
+from mobility.upload import storage
 
-from .test_ingestion_and_trips_api import complete_core, post_json, start_recording
+from .test_upload_and_trips_api import complete_core, post_json, start_recording
 
 
 pytestmark = pytest.mark.django_db
@@ -26,22 +26,22 @@ def test_raw_upload_reports_missing_parts_then_queues_enrichment(
     api_client, mobile_session, local_minio
 ):
     headers = mobile_session["headers"]
-    ingestion_id = start_recording(api_client, headers).json()["ingestion_id"]
+    upload_id = start_recording(api_client, headers).json()["upload_id"]
     core = complete_core(
         api_client,
         headers,
-        ingestion_id,
+        upload_id,
         expected_raw_parts=1,
     )
 
     before_upload = api_client.get(
-        f"/api/ingestion/trips/{ingestion_id}", **headers
+        f"/api/upload/trips/{upload_id}", **headers
     )
     raw_bytes = b"deterministic raw sensor fixture"
     checksum = hashlib.sha256(raw_bytes).hexdigest()
     presigned = post_json(
         api_client,
-        f"/api/ingestion/trips/{ingestion_id}/parts/presign",
+        f"/api/upload/trips/{upload_id}/parts/presign",
         {"sequence": 1, "sha256": checksum},
         headers,
     )
@@ -56,13 +56,13 @@ def test_raw_upload_reports_missing_parts_then_queues_enrichment(
 
     confirmed = post_json(
         api_client,
-        f"/api/ingestion/trips/{ingestion_id}/parts/confirm",
+        f"/api/upload/trips/{upload_id}/parts/confirm",
         {"sequence": 1, "sha256": checksum},
         headers,
     )
     queued = post_json(
         api_client,
-        f"/api/ingestion/trips/{ingestion_id}/complete-raw",
+        f"/api/upload/trips/{upload_id}/complete-raw",
         {"total_parts": 1},
         headers,
     )
@@ -80,19 +80,19 @@ def test_raw_confirmation_rejects_a_different_checksum(
     api_client, mobile_session, local_minio
 ):
     headers = mobile_session["headers"]
-    ingestion_id = start_recording(api_client, headers).json()["ingestion_id"]
-    complete_core(api_client, headers, ingestion_id, expected_raw_parts=1)
+    upload_id = start_recording(api_client, headers).json()["upload_id"]
+    complete_core(api_client, headers, upload_id, expected_raw_parts=1)
     checksum = hashlib.sha256(b"declared").hexdigest()
     post_json(
         api_client,
-        f"/api/ingestion/trips/{ingestion_id}/parts/presign",
+        f"/api/upload/trips/{upload_id}/parts/presign",
         {"sequence": 1, "sha256": checksum},
         headers,
     )
 
     response = post_json(
         api_client,
-        f"/api/ingestion/trips/{ingestion_id}/parts/confirm",
+        f"/api/upload/trips/{upload_id}/parts/confirm",
         {"sequence": 1, "sha256": hashlib.sha256(b"other").hexdigest()},
         headers,
     )
@@ -107,12 +107,12 @@ def test_raw_completion_rejects_a_count_different_from_the_manifest(
     api_client, mobile_session
 ):
     headers = mobile_session["headers"]
-    ingestion_id = start_recording(api_client, headers).json()["ingestion_id"]
-    complete_core(api_client, headers, ingestion_id, expected_raw_parts=2)
+    upload_id = start_recording(api_client, headers).json()["upload_id"]
+    complete_core(api_client, headers, upload_id, expected_raw_parts=2)
 
     response = post_json(
         api_client,
-        f"/api/ingestion/trips/{ingestion_id}/complete-raw",
+        f"/api/upload/trips/{upload_id}/complete-raw",
         {"total_parts": 1},
         headers,
     )

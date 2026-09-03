@@ -4,7 +4,7 @@ part 'inline_core_result_dto.g.dart';
 
 @JsonSerializable(fieldRename: FieldRename.snake)
 class InlineCoreResultDto {
-  final int ingestionId;
+  final int uploadId;
   final int? tripId;
   final String coreStatus;
   final String rawStatus;
@@ -12,7 +12,7 @@ class InlineCoreResultDto {
   final bool mapAvailable;
 
   const InlineCoreResultDto({
-    required this.ingestionId,
+    required this.uploadId,
     required this.tripId,
     required this.coreStatus,
     required this.rawStatus,

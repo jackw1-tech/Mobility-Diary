@@ -8,7 +8,7 @@ from accounts.privacy.api import router as privacy_router
 from accounts.auth_web.api import router as web_auth_router
 from accounts.auth_web.users_api import router as web_users_router
 from mobility.api import router as mobility_router
-from mobility.ingestion.api import router as ingestion_router
+from mobility.upload.api import router as upload_router
 
 OPENAPI_TAGS = [
     {
@@ -32,8 +32,8 @@ OPENAPI_TAGS = [
         "description": "Diario, viaggi, luoghi significativi e analitiche personali.",
     },
     {
-        "name": "ingestion",
-        "description": "Avvio, caricamento e completamento dell'ingestione dei viaggi.",
+        "name": "upload",
+        "description": "Avvio, caricamento e completamento dell'upload dei viaggi.",
     },
 ]
 
@@ -60,7 +60,7 @@ api.add_router("/privacy/", privacy_router)
 api.add_router("/web/auth/", web_auth_router)
 api.add_router("/web/", web_users_router)
 api.add_router("/mobility/", mobility_router)
-api.add_router("/ingestion/", ingestion_router)
+api.add_router("/upload/", upload_router)
 
 urlpatterns = [
     path("admin/", admin.site.urls),

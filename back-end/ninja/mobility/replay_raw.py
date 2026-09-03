@@ -3,7 +3,7 @@
 Condiviso da Ricaricamento Diretto (`reload_trip`) e Riproduzione Live
 (`create_core_inline`): legge le sensor window sorgente, le shifta nel tempo e,
 con un cutoff opzionale, scarta quelle iniziate dopo lo Stop. Scrive nuovi
-oggetti sotto il prefisso dell'ingestion e accoda l'HAR finale.
+oggetti sotto il prefisso dell'upload e accoda l'HAR finale.
 """
 
 from __future__ import annotations
@@ -20,13 +20,13 @@ from django.utils.dateparse import parse_datetime
 
 from shared.exceptions import ServiceError
 
-from .ingestion import selectors as ingestion_selectors
-from .ingestion import storage
-from .ingestion.raw_sensor_codec import (
+from .upload import selectors as upload_selectors
+from .upload import storage
+from .upload.raw_sensor_codec import (
     InvalidRawSensorPayload,
     decode_sensor_windows_payload,
 )
-from .models import Trip, TripIngestion
+from .models import Trip, TripUpload
 from .replay_windows_cache import cache_windows, get_cached_windows
 from .selectors import har_jobs as har_jobs_repository
 from .tasks import process_trip_har_final
@@ -37,10 +37,10 @@ class ReplayRawError(ServiceError):
 
     E' un modulo di dominio (non un service ne' un router): non deve
     sollevare `ninja.errors.HttpError` direttamente. I due service che lo
-    invocano (`mobility.services.reload`, `mobility.ingestion.services`)
+    invocano (`mobility.services.reload`, `mobility.upload.services`)
     catturano questa eccezione e la ritraducono nel proprio errore di
     dominio, cosi' il router continua a vedere solo `ReloadServiceError` /
-    `IngestionServiceError` come prima.
+    `UploadServiceError` come prima.
     """
 
     status_code = 409
@@ -111,7 +111,7 @@ def _shifted_part_body(object_key: str, shift, cutoff) -> bytes | None:
 
 """ 
 Dato il trip e l'offset calcolato come durata * velocità
-Recupera tutte le TripIngestionPart
+Recupera tutte le TripUploadPart
 Per oguna di esse scarica i dati dei sensori e i dati aggiuntivi se non sono già in cache
 Usa start_us e end_us per trovare la 500 x 6 giusta
 """
@@ -120,7 +120,7 @@ def source_sensor_window_at(
 ) -> list[list[float]] | None:
     windows = get_cached_windows(source.id)
     if windows is None:
-        parts = ingestion_selectors.completed_raw_parts_for_trip(source)
+        parts = upload_selectors.completed_raw_parts_for_trip(source)
         windows = []
         for part in parts:
             try:
@@ -146,16 +146,16 @@ def source_sensor_window_at(
 
 
 def regenerate_raw_and_queue_har(
-    ingestion: TripIngestion,
+    upload: TripUpload,
     source: Trip,
     *,
     shift,
     now,
     cutoff: datetime | None = None,
 ) -> None:
-    """Rigenera i raw sorgente nell'ingestion e accoda l'HAR. Rigetta con 409 se
+    """Rigenera i raw sorgente nell'upload e accoda l'HAR. Rigetta con 409 se
     le telemetrie sorgenti mancano/illeggibili, con 503 se lo storage fallisce."""
-    parts = ingestion_selectors.completed_raw_parts_for_trip(source)
+    parts = upload_selectors.completed_raw_parts_for_trip(source)
     if not parts.exists():
         raise ReplayRawError("telemetrie sorgente non disponibili")
     try:
@@ -175,7 +175,7 @@ def regenerate_raw_and_queue_har(
     try:
         for sequence, body in enumerate(shifted_parts, start=1):
             object_key = storage.raw_part_object_key(
-                ingestion.raw_base_path, sequence
+                upload.raw_base_path, sequence
             )
             sha256 = hashlib.sha256(body).hexdigest()
             try:
@@ -183,21 +183,21 @@ def regenerate_raw_and_queue_har(
             except Exception as exc:
                 raise ReplayStorageUnavailable("storage ricaricamento non disponibile") from exc
             written.append(object_key)
-            ingestion_selectors.create_ingestion_part(
-                ingestion,
+            upload_selectors.create_upload_part(
+                upload,
                 sequence=sequence,
                 sha256=sha256,
                 object_key=object_key,
                 received_at=now,
             )
-        ingestion.expected_raw_parts = len(shifted_parts)
-        ingestion.raw_status = TripIngestion.PhaseStatus.QUEUED
-        ingestion.queued_at = now
-        ingestion.save(
+        upload.expected_raw_parts = len(shifted_parts)
+        upload.raw_status = TripUpload.PhaseStatus.QUEUED
+        upload.queued_at = now
+        upload.save(
             update_fields=["expected_raw_parts", "raw_status", "queued_at", "updated_at"]
         )
-        job = har_jobs_repository.create_har_job(ingestion.trip_id)
-        transaction.on_commit(lambda: process_trip_har_final.delay(job.id, ingestion.id))
+        job = har_jobs_repository.create_har_job(upload.trip_id)
+        transaction.on_commit(lambda: process_trip_har_final.delay(job.id, upload.id))
     except Exception:
         for object_key in written:
             try:

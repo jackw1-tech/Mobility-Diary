@@ -14,9 +14,9 @@ from django.utils import timezone
 
 from shared.exceptions import ServiceError
 
-from ..ingestion import selectors as ingestion_repository
-from ..ingestion.materialization import build_trip_path, materialized_trip_counts
-from ..models import GpsPoint, StateTransition, Trip, TripIngestion
+from ..upload import selectors as upload_repository
+from ..upload.materialization import build_trip_path, materialized_trip_counts
+from ..models import GpsPoint, StateTransition, Trip, TripUpload
 from ..replay_raw import (
     ReplayRawError,
     ReplayStorageUnavailable,
@@ -94,12 +94,12 @@ def reload_trip_from_source(
 ) -> dict:
     if not reload_request_id:
         raise ReloadValidationError("reload_request_id richiesto")
-    if ingestion_repository.active_ingestions_for_owner(user_id).exists():
+    if upload_repository.active_uploads_for_owner(user_id).exists():
         raise ReloadServiceError("viaggio in corso attivo")
 
     task_started = perf_counter()
     phase_timings_ms: dict[str, float] = {}
-    ingestion_id: int | None = None
+    upload_id: int | None = None
     result_trip_id: int | None = None
 
     now = now or timezone.now()
@@ -113,7 +113,7 @@ def reload_trip_from_source(
     try:
         with transaction.atomic():
             lookup_started = perf_counter()
-            existing = ingestion_repository.locked_ingestion_by_client_session(
+            existing = upload_repository.locked_upload_by_client_session(
                 user_id, client_session_id
             )
             if existing is not None:
@@ -122,12 +122,12 @@ def reload_trip_from_source(
                     phase_timings_ms["task_total"] = _elapsed_ms(task_started)
                     _log_reload_timing(
                         "idempotent_hit",
-                        ingestion_id=existing.id,
+                        upload_id=existing.id,
                         trip_id=existing.trip_id,
                         phase_timings_ms=phase_timings_ms,
                     )
                     return reload_response(existing)
-                ingestion_repository.delete_ingestion(existing)
+                upload_repository.delete_upload(existing)
 
             source = trips_repository.locked_trip_by_id(source.id)
             if not _is_reloadable_source(source):
@@ -148,20 +148,20 @@ def reload_trip_from_source(
             phase_timings_ms["build_timeline"] = _elapsed_ms(timeline_started)
 
             create_started = perf_counter()
-            ingestion = ingestion_repository.create_ingestion_with_fields(
+            upload = upload_repository.create_upload_with_fields(
                 user_id=user_id,
                 client_session_id=client_session_id,
                 device_id="reload",
-                core_status=TripIngestion.PhaseStatus.COMPLETED,
-                raw_status=TripIngestion.PhaseStatus.PENDING,
+                core_status=TripUpload.PhaseStatus.COMPLETED,
+                raw_status=TripUpload.PhaseStatus.PENDING,
                 expected_raw_parts=0,
                 started_at=reload_start,
                 ended_at=reload_end,
                 completed_at=reload_end,
             )
-            ingestion.raw_base_path = f"ingestions/{ingestion.id}/"
-            ingestion.save(update_fields=["raw_base_path", "updated_at"])
-            ingestion_id = ingestion.id
+            upload.raw_base_path = f"uploads/{upload.id}/"
+            upload.save(update_fields=["raw_base_path", "updated_at"])
+            upload_id = upload.id
 
             trip = trips_repository.create_trip(
                 user_id=user_id,
@@ -181,13 +181,13 @@ def reload_trip_from_source(
             trip.refresh_from_db(fields=["path", "distance_meters"])
             phase_timings_ms["copy_core_evidence"] = _elapsed_ms(copy_started)
 
-            ingestion.trip = trip
-            ingestion.save(update_fields=["trip", "updated_at"])
+            upload.trip = trip
+            upload.save(update_fields=["trip", "updated_at"])
 
             regen_started = perf_counter()
             try:
                 regenerate_raw_and_queue_har(
-                    ingestion, source, shift=shift, now=reload_end
+                    upload, source, shift=shift, now=reload_end
                 )
             finally:
                 phase_timings_ms["regenerate_raw_and_queue_har"] = _elapsed_ms(
@@ -196,16 +196,16 @@ def reload_trip_from_source(
             phase_timings_ms["task_total"] = _elapsed_ms(task_started)
             _log_reload_timing(
                 "completed",
-                ingestion_id=ingestion_id,
+                upload_id=upload_id,
                 trip_id=result_trip_id,
                 phase_timings_ms=phase_timings_ms,
             )
-            return reload_response(ingestion)
+            return reload_response(upload)
     except ReplayStorageUnavailable as exc:
         phase_timings_ms["task_total_until_error"] = _elapsed_ms(task_started)
         _log_reload_timing(
             "failed_storage",
-            ingestion_id=ingestion_id,
+            upload_id=upload_id,
             trip_id=result_trip_id,
             phase_timings_ms=phase_timings_ms,
             error=exc.message,
@@ -215,7 +215,7 @@ def reload_trip_from_source(
         phase_timings_ms["task_total_until_error"] = _elapsed_ms(task_started)
         _log_reload_timing(
             "failed_raw",
-            ingestion_id=ingestion_id,
+            upload_id=upload_id,
             trip_id=result_trip_id,
             phase_timings_ms=phase_timings_ms,
             error=exc.message,
@@ -225,7 +225,7 @@ def reload_trip_from_source(
         phase_timings_ms["task_total_until_error"] = _elapsed_ms(task_started)
         _log_reload_timing(
             "failed_unexpected",
-            ingestion_id=ingestion_id,
+            upload_id=upload_id,
             trip_id=result_trip_id,
             phase_timings_ms=phase_timings_ms,
             error=str(exc),
@@ -233,16 +233,16 @@ def reload_trip_from_source(
         raise
 
 
-def reload_response(ingestion: TripIngestion) -> dict:
-    trip = ingestion.trip
+def reload_response(upload: TripUpload) -> dict:
+    trip = upload.trip
     if trip is None:
         raise ReloadServiceError("reload senza trip materializzato")
     counts = materialized_trip_counts(trip)
     return {
-        "ingestion_id": ingestion.id,
+        "upload_id": upload.id,
         "trip_id": trip.id,
-        "core_status": ingestion.core_status,
-        "raw_status": ingestion.raw_status,
+        "core_status": upload.core_status,
+        "raw_status": upload.raw_status,
         "gps_points": counts.gps_points,
         "state_transitions": counts.state_transitions,
         "path_points": counts.path_points,
@@ -418,7 +418,7 @@ def _percentages(values: dict[str, float], total_ms: float) -> dict[str, float]:
 def _log_reload_timing(
     status: str,
     *,
-    ingestion_id: int | None,
+    upload_id: int | None,
     trip_id: int | None,
     phase_timings_ms: dict[str, float],
     error: str | None = None,
@@ -433,7 +433,7 @@ def _log_reload_timing(
 
     log_payload = {
         "status": status,
-        "ingestion_id": ingestion_id,
+        "upload_id": upload_id,
         "trip_id": trip_id,
         "total_ms": round(total_ms, 2),
         "phases_ms": _rounded(phase_timings_ms),

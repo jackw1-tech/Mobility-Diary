@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:diary/network/service/trip_ingestion_service.dart';
+import 'package:diary/network/service/trip_upload_service.dart';
 import 'package:diary/network/dto/place_mining_status_dto.dart';
 import 'package:diary/network/dto/place_review_dto.dart';
 import 'package:diary/network/service/impl/http_json_utils.dart';
@@ -18,7 +18,7 @@ abstract class PlacesService {
   });
 }
 
-class PlaceMutationBlockedException extends IngestionApiException {
+class PlaceMutationBlockedException extends UploadApiException {
   final PlaceMiningStatusDto placeStatus;
 
   const PlaceMutationBlockedException(
@@ -42,7 +42,7 @@ class PlacesHttpService implements PlacesService {
   Future<PlaceMiningStatusDto> fetchPlacesStatus() async {
     final data = await _send('GET', '/mobility/places/status');
     if (data is! Map) {
-      throw const IngestionApiException('Stato luoghi non valido');
+      throw const UploadApiException('Stato luoghi non valido');
     }
     return PlaceMiningStatusDto.fromJson(Map<String, dynamic>.from(data));
   }
@@ -51,7 +51,7 @@ class PlacesHttpService implements PlacesService {
   Future<List<PlaceReviewDto>> fetchPlaces() async {
     final data = await _send('GET', '/mobility/places');
     if (data is! List) {
-      throw const IngestionApiException('Risposta luoghi non valida');
+      throw const UploadApiException('Risposta luoghi non valida');
     }
     return data
         .map((item) =>
@@ -83,7 +83,7 @@ class PlacesHttpService implements PlacesService {
       {Map<String, dynamic>? body}) async {
     final data = await _send('POST', '/mobility/places/$suffix', body: body);
     if (data is! Map) {
-      throw const IngestionApiException('Risposta azione luogo non valida');
+      throw const UploadApiException('Risposta azione luogo non valida');
     }
     return PlaceReviewDto.fromJson(Map<String, dynamic>.from(data));
   }
@@ -100,7 +100,7 @@ class PlacesHttpService implements PlacesService {
       final blocked = _extractBlocked(response.statusCode, response.body);
       if (blocked != null) throw blocked;
       final detail = _extractDetail(response.body);
-      throw IngestionApiException(
+      throw UploadApiException(
         detail ?? 'Richiesta luoghi fallita (HTTP ${response.statusCode})',
         statusCode: response.statusCode,
       );

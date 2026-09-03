@@ -4,10 +4,11 @@ import 'package:diary/network/service/impl/acquisition_local_database.dart';
 
 /// Persiste le finestre sensori HAR di una sessione, scartando i doppioni.
 ///
-/// Le finestre arrivano da due strade che possono sovrapporsi (il callback live
-/// del runtime e il recupero delle finestre gia' completate a ogni decisione
-/// FSM), quindi serve ricordare cosa e' gia' stato scritto: la chiave e'
-/// l'intervallo temporale della finestra, stabile tra le due strade.
+/// Oggi le finestre arrivano da una sola strada (il callback `onHarWindow` del
+/// runtime, una chiamata per finestra chiusa), quindi la deduplica non
+/// dovrebbe mai scattare: resta come rete di sicurezza a costo trascurabile,
+/// perche' riscrivere la stessa finestra violerebbe il vincolo di unicita'
+/// sull'intervallo temporale. La chiave e' appunto quell'intervallo.
 class HarWindowRecorder {
   final AcquisitionDao _dao;
   final Set<String> _persistedKeys = {};

@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:diary/network/service/trip_ingestion_service.dart';
+import 'package:diary/network/service/trip_upload_service.dart';
 import 'package:diary/network/dto/trip_track_dto.dart';
 import 'package:diary/network/service/impl/http_json_utils.dart';
 
@@ -44,12 +44,12 @@ class TripTrackHttpService implements TripTrackService {
 
     if (response.isError) {
       final detail = decoded?['detail'];
-      throw IngestionApiException(
+      throw UploadApiException(
         detail is String ? detail : 'Richiesta traiettoria fallita',
         statusCode: response.statusCode,
       );
     }
     if (decoded != null) return decoded;
-    throw const IngestionApiException('Risposta traiettoria non valida');
+    throw const UploadApiException('Risposta traiettoria non valida');
   }
 }

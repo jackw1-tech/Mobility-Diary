@@ -4,8 +4,8 @@ final List<SingleChildWidget> _mappers = [
   Provider<AuthMapper>(
     create: (_) => AuthMapper(),
   ),
-  Provider<IngestionMapper>(
-    create: (_) => IngestionMapper(),
+  Provider<UploadMapper>(
+    create: (_) => UploadMapper(),
   ),
   Provider<AcquisitionMapper>(
     create: (_) => AcquisitionMapper(),

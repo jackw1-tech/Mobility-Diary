@@ -8,7 +8,7 @@ part of 'inline_core_result_dto.dart';
 
 InlineCoreResultDto _$InlineCoreResultDtoFromJson(Map<String, dynamic> json) =>
     InlineCoreResultDto(
-      ingestionId: (json['ingestion_id'] as num).toInt(),
+      uploadId: (json['upload_id'] as num).toInt(),
       tripId: (json['trip_id'] as num?)?.toInt(),
       coreStatus: json['core_status'] as String,
       rawStatus: json['raw_status'] as String,
@@ -18,7 +18,7 @@ InlineCoreResultDto _$InlineCoreResultDtoFromJson(Map<String, dynamic> json) =>
 Map<String, dynamic> _$InlineCoreResultDtoToJson(
         InlineCoreResultDto instance) =>
     <String, dynamic>{
-      'ingestion_id': instance.ingestionId,
+      'upload_id': instance.uploadId,
       'trip_id': instance.tripId,
       'core_status': instance.coreStatus,
       'raw_status': instance.rawStatus,

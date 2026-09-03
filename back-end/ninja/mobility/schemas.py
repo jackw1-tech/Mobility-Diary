@@ -135,7 +135,7 @@ class TripReloadSlotsOut(Schema):
 
 
 class TripReloadOut(Schema):
-    ingestion_id: int
+    upload_id: int
     trip_id: int
     core_status: str
     raw_status: str

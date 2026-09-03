@@ -1,10 +1,5 @@
 import 'tracking_state.dart';
 
-enum GpsAccuracyProfile {
-  lowPower,
-  highAccuracy,
-}
-
 class SamplingProfile {
   final int accelerometerHz;
   final int gyroscopeHz;
@@ -12,7 +7,6 @@ class SamplingProfile {
   final bool gpsEnabled;
   final Duration? gpsInterval;
   final double? gpsDistanceFilterMeters;
-  final GpsAccuracyProfile gpsAccuracy;
   final bool harWindowEnabled;
   final bool persistSensorWindows;
   final bool persistGpsPoints;
@@ -24,7 +18,6 @@ class SamplingProfile {
     required this.gpsEnabled,
     required this.gpsInterval,
     required this.gpsDistanceFilterMeters,
-    required this.gpsAccuracy,
     required this.harWindowEnabled,
     required this.persistSensorWindows,
     required this.persistGpsPoints,
@@ -37,8 +30,7 @@ class SamplingProfile {
           magnetometerHz: 0,
           gpsEnabled: true,
           gpsInterval: const Duration(seconds: 5),
-          gpsDistanceFilterMeters: 5,
-          gpsAccuracy: GpsAccuracyProfile.highAccuracy,
+          gpsDistanceFilterMeters: 3,
           harWindowEnabled: false,
           persistSensorWindows: false,
           persistGpsPoints: true,
@@ -52,7 +44,6 @@ class SamplingProfile {
           gpsEnabled: true,
           gpsInterval: const Duration(seconds: 2),
           gpsDistanceFilterMeters: 3,
-          gpsAccuracy: GpsAccuracyProfile.highAccuracy,
           harWindowEnabled: true,
           persistSensorWindows: true,
           persistGpsPoints: true,

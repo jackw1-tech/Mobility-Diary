@@ -2,7 +2,7 @@ import 'package:diary/model/entities/acquisition/acquisition_domain.dart';
 import 'package:diary/network/service/impl/acquisition_local_database.dart';
 
 /// Converte le righe del database locale di acquisizione nelle entity di
-/// dominio. E' il gemello locale di [IngestionMapper], che copre invece i DTO
+/// dominio. E' il gemello locale di [UploadMapper], che copre invece i DTO
 /// di rete: il DB Drift e' l'altra sorgente dati dell'acquisizione, e le sue
 /// righe generate sono a tutti gli effetti i suoi "DTO".
 class AcquisitionMapper {
@@ -15,7 +15,7 @@ class AcquisitionMapper {
       status: mapSyncStatus(job.coreStatus),
       rawStatus: mapSyncStatus(job.rawStatus),
       localSessionId: job.localSessionId,
-      remoteIngestionId: job.remoteIngestionId,
+      remoteUploadId: job.remoteUploadId,
       remoteTripId: job.remoteTripId,
       coreMapAvailable: job.coreMapAvailable,
       attempts: job.attempts,

@@ -20,7 +20,7 @@ void main() {
       id: 'session-1',
       deviceId: 'iphone-1',
       startedAt: startedAt,
-      remoteIngestionId: 42,
+      remoteUploadId: 42,
     );
 
     final stored = await dao.latestOpenSession();
@@ -28,7 +28,7 @@ void main() {
     expect(stored?.id, 'session-1');
     expect(stored?.startedAt, DateTime.utc(2026, 8, 30, 10));
     expect(stored?.startedAt.isUtc, isTrue);
-    expect(stored?.remoteIngestionId, 42);
+    expect(stored?.remoteUploadId, 42);
   });
 
   test('returns only accepted GPS evidence in chronological order', () async {
@@ -72,14 +72,14 @@ void main() {
       id: 'session-1',
       deviceId: 'iphone-1',
       startedAt: DateTime.utc(2026, 8, 30, 10),
-      remoteIngestionId: 77,
+      remoteUploadId: 77,
     );
 
     final first = await dao.createSyncJobIfAbsent('session-1');
     final retry = await dao.createSyncJobIfAbsent('session-1');
 
     expect(retry.id, first.id);
-    expect(retry.remoteIngestionId, 77);
+    expect(retry.remoteUploadId, 77);
     expect((await dao.claimableSyncJobs(DateTime.now().toUtc())).length, 1);
   });
 

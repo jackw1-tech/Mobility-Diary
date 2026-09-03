@@ -30,7 +30,7 @@ class AcquisitionLocalDatabase extends _$AcquisitionLocalDatabase {
       : super(executor ?? _openConnection());
 
   @override
-  int get schemaVersion => 9;
+  int get schemaVersion => 10;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -57,7 +57,7 @@ class AcquisitionLocalDatabase extends _$AcquisitionLocalDatabase {
             if (from < 6) {
               await m.addColumn(
                 acquisitionSessions,
-                acquisitionSessions.remoteIngestionId,
+                acquisitionSessions.remoteUploadId,
               );
             }
           }
@@ -88,6 +88,23 @@ class AcquisitionLocalDatabase extends _$AcquisitionLocalDatabase {
               await customStatement(
                 'ALTER TABLE gps_points DROP COLUMN is_synced',
               );
+            }
+          }
+          if (from < 10) {
+            // "ingestion" e' diventata "upload" in tutto il progetto: qui si
+            // adegua il nome della colonna, senza toccarne il contenuto.
+            for (final table in ['acquisition_sessions', 'sync_jobs']) {
+              final columns =
+                  await customSelect("PRAGMA table_info('$table')").get();
+              final hasLegacyName = columns.any(
+                (row) => row.read<String>('name') == 'remote_ingestion_id',
+              );
+              if (hasLegacyName) {
+                await customStatement(
+                  'ALTER TABLE $table '
+                  'RENAME COLUMN remote_ingestion_id TO remote_upload_id',
+                );
+              }
             }
           }
         },

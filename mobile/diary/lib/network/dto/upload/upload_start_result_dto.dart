@@ -1,10 +1,10 @@
 import 'package:json_annotation/json_annotation.dart';
 
-part 'ingestion_start_result_dto.g.dart';
+part 'upload_start_result_dto.g.dart';
 
 @JsonSerializable(fieldRename: FieldRename.snake)
-class IngestionStartResultDto {
-  final int ingestionId;
+class UploadStartResultDto {
+  final int uploadId;
   final String clientSessionId;
   final String deviceId;
   final DateTime recordingStartedAt;
@@ -12,16 +12,16 @@ class IngestionStartResultDto {
   @JsonKey(defaultValue: false)
   final bool alreadyExists;
 
-  const IngestionStartResultDto({
-    required this.ingestionId,
+  const UploadStartResultDto({
+    required this.uploadId,
     required this.clientSessionId,
     required this.deviceId,
     required this.recordingStartedAt,
     required this.alreadyExists,
   });
 
-  factory IngestionStartResultDto.fromJson(Map<String, dynamic> json) =>
-      _$IngestionStartResultDtoFromJson(json);
+  factory UploadStartResultDto.fromJson(Map<String, dynamic> json) =>
+      _$UploadStartResultDtoFromJson(json);
 
-  Map<String, dynamic> toJson() => _$IngestionStartResultDtoToJson(this);
+  Map<String, dynamic> toJson() => _$UploadStartResultDtoToJson(this);
 }

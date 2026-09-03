@@ -1,7 +1,7 @@
 import 'package:diary/network/service/impl/acquisition_local_database.dart';
-import 'package:diary/model/entities/acquisition/ingestion_models.dart';
-import 'package:diary/mappers/ingestion_mapper.dart';
-import 'package:diary/network/service/trip_ingestion_service.dart';
+import 'package:diary/model/entities/acquisition/upload_models.dart';
+import 'package:diary/mappers/upload_mapper.dart';
+import 'package:diary/network/service/trip_upload_service.dart';
 import 'package:diary/repositories/impl/acquisition/trip_package_builder.dart';
 import 'package:diary/repositories/trip_sync_queue.dart';
 import 'package:diary/network/service/trips_service.dart';
@@ -18,8 +18,8 @@ import 'package:drift/drift.dart' show Value;
 class TripSyncQueueImpl implements TripSyncQueue {
   final AcquisitionDao _dao;
   final TripPackageBuilder _builder;
-  final TripIngestionService _service;
-  final IngestionMapper _mapper;
+  final TripUploadService _service;
+  final UploadMapper _mapper;
   final TripsService? _tripsService;
   final AccessTokenProvider _tokenProvider;
   final List<Duration> _backoff;
@@ -32,8 +32,8 @@ class TripSyncQueueImpl implements TripSyncQueue {
   TripSyncQueueImpl({
     required AcquisitionDao dao,
     required TripPackageBuilder builder,
-    required TripIngestionService service,
-    required IngestionMapper mapper,
+    required TripUploadService service,
+    required UploadMapper mapper,
     required AccessTokenProvider tokenProvider,
     TripsService? tripsService,
     List<Duration>? backoff,
@@ -104,27 +104,27 @@ class TripSyncQueueImpl implements TripSyncQueue {
         return;
       }
 
-      var ingestionId = job.remoteIngestionId ?? package.remoteIngestionId;
-      IngestionStatus status;
+      var uploadId = job.remoteUploadId ?? package.remoteUploadId;
+      UploadStatus status;
       if (coreAlreadyCompleted) {
-        if (ingestionId == null) {
-          throw const IngestionApiException('remote ingestion assente');
+        if (uploadId == null) {
+          throw const UploadApiException('remote upload assente');
         }
         status =
-            _mapper.mapIngestionStatus(await _service.getStatus(ingestionId));
+            _mapper.mapUploadStatus(await _service.getStatus(uploadId));
       } else {
         final corePayload = package.corePayload!;
         await _dao.updateSyncJob(
           job.id,
           coreStatus: syncJobUploading,
-          remoteIngestionId:
-              ingestionId == null ? const Value.absent() : Value(ingestionId),
+          remoteUploadId:
+              uploadId == null ? const Value.absent() : Value(uploadId),
           corePayloadSizeBytes: corePayload.sizeBytes,
         );
         final coreResult = _mapper.mapInlineCoreResult(
           await _service.postCoreInline(body: corePayload.requestBody),
         );
-        ingestionId = coreResult.ingestionId;
+        uploadId = coreResult.uploadId;
         status = _statusFromInlineResult(coreResult);
       }
 
@@ -135,7 +135,7 @@ class TripSyncQueueImpl implements TripSyncQueue {
       if (status.isCoreBackendProcessing) {
         await _waitForCoreProcessing(
           job,
-          remoteIngestionId: ingestionId,
+          remoteUploadId: uploadId,
           delay: _processingDelayFor(status.coreStatus),
         );
         return;
@@ -146,35 +146,35 @@ class TripSyncQueueImpl implements TripSyncQueue {
           job.id,
           coreStatus: syncJobCompleted,
           coreMapAvailable: status.mapAvailable,
-          remoteIngestionId: Value(ingestionId),
+          remoteUploadId: Value(uploadId),
           remoteTripId: status.tripId != null
               ? Value(status.tripId)
               : const Value.absent(),
         );
-        if (await _handleRawOutcome(job, package, ingestionId, status)) {
+        if (await _handleRawOutcome(job, package, uploadId, status)) {
           return;
         }
         if (status.canReceiveRawParts) {
           await _dao.updateSyncJob(job.id, rawStatus: syncJobUploading);
-          await _uploadRawParts(ingestionId, package.rawParts);
-          await _service.completeRawIngestion(
-            ingestionId,
+          await _uploadRawParts(uploadId, package.rawParts);
+          await _service.completeRawUpload(
+            uploadId,
             totalParts: package.rawParts.length,
           );
           status =
-              _mapper.mapIngestionStatus(await _service.getStatus(ingestionId));
-          if (await _handleRawOutcome(job, package, ingestionId, status)) {
+              _mapper.mapUploadStatus(await _service.getStatus(uploadId));
+          if (await _handleRawOutcome(job, package, uploadId, status)) {
             return;
           }
         }
         if (status.canCompleteRaw) {
-          await _service.completeRawIngestion(
-            ingestionId,
+          await _service.completeRawUpload(
+            uploadId,
             totalParts: package.rawParts.length,
           );
           status =
-              _mapper.mapIngestionStatus(await _service.getStatus(ingestionId));
-          if (await _handleRawOutcome(job, package, ingestionId, status)) {
+              _mapper.mapUploadStatus(await _service.getStatus(uploadId));
+          if (await _handleRawOutcome(job, package, uploadId, status)) {
             return;
           }
         }
@@ -183,13 +183,13 @@ class TripSyncQueueImpl implements TripSyncQueue {
           job.id,
           rawStatus: syncJobFailedRetryable,
           nextRetryAt: Value(DateTime.now().toUtc().add(_pollDelay)),
-          lastError: const Value('raw sensor ingestion non completata'),
+          lastError: const Value('raw sensor upload non completata'),
         );
         return;
       }
 
-      throw IngestionApiException(
-          'stato ingestion non gestito: core=${status.coreStatus}, raw=${status.rawStatus}');
+      throw UploadApiException(
+          'stato upload non gestito: core=${status.coreStatus}, raw=${status.rawStatus}');
     } catch (error) {
       await _handleFailure(job, error);
     }
@@ -199,8 +199,8 @@ class TripSyncQueueImpl implements TripSyncQueue {
   Future<bool> _handleRawOutcome(
     SyncJob job,
     TripPackage package,
-    int ingestionId,
-    IngestionStatus status,
+    int uploadId,
+    UploadStatus status,
   ) async {
     if (status.isRawDone) {
       //completato con successo
@@ -215,7 +215,7 @@ class TripSyncQueueImpl implements TripSyncQueue {
       await _deletePackageDirectory(package);
       await _waitForRawProcessing(
         job,
-        remoteIngestionId: ingestionId,
+        remoteUploadId: uploadId,
         delay: _processingDelayFor(status.rawStatus),
       );
       return true;
@@ -225,12 +225,12 @@ class TripSyncQueueImpl implements TripSyncQueue {
 
   // Upload effettivo delle raw, a blocchi di _rawUploadConcurrency alla volta.
   Future<void> _uploadRawParts(
-    int ingestionId,
+    int uploadId,
     List<TripPackagePart> parts,
   ) async {
     for (final batch in _inBatches(parts, _rawUploadConcurrency)) {
       await Future.wait(
-        batch.map((part) => _uploadSinglePart(ingestionId, part)),
+        batch.map((part) => _uploadSinglePart(uploadId, part)),
       );
     }
   }
@@ -245,9 +245,9 @@ class TripSyncQueueImpl implements TripSyncQueue {
   }
 
   // Upload di un singolo blocco
-  Future<void> _uploadSinglePart(int ingestionId, TripPackagePart part) async {
+  Future<void> _uploadSinglePart(int uploadId, TripPackagePart part) async {
     final presign = _mapper.mapPresignResult(await _service.presignPart(
-      ingestionId,
+      uploadId,
       sequence: part.sequence,
       sha256: part.sha256,
     ));
@@ -258,14 +258,14 @@ class TripSyncQueueImpl implements TripSyncQueue {
       headers: presign.uploadHeaders,
     );
     await _service.confirmPart(
-      ingestionId,
+      uploadId,
       sequence: part.sequence,
       sha256: part.sha256,
     );
   }
 
-  IngestionStatus _statusFromInlineResult(InlineCoreResult result) {
-    return IngestionStatus(
+  UploadStatus _statusFromInlineResult(InlineCoreResult result) {
+    return UploadStatus(
       coreStatus: result.coreStatus,
       rawStatus: result.rawStatus,
       tripId: result.tripId,
@@ -298,30 +298,30 @@ class TripSyncQueueImpl implements TripSyncQueue {
 
   Future<void> _waitForCoreProcessing(
     SyncJob job, {
-    int? remoteIngestionId,
+    int? remoteUploadId,
     Duration? delay,
   }) {
     return _dao.updateSyncJob(
       job.id,
       coreStatus: syncJobWaitingProcessing,
-      remoteIngestionId: remoteIngestionId == null
+      remoteUploadId: remoteUploadId == null
           ? const Value.absent()
-          : Value(remoteIngestionId),
+          : Value(remoteUploadId),
       nextRetryAt: Value(DateTime.now().toUtc().add(delay ?? _pollDelay)),
     );
   }
 
   Future<void> _waitForRawProcessing(
     SyncJob job, {
-    int? remoteIngestionId,
+    int? remoteUploadId,
     Duration? delay,
   }) {
     return _dao.updateSyncJob(
       job.id,
       rawStatus: syncJobWaitingProcessing,
-      remoteIngestionId: remoteIngestionId == null
+      remoteUploadId: remoteUploadId == null
           ? const Value.absent()
-          : Value(remoteIngestionId),
+          : Value(remoteUploadId),
       nextRetryAt: Value(DateTime.now().toUtc().add(delay ?? _pollDelay)),
     );
   }
@@ -329,7 +329,7 @@ class TripSyncQueueImpl implements TripSyncQueue {
   Future<void> _handleFailure(SyncJob job, Object error) async {
     final currentJob = await _dao.syncJobForSession(job.localSessionId) ?? job;
     final coreCompleted = currentJob.coreStatus == syncJobCompleted;
-    if (error is IngestionApiException && error.statusCode == 410) {
+    if (error is UploadApiException && error.statusCode == 410) {
       await _discardJob(currentJob);
       return;
     }
