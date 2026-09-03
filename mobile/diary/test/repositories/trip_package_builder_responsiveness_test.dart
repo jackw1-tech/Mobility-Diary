@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:diary/network/service/impl/acquisition_local_database.dart';
 import 'package:diary/repositories/impl/acquisition/trip_package_builder.dart';
 import 'package:drift/native.dart';
@@ -45,7 +46,7 @@ void main() {
     );
 
     // Circa 13 MB di JSON realistico: abbastanza da rendere visibile un gzip
-    // eseguito accidentalmente sul main isolate, senza dipendere dalla rete.
+    // eseguito accidentalmente sul main isolate, senza appesantire la suite.
     final matrix = StringBuffer('[');
     for (var index = 0; index < 220000; index += 1) {
       if (index > 0) matrix.write(',');
@@ -126,8 +127,13 @@ void main() {
 
     final starts = <String>[];
     for (final part in package.rawParts) {
+      final compressedBytes = await part.file.readAsBytes();
+      expect(
+        part.sha256,
+        crypto.sha256.convert(compressedBytes).toString(),
+      );
       final payload = jsonDecode(
-        utf8.decode(gzip.decode(await part.file.readAsBytes())),
+        utf8.decode(gzip.decode(compressedBytes)),
       ) as Map<String, dynamic>;
       final windows = payload['windows'] as List<dynamic>;
       starts.addAll(

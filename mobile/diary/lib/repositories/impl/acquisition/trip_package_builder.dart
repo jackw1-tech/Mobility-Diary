@@ -168,12 +168,11 @@ class TripPackageBuilder {
 
     Future<void> flush() async {
       if (bufferedWindows.isEmpty) return;
-      final payloadJson = _encodeSensorWindowsJson(bufferedWindows);
       parts.add(
         await _writeGzipPart(
           directory,
           sequence,
-          payloadJson,
+          bufferedWindows,
         ),
       );
       sequence += 1;
@@ -212,16 +211,28 @@ class TripPackageBuilder {
   Future<TripPackagePart> _writeGzipPart(
     Directory directory,
     int sequence,
-    String payloadJson,
+    List<SensorWindow> windows,
   ) async {
     final fileName =
         'sensor_windows_part_${sequence.toString().padLeft(4, '0')}.json.gz';
     final file = File(p.join(directory.path, fileName));
 
-    // UTF-8, gzip, checksum e scrittura sono tutti fuori dal main isolate: su
-    // registrazioni lunghe sono il tratto CPU-bound che congelava i frame UI.
+    final partWindows = [
+      for (final window in windows)
+        _PartSensorWindow(
+          startTimestamp: window.startTimestamp,
+          endTimestamp: window.endTimestamp,
+          frequencyHz: window.frequencyHz,
+          sampleCount: window.sampleCount,
+          matrixJson: window.matrixJson,
+        ),
+    ];
+
+    // Serializzazione, UTF-8, gzip, checksum e scrittura sono fuori dal main
+    // isolate. Il gzip riceve una finestra alla volta: non esistono piu' ne'
+    // la String JSON dell'intera parte ne' la sua copia completa in byte.
     final sha256 = await Isolate.run(
-      () => _compressAndWritePart(file.path, payloadJson),
+      () => _streamCompressedPart(file.path, partWindows),
     );
 
     return TripPackagePart(
@@ -232,12 +243,105 @@ class TripPackageBuilder {
   }
 }
 
-String _compressAndWritePart(String filePath, String payloadJson) {
-  // Il testo decimale e' ridondante: gzip lo riduce di circa 2,5x, il che
-  // porta la parte quasi in pari con il vecchio formato binario.
-  final gzipped = gzip.encode(utf8.encode(payloadJson));
-  File(filePath).writeAsBytesSync(gzipped, flush: true);
-  return crypto.sha256.convert(gzipped).toString();
+class _PartSensorWindow {
+  final DateTime startTimestamp;
+  final DateTime endTimestamp;
+  final int frequencyHz;
+  final int sampleCount;
+  final String matrixJson;
+
+  const _PartSensorWindow({
+    required this.startTimestamp,
+    required this.endTimestamp,
+    required this.frequencyHz,
+    required this.sampleCount,
+    required this.matrixJson,
+  });
+}
+
+String _streamCompressedPart(
+  String filePath,
+  List<_PartSensorWindow> windows,
+) {
+  final output = _CompressedFileAndHashSink(
+    File(filePath).openSync(mode: FileMode.write),
+  );
+  final gzipInput = gzip.encoder.startChunkedConversion(output);
+
+  try {
+    gzipInput.add(utf8.encode('{"windows":['));
+    for (var index = 0; index < windows.length; index += 1) {
+      final window = windows[index];
+      if (index > 0) gzipInput.add(const [44]); // `,`
+
+      // Solo i metadati piccoli vengono concatenati. La matrice, che e' quasi
+      // tutto il payload, entra direttamente nel convertitore UTF-8/gzip.
+      gzipInput.add(
+        utf8.encode(
+          '{"window_start":"${window.startTimestamp.toUtc().toIso8601String()}"'
+          ',"window_end":"${window.endTimestamp.toUtc().toIso8601String()}"'
+          ',"sample_rate_hz":${window.frequencyHz}'
+          ',"sample_count":${window.sampleCount}'
+          ',"channel_count":$sensorMatrixChannelCount'
+          ',"samples":',
+        ),
+      );
+      gzipInput.add(utf8.encode(window.matrixJson));
+      gzipInput.add(const [125]); // `}`
+    }
+    gzipInput.add(const [93, 125]); // `]}`
+    gzipInput.close();
+    return output.sha256;
+  } catch (_) {
+    output.close();
+    rethrow;
+  }
+}
+
+class _CompressedFileAndHashSink implements Sink<List<int>> {
+  final RandomAccessFile _file;
+  final _DigestSink _digestOutput = _DigestSink();
+  late final Sink<List<int>> _hashInput;
+  bool _closed = false;
+
+  _CompressedFileAndHashSink(this._file) {
+    _hashInput = crypto.sha256.startChunkedConversion(_digestOutput);
+  }
+
+  @override
+  void add(List<int> data) {
+    if (_closed) throw StateError('compressed sink gia chiuso');
+    _file.writeFromSync(data);
+    _hashInput.add(data);
+  }
+
+  @override
+  void close() {
+    if (_closed) return;
+    _closed = true;
+    try {
+      _hashInput.close();
+    } finally {
+      _file.closeSync();
+    }
+  }
+
+  String get sha256 {
+    if (!_closed) throw StateError('compressed sink ancora aperto');
+    final digest = _digestOutput.value;
+    if (digest == null) throw StateError('digest SHA-256 non disponibile');
+    return digest.toString();
+  }
+}
+
+class _DigestSink implements Sink<crypto.Digest> {
+  crypto.Digest? value;
+
+  @override
+  void add(crypto.Digest data) => value = data;
+
+  @override
+  void close() {}
 }
 
 bool _belongsToSession(DateTime timestamp, AcquisitionSession? session) {
@@ -255,34 +359,6 @@ const int _windowJsonOverheadBytes = 220;
 int _sensorWindowJsonByteSize(SensorWindow window) {
   // La matrice e' gia' JSON su disco: la sua lunghezza e' la dimensione reale.
   return _windowJsonOverheadBytes + window.matrixJson.length;
-}
-
-/// Serializza le finestre nel formato atteso dal backend
-/// (`decode_sensor_windows_payload`). La matrice viene inserita verbatim dal
-/// DB: e' gia' JSON valido e arrotondato, quindi non serve decodificarla e
-/// ricodificarla — si risparmia il giro piu' costoso dell'intero packaging.
-String _encodeSensorWindowsJson(List<SensorWindow> windows) {
-  final buffer = StringBuffer('{"windows":[');
-  for (var i = 0; i < windows.length; i += 1) {
-    final window = windows[i];
-    if (i > 0) buffer.write(',');
-    buffer
-      ..write('{"window_start":"')
-      ..write(window.startTimestamp.toUtc().toIso8601String())
-      ..write('","window_end":"')
-      ..write(window.endTimestamp.toUtc().toIso8601String())
-      ..write('","sample_rate_hz":')
-      ..write(window.frequencyHz)
-      ..write(',"sample_count":')
-      ..write(window.sampleCount)
-      ..write(',"channel_count":')
-      ..write(sensorMatrixChannelCount)
-      ..write(',"samples":')
-      ..write(window.matrixJson)
-      ..write('}');
-  }
-  buffer.write(']}');
-  return buffer.toString();
 }
 
 Object? _stableJsonValue(Object? value) {

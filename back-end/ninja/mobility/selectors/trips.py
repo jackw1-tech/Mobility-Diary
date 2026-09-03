@@ -9,7 +9,6 @@ from django.contrib.gis.db.models.functions import AsGeoJSON, Length
 from django.db.models import (
     BooleanField,
     Case,
-    Count,
     Exists,
     OuterRef,
     Q,
@@ -18,7 +17,7 @@ from django.db.models import (
 )
 
 from ..upload import selectors as upload_selectors
-from ..models import SensorWindow, Trip, TripUpload, TripUploadPart
+from ..models import GpsPoint, SensorWindow, Trip, TripUpload, TripUploadPart
 
 
 @dataclass(frozen=True)
@@ -224,24 +223,17 @@ def trip_list_item_by_id(trip_id: int) -> dict[str, Any]:
 def trip_track_for_user(trip_id: int, user_id: int) -> dict[str, Any] | None:
     row = (
         Trip.objects.filter(pk=trip_id, user_id=user_id)
-        .annotate(
-            track_geojson=AsGeoJSON("path"),
-            track_distance=Length("path"),
-            point_count=Count("gps_points"),
-        )
-        .values("id", "track_geojson", "track_distance", "point_count")
+        .annotate(track_geojson=AsGeoJSON("path"))
+        .values("id", "track_geojson", "distance_meters")
         .first()
     )
     if row is None:
         return None
 
-    distance = row["track_distance"]
     return {
         "trip_id": row["id"],
-        "point_count": row["point_count"],
-        "distance_meters": float(
-            distance.m if hasattr(distance, "m") else distance or 0
-        ),
+        "point_count": GpsPoint.objects.filter(trip_id=trip_id).count(),
+        "distance_meters": float(row["distance_meters"] or 0),
         "geojson": (
             json.loads(row["track_geojson"])
             if row["track_geojson"] is not None
