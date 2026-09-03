@@ -172,7 +172,6 @@ class TripIngestionDioService implements TripIngestionService {
     int ingestionId, {
     required int sequence,
     required String sha256,
-    required int sizeBytes,
   }) =>
       _send(
         () async => _dio.post(
@@ -180,7 +179,6 @@ class TripIngestionDioService implements TripIngestionService {
           data: {
             'sequence': sequence,
             'sha256': sha256,
-            'size_bytes': sizeBytes,
           },
           options: await _options(),
         ),

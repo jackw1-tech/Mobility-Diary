@@ -1,120 +1,117 @@
 from __future__ import annotations
 
-import struct
+import json
 from datetime import datetime, timezone as dt_timezone
-from enum import Enum
 
 import numpy as np
+from django.utils.dateparse import parse_datetime
 
 from ..ml.pipeline import PipelineSensorWindow
 
+EXPECTED_SAMPLE_COUNT = 500
+EXPECTED_CHANNEL_COUNT = 6
+
+# Il modello HAR lavora in float32: convertire qui evita che il resto della
+# pipeline debba conoscere il dtype scelto a monte.
+_MATRIX_DTYPE = "<f4"
+
 
 class InvalidRawSensorPayload(ValueError):
-    """Il blob raw e leggibile dallo storage ma non rispetta il contratto HAR."""
+    """Il payload raw e leggibile dallo storage ma non rispetta il contratto HAR."""
 
-
-class RawSensorPayloadFormat(str, Enum):
-    BINARY = "binary"
-    JSON = "json"
-
-
-_RAW_SENSOR_BINARY_MAGIC = b"MDHARW1\x00"
-_RAW_SENSOR_BINARY_PREFIX = b"MDHAR"
-_RAW_SENSOR_BINARY_HEADER = struct.Struct("<8sI")
-_RAW_SENSOR_BINARY_WINDOW_HEADER = struct.Struct("<qqIII")
-
-
-def raw_sensor_payload_format(raw: bytes) -> RawSensorPayloadFormat:
-    if raw.startswith(_RAW_SENSOR_BINARY_PREFIX):
-        return RawSensorPayloadFormat.BINARY
-    return RawSensorPayloadFormat.JSON
 
 """
-Mapper da dati da byte grezzi decompressi a oggetti PipelineSensorWindow
+Mapper da payload JSON decompresso a oggetti PipelineSensorWindow.
+
+Formato atteso (prodotto da TripPackageBuilder lato mobile):
+
+    {"windows": [{"window_start": "...Z", "window_end": "...Z",
+                  "sample_rate_hz": 100, "sample_count": 500,
+                  "channel_count": 6, "samples": [[6 float] x 500]}]}
 """
 def decode_sensor_windows_payload(raw: bytes) -> list[PipelineSensorWindow]:
-    return _decode_binary_sensor_windows(raw)
-
-
-def _datetime_from_epoch_micros(value: int, field: str) -> datetime:
     try:
-        seconds, micros = divmod(int(value), 1_000_000)
-        return datetime.fromtimestamp(seconds, tz=dt_timezone.utc).replace(
-            microsecond=micros
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise InvalidRawSensorPayload("payload raw sensor non e' JSON valido") from exc
+
+    if not isinstance(payload, dict):
+        raise InvalidRawSensorPayload("payload raw sensor senza oggetto radice")
+    windows = payload.get("windows")
+    if not isinstance(windows, list):
+        raise InvalidRawSensorPayload("payload raw sensor senza lista windows")
+
+    return [_decode_window(window) for window in windows]
+
+
+def _decode_window(window: object) -> PipelineSensorWindow:
+    if not isinstance(window, dict):
+        raise InvalidRawSensorPayload("sensor window non valida")
+
+    start = _datetime_field(window, "window_start")
+    end = _datetime_field(window, "window_end")
+    if end <= start:
+        raise InvalidRawSensorPayload(
+            "sensor window con intervallo temporale non valido"
         )
-    except (OSError, OverflowError, ValueError) as exc:
-        raise InvalidRawSensorPayload(f"timestamp raw non valido: {field}") from exc
 
-"""
-Funzione che decodifica i raw sensor windows grezzi in oggetti PipelineSensorWindow
-"""
-def _decode_binary_sensor_windows(raw: bytes) -> list[PipelineSensorWindow]:
-    if len(raw) < _RAW_SENSOR_BINARY_HEADER.size:
-        raise InvalidRawSensorPayload("payload raw sensor binario incompleto")
+    sample_rate = _int_field(window, "sample_rate_hz")
+    if sample_rate <= 0:
+        raise InvalidRawSensorPayload("sensor window con sample_rate_hz non valido")
 
-    magic, window_count = _RAW_SENSOR_BINARY_HEADER.unpack_from(raw, 0)
-    if magic != _RAW_SENSOR_BINARY_MAGIC:
-        raise InvalidRawSensorPayload("payload raw sensor binario non valido")
+    sample_count = _int_field(window, "sample_count")
+    if sample_count != EXPECTED_SAMPLE_COUNT:
+        raise InvalidRawSensorPayload(
+            f"sensor window con sample_count diverso da {EXPECTED_SAMPLE_COUNT}"
+        )
 
-    cursor = _RAW_SENSOR_BINARY_HEADER.size
-    windows: list[PipelineSensorWindow] = []
+    channel_count = _int_field(window, "channel_count")
+    if channel_count != EXPECTED_CHANNEL_COUNT:
+        raise InvalidRawSensorPayload(
+            f"sensor window con channel_count diverso da {EXPECTED_CHANNEL_COUNT}"
+        )
+
+    return PipelineSensorWindow(
+        start_timestamp=start,
+        end_timestamp=end,
+        sample_count=sample_count,
+        frequency_hz=sample_rate,
+        matrix=_decode_matrix(window.get("samples"), sample_count, channel_count),
+    )
+
+
+def _decode_matrix(samples: object, sample_count: int, channel_count: int):
+    if not isinstance(samples, list):
+        raise InvalidRawSensorPayload("sensor window senza matrice samples")
     try:
-        for _index in range(window_count):
-            if cursor + _RAW_SENSOR_BINARY_WINDOW_HEADER.size > len(raw):
-                raise InvalidRawSensorPayload("payload raw sensor binario troncato")
-            (
-                start_us,
-                end_us,
-                sample_rate,
-                sample_count,
-                channel_count,
-            ) = _RAW_SENSOR_BINARY_WINDOW_HEADER.unpack_from(raw, cursor)
-            cursor += _RAW_SENSOR_BINARY_WINDOW_HEADER.size
+        matrix = np.asarray(samples, dtype=_MATRIX_DTYPE)
+    except (TypeError, ValueError) as exc:
+        raise InvalidRawSensorPayload("matrice samples non numerica") from exc
 
-            start = _datetime_from_epoch_micros(start_us, "window_start")
-            end = _datetime_from_epoch_micros(end_us, "window_end")
-            if end <= start:
-                raise InvalidRawSensorPayload(
-                    "sensor window con intervallo temporale non valido"
-                )
-            if sample_rate <= 0:
-                raise InvalidRawSensorPayload(
-                    "sensor window con sample_rate_hz non valido"
-                )
-            if sample_count != 500:
-                raise InvalidRawSensorPayload(
-                    "sensor window con sample_count diverso da 500"
-                )
-            if channel_count != 6:
-                raise InvalidRawSensorPayload(
-                    "sensor window con channel_count diverso da 6"
-                )
+    if matrix.shape != (sample_count, channel_count):
+        raise InvalidRawSensorPayload(
+            "matrice samples con forma diversa da "
+            f"({sample_count}, {channel_count})"
+        )
+    if not np.isfinite(matrix).all():
+        raise InvalidRawSensorPayload("matrice samples con valori non finiti")
+    return matrix
 
-            value_count = sample_count * channel_count
-            value_bytes = value_count * np.dtype("<f4").itemsize
-            if cursor + value_bytes > len(raw):
-                raise InvalidRawSensorPayload("payload raw sensor binario troncato")
-            matrix = np.frombuffer(
-                raw,
-                dtype="<f4",
-                count=value_count,
-                offset=cursor,
-            ).reshape((sample_count, channel_count))
-            cursor += value_bytes
-            windows.append(
-                PipelineSensorWindow(
-                    start_timestamp=start,
-                    end_timestamp=end,
-                    sample_count=sample_count,
-                    frequency_hz=sample_rate,
-                    matrix=matrix,
-                )
-            )
-    except InvalidRawSensorPayload:
-        raise
-    except (struct.error, ValueError) as exc:
-        raise InvalidRawSensorPayload("payload raw sensor binario non valido") from exc
 
-    if cursor != len(raw):
-        raise InvalidRawSensorPayload("payload raw sensor binario con byte extra")
-    return windows
+def _datetime_field(window: dict, field: str) -> datetime:
+    value = window.get(field)
+    if not isinstance(value, str):
+        raise InvalidRawSensorPayload(f"timestamp raw mancante: {field}")
+    parsed = parse_datetime(value)
+    if parsed is None:
+        raise InvalidRawSensorPayload(f"timestamp raw non valido: {field}")
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=dt_timezone.utc)
+    return parsed.astimezone(dt_timezone.utc)
+
+
+def _int_field(window: dict, field: str) -> int:
+    value = window.get(field)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise InvalidRawSensorPayload(f"campo intero raw non valido: {field}")
+    return value

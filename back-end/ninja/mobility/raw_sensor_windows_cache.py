@@ -3,7 +3,7 @@
 `process_trip_har_final` accoda `persist_trip_raw_sensor_readings` per la
 stessa ingestion (vedi `tasks.py`): i due task, in due processi Celery
 separati, chiamano entrambi `load_raw_sensor_windows_with_metrics` per lo
-stesso `ingestion_id`, riscaricando e ridecodificando lo stesso blob da
+stesso `ingestion_id`, riscaricando e ridecodificando lo stesso payload da
 object storage. TTL breve (non cancellazione esplicita a fine task): il
 secondo consumatore arriva tipicamente entro pochi secondi dal primo, ma il
 TTL copre anche un eventuale retry di `persist_trip_raw_sensor_readings`

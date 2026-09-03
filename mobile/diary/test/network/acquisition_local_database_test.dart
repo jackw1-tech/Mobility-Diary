@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:diary/network/service/impl/acquisition_local_database.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -105,7 +103,7 @@ void main() {
       endTimestamp: DateTime.utc(2026, 8, 30, 10, 0, 5),
       sampleCount: 1,
       frequencyHz: 100,
-      matrixBlob: Uint8List.fromList([1, 2, 3]),
+      matrixJson: '[[1,2,3,4,5,6]]',
     );
     await dao.createSyncJobIfAbsent('session-1');
 

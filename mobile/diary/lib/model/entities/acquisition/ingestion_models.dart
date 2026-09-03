@@ -13,14 +13,12 @@ class PresignResult {
 class IngestionStatus {
   final String coreStatus;
   final String rawStatus;
-  final List<int> missingRawParts;
   final int? tripId;
   final bool mapAvailable;
 
   const IngestionStatus({
     required this.coreStatus,
     required this.rawStatus,
-    required this.missingRawParts,
     this.tripId,
     this.mapAvailable = false,
   });

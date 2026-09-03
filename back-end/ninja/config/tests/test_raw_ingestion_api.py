@@ -1,5 +1,4 @@
 import hashlib
-import json
 from urllib.request import Request, urlopen
 
 import pytest
@@ -43,7 +42,7 @@ def test_raw_upload_reports_missing_parts_then_queues_enrichment(
     presigned = post_json(
         api_client,
         f"/api/ingestion/trips/{ingestion_id}/parts/presign",
-        {"sequence": 1, "sha256": checksum, "size_bytes": len(raw_bytes)},
+        {"sequence": 1, "sha256": checksum},
         headers,
     )
     upload = Request(
@@ -87,7 +86,7 @@ def test_raw_confirmation_rejects_a_different_checksum(
     post_json(
         api_client,
         f"/api/ingestion/trips/{ingestion_id}/parts/presign",
-        {"sequence": 1, "sha256": checksum, "size_bytes": 8},
+        {"sequence": 1, "sha256": checksum},
         headers,
     )
 
@@ -102,28 +101,6 @@ def test_raw_confirmation_rejects_a_different_checksum(
     assert response.json() == {
         "detail": "checksum non corrisponde a quello dichiarato in presign"
     }
-
-
-def test_raw_upload_rejects_parts_not_declared_by_the_core(
-    api_client, mobile_session, local_minio
-):
-    headers = mobile_session["headers"]
-    ingestion_id = start_recording(api_client, headers).json()["ingestion_id"]
-    complete_core(api_client, headers, ingestion_id, expected_raw_parts=1)
-
-    response = post_json(
-        api_client,
-        f"/api/ingestion/trips/{ingestion_id}/parts/presign",
-        {
-            "sequence": 2,
-            "sha256": hashlib.sha256(b"part two").hexdigest(),
-            "size_bytes": 8,
-        },
-        headers,
-    )
-
-    assert response.status_code == 409
-    assert "parte non dichiarata" in response.json()["detail"]
 
 
 def test_raw_completion_rejects_a_count_different_from_the_manifest(

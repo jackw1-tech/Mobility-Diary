@@ -46,8 +46,6 @@ class IngestionHeartbeat {
         _target = target,
         _isTracking = isTracking;
 
-  /// (Ri)avvia il battito. Non parte nulla se manca il servizio o se non c'e'
-  /// ancora una sessione remota agganciata.
   void restart() {
     _timer?.cancel();
     if (_service == null || _target() == null) {
@@ -58,8 +56,7 @@ class IngestionHeartbeat {
     });
   }
 
-  /// Battito singolo, best-effort: un errore di rete non deve mai fermare i
-  /// sensori locali.
+  /// Manda un heart beat al backend
   Future<void> send() async {
     final api = _service;
     final target = _target();

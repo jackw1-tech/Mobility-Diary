@@ -21,7 +21,6 @@ def create_ingestion_part(
     *,
     sequence: int,
     sha256: str,
-    size_bytes: int,
     object_key: str,
     received_at,
 ) -> TripIngestionPart:
@@ -29,7 +28,6 @@ def create_ingestion_part(
         ingestion=ingestion,
         sequence=sequence,
         sha256=sha256,
-        size_bytes=size_bytes,
         object_key=object_key,
         received_at=received_at,
     )

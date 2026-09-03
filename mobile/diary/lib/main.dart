@@ -42,7 +42,7 @@ class _DiaryAppState extends State<DiaryApp> {
         listenWhen: (previous, current) =>
             previous.status != AuthStatus.authenticated &&
             current.status == AuthStatus.authenticated,
-        listener: (context, _) =>
+        listener: (context, _) => //eseguita quando listen when è vera
             context.read<AcquisitionCubit>().restoreActiveTrip(),
         child: MaterialApp.router(
           title: 'Diary',

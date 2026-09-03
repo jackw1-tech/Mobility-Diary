@@ -33,6 +33,16 @@ def bucket_name() -> str:
     return settings.S3_BUCKET_NAME
 
 
+def raw_part_object_key(base_path: str, sequence: int) -> str:
+    """Percorso di una parte raw nel bucket.
+
+    Unico punto in cui vive il nome: lo usano sia l'upload dal mobile
+    (presign) sia la rigenerazione bucket-to-bucket del replay, che devono
+    per forza concordare.
+    """
+    return f"{base_path}sensor_windows_part_{sequence:04d}.json.gz"
+
+
 def presigned_put_url(
     object_key: str,
     *,
@@ -50,7 +60,7 @@ def presigned_put_url(
         ExpiresIn=settings.S3_PRESIGN_EXPIRES_SECONDS,
     )
 
-
+# Chiamata HEAD; ci dice se l'oggetto esiste e dà i metadati
 def head_object(object_key: str) -> dict | None:
     client = _internal_client()
     try:

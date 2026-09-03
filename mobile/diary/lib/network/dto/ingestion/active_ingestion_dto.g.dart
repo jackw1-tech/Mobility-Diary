@@ -2,6 +2,10 @@
 
 part of 'active_ingestion_dto.dart';
 
+// **************************************************************************
+// JsonSerializableGenerator
+// **************************************************************************
+
 ActiveIngestionDto _$ActiveIngestionDtoFromJson(Map<String, dynamic> json) =>
     ActiveIngestionDto(
       ingestionId: (json['ingestion_id'] as num).toInt(),
@@ -20,6 +24,5 @@ Map<String, dynamic> _$ActiveIngestionDtoToJson(ActiveIngestionDto instance) =>
       'client_session_id': instance.clientSessionId,
       'device_id': instance.deviceId,
       'recording_started_at': instance.recordingStartedAt.toIso8601String(),
-      if (instance.lastSeenAt != null)
-        'last_seen_at': instance.lastSeenAt!.toIso8601String(),
+      'last_seen_at': instance.lastSeenAt?.toIso8601String(),
     };

@@ -2,6 +2,10 @@
 
 part of 'ingestion_start_result_dto.dart';
 
+// **************************************************************************
+// JsonSerializableGenerator
+// **************************************************************************
+
 IngestionStartResultDto _$IngestionStartResultDtoFromJson(
         Map<String, dynamic> json) =>
     IngestionStartResultDto(

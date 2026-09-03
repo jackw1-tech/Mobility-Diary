@@ -41,7 +41,6 @@ class IngestionMapper {
     return IngestionStatus(
       coreStatus: dto.coreStatus,
       rawStatus: dto.rawStatus,
-      missingRawParts: dto.missingRawParts.map((e) => e.sequence).toList(),
       tripId: dto.tripId,
       mapAvailable: dto.mapAvailable,
     );

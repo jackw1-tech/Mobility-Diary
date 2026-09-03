@@ -73,7 +73,6 @@ class BoundaryIngestionService implements TripIngestionService {
     int ingestionId, {
     required int sequence,
     required String sha256,
-    required int sizeBytes,
   }) =>
       throw UnimplementedError();
 

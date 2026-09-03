@@ -805,16 +805,6 @@ class $GpsPointsTable extends GpsPoints
   late final GeneratedColumn<String> rejectionReason = GeneratedColumn<String>(
       'rejection_reason', aliasedName, true,
       type: DriftSqlType.string, requiredDuringInsert: false);
-  static const VerificationMeta _isSyncedMeta =
-      const VerificationMeta('isSynced');
-  @override
-  late final GeneratedColumn<bool> isSynced = GeneratedColumn<bool>(
-      'is_synced', aliasedName, false,
-      type: DriftSqlType.bool,
-      requiredDuringInsert: false,
-      defaultConstraints:
-          GeneratedColumn.constraintIsAlways('CHECK ("is_synced" IN (0, 1))'),
-      defaultValue: const Constant(false));
   @override
   List<GeneratedColumn> get $columns => [
         id,
@@ -825,8 +815,7 @@ class $GpsPointsTable extends GpsPoints
         speedMps,
         accuracyMeters,
         accepted,
-        rejectionReason,
-        isSynced
+        rejectionReason
       ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -887,10 +876,6 @@ class $GpsPointsTable extends GpsPoints
           rejectionReason.isAcceptableOrUnknown(
               data['rejection_reason']!, _rejectionReasonMeta));
     }
-    if (data.containsKey('is_synced')) {
-      context.handle(_isSyncedMeta,
-          isSynced.isAcceptableOrUnknown(data['is_synced']!, _isSyncedMeta));
-    }
     return context;
   }
 
@@ -918,8 +903,6 @@ class $GpsPointsTable extends GpsPoints
           .read(DriftSqlType.bool, data['${effectivePrefix}accepted'])!,
       rejectionReason: attachedDatabase.typeMapping.read(
           DriftSqlType.string, data['${effectivePrefix}rejection_reason']),
-      isSynced: attachedDatabase.typeMapping
-          .read(DriftSqlType.bool, data['${effectivePrefix}is_synced'])!,
     );
   }
 
@@ -939,7 +922,6 @@ class GpsPoint extends DataClass implements Insertable<GpsPoint> {
   final double? accuracyMeters;
   final bool accepted;
   final String? rejectionReason;
-  final bool isSynced;
   const GpsPoint(
       {required this.id,
       required this.sessionId,
@@ -949,8 +931,7 @@ class GpsPoint extends DataClass implements Insertable<GpsPoint> {
       required this.speedMps,
       this.accuracyMeters,
       required this.accepted,
-      this.rejectionReason,
-      required this.isSynced});
+      this.rejectionReason});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -967,7 +948,6 @@ class GpsPoint extends DataClass implements Insertable<GpsPoint> {
     if (!nullToAbsent || rejectionReason != null) {
       map['rejection_reason'] = Variable<String>(rejectionReason);
     }
-    map['is_synced'] = Variable<bool>(isSynced);
     return map;
   }
 
@@ -986,7 +966,6 @@ class GpsPoint extends DataClass implements Insertable<GpsPoint> {
       rejectionReason: rejectionReason == null && nullToAbsent
           ? const Value.absent()
           : Value(rejectionReason),
-      isSynced: Value(isSynced),
     );
   }
 
@@ -1003,7 +982,6 @@ class GpsPoint extends DataClass implements Insertable<GpsPoint> {
       accuracyMeters: serializer.fromJson<double?>(json['accuracyMeters']),
       accepted: serializer.fromJson<bool>(json['accepted']),
       rejectionReason: serializer.fromJson<String?>(json['rejectionReason']),
-      isSynced: serializer.fromJson<bool>(json['isSynced']),
     );
   }
   @override
@@ -1019,7 +997,6 @@ class GpsPoint extends DataClass implements Insertable<GpsPoint> {
       'accuracyMeters': serializer.toJson<double?>(accuracyMeters),
       'accepted': serializer.toJson<bool>(accepted),
       'rejectionReason': serializer.toJson<String?>(rejectionReason),
-      'isSynced': serializer.toJson<bool>(isSynced),
     };
   }
 
@@ -1032,8 +1009,7 @@ class GpsPoint extends DataClass implements Insertable<GpsPoint> {
           double? speedMps,
           Value<double?> accuracyMeters = const Value.absent(),
           bool? accepted,
-          Value<String?> rejectionReason = const Value.absent(),
-          bool? isSynced}) =>
+          Value<String?> rejectionReason = const Value.absent()}) =>
       GpsPoint(
         id: id ?? this.id,
         sessionId: sessionId ?? this.sessionId,
@@ -1047,7 +1023,6 @@ class GpsPoint extends DataClass implements Insertable<GpsPoint> {
         rejectionReason: rejectionReason.present
             ? rejectionReason.value
             : this.rejectionReason,
-        isSynced: isSynced ?? this.isSynced,
       );
   GpsPoint copyWithCompanion(GpsPointsCompanion data) {
     return GpsPoint(
@@ -1064,7 +1039,6 @@ class GpsPoint extends DataClass implements Insertable<GpsPoint> {
       rejectionReason: data.rejectionReason.present
           ? data.rejectionReason.value
           : this.rejectionReason,
-      isSynced: data.isSynced.present ? data.isSynced.value : this.isSynced,
     );
   }
 
@@ -1079,15 +1053,14 @@ class GpsPoint extends DataClass implements Insertable<GpsPoint> {
           ..write('speedMps: $speedMps, ')
           ..write('accuracyMeters: $accuracyMeters, ')
           ..write('accepted: $accepted, ')
-          ..write('rejectionReason: $rejectionReason, ')
-          ..write('isSynced: $isSynced')
+          ..write('rejectionReason: $rejectionReason')
           ..write(')'))
         .toString();
   }
 
   @override
   int get hashCode => Object.hash(id, sessionId, latitude, longitude, timestamp,
-      speedMps, accuracyMeters, accepted, rejectionReason, isSynced);
+      speedMps, accuracyMeters, accepted, rejectionReason);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -1100,8 +1073,7 @@ class GpsPoint extends DataClass implements Insertable<GpsPoint> {
           other.speedMps == this.speedMps &&
           other.accuracyMeters == this.accuracyMeters &&
           other.accepted == this.accepted &&
-          other.rejectionReason == this.rejectionReason &&
-          other.isSynced == this.isSynced);
+          other.rejectionReason == this.rejectionReason);
 }
 
 class GpsPointsCompanion extends UpdateCompanion<GpsPoint> {
@@ -1114,7 +1086,6 @@ class GpsPointsCompanion extends UpdateCompanion<GpsPoint> {
   final Value<double?> accuracyMeters;
   final Value<bool> accepted;
   final Value<String?> rejectionReason;
-  final Value<bool> isSynced;
   const GpsPointsCompanion({
     this.id = const Value.absent(),
     this.sessionId = const Value.absent(),
@@ -1125,7 +1096,6 @@ class GpsPointsCompanion extends UpdateCompanion<GpsPoint> {
     this.accuracyMeters = const Value.absent(),
     this.accepted = const Value.absent(),
     this.rejectionReason = const Value.absent(),
-    this.isSynced = const Value.absent(),
   });
   GpsPointsCompanion.insert({
     this.id = const Value.absent(),
@@ -1137,7 +1107,6 @@ class GpsPointsCompanion extends UpdateCompanion<GpsPoint> {
     this.accuracyMeters = const Value.absent(),
     this.accepted = const Value.absent(),
     this.rejectionReason = const Value.absent(),
-    this.isSynced = const Value.absent(),
   })  : sessionId = Value(sessionId),
         latitude = Value(latitude),
         longitude = Value(longitude),
@@ -1153,7 +1122,6 @@ class GpsPointsCompanion extends UpdateCompanion<GpsPoint> {
     Expression<double>? accuracyMeters,
     Expression<bool>? accepted,
     Expression<String>? rejectionReason,
-    Expression<bool>? isSynced,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -1165,7 +1133,6 @@ class GpsPointsCompanion extends UpdateCompanion<GpsPoint> {
       if (accuracyMeters != null) 'accuracy_meters': accuracyMeters,
       if (accepted != null) 'accepted': accepted,
       if (rejectionReason != null) 'rejection_reason': rejectionReason,
-      if (isSynced != null) 'is_synced': isSynced,
     });
   }
 
@@ -1178,8 +1145,7 @@ class GpsPointsCompanion extends UpdateCompanion<GpsPoint> {
       Value<double>? speedMps,
       Value<double?>? accuracyMeters,
       Value<bool>? accepted,
-      Value<String?>? rejectionReason,
-      Value<bool>? isSynced}) {
+      Value<String?>? rejectionReason}) {
     return GpsPointsCompanion(
       id: id ?? this.id,
       sessionId: sessionId ?? this.sessionId,
@@ -1190,7 +1156,6 @@ class GpsPointsCompanion extends UpdateCompanion<GpsPoint> {
       accuracyMeters: accuracyMeters ?? this.accuracyMeters,
       accepted: accepted ?? this.accepted,
       rejectionReason: rejectionReason ?? this.rejectionReason,
-      isSynced: isSynced ?? this.isSynced,
     );
   }
 
@@ -1224,9 +1189,6 @@ class GpsPointsCompanion extends UpdateCompanion<GpsPoint> {
     if (rejectionReason.present) {
       map['rejection_reason'] = Variable<String>(rejectionReason.value);
     }
-    if (isSynced.present) {
-      map['is_synced'] = Variable<bool>(isSynced.value);
-    }
     return map;
   }
 
@@ -1241,8 +1203,7 @@ class GpsPointsCompanion extends UpdateCompanion<GpsPoint> {
           ..write('speedMps: $speedMps, ')
           ..write('accuracyMeters: $accuracyMeters, ')
           ..write('accepted: $accepted, ')
-          ..write('rejectionReason: $rejectionReason, ')
-          ..write('isSynced: $isSynced')
+          ..write('rejectionReason: $rejectionReason')
           ..write(')'))
         .toString();
   }
@@ -1296,22 +1257,12 @@ class $SensorWindowsTable extends SensorWindows
   late final GeneratedColumn<int> frequencyHz = GeneratedColumn<int>(
       'frequency_hz', aliasedName, false,
       type: DriftSqlType.int, requiredDuringInsert: true);
-  static const VerificationMeta _matrixBlobMeta =
-      const VerificationMeta('matrixBlob');
+  static const VerificationMeta _matrixJsonMeta =
+      const VerificationMeta('matrixJson');
   @override
-  late final GeneratedColumn<Uint8List> matrixBlob = GeneratedColumn<Uint8List>(
-      'matrix_blob', aliasedName, false,
-      type: DriftSqlType.blob, requiredDuringInsert: true);
-  static const VerificationMeta _isSyncedMeta =
-      const VerificationMeta('isSynced');
-  @override
-  late final GeneratedColumn<bool> isSynced = GeneratedColumn<bool>(
-      'is_synced', aliasedName, false,
-      type: DriftSqlType.bool,
-      requiredDuringInsert: false,
-      defaultConstraints:
-          GeneratedColumn.constraintIsAlways('CHECK ("is_synced" IN (0, 1))'),
-      defaultValue: const Constant(false));
+  late final GeneratedColumn<String> matrixJson = GeneratedColumn<String>(
+      'matrix_json', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
   @override
   List<GeneratedColumn> get $columns => [
         id,
@@ -1320,8 +1271,7 @@ class $SensorWindowsTable extends SensorWindows
         endTimestamp,
         sampleCount,
         frequencyHz,
-        matrixBlob,
-        isSynced
+        matrixJson
       ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -1374,17 +1324,13 @@ class $SensorWindowsTable extends SensorWindows
     } else if (isInserting) {
       context.missing(_frequencyHzMeta);
     }
-    if (data.containsKey('matrix_blob')) {
+    if (data.containsKey('matrix_json')) {
       context.handle(
-          _matrixBlobMeta,
-          matrixBlob.isAcceptableOrUnknown(
-              data['matrix_blob']!, _matrixBlobMeta));
+          _matrixJsonMeta,
+          matrixJson.isAcceptableOrUnknown(
+              data['matrix_json']!, _matrixJsonMeta));
     } else if (isInserting) {
-      context.missing(_matrixBlobMeta);
-    }
-    if (data.containsKey('is_synced')) {
-      context.handle(_isSyncedMeta,
-          isSynced.isAcceptableOrUnknown(data['is_synced']!, _isSyncedMeta));
+      context.missing(_matrixJsonMeta);
     }
     return context;
   }
@@ -1407,10 +1353,8 @@ class $SensorWindowsTable extends SensorWindows
           .read(DriftSqlType.int, data['${effectivePrefix}sample_count'])!,
       frequencyHz: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}frequency_hz'])!,
-      matrixBlob: attachedDatabase.typeMapping
-          .read(DriftSqlType.blob, data['${effectivePrefix}matrix_blob'])!,
-      isSynced: attachedDatabase.typeMapping
-          .read(DriftSqlType.bool, data['${effectivePrefix}is_synced'])!,
+      matrixJson: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}matrix_json'])!,
     );
   }
 
@@ -1427,8 +1371,7 @@ class SensorWindow extends DataClass implements Insertable<SensorWindow> {
   final DateTime endTimestamp;
   final int sampleCount;
   final int frequencyHz;
-  final Uint8List matrixBlob;
-  final bool isSynced;
+  final String matrixJson;
   const SensorWindow(
       {required this.id,
       required this.sessionId,
@@ -1436,8 +1379,7 @@ class SensorWindow extends DataClass implements Insertable<SensorWindow> {
       required this.endTimestamp,
       required this.sampleCount,
       required this.frequencyHz,
-      required this.matrixBlob,
-      required this.isSynced});
+      required this.matrixJson});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -1447,8 +1389,7 @@ class SensorWindow extends DataClass implements Insertable<SensorWindow> {
     map['end_timestamp'] = Variable<DateTime>(endTimestamp);
     map['sample_count'] = Variable<int>(sampleCount);
     map['frequency_hz'] = Variable<int>(frequencyHz);
-    map['matrix_blob'] = Variable<Uint8List>(matrixBlob);
-    map['is_synced'] = Variable<bool>(isSynced);
+    map['matrix_json'] = Variable<String>(matrixJson);
     return map;
   }
 
@@ -1460,8 +1401,7 @@ class SensorWindow extends DataClass implements Insertable<SensorWindow> {
       endTimestamp: Value(endTimestamp),
       sampleCount: Value(sampleCount),
       frequencyHz: Value(frequencyHz),
-      matrixBlob: Value(matrixBlob),
-      isSynced: Value(isSynced),
+      matrixJson: Value(matrixJson),
     );
   }
 
@@ -1475,8 +1415,7 @@ class SensorWindow extends DataClass implements Insertable<SensorWindow> {
       endTimestamp: serializer.fromJson<DateTime>(json['endTimestamp']),
       sampleCount: serializer.fromJson<int>(json['sampleCount']),
       frequencyHz: serializer.fromJson<int>(json['frequencyHz']),
-      matrixBlob: serializer.fromJson<Uint8List>(json['matrixBlob']),
-      isSynced: serializer.fromJson<bool>(json['isSynced']),
+      matrixJson: serializer.fromJson<String>(json['matrixJson']),
     );
   }
   @override
@@ -1489,8 +1428,7 @@ class SensorWindow extends DataClass implements Insertable<SensorWindow> {
       'endTimestamp': serializer.toJson<DateTime>(endTimestamp),
       'sampleCount': serializer.toJson<int>(sampleCount),
       'frequencyHz': serializer.toJson<int>(frequencyHz),
-      'matrixBlob': serializer.toJson<Uint8List>(matrixBlob),
-      'isSynced': serializer.toJson<bool>(isSynced),
+      'matrixJson': serializer.toJson<String>(matrixJson),
     };
   }
 
@@ -1501,8 +1439,7 @@ class SensorWindow extends DataClass implements Insertable<SensorWindow> {
           DateTime? endTimestamp,
           int? sampleCount,
           int? frequencyHz,
-          Uint8List? matrixBlob,
-          bool? isSynced}) =>
+          String? matrixJson}) =>
       SensorWindow(
         id: id ?? this.id,
         sessionId: sessionId ?? this.sessionId,
@@ -1510,8 +1447,7 @@ class SensorWindow extends DataClass implements Insertable<SensorWindow> {
         endTimestamp: endTimestamp ?? this.endTimestamp,
         sampleCount: sampleCount ?? this.sampleCount,
         frequencyHz: frequencyHz ?? this.frequencyHz,
-        matrixBlob: matrixBlob ?? this.matrixBlob,
-        isSynced: isSynced ?? this.isSynced,
+        matrixJson: matrixJson ?? this.matrixJson,
       );
   SensorWindow copyWithCompanion(SensorWindowsCompanion data) {
     return SensorWindow(
@@ -1527,9 +1463,8 @@ class SensorWindow extends DataClass implements Insertable<SensorWindow> {
           data.sampleCount.present ? data.sampleCount.value : this.sampleCount,
       frequencyHz:
           data.frequencyHz.present ? data.frequencyHz.value : this.frequencyHz,
-      matrixBlob:
-          data.matrixBlob.present ? data.matrixBlob.value : this.matrixBlob,
-      isSynced: data.isSynced.present ? data.isSynced.value : this.isSynced,
+      matrixJson:
+          data.matrixJson.present ? data.matrixJson.value : this.matrixJson,
     );
   }
 
@@ -1542,15 +1477,14 @@ class SensorWindow extends DataClass implements Insertable<SensorWindow> {
           ..write('endTimestamp: $endTimestamp, ')
           ..write('sampleCount: $sampleCount, ')
           ..write('frequencyHz: $frequencyHz, ')
-          ..write('matrixBlob: $matrixBlob, ')
-          ..write('isSynced: $isSynced')
+          ..write('matrixJson: $matrixJson')
           ..write(')'))
         .toString();
   }
 
   @override
   int get hashCode => Object.hash(id, sessionId, startTimestamp, endTimestamp,
-      sampleCount, frequencyHz, $driftBlobEquality.hash(matrixBlob), isSynced);
+      sampleCount, frequencyHz, matrixJson);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -1561,8 +1495,7 @@ class SensorWindow extends DataClass implements Insertable<SensorWindow> {
           other.endTimestamp == this.endTimestamp &&
           other.sampleCount == this.sampleCount &&
           other.frequencyHz == this.frequencyHz &&
-          $driftBlobEquality.equals(other.matrixBlob, this.matrixBlob) &&
-          other.isSynced == this.isSynced);
+          other.matrixJson == this.matrixJson);
 }
 
 class SensorWindowsCompanion extends UpdateCompanion<SensorWindow> {
@@ -1572,8 +1505,7 @@ class SensorWindowsCompanion extends UpdateCompanion<SensorWindow> {
   final Value<DateTime> endTimestamp;
   final Value<int> sampleCount;
   final Value<int> frequencyHz;
-  final Value<Uint8List> matrixBlob;
-  final Value<bool> isSynced;
+  final Value<String> matrixJson;
   const SensorWindowsCompanion({
     this.id = const Value.absent(),
     this.sessionId = const Value.absent(),
@@ -1581,8 +1513,7 @@ class SensorWindowsCompanion extends UpdateCompanion<SensorWindow> {
     this.endTimestamp = const Value.absent(),
     this.sampleCount = const Value.absent(),
     this.frequencyHz = const Value.absent(),
-    this.matrixBlob = const Value.absent(),
-    this.isSynced = const Value.absent(),
+    this.matrixJson = const Value.absent(),
   });
   SensorWindowsCompanion.insert({
     this.id = const Value.absent(),
@@ -1591,14 +1522,13 @@ class SensorWindowsCompanion extends UpdateCompanion<SensorWindow> {
     required DateTime endTimestamp,
     required int sampleCount,
     required int frequencyHz,
-    required Uint8List matrixBlob,
-    this.isSynced = const Value.absent(),
+    required String matrixJson,
   })  : sessionId = Value(sessionId),
         startTimestamp = Value(startTimestamp),
         endTimestamp = Value(endTimestamp),
         sampleCount = Value(sampleCount),
         frequencyHz = Value(frequencyHz),
-        matrixBlob = Value(matrixBlob);
+        matrixJson = Value(matrixJson);
   static Insertable<SensorWindow> custom({
     Expression<int>? id,
     Expression<String>? sessionId,
@@ -1606,8 +1536,7 @@ class SensorWindowsCompanion extends UpdateCompanion<SensorWindow> {
     Expression<DateTime>? endTimestamp,
     Expression<int>? sampleCount,
     Expression<int>? frequencyHz,
-    Expression<Uint8List>? matrixBlob,
-    Expression<bool>? isSynced,
+    Expression<String>? matrixJson,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -1616,8 +1545,7 @@ class SensorWindowsCompanion extends UpdateCompanion<SensorWindow> {
       if (endTimestamp != null) 'end_timestamp': endTimestamp,
       if (sampleCount != null) 'sample_count': sampleCount,
       if (frequencyHz != null) 'frequency_hz': frequencyHz,
-      if (matrixBlob != null) 'matrix_blob': matrixBlob,
-      if (isSynced != null) 'is_synced': isSynced,
+      if (matrixJson != null) 'matrix_json': matrixJson,
     });
   }
 
@@ -1628,8 +1556,7 @@ class SensorWindowsCompanion extends UpdateCompanion<SensorWindow> {
       Value<DateTime>? endTimestamp,
       Value<int>? sampleCount,
       Value<int>? frequencyHz,
-      Value<Uint8List>? matrixBlob,
-      Value<bool>? isSynced}) {
+      Value<String>? matrixJson}) {
     return SensorWindowsCompanion(
       id: id ?? this.id,
       sessionId: sessionId ?? this.sessionId,
@@ -1637,8 +1564,7 @@ class SensorWindowsCompanion extends UpdateCompanion<SensorWindow> {
       endTimestamp: endTimestamp ?? this.endTimestamp,
       sampleCount: sampleCount ?? this.sampleCount,
       frequencyHz: frequencyHz ?? this.frequencyHz,
-      matrixBlob: matrixBlob ?? this.matrixBlob,
-      isSynced: isSynced ?? this.isSynced,
+      matrixJson: matrixJson ?? this.matrixJson,
     );
   }
 
@@ -1663,11 +1589,8 @@ class SensorWindowsCompanion extends UpdateCompanion<SensorWindow> {
     if (frequencyHz.present) {
       map['frequency_hz'] = Variable<int>(frequencyHz.value);
     }
-    if (matrixBlob.present) {
-      map['matrix_blob'] = Variable<Uint8List>(matrixBlob.value);
-    }
-    if (isSynced.present) {
-      map['is_synced'] = Variable<bool>(isSynced.value);
+    if (matrixJson.present) {
+      map['matrix_json'] = Variable<String>(matrixJson.value);
     }
     return map;
   }
@@ -1681,8 +1604,7 @@ class SensorWindowsCompanion extends UpdateCompanion<SensorWindow> {
           ..write('endTimestamp: $endTimestamp, ')
           ..write('sampleCount: $sampleCount, ')
           ..write('frequencyHz: $frequencyHz, ')
-          ..write('matrixBlob: $matrixBlob, ')
-          ..write('isSynced: $isSynced')
+          ..write('matrixJson: $matrixJson')
           ..write(')'))
         .toString();
   }
@@ -3195,7 +3117,6 @@ typedef $$GpsPointsTableCreateCompanionBuilder = GpsPointsCompanion Function({
   Value<double?> accuracyMeters,
   Value<bool> accepted,
   Value<String?> rejectionReason,
-  Value<bool> isSynced,
 });
 typedef $$GpsPointsTableUpdateCompanionBuilder = GpsPointsCompanion Function({
   Value<int> id,
@@ -3207,7 +3128,6 @@ typedef $$GpsPointsTableUpdateCompanionBuilder = GpsPointsCompanion Function({
   Value<double?> accuracyMeters,
   Value<bool> accepted,
   Value<String?> rejectionReason,
-  Value<bool> isSynced,
 });
 
 final class $$GpsPointsTableReferences extends BaseReferences<
@@ -3267,9 +3187,6 @@ class $$GpsPointsTableFilterComposer
       column: $table.rejectionReason,
       builder: (column) => ColumnFilters(column));
 
-  ColumnFilters<bool> get isSynced => $composableBuilder(
-      column: $table.isSynced, builder: (column) => ColumnFilters(column));
-
   $$AcquisitionSessionsTableFilterComposer get sessionId {
     final $$AcquisitionSessionsTableFilterComposer composer = $composerBuilder(
         composer: this,
@@ -3326,9 +3243,6 @@ class $$GpsPointsTableOrderingComposer
       column: $table.rejectionReason,
       builder: (column) => ColumnOrderings(column));
 
-  ColumnOrderings<bool> get isSynced => $composableBuilder(
-      column: $table.isSynced, builder: (column) => ColumnOrderings(column));
-
   $$AcquisitionSessionsTableOrderingComposer get sessionId {
     final $$AcquisitionSessionsTableOrderingComposer composer =
         $composerBuilder(
@@ -3383,9 +3297,6 @@ class $$GpsPointsTableAnnotationComposer
 
   GeneratedColumn<String> get rejectionReason => $composableBuilder(
       column: $table.rejectionReason, builder: (column) => column);
-
-  GeneratedColumn<bool> get isSynced =>
-      $composableBuilder(column: $table.isSynced, builder: (column) => column);
 
   $$AcquisitionSessionsTableAnnotationComposer get sessionId {
     final $$AcquisitionSessionsTableAnnotationComposer composer =
@@ -3442,7 +3353,6 @@ class $$GpsPointsTableTableManager extends RootTableManager<
             Value<double?> accuracyMeters = const Value.absent(),
             Value<bool> accepted = const Value.absent(),
             Value<String?> rejectionReason = const Value.absent(),
-            Value<bool> isSynced = const Value.absent(),
           }) =>
               GpsPointsCompanion(
             id: id,
@@ -3454,7 +3364,6 @@ class $$GpsPointsTableTableManager extends RootTableManager<
             accuracyMeters: accuracyMeters,
             accepted: accepted,
             rejectionReason: rejectionReason,
-            isSynced: isSynced,
           ),
           createCompanionCallback: ({
             Value<int> id = const Value.absent(),
@@ -3466,7 +3375,6 @@ class $$GpsPointsTableTableManager extends RootTableManager<
             Value<double?> accuracyMeters = const Value.absent(),
             Value<bool> accepted = const Value.absent(),
             Value<String?> rejectionReason = const Value.absent(),
-            Value<bool> isSynced = const Value.absent(),
           }) =>
               GpsPointsCompanion.insert(
             id: id,
@@ -3478,7 +3386,6 @@ class $$GpsPointsTableTableManager extends RootTableManager<
             accuracyMeters: accuracyMeters,
             accepted: accepted,
             rejectionReason: rejectionReason,
-            isSynced: isSynced,
           ),
           withReferenceMapper: (p0) => p0
               .map((e) => (
@@ -3544,8 +3451,7 @@ typedef $$SensorWindowsTableCreateCompanionBuilder = SensorWindowsCompanion
   required DateTime endTimestamp,
   required int sampleCount,
   required int frequencyHz,
-  required Uint8List matrixBlob,
-  Value<bool> isSynced,
+  required String matrixJson,
 });
 typedef $$SensorWindowsTableUpdateCompanionBuilder = SensorWindowsCompanion
     Function({
@@ -3555,8 +3461,7 @@ typedef $$SensorWindowsTableUpdateCompanionBuilder = SensorWindowsCompanion
   Value<DateTime> endTimestamp,
   Value<int> sampleCount,
   Value<int> frequencyHz,
-  Value<Uint8List> matrixBlob,
-  Value<bool> isSynced,
+  Value<String> matrixJson,
 });
 
 final class $$SensorWindowsTableReferences extends BaseReferences<
@@ -3607,11 +3512,8 @@ class $$SensorWindowsTableFilterComposer
   ColumnFilters<int> get frequencyHz => $composableBuilder(
       column: $table.frequencyHz, builder: (column) => ColumnFilters(column));
 
-  ColumnFilters<Uint8List> get matrixBlob => $composableBuilder(
-      column: $table.matrixBlob, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<bool> get isSynced => $composableBuilder(
-      column: $table.isSynced, builder: (column) => ColumnFilters(column));
+  ColumnFilters<String> get matrixJson => $composableBuilder(
+      column: $table.matrixJson, builder: (column) => ColumnFilters(column));
 
   $$AcquisitionSessionsTableFilterComposer get sessionId {
     final $$AcquisitionSessionsTableFilterComposer composer = $composerBuilder(
@@ -3660,11 +3562,8 @@ class $$SensorWindowsTableOrderingComposer
   ColumnOrderings<int> get frequencyHz => $composableBuilder(
       column: $table.frequencyHz, builder: (column) => ColumnOrderings(column));
 
-  ColumnOrderings<Uint8List> get matrixBlob => $composableBuilder(
-      column: $table.matrixBlob, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<bool> get isSynced => $composableBuilder(
-      column: $table.isSynced, builder: (column) => ColumnOrderings(column));
+  ColumnOrderings<String> get matrixJson => $composableBuilder(
+      column: $table.matrixJson, builder: (column) => ColumnOrderings(column));
 
   $$AcquisitionSessionsTableOrderingComposer get sessionId {
     final $$AcquisitionSessionsTableOrderingComposer composer =
@@ -3712,11 +3611,8 @@ class $$SensorWindowsTableAnnotationComposer
   GeneratedColumn<int> get frequencyHz => $composableBuilder(
       column: $table.frequencyHz, builder: (column) => column);
 
-  GeneratedColumn<Uint8List> get matrixBlob => $composableBuilder(
-      column: $table.matrixBlob, builder: (column) => column);
-
-  GeneratedColumn<bool> get isSynced =>
-      $composableBuilder(column: $table.isSynced, builder: (column) => column);
+  GeneratedColumn<String> get matrixJson => $composableBuilder(
+      column: $table.matrixJson, builder: (column) => column);
 
   $$AcquisitionSessionsTableAnnotationComposer get sessionId {
     final $$AcquisitionSessionsTableAnnotationComposer composer =
@@ -3770,8 +3666,7 @@ class $$SensorWindowsTableTableManager extends RootTableManager<
             Value<DateTime> endTimestamp = const Value.absent(),
             Value<int> sampleCount = const Value.absent(),
             Value<int> frequencyHz = const Value.absent(),
-            Value<Uint8List> matrixBlob = const Value.absent(),
-            Value<bool> isSynced = const Value.absent(),
+            Value<String> matrixJson = const Value.absent(),
           }) =>
               SensorWindowsCompanion(
             id: id,
@@ -3780,8 +3675,7 @@ class $$SensorWindowsTableTableManager extends RootTableManager<
             endTimestamp: endTimestamp,
             sampleCount: sampleCount,
             frequencyHz: frequencyHz,
-            matrixBlob: matrixBlob,
-            isSynced: isSynced,
+            matrixJson: matrixJson,
           ),
           createCompanionCallback: ({
             Value<int> id = const Value.absent(),
@@ -3790,8 +3684,7 @@ class $$SensorWindowsTableTableManager extends RootTableManager<
             required DateTime endTimestamp,
             required int sampleCount,
             required int frequencyHz,
-            required Uint8List matrixBlob,
-            Value<bool> isSynced = const Value.absent(),
+            required String matrixJson,
           }) =>
               SensorWindowsCompanion.insert(
             id: id,
@@ -3800,8 +3693,7 @@ class $$SensorWindowsTableTableManager extends RootTableManager<
             endTimestamp: endTimestamp,
             sampleCount: sampleCount,
             frequencyHz: frequencyHz,
-            matrixBlob: matrixBlob,
-            isSynced: isSynced,
+            matrixJson: matrixJson,
           ),
           withReferenceMapper: (p0) => p0
               .map((e) => (

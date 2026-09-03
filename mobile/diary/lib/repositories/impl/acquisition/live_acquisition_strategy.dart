@@ -5,7 +5,7 @@ import 'package:diary/model/entities/acquisition/acquisition_domain.dart';
 import 'package:diary/model/entities/acquisition/ingestion_models.dart';
 import 'package:diary/repositories/acquisition_repository.dart';
 import 'package:diary/repositories/acquisition_strategy.dart';
-import 'package:diary/model/entities/acquisition/sensor_matrix_blob.dart';
+import 'package:diary/model/entities/acquisition/sensor_matrix_json.dart';
 import 'package:diary/network/service/impl/acquisition_sensor_runtime.dart';
 import 'package:diary/network/service/trip_ingestion_service.dart';
 import 'package:diary/mappers/ingestion_mapper.dart';
@@ -104,14 +104,14 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
       target: _heartbeatTarget,
       isTracking: () => currentSnapshot.isTracking,
     );
-    _lifecycleSubscription = lifecycleEvents?.listen(_handleLifecycleState);
+    _lifecycleSubscription = lifecycleEvents
+        ?.listen(_applyLifecycleState); // Funzione chiamata quando
+    // il SO si accorge di un cambiamento dello stato dell'app
     if (_observesAppLifecycle) {
       WidgetsBinding.instance.addObserver(this);
     }
   }
 
-  /// Sessione remota da tenere viva col battito: `null` finche' non c'e' una
-  /// ingestion agganciata a questo device.
   HeartbeatTarget? _heartbeatTarget() {
     final ingestionId = _currentRemoteIngestionId;
     final clientSessionId = _currentSessionId;
@@ -135,9 +135,6 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     if (currentSnapshot.isTracking) {
       return;
     }
-    // Prima di qualunque scrittura locale o remota: senza permesso "Sempre" la
-    // sessione registrerebbe solo i fix del tempo in cui l'app resta in primo
-    // piano, cioe' partenza e arrivo.
     final runtime = _runtime;
     if (runtime != null && !await runtime.hasAcquisitionLocationPermission()) {
       throw const AcquisitionPermissionException();
@@ -326,6 +323,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     return sessionId;
   }
 
+  //Controlla se nel db ci sono punti gps
   @override
   Future<List<AcquisitionRoutePoint>> currentSessionRoute() async {
     final sessionId = _currentSessionId;
@@ -347,10 +345,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     }
     final window = await _dao.latestSensorWindow(sessionId);
     if (window == null) return const [];
-    return decodeSensorMatrixBlob(
-      window.matrixBlob,
-      sampleCount: window.sampleCount,
-    );
+    return decodeSensorMatrixJson(window.matrixJson);
   }
 
   @override
@@ -368,7 +363,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    _handleLifecycleState(state);
+    _applyLifecycleState(state);
   }
 
   Future<String> _resolveDeviceId() async {
@@ -473,9 +468,11 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     return syncJobActiveStatuses.contains(job.coreStatus);
   }
 
-  void _handleLifecycleState(AppLifecycleState state) {
+  void _applyLifecycleState(AppLifecycleState state) {
     _lifecycleState = state;
+
     if (state == AppLifecycleState.resumed) {
+      //manda l heartbeat e aggiorna il last seen del trip
       unawaited(_heartbeat.send());
       unawaited(_runtime?.applyPendingGpsRestart() ?? Future<void>.value());
     }
@@ -637,7 +634,6 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     _pendingSyncSessionId = sessionId;
     emitSnapshot(AcquisitionSnapshot.idle());
   }
-
 
   Future<void> _persistCompletedHarWindowsIfNeeded(
     FsmDecision decision,

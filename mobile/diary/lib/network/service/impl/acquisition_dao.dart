@@ -78,22 +78,6 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
         .then((session) => session == null ? null : sessionAsUtc(session));
   }
 
-  Future<List<AcquisitionSession>> allSessions() {
-    return (select(acquisitionSessions)
-          ..orderBy([
-            (session) => OrderingTerm.asc(session.startedAt),
-          ]))
-        .get()
-        .then((sessions) => sessions.map(sessionAsUtc).toList());
-  }
-
-  Future<int> countSessions() {
-    final count = acquisitionSessions.id.count();
-    final query = selectOnly(acquisitionSessions)..addColumns([count]);
-
-    return query.map((row) => row.read(count) ?? 0).getSingle();
-  }
-
   // --- Transizioni FSM --------------------------------------------------- //
 
   Future<void> insertTransition({
@@ -138,15 +122,6 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
         .getSingleOrNull()
         .then((transition) =>
             transition == null ? null : transitionAsUtc(transition));
-  }
-
-  Future<int> countTransitionsForSession(String sessionId) {
-    final count = stateTransitions.id.count();
-    final query = selectOnly(stateTransitions)
-      ..addColumns([count])
-      ..where(stateTransitions.sessionId.equals(sessionId));
-
-    return query.map((row) => row.read(count) ?? 0).getSingle();
   }
 
   // --- Punti GPS --------------------------------------------------------- //
@@ -203,21 +178,6 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
     return query.map((row) => row.read(count) ?? 0).getSingle();
   }
 
-  Future<List<GpsPoint>> unsyncedGpsPoints(String sessionId) {
-    return (select(gpsPoints)
-          ..where(
-              (p) => p.sessionId.equals(sessionId) & p.isSynced.equals(false))
-          ..orderBy([(p) => OrderingTerm.asc(p.timestamp)]))
-        .get()
-        .then((points) => points.map(gpsPointAsUtc).toList());
-  }
-
-  Future<void> markGpsPointsSynced(List<int> ids) async {
-    if (ids.isEmpty) return;
-    await (update(gpsPoints)..where((p) => p.id.isIn(ids)))
-        .write(const GpsPointsCompanion(isSynced: Value(true)));
-  }
-
   // --- Finestre sensori -------------------------------------------------- //
 
   Future<int> insertSensorWindow({
@@ -226,7 +186,7 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
     required DateTime endTimestamp,
     required int sampleCount,
     required int frequencyHz,
-    required Uint8List matrixBlob,
+    required String matrixJson,
   }) {
     return into(sensorWindows).insert(
       SensorWindowsCompanion.insert(
@@ -235,7 +195,7 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
         endTimestamp: asUtc(endTimestamp),
         sampleCount: sampleCount,
         frequencyHz: frequencyHz,
-        matrixBlob: matrixBlob,
+        matrixJson: matrixJson,
       ),
     );
   }
@@ -270,32 +230,9 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
     return query.map((row) => row.read(count) ?? 0).getSingle();
   }
 
-  Future<List<SensorWindow>> unsyncedSensorWindows(String sessionId) {
-    return (select(sensorWindows)
-          ..where(
-              (w) => w.sessionId.equals(sessionId) & w.isSynced.equals(false))
-          ..orderBy([(w) => OrderingTerm.asc(w.startTimestamp)]))
-        .get()
-        .then((windows) => windows.map(sensorWindowAsUtc).toList());
-  }
-
-  Future<void> markSensorWindowsSynced(List<int> ids) async {
-    if (ids.isEmpty) return;
-    await (update(sensorWindows)..where((w) => w.id.isIn(ids)))
-        .write(const SensorWindowsCompanion(isSynced: Value(true)));
-  }
-
   // --- Pulizia ----------------------------------------------------------- //
 
-  /// Cancella del tutto una sessione ormai sincronizzata: dati grezzi (punti
-  /// GPS, finestre sensori, transizioni), il SyncJob e la riga sessione
-  /// stessa. Da chiamare solo dopo che il backend ha confermato core+raw
-  /// COMPLETED: da quel momento il telefono non e' piu' l'unica copia, e lo
-  /// stato di sync mostrato in UI (mappa disponibile, navigazione al viaggio
-  /// appena sincronizzato) reagisce alla transizione a COMPLETED prima che
-  /// questa riga sparisca, non dopo — cancellarla subito non perde nulla.
-  /// L'ordine di cancellazione rispetta le foreign key verso
-  /// [AcquisitionSessions] (le tabelle figlie prima, la sessione per ultima).
+  /// Cancella del tutto una sessione ormai
   Future<void> purgeSyncedSession(String sessionId) {
     return transaction(() async {
       await (delete(stateTransitions)
@@ -381,13 +318,6 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
         .then((job) => job == null ? null : syncJobAsUtc(job));
   }
 
-  Stream<SyncJob?> watchSyncJobForSession(String localSessionId) {
-    return (select(syncJobs)
-          ..where((j) => j.localSessionId.equals(localSessionId)))
-        .watchSingleOrNull()
-        .map((job) => job == null ? null : syncJobAsUtc(job));
-  }
-
   Stream<SyncJob?> watchLatestSyncJob() {
     return (select(syncJobs)
           ..orderBy([(j) => OrderingTerm.desc(j.updatedAt)])
@@ -423,7 +353,8 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
             ? const Value.absent()
             : Value(coreMapAvailable),
         nextRetryAt: nextRetryAt.present
-            ? Value(nextRetryAt.value == null ? null : asUtc(nextRetryAt.value!))
+            ? Value(
+                nextRetryAt.value == null ? null : asUtc(nextRetryAt.value!))
             : const Value.absent(),
         lastError: lastError,
         updatedAt: Value(DateTime.now().toUtc()),

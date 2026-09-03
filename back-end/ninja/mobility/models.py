@@ -446,7 +446,6 @@ class TripIngestionPart(models.Model):
     )
     sequence = models.PositiveIntegerField()
     sha256 = models.CharField(max_length=64)
-    size_bytes = models.BigIntegerField(default=0)
     object_key = models.CharField(max_length=512)
     received_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

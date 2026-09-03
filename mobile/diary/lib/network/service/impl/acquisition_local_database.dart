@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:diary/model/entities/acquisition/sensor_matrix_blob.dart';
 import 'package:diary/network/service/impl/acquisition_dao.dart';
 import 'package:diary/network/service/impl/acquisition_tables.dart';
 import 'package:drift/drift.dart';
@@ -31,7 +30,7 @@ class AcquisitionLocalDatabase extends _$AcquisitionLocalDatabase {
       : super(executor ?? _openConnection());
 
   @override
-  int get schemaVersion => 8;
+  int get schemaVersion => 9;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -62,77 +61,37 @@ class AcquisitionLocalDatabase extends _$AcquisitionLocalDatabase {
               );
             }
           }
-          if (from < 8) {
-            // v7 aggiungeva matrix_blob con un semplice ADD COLUMN ma non
-            // rimuoveva mai la vecchia matrix_json (NOT NULL, senza
-            // default). Risultato: ogni INSERT tipizzato successivo (Drift
-            // non conosce piu' quella colonna, quindi non la popola) fallisce
-            // con un vincolo NOT NULL — su qualunque device che sia passato
-            // di qui, anche quelli aggiornati PRIMA di questo fix e quindi
-            // gia' fermi a schemaVersion 7 con la colonna orfana ancora
-            // presente. Per questo il controllo e' dinamico (PRAGMA
-            // table_info) invece di assumere `from == 6`: deve pulire sia chi
-            // arriva da versioni precedenti sia chi e' gia' bloccato a 7.
-            final columns =
-                await customSelect("PRAGMA table_info('sensor_windows')").get();
-            final hasLegacyMatrixJson =
-                columns.any((row) => row.read<String>('name') == 'matrix_json');
-            final hasMatrixBlob =
-                columns.any((row) => row.read<String>('name') == 'matrix_blob');
+          if (from < 9) {
+            // Le matrici sensori tornano a essere JSON (colonna matrix_json
+            // TEXT). Le finestre gia' su disco appartengono al formato binario
+            // precedente e non sono convertibili senza tenere in vita il codec
+            // binario: la tabella viene ricreata vuota. Si perdono solo le
+            // finestre non ancora sincronizzate del viaggio in corso; sessioni,
+            // GPS, transizioni e SyncJob restano intatti.
+            await customStatement('DROP TABLE IF EXISTS sensor_windows');
+            await customStatement(
+              'DROP TABLE IF EXISTS sensor_windows_legacy_cleanup',
+            );
+            await m.createTable(sensorWindows);
 
-            if (hasLegacyMatrixJson) {
-              // SQLite non supporta DROP/ALTER COLUMN diretto: si ricostruisce
-              // la tabella, il pattern standard per rimuovere una colonna.
+            // `is_synced` non e' mai stata letta ne' scritta: lo stato di
+            // sincronizzazione vive in sync_jobs (per sessione) e a fine
+            // upload la sessione viene purgata in blocco. La colonna su
+            // sensor_windows sparisce con la ricreazione qui sopra; su
+            // gps_points va tolta esplicitamente per non lasciare una colonna
+            // orfana come era gia' successo con matrix_json.
+            final gpsColumns =
+                await customSelect("PRAGMA table_info('gps_points')").get();
+            final hasLegacyIsSynced = gpsColumns
+                .any((row) => row.read<String>('name') == 'is_synced');
+            if (hasLegacyIsSynced) {
               await customStatement(
-                'ALTER TABLE sensor_windows RENAME TO sensor_windows_legacy_cleanup',
-              );
-              await m.createTable(sensorWindows);
-              await customStatement('''
-                INSERT INTO sensor_windows
-                  (id, session_id, start_timestamp, end_timestamp,
-                   sample_count, frequency_hz, matrix_blob, is_synced)
-                SELECT id, session_id, start_timestamp, end_timestamp,
-                       sample_count, frequency_hz,
-                       ${hasMatrixBlob ? 'matrix_blob' : "X''"}, is_synced
-                FROM sensor_windows_legacy_cleanup
-              ''');
-              if (!hasMatrixBlob) {
-                await _migrateSensorWindowMatrixJsonToBlob(
-                  legacyTable: 'sensor_windows_legacy_cleanup',
-                );
-              }
-              await customStatement('DROP TABLE sensor_windows_legacy_cleanup');
-            } else if (!hasMatrixBlob) {
-              // Caso non atteso in pratica (v7 senza matrix_blob e senza
-              // matrix_json) — rete di sicurezza.
-              await customStatement(
-                "ALTER TABLE sensor_windows ADD COLUMN matrix_blob BLOB NOT NULL DEFAULT X''",
+                'ALTER TABLE gps_points DROP COLUMN is_synced',
               );
             }
           }
         },
       );
-
-  Future<void> _migrateSensorWindowMatrixJsonToBlob({
-    required String legacyTable,
-  }) async {
-    final rows = await customSelect(
-      'SELECT id, matrix_json FROM $legacyTable',
-    ).get();
-    for (final row in rows) {
-      final id = row.read<int>('id');
-      final matrixJson = row.read<String>('matrix_json');
-      final matrixBlob = encodeSensorMatrixJsonToBlob(matrixJson);
-      await customUpdate(
-        'UPDATE sensor_windows SET matrix_blob = ? WHERE id = ?',
-        variables: [
-          Variable<Uint8List>(matrixBlob),
-          Variable<int>(id),
-        ],
-        updates: {sensorWindows},
-      );
-    }
-  }
 }
 
 LazyDatabase _openConnection() {

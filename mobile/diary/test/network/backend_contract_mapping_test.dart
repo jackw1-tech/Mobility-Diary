@@ -11,8 +11,7 @@ import 'package:diary/network/service/trip_ingestion_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('maps the backend ingestion status contract without losing part keys',
-      () {
+  test('maps the backend ingestion status contract', () {
     final dto = IngestionStatusDto.fromJson({
       'ingestion_id': 7,
       'core_status': 'COMPLETED',
@@ -29,7 +28,6 @@ void main() {
 
     expect(status.coreStatus, 'COMPLETED');
     expect(status.rawStatus, 'RECEIVING');
-    expect(status.missingRawParts, [2, 4]);
     expect(status.tripId, 12);
     expect(status.mapAvailable, isTrue);
   });

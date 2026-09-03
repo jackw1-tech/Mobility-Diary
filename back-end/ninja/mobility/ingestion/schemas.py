@@ -91,7 +91,6 @@ class InlineCoreOut(Schema):
 class PartPresignIn(Schema):
     sequence: int = 1
     sha256: str
-    size_bytes: int
 
 
 class PartPresignOut(Schema):

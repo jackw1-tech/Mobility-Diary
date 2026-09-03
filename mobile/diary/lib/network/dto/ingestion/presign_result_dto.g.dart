@@ -2,6 +2,10 @@
 
 part of 'presign_result_dto.dart';
 
+// **************************************************************************
+// JsonSerializableGenerator
+// **************************************************************************
+
 PresignResultDto _$PresignResultDtoFromJson(Map<String, dynamic> json) =>
     PresignResultDto(
       objectKey: json['object_key'] as String,

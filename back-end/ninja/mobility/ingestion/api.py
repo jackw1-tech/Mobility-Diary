@@ -182,7 +182,7 @@ def create_core_inline(request, payload: InlineCoreIn):
         map_available=bool(ingestion.trip_id and ingestion.trip.path),
     )
 
-
+## Rotta che genera l'url per il caricamento diretto di un singolo blocco 
 @router.post(
     "/trips/{ingestion_id}/parts/presign",
     response=PartPresignOut,
@@ -195,7 +195,6 @@ def presign_part(request, ingestion_id: int, payload: PartPresignIn):
             ingestion_id=ingestion_id,
             sequence=payload.sequence,
             sha256=payload.sha256,
-            size_bytes=payload.size_bytes,
         )
     except IngestionServiceError as exc:
         raise HttpError(exc.status_code, exc.message) from exc

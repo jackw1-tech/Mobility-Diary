@@ -35,7 +35,6 @@ class GpsPoints extends Table {
   RealColumn get accuracyMeters => real().nullable()();
   BoolColumn get accepted => boolean().withDefault(const Constant(true))();
   TextColumn get rejectionReason => text().nullable()();
-  BoolColumn get isSynced => boolean().withDefault(const Constant(false))();
 }
 
 class SensorWindows extends Table {
@@ -45,8 +44,7 @@ class SensorWindows extends Table {
   DateTimeColumn get endTimestamp => dateTime()();
   IntColumn get sampleCount => integer()();
   IntColumn get frequencyHz => integer()();
-  BlobColumn get matrixBlob => blob()();
-  BoolColumn get isSynced => boolean().withDefault(const Constant(false))();
+  TextColumn get matrixJson => text()();
 }
 
 /// Coda di sincronizzazione persistente: un job per sessione conclusa.

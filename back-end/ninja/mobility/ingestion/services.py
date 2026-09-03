@@ -53,10 +53,6 @@ class IngestionUnprocessable(IngestionServiceError):
     status_code = 422
 
 
-class IngestionPartNotDeclared(IngestionServiceError):
-    status_code = 409
-
-
 class IngestionStorageUnavailable(IngestionServiceError):
     status_code = 503
 
@@ -326,7 +322,7 @@ def _normalize_and_validate_core_timeline(payload):
     )
 
 """
-Mette in coda il job che analizza i dati raw
+Mette in coda il job che analizza i dati raw e 
 """
 def queue_final_har(ingestion: TripIngestion, *, now: datetime) -> None:
     ingestion.raw_status = TripIngestion.PhaseStatus.QUEUED
@@ -342,11 +338,6 @@ def queue_final_har(ingestion: TripIngestion, *, now: datetime) -> None:
     )
     job = har_jobs_repository.create_har_job(ingestion.trip_id)
     transaction.on_commit(lambda: process_trip_har_final.delay(job.id, ingestion.id))
-
-
-def _object_key(base_path: str, sequence: int) -> str:
-    return f"{base_path}sensor_windows_part_{sequence:04d}.bin.gz"
-
 
 def _raw_part_count(parts: object) -> int:
     if isinstance(parts, dict):
@@ -385,14 +376,6 @@ def _mark_raw_received_if_complete(ingestion: TripIngestion) -> None:
             ingestion.save(update_fields=["raw_status", "updated_at"])
 
 
-def _ensure_part_was_declared(ingestion: TripIngestion, sequence: int) -> None:
-    expected_count = _raw_part_count(ingestion.expected_raw_parts)
-    if sequence < 1 or sequence > expected_count:
-        raise IngestionPartNotDeclared(
-            f"parte non dichiarata nel manifest iniziale: #{sequence}"
-        )
-
-
 def owned_ingestion_or_error(user_id: int, ingestion_id: int) -> TripIngestion:
     ingestion = ingestion_repository.owned_ingestion(user_id, ingestion_id)
     if ingestion is None:
@@ -409,9 +392,8 @@ class PartPresignResult:
 
 
 """
-Dichiara e presigna una parte raw: valida la dimensione e che la sequenza sia
-stata annunciata nel manifest iniziale, poi apre la fase RECEIVING alla prima
-parte ricevuta.
+Dichiara e presigna una parte raw: valida che la sequenza sia stata annunciata
+nel manifest iniziale, poi apre la fase RECEIVING alla prima parte ricevuta.
 """
 def presign_raw_part(
     *,
@@ -419,16 +401,9 @@ def presign_raw_part(
     ingestion_id: int,
     sequence: int,
     sha256: str,
-    size_bytes: int,
 ) -> PartPresignResult:
-    if size_bytes <= 0 or size_bytes > settings.INGESTION_MAX_PART_BYTES:
-        raise IngestionUnprocessable(
-            f"size_bytes fuori range (max {settings.INGESTION_MAX_PART_BYTES})"
-        )
-
     ingestion = owned_ingestion_or_error(user_id, ingestion_id)
-    _ensure_part_was_declared(ingestion, sequence)
-    object_key = _object_key(ingestion.raw_base_path, sequence)
+    object_key = storage.raw_part_object_key(ingestion.raw_base_path, sequence)
 
     with transaction.atomic():
         ingestion_repository.get_or_create_ingestion_part(
@@ -436,7 +411,6 @@ def presign_raw_part(
             sequence=sequence,
             defaults={
                 "sha256": sha256,
-                "size_bytes": size_bytes,
                 "object_key": object_key,
             },
         )
@@ -483,7 +457,7 @@ def confirm_raw_part(
     head = storage.head_object(part.object_key)
     if head is None:
         raise IngestionPartMismatch("oggetto non presente sullo storage")
-    metadata_sha256 = (head.get("Metadata") or {}).get("sha256")
+    metadata_sha256 = (head.get("Metadata") or {}).get("sha256") #Firma sha256 custom salvata in precedenza
     if metadata_sha256 != part.sha256:
         raise IngestionPartMismatch("sha256 metadata non corrisponde")
 
@@ -493,9 +467,7 @@ def confirm_raw_part(
 
 
 """
-Chiude la fase raw dell'ingestion e accoda l'HAR finale, dopo aver verificato
-che non sia gia' fallita definitivamente e che il conteggio parti dichiarato
-dal client combaci col manifest iniziale.
+Controlli ulteriori e  fa partire il job asincrono
 """
 def complete_raw_ingestion(
     *,
@@ -521,10 +493,6 @@ def complete_raw_ingestion(
             and total_parts != _raw_part_count(ingestion.expected_raw_parts)
         ):
             raise IngestionServiceError("numero parti raw diverso dal manifest iniziale")
-        missing = missing_raw_parts(ingestion)
-        if missing:
-            sequences = ", ".join(f"#{part['sequence']}" for part in missing)
-            raise IngestionServiceError(f"parti raw mancanti: {sequences}")
 
         queue_final_har(ingestion, now=now)
     return ingestion

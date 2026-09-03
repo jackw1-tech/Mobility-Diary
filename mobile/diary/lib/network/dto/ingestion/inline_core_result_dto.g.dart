@@ -2,6 +2,10 @@
 
 part of 'inline_core_result_dto.dart';
 
+// **************************************************************************
+// JsonSerializableGenerator
+// **************************************************************************
+
 InlineCoreResultDto _$InlineCoreResultDtoFromJson(Map<String, dynamic> json) =>
     InlineCoreResultDto(
       ingestionId: (json['ingestion_id'] as num).toInt(),
@@ -15,7 +19,7 @@ Map<String, dynamic> _$InlineCoreResultDtoToJson(
         InlineCoreResultDto instance) =>
     <String, dynamic>{
       'ingestion_id': instance.ingestionId,
-      if (instance.tripId != null) 'trip_id': instance.tripId,
+      'trip_id': instance.tripId,
       'core_status': instance.coreStatus,
       'raw_status': instance.rawStatus,
       'map_available': instance.mapAvailable,

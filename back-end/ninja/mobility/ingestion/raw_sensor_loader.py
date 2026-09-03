@@ -26,16 +26,10 @@ class RawSensorLoadResult:
     timings_ms: dict[str, float] = field(default_factory=dict)
 
 
-""" 
+"""
 Dato il trip, ne estrae tutte le trip ingestion completate (receivet at not null)
 Mette tutte insieme le sensor window
 """
-def load_raw_sensor_windows(
-    ingestion: TripIngestion,
-) -> list[PipelineSensorWindow]:
-    return load_raw_sensor_windows_with_metrics(ingestion).windows
-
-
 def load_raw_sensor_windows_with_metrics(
     ingestion: TripIngestion,
 ) -> RawSensorLoadResult:
@@ -88,12 +82,6 @@ def load_raw_sensor_windows_with_metrics(
     return result
 
 
-def _load_raw_sensor_part_windows(
-    object_key: str,
-) -> list[PipelineSensorWindow]:
-    return _load_raw_sensor_part_windows_with_metrics(object_key).windows
-
-
 def _load_raw_sensor_part_windows_with_metrics(
     object_key: str,
 ) -> RawSensorLoadResult:
@@ -123,14 +111,6 @@ def _load_raw_sensor_part_windows_with_metrics(
             "payload_decode": payload_decode_ms,
         },
     )
-
-
-def _read_gzip_object(object_key: str) -> bytes:
-    raw = storage.read_object(object_key)
-    try:
-        return gzip.decompress(raw)
-    except (gzip.BadGzipFile, EOFError) as exc:
-        raise InvalidRawSensorPayload("payload raw sensor gzip non valido") from exc
 
 
 def _elapsed_ms(started_at: float) -> float:

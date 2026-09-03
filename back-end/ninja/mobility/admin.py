@@ -125,7 +125,7 @@ class HarJobAdmin(admin.ModelAdmin):
 class TripIngestionPartInline(admin.TabularInline):
     model = TripIngestionPart
     extra = 0
-    fields = ("sequence", "size_bytes", "object_key", "received_at", "created_at")
+    fields = ("sequence", "object_key", "received_at", "created_at")
     readonly_fields = ("created_at",)
 
 
@@ -174,7 +174,6 @@ class TripIngestionPartAdmin(admin.ModelAdmin):
         "id",
         "ingestion",
         "sequence",
-        "size_bytes",
         "received_at",
         "created_at",
     )

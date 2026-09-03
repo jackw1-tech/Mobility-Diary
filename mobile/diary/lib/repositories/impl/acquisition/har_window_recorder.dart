@@ -1,5 +1,5 @@
 import 'package:diary/model/entities/acquisition/acquisition_domain.dart';
-import 'package:diary/model/entities/acquisition/sensor_matrix_blob.dart';
+import 'package:diary/model/entities/acquisition/sensor_matrix_json.dart';
 import 'package:diary/network/service/impl/acquisition_local_database.dart';
 
 /// Persiste le finestre sensori HAR di una sessione, scartando i doppioni.
@@ -34,7 +34,7 @@ class HarWindowRecorder {
       endTimestamp: window.endedAt,
       sampleCount: modelInput.length,
       frequencyHz: HarSensorWindow.targetSamplingHz,
-      matrixBlob: encodeSensorMatrixBlob(modelInput),
+      matrixJson: encodeSensorMatrixJson(modelInput),
     );
     _persistedKeys.add(key);
   }

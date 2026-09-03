@@ -63,15 +63,11 @@ class TripSyncQueueImpl implements TripSyncQueue {
   @override
   Future<void> kick() => processDue();
 
-  /// Elabora una passata di tutti i SyncJob pronti. Rientrante: una sola
-  /// esecuzione alla volta.
+  //Esegue uno alla volta i sync job in ordine cronologico, prima i vecchi
   Future<void> processDue() async {
     if (_running) return;
-    // Senza sessione autenticata non si tenta nulla: evita di bruciare retry
-    // se la coda viene "kickata" prima del login.
     final token = await _tokenProvider();
     if (token == null || token.isEmpty) return;
-
     _running = true;
     try {
       final jobs = await _dao.claimableSyncJobs(DateTime.now().toUtc());
@@ -125,15 +121,11 @@ class TripSyncQueueImpl implements TripSyncQueue {
               ingestionId == null ? const Value.absent() : Value(ingestionId),
           corePayloadSizeBytes: corePayload.sizeBytes,
         );
-
-        // `ingestionId` puo' essere gia' noto qui perche' `start_ingestion`
-        // crea la riga remota all'avvio della registrazione. Il core pero'
-        // entra sempre solo da questo endpoint inline.
         final coreResult = _mapper.mapInlineCoreResult(
           await _service.postCoreInline(body: corePayload.requestBody),
         );
         ingestionId = coreResult.ingestionId;
-        status = _statusFromInlineResult(coreResult, package.rawParts);
+        status = _statusFromInlineResult(coreResult);
       }
 
       if (status.isCoreFailedFinal) {
@@ -150,8 +142,6 @@ class TripSyncQueueImpl implements TripSyncQueue {
       }
 
       if (status.isCoreCompleted) {
-        // Persisto il trip_id materializzato dal backend: serve alla UI per
-        // aprire la mappa del viaggio. Non sovrascrivo se ancora assente.
         await _dao.updateSyncJob(
           job.id,
           coreStatus: syncJobCompleted,
@@ -166,12 +156,7 @@ class TripSyncQueueImpl implements TripSyncQueue {
         }
         if (status.canReceiveRawParts) {
           await _dao.updateSyncJob(job.id, rawStatus: syncJobUploading);
-          await _uploadMissingParts(
-            ingestionId,
-            package.rawParts,
-            status.missingRawParts,
-            uploadAll: status.rawStatus == 'PENDING',
-          );
+          await _uploadRawParts(ingestionId, package.rawParts);
           await _service.completeRawIngestion(
             ingestionId,
             totalParts: package.rawParts.length,
@@ -210,11 +195,7 @@ class TripSyncQueueImpl implements TripSyncQueue {
     }
   }
 
-  /// Gestisce gli esiti terminali/di attesa dello stato raw comuni ai tre
-  /// punti in cui viene ricontrollato in [_processJob] (subito dopo il core,
-  /// dopo l'upload delle parti mancanti, dopo il complete). Ritorna `true` se
-  /// lo stato e' stato gestito (il chiamante deve fermarsi), `false` se serve
-  /// proseguire con i passi successivi (upload/complete).
+  /// Controlla in diversi punti del codice se il caricamento raw è concluso
   Future<bool> _handleRawOutcome(
     SyncJob job,
     TripPackage package,
@@ -222,6 +203,7 @@ class TripSyncQueueImpl implements TripSyncQueue {
     IngestionStatus status,
   ) async {
     if (status.isRawDone) {
+      //completato con successo
       await _finalizeAllDone(job, package);
       return true;
     }
@@ -241,37 +223,33 @@ class TripSyncQueueImpl implements TripSyncQueue {
     return false;
   }
 
-  Future<void> _uploadMissingParts(
+  // Upload effettivo delle raw, a blocchi di _rawUploadConcurrency alla volta.
+  Future<void> _uploadRawParts(
     int ingestionId,
     List<TripPackagePart> parts,
-    List<int> missingParts, {
-    required bool uploadAll,
-  }) async {
-    final selectedParts = [
-      for (final part in parts)
-        if (uploadAll || missingParts.contains(part.sequence)) part,
-    ];
-
-    for (var start = 0;
-        start < selectedParts.length;
-        start += _rawUploadConcurrency) {
-      final proposedEnd = start + _rawUploadConcurrency;
-      final end = proposedEnd > selectedParts.length
-          ? selectedParts.length
-          : proposedEnd;
-      final batch = selectedParts.sublist(start, end);
-      await Future.wait([
-        for (final part in batch) _uploadSinglePart(ingestionId, part),
-      ]);
+  ) async {
+    for (final batch in _inBatches(parts, _rawUploadConcurrency)) {
+      await Future.wait(
+        batch.map((part) => _uploadSinglePart(ingestionId, part)),
+      );
     }
   }
 
+  Iterable<List<TripPackagePart>> _inBatches(
+    List<TripPackagePart> parts,
+    int size,
+  ) sync* {
+    for (var start = 0; start < parts.length; start += size) {
+      yield parts.sublist(start, (start + size).clamp(0, parts.length));
+    }
+  }
+
+  // Upload di un singolo blocco
   Future<void> _uploadSinglePart(int ingestionId, TripPackagePart part) async {
     final presign = _mapper.mapPresignResult(await _service.presignPart(
       ingestionId,
       sequence: part.sequence,
       sha256: part.sha256,
-      sizeBytes: part.sizeBytes,
     ));
     final bytes = await part.file.readAsBytes();
     await _service.uploadPart(
@@ -286,25 +264,17 @@ class TripSyncQueueImpl implements TripSyncQueue {
     );
   }
 
-  IngestionStatus _statusFromInlineResult(
-    InlineCoreResult result,
-    List<TripPackagePart> rawParts,
-  ) {
+  IngestionStatus _statusFromInlineResult(InlineCoreResult result) {
     return IngestionStatus(
       coreStatus: result.coreStatus,
       rawStatus: result.rawStatus,
-      missingRawParts: _partKeys(rawParts),
       tripId: result.tripId,
       mapAvailable: result.mapAvailable,
     );
   }
 
-  List<int> _partKeys(List<TripPackagePart> parts) {
-    return [
-      for (final part in parts) part.sequence,
-    ];
-  }
-
+  // Aggiorno lo stato locale del caricamento del viaggio a concluso e cancello
+  // i file compressi e tutte le righe del db relative al quel viaggio
   Future<void> _finalizeAllDone(SyncJob job, TripPackage package) async {
     await _dao.updateSyncJob(
       job.id,
@@ -312,14 +282,11 @@ class TripSyncQueueImpl implements TripSyncQueue {
       rawStatus: syncJobCompleted,
     );
     await _deletePackageDirectory(package);
-    // Backend ha confermato core+raw COMPLETED: il telefono non e' piu'
-    // l'unica copia. Cancella tutto il locale (dati grezzi, SyncJob, riga
-    // sessione), non solo la mole.
     await _dao.purgeSyncedSession(job.localSessionId);
   }
 
+  // Elimino i file temporanei compressi che sono stati mandati al bucket
   Future<void> _deletePackageDirectory(TripPackage package) async {
-    // Pulizia dei blob temporanei su disco.
     if (await package.directory.exists()) {
       await package.directory.delete(recursive: true);
     }
@@ -362,11 +329,6 @@ class TripSyncQueueImpl implements TripSyncQueue {
   Future<void> _handleFailure(SyncJob job, Object error) async {
     final currentJob = await _dao.syncJobForSession(job.localSessionId) ?? job;
     final coreCompleted = currentJob.coreStatus == syncJobCompleted;
-    // 410: il backend ha gia' abbandonato o chiuso questa ingestion altrove
-    // (es. un altro device ha avviato un nuovo viaggio dopo che questa e'
-    // rimasta stantia oltre la soglia lato server). Non e' un fallimento
-    // transitorio: nessun retry lo risolvera' mai, quindi si scarta subito
-    // invece di bruciare tutto il budget di backoff su un esito gia' noto.
     if (error is IngestionApiException && error.statusCode == 410) {
       await _discardJob(currentJob);
       return;
@@ -388,20 +350,12 @@ class TripSyncQueueImpl implements TripSyncQueue {
     );
   }
 
-  /// Un viaggio la cui sincronizzazione e' fallita in modo definitivo (core o
-  /// raw, esauriti i tentativi) viene scartato subito, senza nessuna azione
-  /// dell'utente: se il core era gia' riuscito (Trip gia' visibile nel
-  /// diario, [remoteTripId] valorizzato), lo elimina anche li' — best-effort,
-  /// un errore nell'eliminazione remota non deve impedire la pulizia locale.
-  /// Poi cancella sempre dati grezzi, SyncJob e riga sessione in locale.
   Future<void> _discardJob(SyncJob job, {int? remoteTripId}) async {
     final tripId = remoteTripId ?? job.remoteTripId;
     if (tripId != null) {
       try {
         await _tripsService?.deleteTrip(tripId);
-      } catch (_) {
-        // Best-effort: non deve impedire la pulizia locale automatica.
-      }
+      } catch (_) {}
     }
     await _dao.purgeSyncedSession(job.localSessionId);
   }

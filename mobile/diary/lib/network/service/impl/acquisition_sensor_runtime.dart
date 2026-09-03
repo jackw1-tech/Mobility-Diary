@@ -99,8 +99,7 @@ class AcquisitionSensorRuntime {
     }
   }
 
-  /// Applica in foreground il riavvio GPS rimandato mentre eravamo in
-  /// background.
+  /// Applica in foreground il riavvio GPS.
   Future<void> applyPendingGpsRestart() async {
     final profile = _currentProfile;
     if (!_isStarted || !_gpsRestartPending || profile == null) {
@@ -159,6 +158,7 @@ class AcquisitionSensorRuntime {
     ).listen(_onGyroscopeEvent);
   }
 
+  // Riavvia lo stream del gps
   Future<void> _restartGps(SamplingProfile profile) async {
     await _positionSubscription?.cancel();
     _positionSubscription = null;
@@ -287,6 +287,7 @@ class AcquisitionSensorRuntime {
     _harWindowStartedAt = null;
   }
 
+  //Prende un il gps, lo ripulisce e lo converte in un GpsFixReceived
   Future<void> _onPosition(Position position) async {
     final eventSink = _eventSink;
     if (!_isStarted || eventSink == null) {

@@ -206,6 +206,8 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     emitSnapshot(strategy.currentSnapshot);
   }
 
+  // Funzione chiamata quando viene fatto l'autologin, controllo per prima cosa
+  // se ci sono upload pendenti da completare
   @override
   Future<void> resumeSync() async {
     if (_activeStrategy == null) {
@@ -238,6 +240,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     await _dao.purgeSyncedSession(sessionId);
   }
 
+  // Cerca la lista dei punti della sessione di tracking attuale
   @override
   Future<List<AcquisitionRoutePoint>> currentSessionRoute() async {
     final strategy = _activeStrategy;
@@ -266,6 +269,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     _database.close();
   }
 
+  // Funzione chiamata in automatico quando l'app cambia stato
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _handleLifecycleState(state);
@@ -312,6 +316,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     }
   }
 
+  //Funzione chiamata quando l'utente in modo naturale clicca stop
   Future<void> _handleStopResult(AcquisitionStopResult result) async {
     final syncSessionId = result.syncSessionId;
     if (syncSessionId == null) {
@@ -330,10 +335,13 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     }
   }
 
+  // Funzione chiamata quando
   void _handleLifecycleState(AppLifecycleState state) {
+    // notifico alle altre parti dell'app (_applyLifecycleState) che ascoltano il nuovo stato
     if (!_lifecycleRelay.isClosed) {
       _lifecycleRelay.add(state);
     }
+    // se l'app è tornata in primo piano, controlla se ci sono upload pendenti da completare
     if (state == AppLifecycleState.resumed) {
       unawaited(_syncQueue?.kick() ?? Future<void>.value());
     }

@@ -2,6 +2,10 @@
 
 part of 'ingestion_status_dto.dart';
 
+// **************************************************************************
+// JsonSerializableGenerator
+// **************************************************************************
+
 IngestionMissingPartDto _$IngestionMissingPartDtoFromJson(
         Map<String, dynamic> json) =>
     IngestionMissingPartDto(
@@ -31,8 +35,7 @@ Map<String, dynamic> _$IngestionStatusDtoToJson(IngestionStatusDto instance) =>
     <String, dynamic>{
       'core_status': instance.coreStatus,
       'raw_status': instance.rawStatus,
-      'missing_raw_parts':
-          instance.missingRawParts.map((e) => e.toJson()).toList(),
-      if (instance.tripId != null) 'trip_id': instance.tripId,
+      'missing_raw_parts': instance.missingRawParts,
+      'trip_id': instance.tripId,
       'map_available': instance.mapAvailable,
     };
