@@ -23,7 +23,16 @@ String encodeSensorMatrixJson(List<List<double>> matrix) {
         ],
   ]);
 }
+//[  [-0.023457,-9.806649,0.112346,0.001235,-0.004321,0.000765],[...],...  ]
+// Una sola [] di primo livello (radice)
+// Tante [] dentro il secondo livello
+// jsonDecode lo interpreta come una lista di elementi, o
+// ogni elemento contiene i numeri dentro [] di secondo livello -> List di primo livello di decodeSensorMatrixJson
+// all'interno ci sono 6 numeir -> List<double> di secondo livello di decodeSensorMatrixJson
 
+// 500 elementi lista di primo livello
+// 6 elementi lista di secondo livello
+// 5 sec di dati
 List<List<double>> decodeSensorMatrixJson(String matrixJson) {
   final decoded = jsonDecode(matrixJson);
   if (decoded is! List) {

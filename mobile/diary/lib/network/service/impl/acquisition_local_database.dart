@@ -115,6 +115,6 @@ LazyDatabase _openConnection() {
   return LazyDatabase(() async {
     final directory = await getApplicationDocumentsDirectory();
     final file = File(p.join(directory.path, 'mobility_diary.sqlite'));
-    return NativeDatabase(file);
+    return NativeDatabase.createInBackground(file);
   });
 }

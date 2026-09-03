@@ -1,6 +1,7 @@
 import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:diary/mappers/acquisition_mapper.dart';
@@ -78,6 +79,7 @@ class TripPackageBuilder {
   final Future<Directory> Function() _baseDirProvider;
 
   final int _sensorWindowsPartBudgetBytes;
+  final int _sensorWindowsPageSize;
 
   final AcquisitionMapper _acquisitionMapper;
   final UploadMapper _uploadMapper;
@@ -92,11 +94,16 @@ class TripPackageBuilder {
     // ~5 MB dopo gzip. Tenerlo basso limita il picco di memoria della
     // serializzazione sul telefono.
     int sensorWindowsPartBudgetBytes = 12 * 1024 * 1024,
+    // La pagina e' intenzionalmente molto piu' piccola di una parte: il picco
+    // di memoria dipende dal budget della parte e non dalla durata del viaggio.
+    int sensorWindowsPageSize = 128,
   })  : _dao = dao,
         _acquisitionMapper = acquisitionMapper ?? AcquisitionMapper(),
         _uploadMapper = uploadMapper ?? UploadMapper(),
         _baseDirProvider = baseDirProvider ?? getTemporaryDirectory,
-        _sensorWindowsPartBudgetBytes = sensorWindowsPartBudgetBytes;
+        _sensorWindowsPartBudgetBytes = sensorWindowsPartBudgetBytes,
+        _sensorWindowsPageSize =
+            sensorWindowsPageSize < 1 ? 1 : sensorWindowsPageSize;
 
   Future<TripPackage> build(String localSessionId) async {
     final session = await _dao.findSession(localSessionId);
@@ -153,22 +160,20 @@ class TripPackageBuilder {
     String sessionId,
     Directory directory,
   ) async {
-    final windows = await _dao.sensorWindowsForSession(sessionId);
-    if (windows.isEmpty) return const [];
-
     final parts = <TripPackagePart>[];
     var sequence = 1;
-    var bufferedWindows = <SensorWindow>[]; // Buffer di accumulo
+    var bufferedWindows = <SensorWindow>[];
     var bufferedBytes = 0;
+    var offset = 0;
 
     Future<void> flush() async {
       if (bufferedWindows.isEmpty) return;
-      final payload = utf8.encode(_encodeSensorWindowsJson(bufferedWindows));
+      final payloadJson = _encodeSensorWindowsJson(bufferedWindows);
       parts.add(
         await _writeGzipPart(
           directory,
           sequence,
-          payload,
+          payloadJson,
         ),
       );
       sequence += 1;
@@ -176,16 +181,28 @@ class TripPackageBuilder {
       bufferedBytes = 0;
     }
 
-    for (final window in windows) {
-      final windowBytes = _sensorWindowJsonByteSize(window);
+    while (true) {
+      final page = await _dao.sensorWindowsPageForSession(
+        sessionId,
+        limit: _sensorWindowsPageSize,
+        offset: offset,
+      );
+      if (page.isEmpty) break;
 
-      if (bufferedWindows.isNotEmpty &&
-          bufferedBytes + windowBytes > _sensorWindowsPartBudgetBytes) {
-        await flush();
+      for (final window in page) {
+        final windowBytes = _sensorWindowJsonByteSize(window);
+
+        if (bufferedWindows.isNotEmpty &&
+            bufferedBytes + windowBytes > _sensorWindowsPartBudgetBytes) {
+          await flush();
+        }
+
+        bufferedWindows.add(window);
+        bufferedBytes += windowBytes;
       }
 
-      bufferedWindows.add(window);
-      bufferedBytes += windowBytes;
+      offset += page.length;
+      if (page.length < _sensorWindowsPageSize) break;
     }
     await flush();
 
@@ -195,24 +212,32 @@ class TripPackageBuilder {
   Future<TripPackagePart> _writeGzipPart(
     Directory directory,
     int sequence,
-    List<int> payload,
+    String payloadJson,
   ) async {
     final fileName =
         'sensor_windows_part_${sequence.toString().padLeft(4, '0')}.json.gz';
     final file = File(p.join(directory.path, fileName));
 
-    // Il testo decimale e' ridondante: gzip lo riduce di circa 2,5x, il che
-    // porta la parte quasi in pari con il vecchio formato binario (i float32
-    // grezzi erano quasi incomprimibili).
-    final gzipped = gzip.encode(payload);
-    await file.writeAsBytes(gzipped, flush: true);
+    // UTF-8, gzip, checksum e scrittura sono tutti fuori dal main isolate: su
+    // registrazioni lunghe sono il tratto CPU-bound che congelava i frame UI.
+    final sha256 = await Isolate.run(
+      () => _compressAndWritePart(file.path, payloadJson),
+    );
 
     return TripPackagePart(
       sequence: sequence,
       file: file,
-      sha256: crypto.sha256.convert(gzipped).toString(),
+      sha256: sha256,
     );
   }
+}
+
+String _compressAndWritePart(String filePath, String payloadJson) {
+  // Il testo decimale e' ridondante: gzip lo riduce di circa 2,5x, il che
+  // porta la parte quasi in pari con il vecchio formato binario.
+  final gzipped = gzip.encode(utf8.encode(payloadJson));
+  File(filePath).writeAsBytesSync(gzipped, flush: true);
+  return crypto.sha256.convert(gzipped).toString();
 }
 
 bool _belongsToSession(DateTime timestamp, AcquisitionSession? session) {

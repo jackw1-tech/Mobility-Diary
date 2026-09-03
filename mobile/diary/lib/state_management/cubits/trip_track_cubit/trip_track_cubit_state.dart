@@ -10,6 +10,8 @@ enum TripTrackStatus {
 }
 
 class TripTrackCubitState {
+  final int? tripId;
+  final String? diagnosticsTraceId;
   final TripTrackStatus status;
   final List<LatLng> points;
   final List<TripTrackSegmentState> segments;
@@ -22,6 +24,8 @@ class TripTrackCubitState {
 
   const TripTrackCubitState({
     required this.status,
+    this.tripId,
+    this.diagnosticsTraceId,
     this.points = const [],
     this.segments = const [],
     this.diarySegments = const [],
@@ -33,7 +37,9 @@ class TripTrackCubitState {
   });
 
   const TripTrackCubitState.initial()
-      : status = TripTrackStatus.initial,
+      : tripId = null,
+        diagnosticsTraceId = null,
+        status = TripTrackStatus.initial,
         points = const [],
         segments = const [],
         diarySegments = const [],

@@ -83,6 +83,53 @@ void main() {
     expect((await dao.claimableSyncJobs(DateTime.now().toUtc())).length, 1);
   });
 
+  test('reads sensor windows in stable bounded pages', () async {
+    final startedAt = DateTime.utc(2026, 8, 30, 10);
+    await dao.createSession(
+      id: 'session-1',
+      deviceId: 'iphone-1',
+      startedAt: startedAt,
+    );
+    for (final minute in [4, 1, 3, 0, 2]) {
+      final windowStart = startedAt.add(Duration(minutes: minute));
+      await dao.insertSensorWindow(
+        sessionId: 'session-1',
+        startTimestamp: windowStart,
+        endTimestamp: windowStart.add(const Duration(seconds: 5)),
+        sampleCount: 1,
+        frequencyHz: 100,
+        matrixJson: '[[1,2,3,4,5,6]]',
+      );
+    }
+
+    final first = await dao.sensorWindowsPageForSession(
+      'session-1',
+      limit: 2,
+      offset: 0,
+    );
+    final second = await dao.sensorWindowsPageForSession(
+      'session-1',
+      limit: 2,
+      offset: 2,
+    );
+    final third = await dao.sensorWindowsPageForSession(
+      'session-1',
+      limit: 2,
+      offset: 4,
+    );
+
+    expect(
+      [...first, ...second, ...third].map((window) => window.startTimestamp),
+      [
+        for (var minute = 0; minute < 5; minute += 1)
+          startedAt.add(Duration(minutes: minute)),
+      ],
+    );
+    expect(first, hasLength(2));
+    expect(second, hasLength(2));
+    expect(third, hasLength(1));
+  });
+
   test('purges all local evidence only after synchronization completes',
       () async {
     await dao.createSession(

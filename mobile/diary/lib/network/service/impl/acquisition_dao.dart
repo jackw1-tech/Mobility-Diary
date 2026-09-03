@@ -206,6 +206,32 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
         .then((windows) => windows.map(sensorWindowAsUtc).toList());
   }
 
+  /// Legge una porzione ordinata delle finestre senza materializzare in RAM
+  /// tutta una registrazione lunga. Le sessioni vengono impacchettate solo
+  /// dopo lo stop, quindi la paginazione per offset lavora su un insieme
+  /// stabile e non puo' saltare righe inserite durante la lettura.
+  Future<List<SensorWindow>> sensorWindowsPageForSession(
+    String sessionId, {
+    required int limit,
+    required int offset,
+  }) {
+    if (limit < 1) {
+      throw ArgumentError.value(limit, 'limit', 'deve essere positivo');
+    }
+    if (offset < 0) {
+      throw ArgumentError.value(offset, 'offset', 'non puo essere negativo');
+    }
+    return (select(sensorWindows)
+          ..where((window) => window.sessionId.equals(sessionId))
+          ..orderBy([
+            (window) => OrderingTerm.asc(window.startTimestamp),
+            (window) => OrderingTerm.asc(window.id),
+          ])
+          ..limit(limit, offset: offset))
+        .get()
+        .then((windows) => windows.map(sensorWindowAsUtc).toList());
+  }
+
   /// Finestra sensori piu' recente della sessione: usata dalla classificazione
   /// live dell'assistente di percorso. Null se la sessione non ne ha ancora.
   Future<SensorWindow?> latestSensorWindow(String sessionId) {

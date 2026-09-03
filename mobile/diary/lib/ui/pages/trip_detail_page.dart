@@ -12,6 +12,7 @@ import 'package:diary/ui/pages/trip_map_page.dart';
 import 'package:diary/ui/widgets/trip_privacy_export_sheet.dart';
 import 'package:diary/ui/widgets/trips_drawer_presenter.dart';
 import 'package:diary/utils/date_time_utils.dart';
+import 'package:diary/utils/trip_detail_diagnostics.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -30,30 +31,57 @@ class TripDetailPage extends StatefulWidget {
 
 class _TripDetailPageState extends State<TripDetailPage> {
   late int _currentTripId;
+  late String _traceId;
+  int _buildCount = 0;
 
   @override
   void initState() {
     super.initState();
     _currentTripId = widget.tripId;
+    _traceId = TripDetailDiagnostics.ensureForTrip(
+      widget.tripId,
+      source: 'direct_route',
+    );
+    TripDetailDiagnostics.event(_traceId, 'detail_page_init_state');
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      TripDetailDiagnostics.event(_traceId, 'detail_page_first_frame');
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+    _buildCount += 1;
+    TripDetailDiagnostics.event(
+      _traceId,
+      'detail_page_build',
+      fields: {'build_count': _buildCount},
+    );
     return MultiBlocProvider(
       providers: [
         BlocProvider(
           create: (context) =>
               TripTrackCubit(context.read<TripTrackRepository>())
-                ..load(widget.tripId),
+                ..load(widget.tripId, diagnosticsTraceId: _traceId),
         ),
         BlocProvider(
-          create: (context) =>
-              TripsListCubit(context.read<TripsRepository>())..load(),
+          create: (context) => TripsListCubit(
+            context.read<TripsRepository>(),
+            diagnosticsTraceId: _traceId,
+          )..load(),
         ),
       ],
       child: BlocBuilder<TripsListCubit, TripsListCubitState>(
         buildWhen: (previous, current) => previous.trips != current.trips,
         builder: (context, tripsState) {
+          TripDetailDiagnostics.event(
+            _traceId,
+            'detail_trips_selector_build',
+            fields: {
+              'status': tripsState.status.name,
+              'trip_count': tripsState.trips.length,
+            },
+          );
           final sameDayTrips =
               sameLocalDayTrackTrips(tripsState.trips, _currentTripId);
           final selector = sameDayTrips.length > 1
@@ -102,8 +130,19 @@ class _TripDetailPageState extends State<TripDetailPage> {
 
   void _selectTrip(BuildContext context, TripListItem trip) {
     if (trip.id == _currentTripId) return;
+    TripDetailDiagnostics.finish(_traceId, reason: 'same_day_trip_switch');
+    _traceId = TripDetailDiagnostics.start(
+      trip.id,
+      source: 'same_day_selector',
+    );
     setState(() => _currentTripId = trip.id);
-    context.read<TripTrackCubit>().load(trip.id);
+    context.read<TripTrackCubit>().load(trip.id, diagnosticsTraceId: _traceId);
+  }
+
+  @override
+  void dispose() {
+    TripDetailDiagnostics.finish(_traceId, reason: 'detail_page_disposed');
+    super.dispose();
   }
 }
 
@@ -185,7 +224,8 @@ class _SameDayTripSelectorState extends State<_SameDayTripSelector> {
                           min: 0,
                           max: (widget.trips.length - 1).toDouble(),
                           divisions: widget.trips.length - 1,
-                          label: DateTimeUtils.formatTime(selectedTrip.startedAt),
+                          label:
+                              DateTimeUtils.formatTime(selectedTrip.startedAt),
                           onChanged: (value) {
                             final index = value.round();
                             widget.onSelectTrip(widget.trips[index]);

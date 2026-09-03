@@ -3,13 +3,16 @@ import 'package:diary/model/entities/trips/trip_list_item.dart';
 import 'package:diary/model/entities/trips/trip_reload.dart';
 import 'package:diary/repositories/trips_repository.dart';
 import 'package:diary/state_management/cubits/trips_list_cubit/trips_list_cubit_state.dart';
+import 'package:diary/utils/trip_detail_diagnostics.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 class TripsListCubit extends Cubit<TripsListCubitState> {
   final TripsRepository _repository;
+  final String? diagnosticsTraceId;
   int _loadGeneration = 0;
 
-  TripsListCubit(this._repository) : super(const TripsListCubitState.initial());
+  TripsListCubit(this._repository, {this.diagnosticsTraceId})
+      : super(const TripsListCubitState.initial());
 
   Future<void> load() => _load(_repository.fetchTrips);
 
@@ -174,13 +177,27 @@ class TripsListCubit extends Cubit<TripsListCubitState> {
 
   Future<void> _load(
       Future<AppResult<List<TripListItem>>> Function() fetch) async {
+    final stopwatch = Stopwatch()..start();
     final generation = ++_loadGeneration;
+    TripDetailDiagnostics.event(
+      diagnosticsTraceId,
+      'trips_list_load_start',
+      fields: {'generation': generation},
+    );
     emit(const TripsListCubitState(status: TripsListStatus.loading));
     try {
       final result = await fetch();
       if (isClosed || generation != _loadGeneration) return;
       final failure = result.failure;
       if (failure != null) {
+        TripDetailDiagnostics.event(
+          diagnosticsTraceId,
+          'trips_list_load_failure',
+          fields: {
+            'duration_ms': stopwatch.elapsedMilliseconds,
+            'failure_type': failure.runtimeType,
+          },
+        );
         emit(
           TripsListCubitState(
             status: TripsListStatus.error,
@@ -190,6 +207,14 @@ class TripsListCubit extends Cubit<TripsListCubitState> {
         return;
       }
       final trips = result.requireValue;
+      TripDetailDiagnostics.event(
+        diagnosticsTraceId,
+        'trips_list_load_complete',
+        fields: {
+          'duration_ms': stopwatch.elapsedMilliseconds,
+          'trip_count': trips.length,
+        },
+      );
       emit(
         TripsListCubitState(
           status:
@@ -198,6 +223,14 @@ class TripsListCubit extends Cubit<TripsListCubitState> {
         ),
       );
     } catch (error) {
+      TripDetailDiagnostics.event(
+        diagnosticsTraceId,
+        'trips_list_load_exception',
+        fields: {
+          'duration_ms': stopwatch.elapsedMilliseconds,
+          'error_type': error.runtimeType,
+        },
+      );
       if (isClosed || generation != _loadGeneration) return;
       emit(
         TripsListCubitState(
