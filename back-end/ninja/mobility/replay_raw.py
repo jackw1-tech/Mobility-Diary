@@ -197,7 +197,13 @@ def regenerate_raw_and_queue_har(
             update_fields=["expected_raw_parts", "raw_status", "queued_at", "updated_at"]
         )
         job = har_jobs_repository.create_har_job(upload.trip_id)
-        transaction.on_commit(lambda: process_trip_har_final.delay(job.id, upload.id))
+        # Senza cutoff il derivato ha esattamente le righe del sorgente
+        # traslate: la proiezione Timescale puo' essere clonata dentro
+        # Postgres invece di essere ricostruita riga per riga dagli oggetti.
+        clone_shift_us = _timedelta_microseconds(shift) if cutoff is None else None
+        transaction.on_commit(
+            lambda: process_trip_har_final.delay(job.id, upload.id, clone_shift_us)
+        )
     except Exception:
         for object_key in written:
             try:
@@ -205,3 +211,11 @@ def regenerate_raw_and_queue_har(
             except Exception:
                 pass
         raise
+
+
+def _timedelta_microseconds(value: timedelta) -> int:
+    return (
+        value.days * 24 * 60 * 60 * 1_000_000
+        + value.seconds * 1_000_000
+        + value.microseconds
+    )

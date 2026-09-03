@@ -4,6 +4,7 @@ import 'package:diary/model/entities/trips/trip_reload.dart';
 import 'package:diary/repositories/trips_repository.dart';
 import 'package:diary/state_management/cubits/trips_list_cubit/trips_list_cubit_state.dart';
 import 'package:diary/utils/trip_detail_diagnostics.dart';
+import 'package:diary/utils/trip_reload_diagnostics.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 class TripsListCubit extends Cubit<TripsListCubitState> {
@@ -116,9 +117,31 @@ class TripsListCubit extends Cubit<TripsListCubitState> {
   /// Slot liberi in cui e' possibile ricollocare [sourceTripId]. Ritorna `null`
   /// se la chiamata fallisce, esponendo il motivo in `state.reloadError`.
   Future<TripReloadSlots?> loadReloadSlots(int sourceTripId) async {
+    final stopwatch = Stopwatch()..start();
+    TripReloadDiagnostics.eventForTrip(sourceTripId, 'slots_fetch_start');
     final result = await _repository.fetchReloadSlots(sourceTripId);
     final failure = result.failure;
-    if (failure == null) return result.requireValue;
+    if (failure == null) {
+      final slots = result.requireValue;
+      TripReloadDiagnostics.eventForTrip(
+        sourceTripId,
+        'slots_fetch_complete',
+        fields: {
+          'duration_ms': stopwatch.elapsedMilliseconds,
+          'slot_count': slots.slots.length,
+          'duration_seconds': slots.durationSeconds,
+        },
+      );
+      return slots;
+    }
+    TripReloadDiagnostics.eventForTrip(
+      sourceTripId,
+      'slots_fetch_failure',
+      fields: {
+        'duration_ms': stopwatch.elapsedMilliseconds,
+        'failure_type': failure.runtimeType,
+      },
+    );
     emit(
       TripsListCubitState(
         status: state.status,
@@ -135,6 +158,12 @@ class TripsListCubit extends Cubit<TripsListCubitState> {
 
   Future<int?> reloadTrip(int sourceTripId,
       {DateTime? scheduledStartAt}) async {
+    final stopwatch = Stopwatch()..start();
+    TripReloadDiagnostics.eventForTrip(
+      sourceTripId,
+      'reload_request_start',
+      fields: {'has_scheduled_start': scheduledStartAt != null},
+    );
     emit(
       TripsListCubitState(
         status: state.status,
@@ -151,6 +180,21 @@ class TripsListCubit extends Cubit<TripsListCubitState> {
     );
     final failure = result.failure;
     if (failure == null) {
+      final reload = result.requireValue;
+      TripReloadDiagnostics.eventForTrip(
+        sourceTripId,
+        'reload_request_complete',
+        fields: {
+          'duration_ms': stopwatch.elapsedMilliseconds,
+          'derived_trip': reload.tripId,
+          'upload_id': reload.uploadId,
+          'core_status': reload.coreStatus,
+          'raw_status': reload.rawStatus,
+          'gps_points': reload.gpsPoints,
+          'path_points': reload.pathPoints,
+          'map_available': reload.mapAvailable,
+        },
+      );
       emit(
         TripsListCubitState(
           status: state.status,
@@ -160,8 +204,16 @@ class TripsListCubit extends Cubit<TripsListCubitState> {
           mutationError: state.mutationError,
         ),
       );
-      return result.requireValue.tripId;
+      return reload.tripId;
     }
+    TripReloadDiagnostics.eventForTrip(
+      sourceTripId,
+      'reload_request_failure',
+      fields: {
+        'duration_ms': stopwatch.elapsedMilliseconds,
+        'failure_type': failure.runtimeType,
+      },
+    );
     emit(
       TripsListCubitState(
         status: state.status,

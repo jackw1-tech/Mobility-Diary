@@ -208,6 +208,53 @@ def replace_raw_sensor_readings(
         return persist_raw_sensor_readings(trip, windows)
 
 
+def replace_raw_sensor_readings_from_source(
+    trip: Trip,
+    source: Trip,
+    *,
+    shift: timedelta,
+    start: datetime | None = None,
+    end: datetime | None = None,
+) -> int:
+    """Clona la proiezione Timescale di un derivato restando dentro Postgres.
+
+    Le righe di un viaggio ricaricato sono le stesse del sorgente, solo
+    traslate nel tempo: leggerle da object storage, decodificarle in Python e
+    riscriverle con COPY significa far attraversare al processo centinaia di
+    migliaia di righe che il database ha gia'. Un INSERT ... SELECT le sposta
+    senza uscire dal server. [start, end] limita la copia alla finestra
+    effettiva del derivato (Riproduzione Live tronca allo Stop).
+    """
+    table = connection.ops.quote_name(RawSensorReading._meta.db_table)
+    columns = ", ".join(connection.ops.quote_name(column) for column in _INSERT_COLUMNS)
+    value_columns = ", ".join(
+        connection.ops.quote_name(column) for column in _INSERT_COLUMNS[2:]
+    )
+    trip_id_column = connection.ops.quote_name(_INSERT_COLUMNS[0])
+    timestamp_column = connection.ops.quote_name(_INSERT_COLUMNS[1])
+
+    conditions = [f"{trip_id_column} = %s"]
+    params: list[object] = [trip.id, shift, source.id]
+    if start is not None:
+        conditions.append(f"{timestamp_column} + %s >= %s")
+        params.extend([shift, start])
+    if end is not None:
+        conditions.append(f"{timestamp_column} + %s <= %s")
+        params.extend([shift, end])
+
+    sql = (
+        f"INSERT INTO {table} ({columns}) "
+        f"SELECT %s, {timestamp_column} + %s, {value_columns} "
+        f"FROM {table} WHERE {' AND '.join(conditions)}"
+    )
+
+    with transaction.atomic():
+        RawSensorReading.objects.filter(trip=trip).delete()
+        with connection.cursor() as cursor:
+            cursor.execute(sql, params)
+            return cursor.rowcount
+
+
 def _raw_sensor_reading_binary_row(
     trip_id: int,
     timestamp_us: int,

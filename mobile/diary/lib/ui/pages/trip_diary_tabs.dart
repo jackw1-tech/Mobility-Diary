@@ -14,7 +14,8 @@ class TripDiaryTab extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocBuilder<TripTrackCubit, TripTrackCubitState>(
       builder: (context, state) {
-        final message = _stateMessage(state, pending: 'Diario in analisi');
+        final message =
+            _stateMessage(context, state, pending: 'Diario in analisi');
         if (message != null) return message;
         final segments = state.diarySegments;
         if (segments.isEmpty) {
@@ -39,7 +40,8 @@ class TripStatsTab extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocBuilder<TripTrackCubit, TripTrackCubitState>(
       builder: (context, state) {
-        final message = _stateMessage(state, pending: 'Statistiche in analisi');
+        final message =
+            _stateMessage(context, state, pending: 'Statistiche in analisi');
         if (message != null) return message;
         final stats = TripStats.fromSegments(state.diarySegments);
         if (stats.isEmpty) {
@@ -80,15 +82,20 @@ class TripStatsTab extends StatelessWidget {
   }
 }
 
-Widget? _stateMessage(TripTrackCubitState state, {required String pending}) {
-  switch (state.status) {
-    case TripTrackStatus.initial:
-    case TripTrackStatus.loading:
+Widget? _stateMessage(
+  BuildContext context,
+  TripTrackCubitState state, {
+  required String pending,
+}) {
+  switch (state.diaryStatus) {
+    case DiaryLoadStatus.initial:
+    case DiaryLoadStatus.loading:
       return const Center(child: CircularProgressIndicator());
-    case TripTrackStatus.error:
-      return _message(Icons.error_outline, state.error ?? 'Errore');
-    case TripTrackStatus.empty:
-    case TripTrackStatus.loaded:
+    case DiaryLoadStatus.pending:
+      return _message(Icons.auto_awesome, pending);
+    case DiaryLoadStatus.failed:
+      // Solo l'arricchimento fallito e' definitivo: un errore di trasporto
+      // viene gia' ritentato da solo, e l'utente puo' forzarlo subito.
       if (state.enrichmentFailed) {
         return _message(
           Icons.error_outline,
@@ -96,9 +103,18 @@ Widget? _stateMessage(TripTrackCubitState state, {required String pending}) {
               'Diario non disponibile per questo viaggio.',
         );
       }
-      return state.enrichmentPending
-          ? _message(Icons.auto_awesome, pending)
-          : null;
+      return _message(
+        Icons.wifi_off_outlined,
+        state.diaryError ?? 'Diario non raggiungibile.',
+        action: TextButton.icon(
+          onPressed: () => context.read<TripTrackCubit>().retryDiaryNow(),
+          icon: const Icon(Icons.refresh),
+          label: const Text('Riprova'),
+        ),
+        hint: state.diaryRetryPending ? 'Nuovo tentativo in corso...' : null,
+      );
+    case DiaryLoadStatus.loaded:
+      return null;
   }
 }
 
@@ -172,15 +188,35 @@ Widget _activityBar(
   );
 }
 
-Widget _message(IconData icon, String text) {
+Widget _message(
+  IconData icon,
+  String text, {
+  Widget? action,
+  String? hint,
+}) {
   return Center(
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, color: ColorPalette.textSecondary, size: 40),
-        const SizedBox(height: Dimensions.paddingSmall),
-        Text(text, textAlign: TextAlign.center),
-      ],
+    child: Padding(
+      padding: const EdgeInsets.all(Dimensions.paddingMedium),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: ColorPalette.textSecondary, size: 40),
+          const SizedBox(height: Dimensions.paddingSmall),
+          Text(text, textAlign: TextAlign.center),
+          if (hint != null) ...[
+            const SizedBox(height: Dimensions.paddingSmall),
+            Text(
+              hint,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: ColorPalette.textSecondary),
+            ),
+          ],
+          if (action != null) ...[
+            const SizedBox(height: Dimensions.paddingSmall),
+            action,
+          ],
+        ],
+      ),
     ),
   );
 }

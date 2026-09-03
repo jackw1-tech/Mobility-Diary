@@ -143,10 +143,19 @@ def get_trip_diary(request, trip_id: int):
     )
 
     places_version = get_places_version(request.user.user_id)
-    diary_segments = get_cached_diary(trip_id, places_version)
-    if diary_segments is None:
+    if trip.status == Trip.Status.PROCESSED:
+        diary_segments = get_cached_diary(trip_id, places_version)
+        # Una lista vuota puo' essere stata scritta da una versione precedente
+        # mentre HAR era ancora in corso. Ricostruirla impedisce di restituire
+        # processed=true con segmenti obsoleti e costa solo per il raro diario
+        # realmente vuoto.
+        if not diary_segments:
+            diary_segments = build_private_diary(trip)
+            cache_diary(trip_id, places_version, diary_segments)
+    else:
+        # I risultati intermedi non sono cacheabili: stato e segmenti vengono
+        # aggiornati asincronicamente dalla pipeline HAR.
         diary_segments = build_private_diary(trip)
-        cache_diary(trip_id, places_version, diary_segments)
 
     segments: list[SegmentOut] = []
     overlaid: dict[int, PlaceOut] = {}

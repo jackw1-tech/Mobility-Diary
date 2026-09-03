@@ -120,6 +120,19 @@ class _TripTrackMapState extends State<TripTrackMap> {
     await _drawTrack();
   }
 
+  /// Un disegno e' obsoleto appena ne parte uno piu' recente: la sequenza va
+  /// controllata dopo ogni await, altrimenti due passate concorrenti si
+  /// rubano gli annotation manager e sulla mappa puo' restare la traccia
+  /// grezza di quella vecchia al posto dei segmenti appena arrivati.
+  bool _isStale(int drawId, String stage) {
+    if (drawId == _drawSequence && mounted) return false;
+    _log(
+      'map_draw_abandoned',
+      fields: {'draw_id': drawId, 'stage': stage, 'latest': _drawSequence},
+    );
+    return true;
+  }
+
   Future<void> _drawTrack() async {
     final drawId = ++_drawSequence;
     final totalWatch = Stopwatch()..start();
@@ -166,6 +179,7 @@ class _TripTrackMapState extends State<TripTrackMap> {
       if (oldCircleManager != null) {
         await map.annotations.removeAnnotationManager(oldCircleManager);
       }
+      if (_isStale(drawId, 'old_annotations_removed')) return;
       _log(
         'map_old_annotations_removed',
         fields: {
@@ -179,6 +193,10 @@ class _TripTrackMapState extends State<TripTrackMap> {
       stageWatch = Stopwatch()..start();
       final lineManager =
           await map.annotations.createPolylineAnnotationManager();
+      if (_isStale(drawId, 'line_manager_created')) {
+        await map.annotations.removeAnnotationManager(lineManager);
+        return;
+      }
       _lineManager = lineManager;
       _log(
         'map_line_manager_created',
@@ -200,6 +218,7 @@ class _TripTrackMapState extends State<TripTrackMap> {
             activityColor(segment.activityLabel),
             isSelected: false,
           );
+          if (_isStale(drawId, 'segment_draw')) return;
           final segmentMs = singleWatch.elapsedMilliseconds;
           if (segmentMs > longestSegmentMs) longestSegmentMs = segmentMs;
           if (annotation != null) {
@@ -241,6 +260,7 @@ class _TripTrackMapState extends State<TripTrackMap> {
           ColorPalette.primary,
           isSelected: false,
         );
+        if (_isStale(drawId, 'raw_line_draw')) return;
         _log(
           'map_raw_line_draw_complete',
           fields: {
@@ -254,6 +274,10 @@ class _TripTrackMapState extends State<TripTrackMap> {
       stageWatch = Stopwatch()..start();
       final circleManager =
           await map.annotations.createCircleAnnotationManager();
+      if (_isStale(drawId, 'circle_manager_created')) {
+        await map.annotations.removeAnnotationManager(circleManager);
+        return;
+      }
       _circleManager = circleManager;
       await circleManager.create(
         CircleAnnotationOptions(
@@ -304,6 +328,7 @@ class _TripTrackMapState extends State<TripTrackMap> {
 
       stageWatch = Stopwatch()..start();
       final currentCamera = await map.getCameraState();
+      if (_isStale(drawId, 'camera_state')) return;
       final bounds = await map.cameraForCoordinatesPadding(
         [
           for (final p in points)
@@ -326,6 +351,7 @@ class _TripTrackMapState extends State<TripTrackMap> {
         },
       );
 
+      if (_isStale(drawId, 'camera_bounds')) return;
       stageWatch = Stopwatch()..start();
       await map.flyTo(bounds, MapAnimationOptions(duration: 600));
       _log(

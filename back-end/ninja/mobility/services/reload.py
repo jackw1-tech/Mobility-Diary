@@ -14,13 +14,14 @@ from django.utils import timezone
 
 from shared.exceptions import ServiceError
 
+from ..tasks import prepare_reloaded_trip_raw
 from ..upload import selectors as upload_repository
+from ..upload import storage
 from ..upload.materialization import build_trip_path, materialized_trip_counts
 from ..models import GpsPoint, StateTransition, Trip, TripUpload
 from ..replay_raw import (
     ReplayRawError,
     ReplayStorageUnavailable,
-    regenerate_raw_and_queue_har,
 )
 from ..selectors import trip_evidence as trip_evidence_repository
 from ..selectors import trips as trips_repository
@@ -134,6 +135,10 @@ def reload_trip_from_source(
                 raise ReloadServiceError("viaggio non ricaricabile")
             phase_timings_ms["lookup_and_lock"] = _elapsed_ms(lookup_started)
 
+            preflight_started = perf_counter()
+            _ensure_source_raw_objects_available(source)
+            phase_timings_ms["raw_preflight"] = _elapsed_ms(preflight_started)
+
             timeline_started = perf_counter()
             timeline = _source_timeline(source)
             duration = timeline.end - timeline.start
@@ -158,6 +163,7 @@ def reload_trip_from_source(
                 started_at=reload_start,
                 ended_at=reload_end,
                 completed_at=reload_end,
+                source_trip=source,
             )
             upload.raw_base_path = f"uploads/{upload.id}/"
             upload.save(update_fields=["raw_base_path", "updated_at"])
@@ -184,15 +190,16 @@ def reload_trip_from_source(
             upload.trip = trip
             upload.save(update_fields=["trip", "updated_at"])
 
-            regen_started = perf_counter()
-            try:
-                regenerate_raw_and_queue_har(
-                    upload, source, shift=shift, now=reload_end
+            queue_started = perf_counter()
+            shift_us = _timedelta_microseconds(shift)
+            transaction.on_commit(
+                lambda: prepare_reloaded_trip_raw.delay(
+                    upload.id,
+                    source.id,
+                    shift_us,
                 )
-            finally:
-                phase_timings_ms["regenerate_raw_and_queue_har"] = _elapsed_ms(
-                    regen_started
-                )
+            )
+            phase_timings_ms["queue_raw_regeneration"] = _elapsed_ms(queue_started)
             phase_timings_ms["task_total"] = _elapsed_ms(task_started)
             _log_reload_timing(
                 "completed",
@@ -394,6 +401,39 @@ def _copy_core_evidence(
             )
             for transition in timeline.transitions
         ]
+    )
+
+
+def _ensure_source_raw_objects_available(source: Trip) -> int:
+    """Preflight leggero prima di creare un derivato.
+
+    Il contenuto viene trasformato dal worker, ma la POST conserva il contratto
+    forte del Ricaricamento Diretto: se una parte dichiarata non esiste piu',
+    nessun viaggio parziale viene creato.
+    """
+    parts = list(upload_repository.completed_raw_parts_for_trip(source))
+    if not parts:
+        raise ReloadServiceError("telemetrie sorgente non disponibili")
+    try:
+        missing = [
+            part.object_key
+            for part in parts
+            if storage.head_object(part.object_key) is None
+        ]
+    except Exception as exc:
+        raise ReloadStorageUnavailable(
+            "storage ricaricamento non disponibile"
+        ) from exc
+    if missing:
+        raise ReloadServiceError("telemetrie sorgente non disponibili")
+    return len(parts)
+
+
+def _timedelta_microseconds(value: timedelta) -> int:
+    return (
+        value.days * 24 * 60 * 60 * 1_000_000
+        + value.seconds * 1_000_000
+        + value.microseconds
     )
 
 

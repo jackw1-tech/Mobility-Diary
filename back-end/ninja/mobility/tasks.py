@@ -1,4 +1,5 @@
 import logging
+from datetime import timedelta
 from time import perf_counter
 
 from celery import shared_task
@@ -11,6 +12,7 @@ from .upload.raw_sensor_loader import load_raw_sensor_windows_with_metrics
 from .models import (
     HarJob,
     PlaceMiningStatus,
+    Trip,
     TripUpload,
 )
 from .ml.har_adapter import HarModelUnavailable, warm_har_model
@@ -19,10 +21,114 @@ from .private_diary_cache import cache_diary, get_places_version
 from .selectors import har_jobs as har_jobs_repository
 from .services.diary_view import build_private_diary
 from .selectors import place_mining_status as place_mining_status_repository
-from .selectors.sensor_readings import replace_raw_sensor_readings
+from .selectors.sensor_readings import (
+    replace_raw_sensor_readings,
+    replace_raw_sensor_readings_from_source,
+)
 from .significant_places import mine_user_significant_places
 
 logger = logging.getLogger(__name__)
+
+
+@shared_task(bind=True, max_retries=3, retry_backoff=True, default_retry_delay=30)
+def prepare_reloaded_trip_raw(
+    self,
+    upload_id: int,
+    source_trip_id: int,
+    shift_microseconds: int,
+) -> dict:
+    """Rigenera i raw del Ricaricamento Diretto fuori dalla POST.
+
+    Il lock rende innocui retry HTTP e consegne Celery duplicate. Un fallimento
+    finale resta esplicito su TripUpload, evitando un derivato GPS-only che
+    sembri completato.
+    """
+    task_started = perf_counter()
+    try:
+        with transaction.atomic():
+            upload = upload_repository.locked_upload_by_id(upload_id)
+            if upload.raw_status in {
+                TripUpload.PhaseStatus.QUEUED,
+                TripUpload.PhaseStatus.PROCESSING,
+                TripUpload.PhaseStatus.COMPLETED,
+            }:
+                return {
+                    "upload_id": upload.id,
+                    "raw_status": upload.raw_status,
+                    "already_prepared": True,
+                }
+
+            source = Trip.objects.get(id=source_trip_id)
+            if upload.trip_id is None or upload.source_trip_id != source.id:
+                raise ValueError("reload raw incoerente con il viaggio sorgente")
+
+            upload.raw_status = TripUpload.PhaseStatus.RECEIVING
+            upload.started_processing_at = timezone.now()
+            upload.error_message = ""
+            upload.save(
+                update_fields=[
+                    "raw_status",
+                    "started_processing_at",
+                    "error_message",
+                    "updated_at",
+                ]
+            )
+
+            # Import locale: replay_raw importa process_trip_har_final.
+            from .replay_raw import regenerate_raw_and_queue_har
+
+            regenerate_raw_and_queue_har(
+                upload,
+                source,
+                shift=timedelta(microseconds=shift_microseconds),
+                now=upload.ended_at or timezone.now(),
+            )
+
+        logger.info(
+            "[RELOAD-RAW-PREPARE-TIMING] %s",
+            {
+                "status": "completed",
+                "upload_id": upload_id,
+                "trip_id": upload.trip_id,
+                "total_ms": round(_elapsed_ms(task_started), 2),
+            },
+        )
+        return {
+            "upload_id": upload.id,
+            "raw_status": upload.raw_status,
+            "already_prepared": False,
+        }
+    except Exception as exc:
+        will_retry = self.request.retries < self.max_retries
+        with transaction.atomic():
+            upload = upload_repository.locked_upload_by_id(upload_id)
+            upload.raw_status = (
+                TripUpload.PhaseStatus.FAILED_RETRYABLE
+                if will_retry
+                else TripUpload.PhaseStatus.FAILED_FINAL
+            )
+            upload.error_message = str(exc)
+            upload.failed_at = timezone.now()
+            upload.save(
+                update_fields=[
+                    "raw_status",
+                    "error_message",
+                    "failed_at",
+                    "updated_at",
+                ]
+            )
+        logger.exception(
+            "[RELOAD-RAW-PREPARE-TIMING] %s",
+            {
+                "status": "retrying" if will_retry else "failed_final",
+                "upload_id": upload_id,
+                "total_ms": round(_elapsed_ms(task_started), 2),
+                "error_type": type(exc).__name__,
+            },
+        )
+        if will_retry:
+            raise self.retry(exc=exc)
+        raise
 
 
 _PLACE_MINING_PENDING_FIELDS = [
@@ -169,7 +275,12 @@ def _merge_har_job_result(job_id: int, updates: dict) -> dict:
 
 
 @shared_task(bind=True, max_retries=3, retry_backoff=True, default_retry_delay=30)
-def persist_trip_raw_sensor_readings(self, job_id: int, upload_id: int) -> dict:
+def persist_trip_raw_sensor_readings(
+    self,
+    job_id: int,
+    upload_id: int,
+    raw_clone_shift_microseconds: int | None = None,
+) -> dict:
     task_started = perf_counter()
     phase_timings_ms: dict[str, float] = {}
     raw_load_timings_ms: dict[str, float] = {}
@@ -188,6 +299,41 @@ def persist_trip_raw_sensor_readings(self, job_id: int, upload_id: int) -> dict:
             raise ValueError("trip non disponibile per la persistenza raw sensor")
         trip_id = trip.id
         phase_timings_ms["lookup_context"] = _elapsed_ms(lookup_started)
+
+        cloned = _clone_derived_raw_sensor_readings(
+            trip,
+            raw_clone_shift_microseconds,
+            phase_timings_ms,
+        )
+        if cloned is not None:
+            phase_timings_ms["task_total"] = _elapsed_ms(task_started)
+            _merge_har_job_result(
+                job_id,
+                {
+                    "raw_readings_persisted": cloned,
+                    "raw_readings_persistence_status": "COMPLETED",
+                    "raw_readings_persistence_mode": "cloned_from_source",
+                    "raw_readings_persistence_timings_ms": _rounded(phase_timings_ms),
+                },
+            )
+            _log_raw_sensor_persistence_timing(
+                "completed",
+                upload_id=upload_id,
+                trip_id=trip_id,
+                job_id=job_id,
+                phase_timings_ms=phase_timings_ms,
+                raw_load_timings_ms=raw_load_timings_ms,
+                raw_part_count=raw_part_count,
+                sensor_windows_count=sensor_windows_count,
+                persisted_readings=cloned,
+                compressed_bytes=compressed_bytes,
+                decompressed_bytes=decompressed_bytes,
+            )
+            return {
+                "trip_id": trip_id,
+                "raw_readings_persisted": cloned,
+                "raw_readings_persistence_status": "COMPLETED",
+            }
 
         raw_load_started = perf_counter()
         raw_load = load_raw_sensor_windows_with_metrics(upload)
@@ -263,7 +409,12 @@ def persist_trip_raw_sensor_readings(self, job_id: int, upload_id: int) -> dict:
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
-def process_trip_har_final(self, job_id: int, upload_id: int) -> dict:
+def process_trip_har_final(
+    self,
+    job_id: int,
+    upload_id: int,
+    raw_clone_shift_microseconds: int | None = None,
+) -> dict:
     task_started = perf_counter()
     phase_timings_ms: dict[str, float] = {}
     raw_load_timings_ms: dict[str, float] = {}
@@ -389,7 +540,9 @@ def process_trip_har_final(self, job_id: int, upload_id: int) -> dict:
 
     raw_persist_enqueue_started = perf_counter()
     try:
-        persist_trip_raw_sensor_readings.delay(job_id, upload_id)
+        persist_trip_raw_sensor_readings.delay(
+            job_id, upload_id, raw_clone_shift_microseconds
+        )
     except Exception as exc:
         _merge_har_job_result(
             job_id,
@@ -428,6 +581,37 @@ def process_trip_har_final(self, job_id: int, upload_id: int) -> dict:
         decompressed_bytes=decompressed_bytes,
     )
     return result
+
+
+def _clone_derived_raw_sensor_readings(
+    trip: Trip,
+    shift_microseconds: int | None,
+    phase_timings_ms: dict,
+) -> int | None:
+    """Copia la proiezione Timescale dal sorgente, se il derivato lo consente.
+
+    Ritorna il numero di righe clonate, oppure None quando la copia non e'
+    applicabile (viaggio non derivato, shift sconosciuto, sorgente senza
+    proiezione): in quel caso resta la ricostruzione dagli oggetti raw.
+    """
+    if shift_microseconds is None or trip.reloaded_from_trip_id is None:
+        return None
+    source = Trip.objects.filter(id=trip.reloaded_from_trip_id).first()
+    if source is None:
+        return None
+
+    clone_started = perf_counter()
+    cloned = replace_raw_sensor_readings_from_source(
+        trip,
+        source,
+        shift=timedelta(microseconds=shift_microseconds),
+    )
+    phase_timings_ms["raw_sensor_reading_clone"] = _elapsed_ms(clone_started)
+    if cloned:
+        return cloned
+    # Sorgente senza righe (viaggio vecchio, retention): si ricade sul
+    # percorso normale invece di lasciare il derivato senza proiezione.
+    return None
 
 
 def _elapsed_ms(started_at: float) -> float:

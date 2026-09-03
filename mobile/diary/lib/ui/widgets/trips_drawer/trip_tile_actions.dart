@@ -5,6 +5,7 @@ import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubi
 import 'package:diary/state_management/cubits/trips_list_cubit/trips_list_cubit.dart';
 import 'package:diary/ui/widgets/trip_reload_sheets.dart';
 import 'package:diary/utils/trip_detail_diagnostics.dart';
+import 'package:diary/utils/trip_reload_diagnostics.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -99,32 +100,76 @@ Future<void> playTripLive(BuildContext context, TripListItem trip) async {
 }
 
 Future<void> startTripReload(BuildContext context, TripListItem trip) async {
+  final traceId = TripReloadDiagnostics.start(
+    trip.id,
+    source: 'drawer_direct_load_button',
+  );
+  TripReloadDiagnostics.event(
+    traceId,
+    'direct_load_tap',
+    fields: {'is_reloadable': trip.isReloadable, 'has_track': trip.hasTrack},
+  );
   final selectedStart = await pickReloadStart(context, trip);
-  if (selectedStart == null || !context.mounted) return;
+  if (selectedStart == null || !context.mounted) {
+    TripReloadDiagnostics.finish(
+      traceId,
+      reason: selectedStart == null ? 'slot_not_selected' : 'context_unmounted',
+    );
+    return;
+  }
+  TripReloadDiagnostics.event(traceId, 'cubit_reload_dispatched');
   final tripId = await context.read<TripsListCubit>().reloadTrip(
         trip.id,
         scheduledStartAt: selectedStart,
       );
-  if (!context.mounted) return;
+  if (!context.mounted) {
+    TripReloadDiagnostics.finish(traceId, reason: 'context_unmounted');
+    return;
+  }
   if (tripId == null) {
     final error = context.read<TripsListCubit>().state.reloadError;
+    TripReloadDiagnostics.event(
+      traceId,
+      'direct_load_failed',
+      fields: {'has_error_message': error != null},
+    );
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(error ?? 'Ricaricamento non riuscito')),
     );
+    TripReloadDiagnostics.finish(traceId, reason: 'reload_failed');
     return;
   }
+  TripReloadDiagnostics.event(
+    traceId,
+    'derived_trip_ready',
+    fields: {'derived_trip': tripId},
+  );
   Scaffold.of(context).closeDrawer();
+  TripReloadDiagnostics.event(traceId, 'drawer_close_dispatched');
+  // La traccia del viaggio derivato riparte sul flusso Dettaglio Viaggio:
+  // i due filtri di log si agganciano sullo stesso id di viaggio.
+  TripDetailDiagnostics.start(tripId, source: 'direct_load_reload');
   context.router.push(TripDetailRoute(tripId: tripId));
+  TripReloadDiagnostics.event(traceId, 'route_push_dispatched');
+  TripReloadDiagnostics.finish(traceId, reason: 'detail_route_pushed');
 }
 
+/// Condivisa fra caricamento diretto e replay live: gli eventi diagnostici
+/// finiscono nella traccia solo se il chiamante ne ha aperta una per
+/// [trip], quindi il replay resta silenzioso.
 Future<DateTime?> pickReloadStart(
   BuildContext context,
   TripListItem trip,
 ) async {
   final cubit = context.read<TripsListCubit>();
+  TripReloadDiagnostics.eventForTrip(trip.id, 'slot_pick_started');
   final slots = await cubit.loadReloadSlots(trip.id);
-  if (!context.mounted) return null;
+  if (!context.mounted) {
+    TripReloadDiagnostics.eventForTrip(trip.id, 'slot_pick_context_unmounted');
+    return null;
+  }
   if (slots == null) {
+    TripReloadDiagnostics.eventForTrip(trip.id, 'slot_pick_unavailable');
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(cubit.state.reloadError ?? 'Slot non disponibili'),
@@ -133,16 +178,30 @@ Future<DateTime?> pickReloadStart(
     return null;
   }
   if (slots.slots.isEmpty) {
+    TripReloadDiagnostics.eventForTrip(trip.id, 'slot_pick_empty');
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Nessuno slot libero nel passato')),
     );
     return null;
   }
-  return showModalBottomSheet<DateTime>(
+  TripReloadDiagnostics.eventForTrip(
+    trip.id,
+    'slot_sheet_opened',
+    fields: {
+      'slot_count': slots.slots.length,
+      'duration_seconds': slots.durationSeconds,
+    },
+  );
+  final selected = await showModalBottomSheet<DateTime>(
     context: context,
     showDragHandle: true,
     builder: (_) => ReloadSlotSheet(slots: slots.slots),
   );
+  TripReloadDiagnostics.eventForTrip(
+    trip.id,
+    selected == null ? 'slot_sheet_dismissed' : 'slot_selected',
+  );
+  return selected;
 }
 
 Future<double?> _pickReplaySpeed(BuildContext context) {

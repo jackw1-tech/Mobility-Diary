@@ -5,6 +5,7 @@ import 'package:diary/mappers/trips_mapper.dart';
 import 'package:diary/network/service/trips_service.dart';
 import 'package:diary/repositories/acquisition_repository.dart';
 import 'package:diary/repositories/trips_repository.dart';
+import 'package:diary/utils/trip_reload_diagnostics.dart';
 
 class TripsRepositoryImpl implements TripsRepository {
   final TripsService _service;
@@ -38,9 +39,20 @@ class TripsRepositoryImpl implements TripsRepository {
   @override
   Future<AppResult<TripReloadSlots>> fetchReloadSlots(int sourceTripId) =>
       appResultOf(
-        () async => _mapper.mapTripReloadSlots(
-          await _service.fetchReloadSlots(sourceTripId),
-        ),
+        () async {
+          final dto = await _service.fetchReloadSlots(sourceTripId);
+          final stopwatch = Stopwatch()..start();
+          final slots = _mapper.mapTripReloadSlots(dto);
+          TripReloadDiagnostics.eventForTrip(
+            sourceTripId,
+            'slots_mapped',
+            fields: {
+              'duration_ms': stopwatch.elapsedMilliseconds,
+              'slot_count': slots.slots.length,
+            },
+          );
+          return slots;
+        },
       );
 
   @override
@@ -83,18 +95,35 @@ class TripsRepositoryImpl implements TripsRepository {
     required int sourceTripId,
     DateTime? scheduledStartAt,
   }) async {
+    final isRetry = _reloadRequestIdsBySource.containsKey(sourceTripId);
     final reloadRequestId = _reloadRequestIdsBySource.putIfAbsent(
       sourceTripId,
       _reloadRequestIdFactory,
     );
+    TripReloadDiagnostics.eventForTrip(
+      sourceTripId,
+      'reload_request_id_ready',
+      fields: {'reused_request_id': isRetry},
+    );
     final result = await appResultOf(
-      () async => _mapper.mapTripReload(
-        await _service.reloadTrip(
+      () async {
+        final dto = await _service.reloadTrip(
           sourceTripId: sourceTripId,
           reloadRequestId: reloadRequestId,
           scheduledStartAt: scheduledStartAt,
-        ),
-      ),
+        );
+        final stopwatch = Stopwatch()..start();
+        final reload = _mapper.mapTripReload(dto);
+        TripReloadDiagnostics.eventForTrip(
+          sourceTripId,
+          'reload_mapped',
+          fields: {
+            'duration_ms': stopwatch.elapsedMilliseconds,
+            'derived_trip': reload.tripId,
+          },
+        );
+        return reload;
+      },
     );
     if (result.isSuccess) {
       _reloadRequestIdsBySource.remove(sourceTripId);
