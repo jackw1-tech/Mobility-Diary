@@ -5,7 +5,6 @@ import 'tracking_state.dart';
 class FsmConfig {
   final Duration movingEvidenceRequired;
   final Duration stationaryEvidenceRequired;
-  final Duration stationaryUncertainGrace;
   final Duration motionSigmaFreshness;
   final Duration gpsSpeedFreshness;
   final double movingGpsSpeedThresholdMps;
@@ -15,14 +14,13 @@ class FsmConfig {
   final double stationaryMotionSigmaThreshold;
 
   const FsmConfig({
-    this.movingEvidenceRequired = const Duration(seconds: 6),
+    this.movingEvidenceRequired = const Duration(seconds: 5),
     this.stationaryEvidenceRequired = const Duration(seconds: 120),
-    this.stationaryUncertainGrace = const Duration(seconds: 20),
     this.motionSigmaFreshness = const Duration(seconds: 10),
     this.gpsSpeedFreshness = const Duration(seconds: 20),
     this.movingGpsSpeedThresholdMps = 0.8,
     this.vehicleGpsSpeedThresholdMps = 2.5,
-    this.stationaryGpsSpeedThresholdMps = 0.4,
+    this.stationaryGpsSpeedThresholdMps = 0.5,
     this.movingMotionSigmaThreshold = 1.2,
     this.stationaryMotionSigmaThreshold = 0.8,
   });
@@ -31,13 +29,11 @@ class FsmConfig {
 class FsmTransition {
   final TrackingState from;
   final TrackingState to;
-  final String reason;
   final DateTime timestamp;
 
   const FsmTransition({
     required this.from,
     required this.to,
-    required this.reason,
     required this.timestamp,
   });
 }
@@ -46,31 +42,72 @@ class FsmDecision {
   final TrackingState state;
   final SamplingProfile samplingProfile;
   final FsmTransition? transition;
+  final FsmDecisionDiagnostics diagnostics;
 
   const FsmDecision({
     required this.state,
     required this.samplingProfile,
+    required this.diagnostics,
     this.transition,
   });
 
   bool get didTransition => transition != null;
 }
 
-enum _MotionEvidence {
+enum MotionEvidence {
   moving,
   stationary,
   uncertain,
 }
 
-enum FsmEvidenceMode {
-  /// Inerziale fresco: la decisione incrocia sigma accelerometrico e velocita'
-  /// GPS.
-  strictSensors,
+enum StationaryTimerAction {
+  notApplicable,
+  idle,
+  started,
+  accumulating,
+  preserved,
+  reset,
+  transitioned,
+}
 
-  /// App in background: iOS smette di consegnare gli eventi CoreMotion, quindi
-  /// il sigma diventa stale. La velocita' GPS invece continua ad arrivare ed e'
-  /// l'unica prova affidabile: decidere solo con quella, mai dichiarare fermo
-  /// un viaggio solo perche' l'inerziale tace.
+class FsmDecisionDiagnostics {
+  final TrackingState previousState;
+  final MotionEvidence evidence;
+  final FsmEvidenceMode evidenceMode;
+  final double sigma;
+  final double gpsSpeedMetersPerSecond;
+  final Duration? sigmaAge;
+  final Duration? gpsSpeedAge;
+  final StationaryTimerAction stationaryTimerAction;
+  final Duration? stationaryEvidenceElapsed;
+
+  const FsmDecisionDiagnostics({
+    required this.previousState,
+    required this.evidence,
+    required this.evidenceMode,
+    required this.sigma,
+    required this.gpsSpeedMetersPerSecond,
+    required this.sigmaAge,
+    required this.gpsSpeedAge,
+    required this.stationaryTimerAction,
+    required this.stationaryEvidenceElapsed,
+  });
+}
+
+class _FsmOutcome {
+  final TrackingState state;
+  final SamplingProfile samplingProfile;
+  final FsmTransition? transition;
+
+  const _FsmOutcome({
+    required this.state,
+    required this.samplingProfile,
+    this.transition,
+  });
+}
+
+enum FsmEvidenceMode {
+  inertialAndGps,
   gpsOnly,
 }
 
@@ -84,7 +121,6 @@ class AcquisitionFsm {
   DateTime? _latestGpsSpeedAt;
   DateTime? _movingEvidenceStartedAt;
   DateTime? _stationaryEvidenceStartedAt;
-  DateTime? _stationaryUncertainStartedAt;
 
   AcquisitionFsm({
     this.config = const FsmConfig(),
@@ -105,22 +141,37 @@ class AcquisitionFsm {
     _latestGpsSpeedAt = null;
     _movingEvidenceStartedAt = null;
     _stationaryEvidenceStartedAt = null;
-    _stationaryUncertainStartedAt = null;
   }
 
+  // Richiamo la funzione che classifica il singolo evento e poi in base allo stato attuale decido
   FsmDecision apply(
     TrackingEvent event, {
-    FsmEvidenceMode evidenceMode = FsmEvidenceMode.strictSensors,
+    FsmEvidenceMode evidenceMode = FsmEvidenceMode.inertialAndGps,
   }) {
+    final previousState = _state;
+    final stationaryEvidenceStartedAt = _stationaryEvidenceStartedAt;
     _updateSignal(event);
     final evidence = _evidenceAt(event.timestamp, evidenceMode);
 
-    switch (_state) {
-      case TrackingState.stationary:
-        return _evaluateStationary(evidence, event.timestamp);
-      case TrackingState.movement:
-        return _evaluateMovement(evidence, event.timestamp);
-    }
+    final outcome = switch (_state) {
+      TrackingState.stationary =>
+        _evaluateStationary(evidence, event.timestamp),
+      TrackingState.movement => _evaluateMovement(evidence, event.timestamp),
+    };
+
+    return FsmDecision(
+      state: outcome.state,
+      samplingProfile: outcome.samplingProfile,
+      transition: outcome.transition,
+      diagnostics: _diagnosticsFor(
+        timestamp: event.timestamp,
+        evidenceMode: evidenceMode,
+        evidence: evidence,
+        previousState: previousState,
+        stationaryEvidenceStartedAt: stationaryEvidenceStartedAt,
+        outcome: outcome,
+      ),
+    );
   }
 
   void _updateSignal(TrackingEvent event) {
@@ -134,70 +185,66 @@ class AcquisitionFsm {
     }
   }
 
-  FsmDecision _evaluateStationary(
-    _MotionEvidence evidence,
+  // In partenza siamo stationary, valuto la nuova evidenza
+  _FsmOutcome _evaluateStationary(
+    MotionEvidence evidence,
     DateTime timestamp,
   ) {
     switch (evidence) {
-      case _MotionEvidence.moving:
-        _movingEvidenceStartedAt ??= timestamp;
+      case MotionEvidence.moving:
+        _movingEvidenceStartedAt ??=
+            timestamp; // prima volta che arriva un evidenza di movimento -> assegna solo se _movingEvidenceStartedAt è vuoto
         final duration = timestamp.difference(_movingEvidenceStartedAt!);
         if (duration >= config.movingEvidenceRequired) {
-          return _transitionTo(
-            TrackingState.movement,
-            'moving_evidence_confirmed',
-            timestamp,
-          );
+          return _transitionTo(TrackingState.movement, timestamp);
+          // Per decretare che sono in movimento devo avere evidenza di movimento per almeno 5 secondi
         }
-      case _MotionEvidence.stationary:
+      case MotionEvidence.stationary:
         _movingEvidenceStartedAt = null;
-      case _MotionEvidence.uncertain:
-        _movingEvidenceStartedAt = null;
+      // Incerto: nessuna nuova informazione, il conteggio resta com'e'.
+      case MotionEvidence.uncertain:
     }
 
     return _stay();
   }
 
-  FsmDecision _evaluateMovement(
-    _MotionEvidence evidence,
+  // Sono in movimento, valuto i nuovi dati
+  _FsmOutcome _evaluateMovement(
+    MotionEvidence evidence,
     DateTime timestamp,
   ) {
     switch (evidence) {
-      case _MotionEvidence.stationary:
-        if (_stationaryUncertainExceededGrace(timestamp)) {
-          _stationaryEvidenceStartedAt = timestamp;
-        }
-        _stationaryUncertainStartedAt = null;
-        _stationaryEvidenceStartedAt ??= timestamp;
+      case MotionEvidence.stationary:
+        _stationaryEvidenceStartedAt ??=
+            timestamp; // _stationaryEvidenceStartedAt viene assegnato con il primo valore di evidenzia
+        // di stazionary, viene assegnato solo se è null
         final duration = timestamp.difference(_stationaryEvidenceStartedAt!);
         if (duration >= config.stationaryEvidenceRequired) {
-          return _transitionTo(
-            TrackingState.stationary,
-            'stationary_evidence_confirmed',
-            timestamp,
-          );
+          return _transitionTo(TrackingState.stationary, timestamp);
         }
-      case _MotionEvidence.moving:
+      case MotionEvidence.moving:
         _stationaryEvidenceStartedAt = null;
-        _stationaryUncertainStartedAt = null;
-      case _MotionEvidence.uncertain:
-        _evaluateUncertainWhileSettlingStationary(timestamp);
+      // Incerto: nessuna nuova informazione, il conteggio resta com'e'.
+      case MotionEvidence.uncertain:
     }
 
     return _stay();
   }
 
-  _MotionEvidence _evidenceAt(
+  //Classificatore del singolo evento che arriva dai sensori o gps
+  MotionEvidence _evidenceAt(
     DateTime timestamp,
     FsmEvidenceMode evidenceMode,
   ) {
+    // Gps come primo filtro
     final gpsSpeed = _freshGpsSpeed(timestamp);
     if (gpsSpeed == null) {
-      return _MotionEvidence.uncertain;
+      return MotionEvidence.uncertain;
     }
 
+    // Circa 2.5 m/s (9 km/h) -> Sono in auto o in bici, non ho bisogno dell'accellerometro
     if (gpsSpeed >= config.vehicleGpsSpeedThresholdMps) {
-      return _MotionEvidence.moving;
+      return MotionEvidence.moving;
     }
 
     if (evidenceMode == FsmEvidenceMode.gpsOnly) {
@@ -206,35 +253,38 @@ class AcquisitionFsm {
 
     final sigma = _freshSigma(timestamp);
     if (sigma == null) {
-      return _MotionEvidence.uncertain;
+      return MotionEvidence.uncertain;
     }
 
+    // Non sono in auto e  ho dati recenti di accelerometro e gps
     if (sigma >= config.movingMotionSigmaThreshold &&
         gpsSpeed >= config.movingGpsSpeedThresholdMps) {
-      return _MotionEvidence.moving;
+      return MotionEvidence.moving;
     }
 
     if (sigma < config.stationaryMotionSigmaThreshold &&
         gpsSpeed < config.stationaryGpsSpeedThresholdMps) {
-      return _MotionEvidence.stationary;
+      return MotionEvidence.stationary;
     }
 
-    return _MotionEvidence.uncertain;
+    return MotionEvidence.uncertain;
   }
 
-  /// Senza inerziale fresco resta solo la velocita' GPS: sopra la soglia di
-  /// movimento e' moto confermato (anche a piedi), sotto quella di fermo e'
-  /// fermo confermato, in mezzo si resta incerti e decidono i debounce.
-  _MotionEvidence _gpsOnlyEvidence(double gpsSpeed) {
+  // I dati dei sensori non sono recenti e non mi sto muovendo in auto
+  // Due soglie invece di una per evitare troppe oscillazioni tra fermo e in movimento
+  MotionEvidence _gpsOnlyEvidence(double gpsSpeed) {
+    // 0.8 m/s = 2.88 km/h
     if (gpsSpeed >= config.movingGpsSpeedThresholdMps) {
-      return _MotionEvidence.moving;
+      return MotionEvidence.moving;
     }
+    // 0.5 m/s = 1.8 km/h,
     if (gpsSpeed < config.stationaryGpsSpeedThresholdMps) {
-      return _MotionEvidence.stationary;
+      return MotionEvidence.stationary;
     }
-    return _MotionEvidence.uncertain;
+    return MotionEvidence.uncertain;
   }
 
+  // Ottengo l'ultimo dato di sigma controllando se è abbastanza recente
   double? _freshSigma(DateTime timestamp) {
     final latestAt = _latestSigmaAt;
     if (latestAt == null ||
@@ -244,6 +294,7 @@ class AcquisitionFsm {
     return _latestSigma;
   }
 
+  // Controllo che la decisione che sto per prendere si possa basare su un dato Gps Recente -> Gps speed recente
   double? _freshGpsSpeed(DateTime timestamp) {
     final latestAt = _latestGpsSpeedAt;
     if (latestAt == null ||
@@ -253,60 +304,88 @@ class AcquisitionFsm {
     return _latestGpsSpeedMetersPerSecond;
   }
 
-  FsmDecision _transitionTo(
+  // Cambio di stato, resetto i timer
+  _FsmOutcome _transitionTo(
     TrackingState nextState,
-    String reason,
     DateTime timestamp,
   ) {
     final previousState = _state;
     _state = nextState;
     _movingEvidenceStartedAt = null;
     _stationaryEvidenceStartedAt = null;
-    _stationaryUncertainStartedAt = null;
 
-    return FsmDecision(
+    return _FsmOutcome(
       state: _state,
       samplingProfile: _samplingProfileFor(),
       transition: FsmTransition(
         from: previousState,
         to: nextState,
-        reason: reason,
         timestamp: timestamp,
       ),
     );
   }
 
-  FsmDecision _stay() {
-    return FsmDecision(
+  // Resto nello stato attuale
+  _FsmOutcome _stay() {
+    return _FsmOutcome(
       state: _state,
       samplingProfile: _samplingProfileFor(),
     );
   }
 
-  void _evaluateUncertainWhileSettlingStationary(DateTime timestamp) {
-    if (_stationaryEvidenceStartedAt == null) {
-      _stationaryUncertainStartedAt = null;
-      return;
-    }
-
-    _stationaryUncertainStartedAt ??= timestamp;
-    final uncertainDuration = timestamp.difference(
-      _stationaryUncertainStartedAt!,
-    );
-    if (uncertainDuration > config.stationaryUncertainGrace) {
-      _stationaryEvidenceStartedAt = null;
-      _stationaryUncertainStartedAt = null;
-    }
-  }
-
-  bool _stationaryUncertainExceededGrace(DateTime timestamp) {
-    final uncertainStartedAt = _stationaryUncertainStartedAt;
-    return uncertainStartedAt != null &&
-        timestamp.difference(uncertainStartedAt) >
-            config.stationaryUncertainGrace;
-  }
-
   SamplingProfile _samplingProfileFor() {
     return SamplingProfile.forState(_state);
+  }
+
+  FsmDecisionDiagnostics _diagnosticsFor({
+    required DateTime timestamp,
+    required FsmEvidenceMode evidenceMode,
+    required MotionEvidence evidence,
+    required TrackingState previousState,
+    required DateTime? stationaryEvidenceStartedAt,
+    required _FsmOutcome outcome,
+  }) {
+    final transitionedToStationary =
+        outcome.transition?.to == TrackingState.stationary;
+    final timerAction = switch (previousState) {
+      TrackingState.stationary => StationaryTimerAction.notApplicable,
+      TrackingState.movement when transitionedToStationary =>
+        StationaryTimerAction.transitioned,
+      TrackingState.movement => switch (evidence) {
+          MotionEvidence.stationary => stationaryEvidenceStartedAt == null
+              ? StationaryTimerAction.started
+              : StationaryTimerAction.accumulating,
+          MotionEvidence.moving => stationaryEvidenceStartedAt == null
+              ? StationaryTimerAction.idle
+              : StationaryTimerAction.reset,
+          MotionEvidence.uncertain => stationaryEvidenceStartedAt == null
+              ? StationaryTimerAction.idle
+              : StationaryTimerAction.preserved,
+        },
+    };
+    final elapsed = previousState == TrackingState.movement &&
+            stationaryEvidenceStartedAt != null &&
+            evidence != MotionEvidence.moving
+        ? timestamp.difference(stationaryEvidenceStartedAt)
+        : (previousState == TrackingState.movement &&
+                evidence == MotionEvidence.stationary
+            ? Duration.zero
+            : null);
+
+    return FsmDecisionDiagnostics(
+      previousState: previousState,
+      evidence: evidence,
+      evidenceMode: evidenceMode,
+      sigma: _latestSigma,
+      gpsSpeedMetersPerSecond: _latestGpsSpeedMetersPerSecond,
+      sigmaAge: _ageOf(timestamp, _latestSigmaAt),
+      gpsSpeedAge: _ageOf(timestamp, _latestGpsSpeedAt),
+      stationaryTimerAction: timerAction,
+      stationaryEvidenceElapsed: elapsed,
+    );
+  }
+
+  Duration? _ageOf(DateTime timestamp, DateTime? measuredAt) {
+    return measuredAt == null ? null : timestamp.difference(measuredAt);
   }
 }

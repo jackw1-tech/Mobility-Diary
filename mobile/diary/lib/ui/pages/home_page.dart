@@ -111,6 +111,9 @@ class _AuthenticatedHomePageState extends State<_AuthenticatedHomePage> {
         ),
       ],
       child: BlocBuilder<AcquisitionCubit, AcquisitionCubitState>(
+        buildWhen: (previous, current) =>
+            previous.snapshot.replaySecondsRemaining !=
+            current.snapshot.replaySecondsRemaining,
         builder: (context, state) {
           return Scaffold(
             drawer: const TripsDrawer(),

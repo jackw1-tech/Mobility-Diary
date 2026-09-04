@@ -30,7 +30,7 @@ class AcquisitionLocalDatabase extends _$AcquisitionLocalDatabase {
       : super(executor ?? _openConnection());
 
   @override
-  int get schemaVersion => 10;
+  int get schemaVersion => 12;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -105,6 +105,41 @@ class AcquisitionLocalDatabase extends _$AcquisitionLocalDatabase {
                   'RENAME COLUMN remote_ingestion_id TO remote_upload_id',
                 );
               }
+            }
+          }
+          if (from < 11) {
+            // 'reason' non e' mai stata letta da nessun consumatore, ne'
+            // mobile ne' backend: colonna scritta e mai utilizzata.
+            final columns = await customSelect(
+              "PRAGMA table_info('state_transitions')",
+            ).get();
+            final hasLegacyReason = columns.any(
+              (row) => row.read<String>('name') == 'reason',
+            );
+            if (hasLegacyReason) {
+              await customStatement(
+                'ALTER TABLE state_transitions DROP COLUMN reason',
+              );
+            }
+          }
+          if (from < 12) {
+            // 'rejection_reason' non e' mai stata popolata in produzione
+            // (nessun call site reale la passava) e 'accepted' era quindi
+            // sempre true: il filtro che la usava era un no-op.
+            final columns = await customSelect(
+              "PRAGMA table_info('gps_points')",
+            ).get();
+            final columnNames =
+                columns.map((row) => row.read<String>('name')).toSet();
+            if (columnNames.contains('rejection_reason')) {
+              await customStatement(
+                'ALTER TABLE gps_points DROP COLUMN rejection_reason',
+              );
+            }
+            if (columnNames.contains('accepted')) {
+              await customStatement(
+                'ALTER TABLE gps_points DROP COLUMN accepted',
+              );
             }
           }
         },

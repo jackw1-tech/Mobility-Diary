@@ -357,11 +357,6 @@ class $StateTransitionsTable extends StateTransitions
   late final GeneratedColumn<String> toState = GeneratedColumn<String>(
       'to_state', aliasedName, false,
       type: DriftSqlType.string, requiredDuringInsert: true);
-  static const VerificationMeta _reasonMeta = const VerificationMeta('reason');
-  @override
-  late final GeneratedColumn<String> reason = GeneratedColumn<String>(
-      'reason', aliasedName, false,
-      type: DriftSqlType.string, requiredDuringInsert: true);
   static const VerificationMeta _timestampMeta =
       const VerificationMeta('timestamp');
   @override
@@ -381,7 +376,7 @@ class $StateTransitionsTable extends StateTransitions
       type: DriftSqlType.double, requiredDuringInsert: false);
   @override
   List<GeneratedColumn> get $columns =>
-      [id, sessionId, fromState, toState, reason, timestamp, sigma, speedMps];
+      [id, sessionId, fromState, toState, timestamp, sigma, speedMps];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -412,12 +407,6 @@ class $StateTransitionsTable extends StateTransitions
           toState.isAcceptableOrUnknown(data['to_state']!, _toStateMeta));
     } else if (isInserting) {
       context.missing(_toStateMeta);
-    }
-    if (data.containsKey('reason')) {
-      context.handle(_reasonMeta,
-          reason.isAcceptableOrUnknown(data['reason']!, _reasonMeta));
-    } else if (isInserting) {
-      context.missing(_reasonMeta);
     }
     if (data.containsKey('timestamp')) {
       context.handle(_timestampMeta,
@@ -450,8 +439,6 @@ class $StateTransitionsTable extends StateTransitions
           .read(DriftSqlType.string, data['${effectivePrefix}from_state'])!,
       toState: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}to_state'])!,
-      reason: attachedDatabase.typeMapping
-          .read(DriftSqlType.string, data['${effectivePrefix}reason'])!,
       timestamp: attachedDatabase.typeMapping
           .read(DriftSqlType.dateTime, data['${effectivePrefix}timestamp'])!,
       sigma: attachedDatabase.typeMapping
@@ -472,7 +459,6 @@ class StateTransition extends DataClass implements Insertable<StateTransition> {
   final String sessionId;
   final String fromState;
   final String toState;
-  final String reason;
   final DateTime timestamp;
   final double? sigma;
   final double? speedMps;
@@ -481,7 +467,6 @@ class StateTransition extends DataClass implements Insertable<StateTransition> {
       required this.sessionId,
       required this.fromState,
       required this.toState,
-      required this.reason,
       required this.timestamp,
       this.sigma,
       this.speedMps});
@@ -492,7 +477,6 @@ class StateTransition extends DataClass implements Insertable<StateTransition> {
     map['session_id'] = Variable<String>(sessionId);
     map['from_state'] = Variable<String>(fromState);
     map['to_state'] = Variable<String>(toState);
-    map['reason'] = Variable<String>(reason);
     map['timestamp'] = Variable<DateTime>(timestamp);
     if (!nullToAbsent || sigma != null) {
       map['sigma'] = Variable<double>(sigma);
@@ -509,7 +493,6 @@ class StateTransition extends DataClass implements Insertable<StateTransition> {
       sessionId: Value(sessionId),
       fromState: Value(fromState),
       toState: Value(toState),
-      reason: Value(reason),
       timestamp: Value(timestamp),
       sigma:
           sigma == null && nullToAbsent ? const Value.absent() : Value(sigma),
@@ -527,7 +510,6 @@ class StateTransition extends DataClass implements Insertable<StateTransition> {
       sessionId: serializer.fromJson<String>(json['sessionId']),
       fromState: serializer.fromJson<String>(json['fromState']),
       toState: serializer.fromJson<String>(json['toState']),
-      reason: serializer.fromJson<String>(json['reason']),
       timestamp: serializer.fromJson<DateTime>(json['timestamp']),
       sigma: serializer.fromJson<double?>(json['sigma']),
       speedMps: serializer.fromJson<double?>(json['speedMps']),
@@ -541,7 +523,6 @@ class StateTransition extends DataClass implements Insertable<StateTransition> {
       'sessionId': serializer.toJson<String>(sessionId),
       'fromState': serializer.toJson<String>(fromState),
       'toState': serializer.toJson<String>(toState),
-      'reason': serializer.toJson<String>(reason),
       'timestamp': serializer.toJson<DateTime>(timestamp),
       'sigma': serializer.toJson<double?>(sigma),
       'speedMps': serializer.toJson<double?>(speedMps),
@@ -553,7 +534,6 @@ class StateTransition extends DataClass implements Insertable<StateTransition> {
           String? sessionId,
           String? fromState,
           String? toState,
-          String? reason,
           DateTime? timestamp,
           Value<double?> sigma = const Value.absent(),
           Value<double?> speedMps = const Value.absent()}) =>
@@ -562,7 +542,6 @@ class StateTransition extends DataClass implements Insertable<StateTransition> {
         sessionId: sessionId ?? this.sessionId,
         fromState: fromState ?? this.fromState,
         toState: toState ?? this.toState,
-        reason: reason ?? this.reason,
         timestamp: timestamp ?? this.timestamp,
         sigma: sigma.present ? sigma.value : this.sigma,
         speedMps: speedMps.present ? speedMps.value : this.speedMps,
@@ -573,7 +552,6 @@ class StateTransition extends DataClass implements Insertable<StateTransition> {
       sessionId: data.sessionId.present ? data.sessionId.value : this.sessionId,
       fromState: data.fromState.present ? data.fromState.value : this.fromState,
       toState: data.toState.present ? data.toState.value : this.toState,
-      reason: data.reason.present ? data.reason.value : this.reason,
       timestamp: data.timestamp.present ? data.timestamp.value : this.timestamp,
       sigma: data.sigma.present ? data.sigma.value : this.sigma,
       speedMps: data.speedMps.present ? data.speedMps.value : this.speedMps,
@@ -587,7 +565,6 @@ class StateTransition extends DataClass implements Insertable<StateTransition> {
           ..write('sessionId: $sessionId, ')
           ..write('fromState: $fromState, ')
           ..write('toState: $toState, ')
-          ..write('reason: $reason, ')
           ..write('timestamp: $timestamp, ')
           ..write('sigma: $sigma, ')
           ..write('speedMps: $speedMps')
@@ -597,7 +574,7 @@ class StateTransition extends DataClass implements Insertable<StateTransition> {
 
   @override
   int get hashCode => Object.hash(
-      id, sessionId, fromState, toState, reason, timestamp, sigma, speedMps);
+      id, sessionId, fromState, toState, timestamp, sigma, speedMps);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -606,7 +583,6 @@ class StateTransition extends DataClass implements Insertable<StateTransition> {
           other.sessionId == this.sessionId &&
           other.fromState == this.fromState &&
           other.toState == this.toState &&
-          other.reason == this.reason &&
           other.timestamp == this.timestamp &&
           other.sigma == this.sigma &&
           other.speedMps == this.speedMps);
@@ -617,7 +593,6 @@ class StateTransitionsCompanion extends UpdateCompanion<StateTransition> {
   final Value<String> sessionId;
   final Value<String> fromState;
   final Value<String> toState;
-  final Value<String> reason;
   final Value<DateTime> timestamp;
   final Value<double?> sigma;
   final Value<double?> speedMps;
@@ -626,7 +601,6 @@ class StateTransitionsCompanion extends UpdateCompanion<StateTransition> {
     this.sessionId = const Value.absent(),
     this.fromState = const Value.absent(),
     this.toState = const Value.absent(),
-    this.reason = const Value.absent(),
     this.timestamp = const Value.absent(),
     this.sigma = const Value.absent(),
     this.speedMps = const Value.absent(),
@@ -636,21 +610,18 @@ class StateTransitionsCompanion extends UpdateCompanion<StateTransition> {
     required String sessionId,
     required String fromState,
     required String toState,
-    required String reason,
     required DateTime timestamp,
     this.sigma = const Value.absent(),
     this.speedMps = const Value.absent(),
   })  : sessionId = Value(sessionId),
         fromState = Value(fromState),
         toState = Value(toState),
-        reason = Value(reason),
         timestamp = Value(timestamp);
   static Insertable<StateTransition> custom({
     Expression<int>? id,
     Expression<String>? sessionId,
     Expression<String>? fromState,
     Expression<String>? toState,
-    Expression<String>? reason,
     Expression<DateTime>? timestamp,
     Expression<double>? sigma,
     Expression<double>? speedMps,
@@ -660,7 +631,6 @@ class StateTransitionsCompanion extends UpdateCompanion<StateTransition> {
       if (sessionId != null) 'session_id': sessionId,
       if (fromState != null) 'from_state': fromState,
       if (toState != null) 'to_state': toState,
-      if (reason != null) 'reason': reason,
       if (timestamp != null) 'timestamp': timestamp,
       if (sigma != null) 'sigma': sigma,
       if (speedMps != null) 'speed_mps': speedMps,
@@ -672,7 +642,6 @@ class StateTransitionsCompanion extends UpdateCompanion<StateTransition> {
       Value<String>? sessionId,
       Value<String>? fromState,
       Value<String>? toState,
-      Value<String>? reason,
       Value<DateTime>? timestamp,
       Value<double?>? sigma,
       Value<double?>? speedMps}) {
@@ -681,7 +650,6 @@ class StateTransitionsCompanion extends UpdateCompanion<StateTransition> {
       sessionId: sessionId ?? this.sessionId,
       fromState: fromState ?? this.fromState,
       toState: toState ?? this.toState,
-      reason: reason ?? this.reason,
       timestamp: timestamp ?? this.timestamp,
       sigma: sigma ?? this.sigma,
       speedMps: speedMps ?? this.speedMps,
@@ -703,9 +671,6 @@ class StateTransitionsCompanion extends UpdateCompanion<StateTransition> {
     if (toState.present) {
       map['to_state'] = Variable<String>(toState.value);
     }
-    if (reason.present) {
-      map['reason'] = Variable<String>(reason.value);
-    }
     if (timestamp.present) {
       map['timestamp'] = Variable<DateTime>(timestamp.value);
     }
@@ -725,7 +690,6 @@ class StateTransitionsCompanion extends UpdateCompanion<StateTransition> {
           ..write('sessionId: $sessionId, ')
           ..write('fromState: $fromState, ')
           ..write('toState: $toState, ')
-          ..write('reason: $reason, ')
           ..write('timestamp: $timestamp, ')
           ..write('sigma: $sigma, ')
           ..write('speedMps: $speedMps')
@@ -788,34 +752,9 @@ class $GpsPointsTable extends GpsPoints
   late final GeneratedColumn<double> accuracyMeters = GeneratedColumn<double>(
       'accuracy_meters', aliasedName, true,
       type: DriftSqlType.double, requiredDuringInsert: false);
-  static const VerificationMeta _acceptedMeta =
-      const VerificationMeta('accepted');
   @override
-  late final GeneratedColumn<bool> accepted = GeneratedColumn<bool>(
-      'accepted', aliasedName, false,
-      type: DriftSqlType.bool,
-      requiredDuringInsert: false,
-      defaultConstraints:
-          GeneratedColumn.constraintIsAlways('CHECK ("accepted" IN (0, 1))'),
-      defaultValue: const Constant(true));
-  static const VerificationMeta _rejectionReasonMeta =
-      const VerificationMeta('rejectionReason');
-  @override
-  late final GeneratedColumn<String> rejectionReason = GeneratedColumn<String>(
-      'rejection_reason', aliasedName, true,
-      type: DriftSqlType.string, requiredDuringInsert: false);
-  @override
-  List<GeneratedColumn> get $columns => [
-        id,
-        sessionId,
-        latitude,
-        longitude,
-        timestamp,
-        speedMps,
-        accuracyMeters,
-        accepted,
-        rejectionReason
-      ];
+  List<GeneratedColumn> get $columns =>
+      [id, sessionId, latitude, longitude, timestamp, speedMps, accuracyMeters];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -865,16 +804,6 @@ class $GpsPointsTable extends GpsPoints
           accuracyMeters.isAcceptableOrUnknown(
               data['accuracy_meters']!, _accuracyMetersMeta));
     }
-    if (data.containsKey('accepted')) {
-      context.handle(_acceptedMeta,
-          accepted.isAcceptableOrUnknown(data['accepted']!, _acceptedMeta));
-    }
-    if (data.containsKey('rejection_reason')) {
-      context.handle(
-          _rejectionReasonMeta,
-          rejectionReason.isAcceptableOrUnknown(
-              data['rejection_reason']!, _rejectionReasonMeta));
-    }
     return context;
   }
 
@@ -898,10 +827,6 @@ class $GpsPointsTable extends GpsPoints
           .read(DriftSqlType.double, data['${effectivePrefix}speed_mps'])!,
       accuracyMeters: attachedDatabase.typeMapping
           .read(DriftSqlType.double, data['${effectivePrefix}accuracy_meters']),
-      accepted: attachedDatabase.typeMapping
-          .read(DriftSqlType.bool, data['${effectivePrefix}accepted'])!,
-      rejectionReason: attachedDatabase.typeMapping.read(
-          DriftSqlType.string, data['${effectivePrefix}rejection_reason']),
     );
   }
 
@@ -919,8 +844,6 @@ class GpsPoint extends DataClass implements Insertable<GpsPoint> {
   final DateTime timestamp;
   final double speedMps;
   final double? accuracyMeters;
-  final bool accepted;
-  final String? rejectionReason;
   const GpsPoint(
       {required this.id,
       required this.sessionId,
@@ -928,9 +851,7 @@ class GpsPoint extends DataClass implements Insertable<GpsPoint> {
       required this.longitude,
       required this.timestamp,
       required this.speedMps,
-      this.accuracyMeters,
-      required this.accepted,
-      this.rejectionReason});
+      this.accuracyMeters});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -942,10 +863,6 @@ class GpsPoint extends DataClass implements Insertable<GpsPoint> {
     map['speed_mps'] = Variable<double>(speedMps);
     if (!nullToAbsent || accuracyMeters != null) {
       map['accuracy_meters'] = Variable<double>(accuracyMeters);
-    }
-    map['accepted'] = Variable<bool>(accepted);
-    if (!nullToAbsent || rejectionReason != null) {
-      map['rejection_reason'] = Variable<String>(rejectionReason);
     }
     return map;
   }
@@ -961,10 +878,6 @@ class GpsPoint extends DataClass implements Insertable<GpsPoint> {
       accuracyMeters: accuracyMeters == null && nullToAbsent
           ? const Value.absent()
           : Value(accuracyMeters),
-      accepted: Value(accepted),
-      rejectionReason: rejectionReason == null && nullToAbsent
-          ? const Value.absent()
-          : Value(rejectionReason),
     );
   }
 
@@ -979,8 +892,6 @@ class GpsPoint extends DataClass implements Insertable<GpsPoint> {
       timestamp: serializer.fromJson<DateTime>(json['timestamp']),
       speedMps: serializer.fromJson<double>(json['speedMps']),
       accuracyMeters: serializer.fromJson<double?>(json['accuracyMeters']),
-      accepted: serializer.fromJson<bool>(json['accepted']),
-      rejectionReason: serializer.fromJson<String?>(json['rejectionReason']),
     );
   }
   @override
@@ -994,8 +905,6 @@ class GpsPoint extends DataClass implements Insertable<GpsPoint> {
       'timestamp': serializer.toJson<DateTime>(timestamp),
       'speedMps': serializer.toJson<double>(speedMps),
       'accuracyMeters': serializer.toJson<double?>(accuracyMeters),
-      'accepted': serializer.toJson<bool>(accepted),
-      'rejectionReason': serializer.toJson<String?>(rejectionReason),
     };
   }
 
@@ -1006,9 +915,7 @@ class GpsPoint extends DataClass implements Insertable<GpsPoint> {
           double? longitude,
           DateTime? timestamp,
           double? speedMps,
-          Value<double?> accuracyMeters = const Value.absent(),
-          bool? accepted,
-          Value<String?> rejectionReason = const Value.absent()}) =>
+          Value<double?> accuracyMeters = const Value.absent()}) =>
       GpsPoint(
         id: id ?? this.id,
         sessionId: sessionId ?? this.sessionId,
@@ -1018,10 +925,6 @@ class GpsPoint extends DataClass implements Insertable<GpsPoint> {
         speedMps: speedMps ?? this.speedMps,
         accuracyMeters:
             accuracyMeters.present ? accuracyMeters.value : this.accuracyMeters,
-        accepted: accepted ?? this.accepted,
-        rejectionReason: rejectionReason.present
-            ? rejectionReason.value
-            : this.rejectionReason,
       );
   GpsPoint copyWithCompanion(GpsPointsCompanion data) {
     return GpsPoint(
@@ -1034,10 +937,6 @@ class GpsPoint extends DataClass implements Insertable<GpsPoint> {
       accuracyMeters: data.accuracyMeters.present
           ? data.accuracyMeters.value
           : this.accuracyMeters,
-      accepted: data.accepted.present ? data.accepted.value : this.accepted,
-      rejectionReason: data.rejectionReason.present
-          ? data.rejectionReason.value
-          : this.rejectionReason,
     );
   }
 
@@ -1050,16 +949,14 @@ class GpsPoint extends DataClass implements Insertable<GpsPoint> {
           ..write('longitude: $longitude, ')
           ..write('timestamp: $timestamp, ')
           ..write('speedMps: $speedMps, ')
-          ..write('accuracyMeters: $accuracyMeters, ')
-          ..write('accepted: $accepted, ')
-          ..write('rejectionReason: $rejectionReason')
+          ..write('accuracyMeters: $accuracyMeters')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(id, sessionId, latitude, longitude, timestamp,
-      speedMps, accuracyMeters, accepted, rejectionReason);
+  int get hashCode => Object.hash(
+      id, sessionId, latitude, longitude, timestamp, speedMps, accuracyMeters);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -1070,9 +967,7 @@ class GpsPoint extends DataClass implements Insertable<GpsPoint> {
           other.longitude == this.longitude &&
           other.timestamp == this.timestamp &&
           other.speedMps == this.speedMps &&
-          other.accuracyMeters == this.accuracyMeters &&
-          other.accepted == this.accepted &&
-          other.rejectionReason == this.rejectionReason);
+          other.accuracyMeters == this.accuracyMeters);
 }
 
 class GpsPointsCompanion extends UpdateCompanion<GpsPoint> {
@@ -1083,8 +978,6 @@ class GpsPointsCompanion extends UpdateCompanion<GpsPoint> {
   final Value<DateTime> timestamp;
   final Value<double> speedMps;
   final Value<double?> accuracyMeters;
-  final Value<bool> accepted;
-  final Value<String?> rejectionReason;
   const GpsPointsCompanion({
     this.id = const Value.absent(),
     this.sessionId = const Value.absent(),
@@ -1093,8 +986,6 @@ class GpsPointsCompanion extends UpdateCompanion<GpsPoint> {
     this.timestamp = const Value.absent(),
     this.speedMps = const Value.absent(),
     this.accuracyMeters = const Value.absent(),
-    this.accepted = const Value.absent(),
-    this.rejectionReason = const Value.absent(),
   });
   GpsPointsCompanion.insert({
     this.id = const Value.absent(),
@@ -1104,8 +995,6 @@ class GpsPointsCompanion extends UpdateCompanion<GpsPoint> {
     required DateTime timestamp,
     required double speedMps,
     this.accuracyMeters = const Value.absent(),
-    this.accepted = const Value.absent(),
-    this.rejectionReason = const Value.absent(),
   })  : sessionId = Value(sessionId),
         latitude = Value(latitude),
         longitude = Value(longitude),
@@ -1119,8 +1008,6 @@ class GpsPointsCompanion extends UpdateCompanion<GpsPoint> {
     Expression<DateTime>? timestamp,
     Expression<double>? speedMps,
     Expression<double>? accuracyMeters,
-    Expression<bool>? accepted,
-    Expression<String>? rejectionReason,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -1130,8 +1017,6 @@ class GpsPointsCompanion extends UpdateCompanion<GpsPoint> {
       if (timestamp != null) 'timestamp': timestamp,
       if (speedMps != null) 'speed_mps': speedMps,
       if (accuracyMeters != null) 'accuracy_meters': accuracyMeters,
-      if (accepted != null) 'accepted': accepted,
-      if (rejectionReason != null) 'rejection_reason': rejectionReason,
     });
   }
 
@@ -1142,9 +1027,7 @@ class GpsPointsCompanion extends UpdateCompanion<GpsPoint> {
       Value<double>? longitude,
       Value<DateTime>? timestamp,
       Value<double>? speedMps,
-      Value<double?>? accuracyMeters,
-      Value<bool>? accepted,
-      Value<String?>? rejectionReason}) {
+      Value<double?>? accuracyMeters}) {
     return GpsPointsCompanion(
       id: id ?? this.id,
       sessionId: sessionId ?? this.sessionId,
@@ -1153,8 +1036,6 @@ class GpsPointsCompanion extends UpdateCompanion<GpsPoint> {
       timestamp: timestamp ?? this.timestamp,
       speedMps: speedMps ?? this.speedMps,
       accuracyMeters: accuracyMeters ?? this.accuracyMeters,
-      accepted: accepted ?? this.accepted,
-      rejectionReason: rejectionReason ?? this.rejectionReason,
     );
   }
 
@@ -1182,12 +1063,6 @@ class GpsPointsCompanion extends UpdateCompanion<GpsPoint> {
     if (accuracyMeters.present) {
       map['accuracy_meters'] = Variable<double>(accuracyMeters.value);
     }
-    if (accepted.present) {
-      map['accepted'] = Variable<bool>(accepted.value);
-    }
-    if (rejectionReason.present) {
-      map['rejection_reason'] = Variable<String>(rejectionReason.value);
-    }
     return map;
   }
 
@@ -1200,9 +1075,7 @@ class GpsPointsCompanion extends UpdateCompanion<GpsPoint> {
           ..write('longitude: $longitude, ')
           ..write('timestamp: $timestamp, ')
           ..write('speedMps: $speedMps, ')
-          ..write('accuracyMeters: $accuracyMeters, ')
-          ..write('accepted: $accepted, ')
-          ..write('rejectionReason: $rejectionReason')
+          ..write('accuracyMeters: $accuracyMeters')
           ..write(')'))
         .toString();
   }
@@ -2790,7 +2663,6 @@ typedef $$StateTransitionsTableCreateCompanionBuilder
   required String sessionId,
   required String fromState,
   required String toState,
-  required String reason,
   required DateTime timestamp,
   Value<double?> sigma,
   Value<double?> speedMps,
@@ -2801,7 +2673,6 @@ typedef $$StateTransitionsTableUpdateCompanionBuilder
   Value<String> sessionId,
   Value<String> fromState,
   Value<String> toState,
-  Value<String> reason,
   Value<DateTime> timestamp,
   Value<double?> sigma,
   Value<double?> speedMps,
@@ -2847,9 +2718,6 @@ class $$StateTransitionsTableFilterComposer
 
   ColumnFilters<String> get toState => $composableBuilder(
       column: $table.toState, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<String> get reason => $composableBuilder(
-      column: $table.reason, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<DateTime> get timestamp => $composableBuilder(
       column: $table.timestamp, builder: (column) => ColumnFilters(column));
@@ -2899,9 +2767,6 @@ class $$StateTransitionsTableOrderingComposer
   ColumnOrderings<String> get toState => $composableBuilder(
       column: $table.toState, builder: (column) => ColumnOrderings(column));
 
-  ColumnOrderings<String> get reason => $composableBuilder(
-      column: $table.reason, builder: (column) => ColumnOrderings(column));
-
   ColumnOrderings<DateTime> get timestamp => $composableBuilder(
       column: $table.timestamp, builder: (column) => ColumnOrderings(column));
 
@@ -2950,9 +2815,6 @@ class $$StateTransitionsTableAnnotationComposer
 
   GeneratedColumn<String> get toState =>
       $composableBuilder(column: $table.toState, builder: (column) => column);
-
-  GeneratedColumn<String> get reason =>
-      $composableBuilder(column: $table.reason, builder: (column) => column);
 
   GeneratedColumn<DateTime> get timestamp =>
       $composableBuilder(column: $table.timestamp, builder: (column) => column);
@@ -3013,7 +2875,6 @@ class $$StateTransitionsTableTableManager extends RootTableManager<
             Value<String> sessionId = const Value.absent(),
             Value<String> fromState = const Value.absent(),
             Value<String> toState = const Value.absent(),
-            Value<String> reason = const Value.absent(),
             Value<DateTime> timestamp = const Value.absent(),
             Value<double?> sigma = const Value.absent(),
             Value<double?> speedMps = const Value.absent(),
@@ -3023,7 +2884,6 @@ class $$StateTransitionsTableTableManager extends RootTableManager<
             sessionId: sessionId,
             fromState: fromState,
             toState: toState,
-            reason: reason,
             timestamp: timestamp,
             sigma: sigma,
             speedMps: speedMps,
@@ -3033,7 +2893,6 @@ class $$StateTransitionsTableTableManager extends RootTableManager<
             required String sessionId,
             required String fromState,
             required String toState,
-            required String reason,
             required DateTime timestamp,
             Value<double?> sigma = const Value.absent(),
             Value<double?> speedMps = const Value.absent(),
@@ -3043,7 +2902,6 @@ class $$StateTransitionsTableTableManager extends RootTableManager<
             sessionId: sessionId,
             fromState: fromState,
             toState: toState,
-            reason: reason,
             timestamp: timestamp,
             sigma: sigma,
             speedMps: speedMps,
@@ -3113,8 +2971,6 @@ typedef $$GpsPointsTableCreateCompanionBuilder = GpsPointsCompanion Function({
   required DateTime timestamp,
   required double speedMps,
   Value<double?> accuracyMeters,
-  Value<bool> accepted,
-  Value<String?> rejectionReason,
 });
 typedef $$GpsPointsTableUpdateCompanionBuilder = GpsPointsCompanion Function({
   Value<int> id,
@@ -3124,8 +2980,6 @@ typedef $$GpsPointsTableUpdateCompanionBuilder = GpsPointsCompanion Function({
   Value<DateTime> timestamp,
   Value<double> speedMps,
   Value<double?> accuracyMeters,
-  Value<bool> accepted,
-  Value<String?> rejectionReason,
 });
 
 final class $$GpsPointsTableReferences extends BaseReferences<
@@ -3178,13 +3032,6 @@ class $$GpsPointsTableFilterComposer
       column: $table.accuracyMeters,
       builder: (column) => ColumnFilters(column));
 
-  ColumnFilters<bool> get accepted => $composableBuilder(
-      column: $table.accepted, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<String> get rejectionReason => $composableBuilder(
-      column: $table.rejectionReason,
-      builder: (column) => ColumnFilters(column));
-
   $$AcquisitionSessionsTableFilterComposer get sessionId {
     final $$AcquisitionSessionsTableFilterComposer composer = $composerBuilder(
         composer: this,
@@ -3232,13 +3079,6 @@ class $$GpsPointsTableOrderingComposer
 
   ColumnOrderings<double> get accuracyMeters => $composableBuilder(
       column: $table.accuracyMeters,
-      builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<bool> get accepted => $composableBuilder(
-      column: $table.accepted, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<String> get rejectionReason => $composableBuilder(
-      column: $table.rejectionReason,
       builder: (column) => ColumnOrderings(column));
 
   $$AcquisitionSessionsTableOrderingComposer get sessionId {
@@ -3289,12 +3129,6 @@ class $$GpsPointsTableAnnotationComposer
 
   GeneratedColumn<double> get accuracyMeters => $composableBuilder(
       column: $table.accuracyMeters, builder: (column) => column);
-
-  GeneratedColumn<bool> get accepted =>
-      $composableBuilder(column: $table.accepted, builder: (column) => column);
-
-  GeneratedColumn<String> get rejectionReason => $composableBuilder(
-      column: $table.rejectionReason, builder: (column) => column);
 
   $$AcquisitionSessionsTableAnnotationComposer get sessionId {
     final $$AcquisitionSessionsTableAnnotationComposer composer =
@@ -3349,8 +3183,6 @@ class $$GpsPointsTableTableManager extends RootTableManager<
             Value<DateTime> timestamp = const Value.absent(),
             Value<double> speedMps = const Value.absent(),
             Value<double?> accuracyMeters = const Value.absent(),
-            Value<bool> accepted = const Value.absent(),
-            Value<String?> rejectionReason = const Value.absent(),
           }) =>
               GpsPointsCompanion(
             id: id,
@@ -3360,8 +3192,6 @@ class $$GpsPointsTableTableManager extends RootTableManager<
             timestamp: timestamp,
             speedMps: speedMps,
             accuracyMeters: accuracyMeters,
-            accepted: accepted,
-            rejectionReason: rejectionReason,
           ),
           createCompanionCallback: ({
             Value<int> id = const Value.absent(),
@@ -3371,8 +3201,6 @@ class $$GpsPointsTableTableManager extends RootTableManager<
             required DateTime timestamp,
             required double speedMps,
             Value<double?> accuracyMeters = const Value.absent(),
-            Value<bool> accepted = const Value.absent(),
-            Value<String?> rejectionReason = const Value.absent(),
           }) =>
               GpsPointsCompanion.insert(
             id: id,
@@ -3382,8 +3210,6 @@ class $$GpsPointsTableTableManager extends RootTableManager<
             timestamp: timestamp,
             speedMps: speedMps,
             accuracyMeters: accuracyMeters,
-            accepted: accepted,
-            rejectionReason: rejectionReason,
           ),
           withReferenceMapper: (p0) => p0
               .map((e) => (

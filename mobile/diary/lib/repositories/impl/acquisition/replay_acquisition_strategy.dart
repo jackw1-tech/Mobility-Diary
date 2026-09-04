@@ -6,7 +6,6 @@ import 'package:diary/model/entities/acquisition/upload_models.dart';
 import 'package:diary/repositories/acquisition_strategy.dart';
 import 'package:diary/repositories/impl/acquisition/trip_package_builder.dart';
 import 'package:diary/network/service/trip_upload_service.dart';
-import 'package:diary/repositories/impl/acquisition/acquisition_snapshot_emitter.dart';
 import 'package:uuid/uuid.dart';
 
 typedef ReplayTimerFactory = Timer Function(
@@ -14,13 +13,7 @@ typedef ReplayTimerFactory = Timer Function(
   void Function(Timer timer) callback,
 );
 
-class ReplayAcquisitionStrategy
-    with AcquisitionSnapshotEmitter
-    implements AcquisitionStrategy {
-  /// Motivo mostrato per le transizioni rigiocate: il backend restituisce solo
-  /// from_state/to_state, non il motivo della decisione originale.
-  static const String _replayTransitionReason = 'replay';
-
+class ReplayAcquisitionStrategy implements AcquisitionStrategy {
   final TripUploadService? _uploadService;
   final UploadMapper _mapper;
   final Uuid _uuid;
@@ -30,6 +23,22 @@ class ReplayAcquisitionStrategy
   final DateTime? _scheduledStartAt;
   final double _requestedReplaySpeedMultiplier;
   final ReplayTimerFactory _timerFactory;
+  final AcquisitionSnapshotListener onSnapshot;
+
+  AcquisitionSnapshot _currentSnapshot = AcquisitionSnapshot.idle();
+  bool _acceptSnapshots = true;
+
+  AcquisitionSnapshot get currentSnapshot => _currentSnapshot;
+
+  void emitSnapshot(AcquisitionSnapshot snapshot) {
+    if (!_acceptSnapshots) {
+      return;
+    }
+    _currentSnapshot = snapshot;
+    onSnapshot(snapshot);
+  }
+
+  void closeSnapshotEmission() => _acceptSnapshots = false;
 
   Timer? _replayTimer;
   String? _currentSessionId;
@@ -45,6 +54,7 @@ class ReplayAcquisitionStrategy
 
   ReplayAcquisitionStrategy({
     required int sourceTripId,
+    required this.onSnapshot,
     DateTime? scheduledStartAt,
     double replaySpeedMultiplier = 1,
     TripUploadService? uploadService,
@@ -88,8 +98,7 @@ class ReplayAcquisitionStrategy
       throw const UploadApiException('Richiesta upload fallita');
     }
 
-    final replayDataDto =
-        await _uploadService?.getReplayData(_sourceTripId);
+    final replayDataDto = await _uploadService?.getReplayData(_sourceTripId);
     if (replayDataDto == null) {
       throw const UploadApiException('Richiesta upload fallita');
     }
@@ -128,9 +137,7 @@ class ReplayAcquisitionStrategy
   }
 
   @override
-  Future<void> ingestEvent(TrackingEvent event) async {
-    // Replay is driven only by backend replay evidence and its timer.
-  }
+  Future<void> ingestEvent(TrackingEvent event) async {}
 
   @override
   Future<List<AcquisitionRoutePoint>> currentSessionRoute() async {
@@ -154,8 +161,8 @@ class ReplayAcquisitionStrategy
 
   @override
   void dispose() {
+    closeSnapshotEmission();
     _replayTimer?.cancel();
-    closeSnapshots();
   }
 
   double _replaySpeedMultiplier(double value) {
@@ -240,8 +247,6 @@ class ReplayAcquisitionStrategy
         lastFsmTransition = FsmTransition(
           from: TrackingState.fromWire(t.fromState),
           to: nextState,
-          // Il backend non restituisce il motivo della transizione originale.
-          reason: _replayTransitionReason,
           timestamp: t.timestamp,
         );
         currentState = nextState;
@@ -302,10 +307,10 @@ class ReplayAcquisitionStrategy
     final filteredPoints = (_replayPoints ?? const <CoreGpsPoint>[])
         .where((p) => !p.timestamp.isAfter(cutoffTimestamp))
         .toList();
-    final filteredTransitions = (_replayTransitions ??
-            const <CoreStateTransition>[])
-        .where((t) => !t.timestamp.isAfter(cutoffTimestamp))
-        .toList();
+    final filteredTransitions =
+        (_replayTransitions ?? const <CoreStateTransition>[])
+            .where((t) => !t.timestamp.isAfter(cutoffTimestamp))
+            .toList();
 
     final now = DateTime.now().toUtc();
     final firstSourceTimestamp = [
@@ -397,8 +402,6 @@ class ReplayAcquisitionStrategy
     if (second == null) return first;
     return first.isAfter(second) ? first : second;
   }
-
-
 
   Future<String> _resolveDeviceId() async {
     final provider = _deviceIdProvider;

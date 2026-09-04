@@ -113,6 +113,8 @@ class _LiveMapState extends State<LiveMap> {
     setState(() => _followUser = false);
   }
 
+  // Ogni volta che il repository emette uno snapshot con nuovi punti GPS,
+  // aggiorna la polyline
   void _onStateChanged(AcquisitionCubitState state) {
     _layers?.redrawRoute(state.routePoints);
     _camera?.syncNativePuck(isReplay: state.isReplay);

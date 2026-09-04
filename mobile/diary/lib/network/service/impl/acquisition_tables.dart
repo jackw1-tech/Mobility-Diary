@@ -19,7 +19,6 @@ class StateTransitions extends Table {
   TextColumn get sessionId => text().references(AcquisitionSessions, #id)();
   TextColumn get fromState => text()();
   TextColumn get toState => text()();
-  TextColumn get reason => text()();
   DateTimeColumn get timestamp => dateTime()();
   RealColumn get sigma => real().nullable()();
   RealColumn get speedMps => real().nullable()();
@@ -33,8 +32,6 @@ class GpsPoints extends Table {
   DateTimeColumn get timestamp => dateTime()();
   RealColumn get speedMps => real()();
   RealColumn get accuracyMeters => real().nullable()();
-  BoolColumn get accepted => boolean().withDefault(const Constant(true))();
-  TextColumn get rejectionReason => text().nullable()();
 }
 
 class SensorWindows extends Table {

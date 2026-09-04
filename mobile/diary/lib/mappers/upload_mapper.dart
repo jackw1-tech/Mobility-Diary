@@ -126,7 +126,6 @@ class UploadMapper {
 
   Map<String, dynamic> _transitionJson(CoreStateTransition transition) => {
         'from_state': transition.fromState,
-        'reason': transition.reason,
         'sigma': transition.sigma,
         'speed_mps': transition.speedMps,
         'timestamp': DateTimeUtils.toUtcIso(transition.timestamp),

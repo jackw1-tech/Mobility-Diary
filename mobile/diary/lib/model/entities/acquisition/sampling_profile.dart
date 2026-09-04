@@ -49,6 +49,7 @@ class SamplingProfile {
           persistGpsPoints: true,
         );
 
+  // Stato FSM -> traduzione -> SamplingProfile
   factory SamplingProfile.forState(TrackingState state) {
     switch (state) {
       case TrackingState.stationary:

@@ -112,7 +112,6 @@ class StateTransition(models.Model):
     )
     from_state = models.CharField(max_length=32)
     to_state = models.CharField(max_length=32)
-    reason = models.CharField(max_length=128, blank=True)
     timestamp = models.DateTimeField()
     sigma = models.FloatField(null=True, blank=True)
     speed_mps = models.FloatField(null=True, blank=True)
@@ -367,8 +366,6 @@ class TripUpload(models.Model):
     )
     expected_raw_parts = models.JSONField(default=int)
     raw_base_path = models.CharField(max_length=512, blank=True)
-    core_payload_size_bytes = models.BigIntegerField(default=0)
-    total_size_bytes = models.BigIntegerField(default=0)
     started_at = models.DateTimeField(null=True, blank=True)
     ended_at = models.DateTimeField(null=True, blank=True)
 

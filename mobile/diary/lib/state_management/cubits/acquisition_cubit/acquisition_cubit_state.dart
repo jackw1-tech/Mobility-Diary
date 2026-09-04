@@ -10,7 +10,6 @@ class AcquisitionCubitState {
   final AcquisitionCubitStatus status;
   final AcquisitionSnapshot snapshot;
   final AcquisitionSyncSnapshot syncSnapshot;
-  final List<AcquisitionMetricCluster> metricClusters;
   final String? errorMessage;
 
   /// Percorso accumulato durante la sessione di tracking corrente, in ordine
@@ -22,7 +21,6 @@ class AcquisitionCubitState {
     required this.status,
     required this.snapshot,
     this.syncSnapshot = const AcquisitionSyncSnapshot.none(),
-    this.metricClusters = const [],
     this.errorMessage,
     this.routePoints = const [],
     this.completedReplayTripId,
@@ -35,7 +33,6 @@ class AcquisitionCubitState {
   factory AcquisitionCubitState.fromSnapshot(
     AcquisitionSnapshot snapshot, {
     AcquisitionSyncSnapshot syncSnapshot = const AcquisitionSyncSnapshot.none(),
-    List<AcquisitionMetricCluster> metricClusters = const [],
     String? errorMessage,
     List<LatLng> routePoints = const [],
     int? completedReplayTripId,
@@ -46,7 +43,6 @@ class AcquisitionCubitState {
           : AcquisitionCubitStatus.idle,
       snapshot: snapshot,
       syncSnapshot: syncSnapshot,
-      metricClusters: metricClusters,
       errorMessage: errorMessage,
       routePoints: routePoints,
       completedReplayTripId: completedReplayTripId,
@@ -57,7 +53,6 @@ class AcquisitionCubitState {
     AcquisitionCubitStatus? status,
     AcquisitionSnapshot? snapshot,
     AcquisitionSyncSnapshot? syncSnapshot,
-    List<AcquisitionMetricCluster>? metricClusters,
     String? errorMessage,
     bool clearErrorMessage = false,
     List<LatLng>? routePoints,
@@ -68,7 +63,6 @@ class AcquisitionCubitState {
       status: status ?? this.status,
       snapshot: snapshot ?? this.snapshot,
       syncSnapshot: syncSnapshot ?? this.syncSnapshot,
-      metricClusters: metricClusters ?? this.metricClusters,
       errorMessage:
           clearErrorMessage ? null : errorMessage ?? this.errorMessage,
       routePoints: routePoints ?? this.routePoints,
@@ -96,61 +90,5 @@ class AcquisitionCubitState {
 
   double get latestSpeedMetersPerSecond {
     return snapshot.latestSpeedMetersPerSecond;
-  }
-}
-
-class AcquisitionMetricCluster {
-  final DateTime startedAt;
-  final int sampleCount;
-  final double sigmaAverage;
-  final double sigmaMin;
-  final double sigmaMax;
-  final double speedKmhAverage;
-  final double speedKmhMin;
-  final double speedKmhMax;
-
-  const AcquisitionMetricCluster({
-    required this.startedAt,
-    required this.sampleCount,
-    required this.sigmaAverage,
-    required this.sigmaMin,
-    required this.sigmaMax,
-    required this.speedKmhAverage,
-    required this.speedKmhMin,
-    required this.speedKmhMax,
-  });
-
-  factory AcquisitionMetricCluster.fromSnapshot(
-    AcquisitionSnapshot snapshot,
-  ) {
-    final speedKmh = snapshot.latestSpeedKilometersPerHour;
-    return AcquisitionMetricCluster(
-      startedAt: snapshot.updatedAt,
-      sampleCount: 1,
-      sigmaAverage: snapshot.latestSigma,
-      sigmaMin: snapshot.latestSigma,
-      sigmaMax: snapshot.latestSigma,
-      speedKmhAverage: speedKmh,
-      speedKmhMin: speedKmh,
-      speedKmhMax: speedKmh,
-    );
-  }
-
-  AcquisitionMetricCluster merge(AcquisitionSnapshot snapshot) {
-    final nextCount = sampleCount + 1;
-    final nextSigma = snapshot.latestSigma;
-    final nextSpeedKmh = snapshot.latestSpeedKilometersPerHour;
-
-    return AcquisitionMetricCluster(
-      startedAt: startedAt,
-      sampleCount: nextCount,
-      sigmaAverage: ((sigmaAverage * sampleCount) + nextSigma) / nextCount,
-      sigmaMin: nextSigma < sigmaMin ? nextSigma : sigmaMin,
-      sigmaMax: nextSigma > sigmaMax ? nextSigma : sigmaMax,
-      speedKmhAverage:
-          ((speedKmhAverage * sampleCount) + nextSpeedKmh) / nextCount,
-      speedKmhMin: nextSpeedKmh < speedKmhMin ? nextSpeedKmh : speedKmhMin,
-      speedKmhMax: nextSpeedKmh > speedKmhMax ? nextSpeedKmh : speedKmhMax,
-    );
   }
 }

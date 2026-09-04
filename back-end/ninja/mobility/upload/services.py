@@ -187,7 +187,6 @@ def process_inline_core_upload(
     payload,
     expected_raw_parts: int,
     raw_status: str,
-    body_size: int,
 ) -> TripUpload:
     payload = _normalize_and_validate_core_timeline(payload)
     with transaction.atomic():
@@ -196,7 +195,6 @@ def process_inline_core_upload(
             payload=payload,
             expected_raw_parts=expected_raw_parts,
             raw_status=raw_status,
-            body_size=body_size,
         )
         
         if not upload.raw_base_path:
@@ -204,7 +202,6 @@ def process_inline_core_upload(
             upload.save(update_fields=["raw_base_path", "updated_at"])
 
         now = timezone.now()
-        upload.core_payload_size_bytes = body_size
         upload.expected_raw_parts = expected_raw_parts
         upload.raw_status = raw_status
         upload.device_id = payload.device_id
@@ -215,7 +212,6 @@ def process_inline_core_upload(
         upload.error_message = ""
         upload.save(
             update_fields=[
-                "core_payload_size_bytes",
                 "expected_raw_parts",
                 "raw_status",
                 "device_id",
@@ -493,6 +489,10 @@ def complete_raw_upload(
             and total_parts != _raw_part_count(upload.expected_raw_parts)
         ):
             raise UploadServiceError("numero parti raw diverso dal manifest iniziale")
+        missing = missing_raw_parts(upload)
+        if missing:
+            sequences = ", ".join(str(part["sequence"]) for part in missing)
+            raise UploadPartMismatch(f"parti raw mancanti: {sequences}")
 
         queue_final_har(upload, now=now)
     return upload
@@ -516,7 +516,6 @@ def _get_inline_core_upload(
     payload,
     expected_raw_parts: int,
     raw_status: str,
-    body_size: int,
 ) -> TripUpload:
     upload = _locked_owned_upload(user_id, payload.upload_id)
     if upload.client_session_id != payload.client_session_id:

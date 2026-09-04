@@ -82,7 +82,6 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
     required String sessionId,
     required String fromState,
     required String toState,
-    required String reason,
     required DateTime timestamp,
     required double sigma,
     required double speedMps,
@@ -92,7 +91,6 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
         sessionId: sessionId,
         fromState: fromState,
         toState: toState,
-        reason: reason,
         timestamp: asUtc(timestamp),
         sigma: Value(sigma),
         speedMps: Value(speedMps),
@@ -131,8 +129,6 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
     required DateTime timestamp,
     required double speedMps,
     double? accuracyMeters,
-    bool accepted = true,
-    String? rejectionReason,
   }) {
     return into(gpsPoints).insert(
       GpsPointsCompanion.insert(
@@ -142,16 +138,13 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
         timestamp: asUtc(timestamp),
         speedMps: speedMps,
         accuracyMeters: Value(accuracyMeters),
-        accepted: Value(accepted),
-        rejectionReason: Value(rejectionReason),
       ),
     );
   }
 
   Future<List<GpsPoint>> gpsPointsForSession(String sessionId) {
     return (select(gpsPoints)
-          ..where(
-              (p) => p.sessionId.equals(sessionId) & p.accepted.equals(true))
+          ..where((p) => p.sessionId.equals(sessionId))
           ..orderBy([(p) => OrderingTerm.asc(p.timestamp)]))
         .get()
         .then((points) => points.map(gpsPointAsUtc).toList());
@@ -159,8 +152,7 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
 
   Future<GpsPoint?> latestGpsPointForSession(String sessionId) {
     return (select(gpsPoints)
-          ..where(
-              (p) => p.sessionId.equals(sessionId) & p.accepted.equals(true))
+          ..where((p) => p.sessionId.equals(sessionId))
           ..orderBy([(p) => OrderingTerm.desc(p.timestamp)])
           ..limit(1))
         .getSingleOrNull()

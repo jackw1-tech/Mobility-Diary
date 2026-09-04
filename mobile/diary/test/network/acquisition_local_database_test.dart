@@ -31,7 +31,8 @@ void main() {
     expect(stored?.remoteUploadId, 42);
   });
 
-  test('returns only accepted GPS evidence in chronological order', () async {
+  test('returns GPS evidence for a session in chronological order',
+      () async {
     await dao.createSession(
       id: 'session-1',
       deviceId: 'iphone-1',
@@ -46,25 +47,16 @@ void main() {
     );
     await dao.insertGpsPoint(
       sessionId: 'session-1',
-      latitude: 0,
-      longitude: 0,
-      timestamp: DateTime.utc(2026, 8, 30, 10, 1),
-      speedMps: 0,
-      accepted: false,
-      rejectionReason: 'accuracy',
-    );
-    await dao.insertGpsPoint(
-      sessionId: 'session-1',
       latitude: 45.46,
       longitude: 9.19,
       timestamp: DateTime.utc(2026, 8, 30, 10),
       speedMps: 1,
     );
 
-    final accepted = await dao.gpsPointsForSession('session-1');
+    final points = await dao.gpsPointsForSession('session-1');
 
-    expect(await dao.countGpsPointsForSession('session-1'), 3);
-    expect(accepted.map((point) => point.latitude), [45.46, 45.47]);
+    expect(await dao.countGpsPointsForSession('session-1'), 2);
+    expect(points.map((point) => point.latitude), [45.46, 45.47]);
   });
 
   test('creates one durable sync job per stopped session', () async {

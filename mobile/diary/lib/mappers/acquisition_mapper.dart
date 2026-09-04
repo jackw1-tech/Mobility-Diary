@@ -69,7 +69,6 @@ class AcquisitionMapper {
           timestamp: row.timestamp,
           fromState: row.fromState,
           toState: row.toState,
-          reason: row.reason,
           sigma: row.sigma,
           speedMps: row.speedMps,
         ),

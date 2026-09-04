@@ -30,6 +30,7 @@ dependencies:
   mapbox_maps_flutter: ^2.25.0
   fl_chart: ^0.69.0
   dio: ^5.10.0
+  share_plus: ^11.1.0
 
 
 dev_dependencies:

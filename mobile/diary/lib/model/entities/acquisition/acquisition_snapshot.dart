@@ -2,6 +2,8 @@ import 'fsm_engine.dart';
 import 'sampling_profile.dart';
 import 'tracking_state.dart';
 
+// Fotografia dello stato corrente dell'acquisizione dei dati, descrive ciò che il sistema ha capito dall'ultima misurazione
+// e come si sta comportando ora
 class AcquisitionSnapshot {
   final bool isTracking;
   final TrackingState trackingState;
@@ -44,10 +46,6 @@ class AcquisitionSnapshot {
       updatedAt: updatedAt ?? DateTime.now().toUtc(),
       replaySecondsRemaining: null,
     );
-  }
-
-  double get latestSpeedKilometersPerHour {
-    return latestSpeedMetersPerSecond * 3.6;
   }
 
   AcquisitionSnapshot copyWith({

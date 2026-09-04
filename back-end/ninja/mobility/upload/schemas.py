@@ -63,7 +63,6 @@ class InlineStateTransitionIn(Schema):
     timestamp: datetime
     from_state: str
     to_state: str
-    reason: str = ""
     sigma: float | None = None
     speed_mps: float | None = None
 

@@ -7,18 +7,18 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:latlong2/latlong.dart';
 
 class AcquisitionCubit extends Cubit<AcquisitionCubitState> {
-  static const int _maxMetricClusters = 60;
-  static const Duration _metricClusterDuration = Duration(seconds: 1);
-
   final AcquisitionTrackingRepository _trackingRepository;
   final AcquisitionSyncRepository _syncRepository;
   late final StreamSubscription<AcquisitionSnapshot> _snapshotSubscription;
   late final StreamSubscription<AcquisitionSyncSnapshot>
       _syncSnapshotSubscription;
 
-  /// Ripristino in corso: coalescenza delle chiamate sovrapposte (costruttore +
-  /// trigger post-autologin) per evitare due `resumeSync` concorrenti.
   Future<void>? _restoreInFlight;
+
+  // Flag per indicare che il prossimo snapshot deve resettare i punti disegnati sulla mappa
+  bool _resetRouteOnNextSnapshot = false;
+  // Flag per indicare che  ...
+  bool _clearCompletedReplayOnNextSnapshot = false;
 
   AcquisitionCubit({
     required AcquisitionTrackingRepository trackingRepository,
@@ -31,7 +31,7 @@ class AcquisitionCubit extends Cubit<AcquisitionCubitState> {
             syncSnapshot: syncRepository.currentSyncSnapshot,
           ),
         ) {
-    _snapshotSubscription = _trackingRepository.snapshots.listen(_emitSnapshot);
+    _snapshotSubscription = _trackingRepository.snapshots.listen(_onSnapshot);
     _syncSnapshotSubscription =
         _syncRepository.syncSnapshots.listen(_emitSyncSnapshot);
 
@@ -86,53 +86,56 @@ class AcquisitionCubit extends Cubit<AcquisitionCubitState> {
   }
 
   Future<void> startTracking() async {
+    if (_trackingRepository.currentSnapshot.isTracking) {
+      return;
+    }
+    _prepareFreshAcquisitionState();
     try {
       await _trackingRepository.startTracking();
-      _emitSnapshot(
-        _trackingRepository.currentSnapshot,
-        resetMetrics: true,
-        clearCompletedReplayTripId: true,
-      );
     } catch (error) {
+      _cancelFreshAcquisitionState();
       emit(state.copyWith(errorMessage: error.toString()));
       rethrow;
     }
   }
 
-  Future<void> stopTracking() async {
+  Future<AcquisitionDiagnosticsReport?> stopTracking() async {
     if (state.isReplay) {
       await stopReplay();
-      return;
+      return null;
     }
-    await _trackingRepository.stopTracking();
-    _emitSnapshot(_trackingRepository.currentSnapshot);
+    return _trackingRepository.stopTracking();
   }
 
   Future<void> ingestEvent(TrackingEvent event) async {
     await _trackingRepository.ingestEvent(event);
-    _emitSnapshot(_trackingRepository.currentSnapshot);
   }
 
   bool _isStoppingReplay = false;
+  bool _isStartingReplay = false;
 
   Future<void> startReplay(
     int sourceTripId, {
     DateTime? scheduledStartAt,
     double replaySpeedMultiplier = 1,
   }) async {
+    if (_trackingRepository.currentSnapshot.isTracking) {
+      return;
+    }
+    _prepareFreshAcquisitionState();
+    _isStartingReplay = true;
     try {
       await _trackingRepository.startReplay(
         sourceTripId,
         scheduledStartAt: scheduledStartAt,
         replaySpeedMultiplier: replaySpeedMultiplier,
       );
+      _isStartingReplay = false;
       _isStoppingReplay = false;
-      _emitSnapshot(
-        _trackingRepository.currentSnapshot,
-        resetMetrics: true,
-        clearCompletedReplayTripId: true,
-      );
+      _stopReplayIfCompleted(_trackingRepository.currentSnapshot);
     } catch (error) {
+      _isStartingReplay = false;
+      _cancelFreshAcquisitionState();
       emit(state.copyWith(errorMessage: error.toString()));
       rethrow;
     }
@@ -144,7 +147,6 @@ class AcquisitionCubit extends Cubit<AcquisitionCubitState> {
     try {
       final result = await _trackingRepository.stopReplay();
       emit(state.copyWith(completedReplayTripId: result.tripId));
-      _emitSnapshot(_trackingRepository.currentSnapshot);
     } catch (error) {
       _isStoppingReplay = false;
       emit(state.copyWith(errorMessage: error.toString()));
@@ -152,27 +154,55 @@ class AcquisitionCubit extends Cubit<AcquisitionCubitState> {
     }
   }
 
-  void _emitSnapshot(
-    AcquisitionSnapshot snapshot, {
-    bool resetMetrics = false,
-    bool clearCompletedReplayTripId = false,
-  }) {
+  // Azzera lo stato del cubit, lo si fa quando avvio un nuovo replay o un nuovo
+  // tracking live
+  void _prepareFreshAcquisitionState() {
+    _resetRouteOnNextSnapshot = true;
+    _clearCompletedReplayOnNextSnapshot = true;
+  }
+
+  // Ripristina lo stato del cubit allo snapshot corrente senza modifiche
+  void _cancelFreshAcquisitionState() {
+    _resetRouteOnNextSnapshot = false;
+    _clearCompletedReplayOnNextSnapshot = false;
+  }
+
+  // Primo snapshot? -> reset dei punti disegnati sulla mappa
+  // Altro snapshot? -> aggiorna i punti disegnati sulla mappa
+  void _onSnapshot(AcquisitionSnapshot snapshot) {
+    final resetRoute = _resetRouteOnNextSnapshot;
+    final clearCompletedReplayTripId = _clearCompletedReplayOnNextSnapshot;
+    _cancelFreshAcquisitionState();
+    _emitSnapshot(
+      snapshot,
+      resetRoute: resetRoute,
+      clearCompletedReplayTripId: clearCompletedReplayTripId,
+    );
+  }
+
+  void _stopReplayIfCompleted(AcquisitionSnapshot snapshot) {
     if (snapshot.isTracking &&
         snapshot.replaySecondsRemaining == 0 &&
+        !_isStartingReplay &&
         !_isStoppingReplay) {
       unawaited(stopReplay());
     }
+  }
 
-    final metricClusters = resetMetrics
-        ? <AcquisitionMetricCluster>[]
-        : _updatedMetricClusters(snapshot);
+// Funzione che o aggiorna i punti della polyline o li resetta
+  void _emitSnapshot(
+    AcquisitionSnapshot snapshot, {
+    bool resetRoute = false,
+    bool clearCompletedReplayTripId = false,
+  }) {
+    _stopReplayIfCompleted(snapshot);
+
     final routePoints =
-        resetMetrics ? <LatLng>[] : _updatedRoutePoints(snapshot);
+        resetRoute ? <LatLng>[] : _updatedRoutePoints(snapshot);
     emit(
       AcquisitionCubitState.fromSnapshot(
         snapshot,
         syncSnapshot: state.syncSnapshot,
-        metricClusters: metricClusters,
         routePoints: routePoints,
         completedReplayTripId:
             clearCompletedReplayTripId ? null : state.completedReplayTripId,
@@ -180,9 +210,7 @@ class AcquisitionCubit extends Cubit<AcquisitionCubitState> {
     );
   }
 
-  /// Aggiunge il nuovo fix GPS alla route, scartando i duplicati consecutivi
-  /// (lo snapshot viene riemesso anche per eventi non-GPS, mantenendo l'ultima
-  /// posizione nota).
+  /// Aggiunge il nuovo GPS alla route
   List<LatLng> _updatedRoutePoints(AcquisitionSnapshot snapshot) {
     if (!snapshot.isTracking || !snapshot.hasPosition) {
       return state.routePoints;
@@ -201,32 +229,6 @@ class AcquisitionCubit extends Cubit<AcquisitionCubitState> {
 
   void _emitSyncSnapshot(AcquisitionSyncSnapshot snapshot) {
     emit(state.copyWith(syncSnapshot: snapshot));
-  }
-
-  List<AcquisitionMetricCluster> _updatedMetricClusters(
-    AcquisitionSnapshot snapshot,
-  ) {
-    if (!snapshot.isTracking) {
-      return state.metricClusters;
-    }
-
-    final clusters = List<AcquisitionMetricCluster>.from(
-      state.metricClusters,
-    );
-
-    if (clusters.isNotEmpty &&
-        snapshot.updatedAt.difference(clusters.first.startedAt) <
-            _metricClusterDuration) {
-      clusters[0] = clusters.first.merge(snapshot);
-    } else {
-      clusters.insert(0, AcquisitionMetricCluster.fromSnapshot(snapshot));
-    }
-
-    if (clusters.length > _maxMetricClusters) {
-      return clusters.take(_maxMetricClusters).toList(growable: false);
-    }
-
-    return clusters;
   }
 
   @override

@@ -72,7 +72,6 @@ def materialize_inline_core_upload(
             timestamp=transition.timestamp,
             from_state=transition.from_state,
             to_state=transition.to_state,
-            reason=transition.reason,
             sigma=transition.sigma,
             speed_mps=transition.speed_mps,
         )

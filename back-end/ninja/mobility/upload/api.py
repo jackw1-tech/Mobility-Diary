@@ -149,7 +149,6 @@ def start_upload(request, payload: UploadStartIn):
     auth=mobile_bearer_auth,
 )
 def create_core_inline(request, payload: InlineCoreIn):
-    body_size = len(request.body or b"")
     if not payload.gps_points and not payload.state_transitions:
         raise HttpError(400, "core vuoto: GPS e state transitions assenti")
 
@@ -169,7 +168,6 @@ def create_core_inline(request, payload: InlineCoreIn):
             payload=payload,
             expected_raw_parts=expected_raw_parts,
             raw_status=raw_status,
-            body_size=body_size,
         )
     except UploadServiceError as exc:
         raise HttpError(exc.status_code, exc.message) from exc

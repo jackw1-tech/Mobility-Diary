@@ -50,7 +50,6 @@ def _reloadable_source(user_id: int) -> tuple[Trip, TripUploadPart]:
         timestamp=started_at + timedelta(minutes=4),
         from_state="STILL",
         to_state="MOVING",
-        reason="speed",
     )
     upload = TripUpload.objects.create(
         user_id=user_id,

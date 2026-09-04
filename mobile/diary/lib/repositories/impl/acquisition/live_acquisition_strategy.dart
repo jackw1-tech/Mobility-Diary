@@ -10,8 +10,8 @@ import 'package:diary/network/service/impl/acquisition_sensor_runtime.dart';
 import 'package:diary/network/service/trip_upload_service.dart';
 import 'package:diary/mappers/upload_mapper.dart';
 import 'package:diary/mappers/acquisition_mapper.dart';
-import 'package:diary/repositories/impl/acquisition/acquisition_snapshot_emitter.dart';
 import 'package:diary/repositories/impl/acquisition/har_window_recorder.dart';
+import 'package:diary/repositories/impl/acquisition/fsm_diagnostics_recorder.dart';
 import 'package:diary/repositories/impl/acquisition/upload_heartbeat.dart';
 
 import 'package:flutter/widgets.dart';
@@ -20,11 +20,8 @@ import 'package:uuid/uuid.dart';
 export 'package:diary/repositories/impl/acquisition/upload_heartbeat.dart'
     show HeartbeatTimerFactory;
 
-class LiveAcquisitionStrategy extends WidgetsBindingObserver
-    with AcquisitionSnapshotEmitter
-    implements AcquisitionStrategy {
-  static const Duration _backgroundInertialStaleAfter = Duration(seconds: 12);
-  static const String _resumeInertialStaleReason = 'resume_inertial_stale';
+class LiveAcquisitionStrategy implements AcquisitionStrategy {
+  static const Duration _backgroundInertialStaleAfter = Duration(seconds: 15);
 
   final FsmConfig _config;
   final AcquisitionLocalDatabase _database;
@@ -37,23 +34,31 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
   final TripUploadService? _uploadService;
   final UploadMapper _mapper;
   final AcquisitionMapper _acquisitionMapper;
+  final AcquisitionSnapshotListener onSnapshot;
   late final UploadHeartbeat _heartbeat;
   late final HarWindowRecorder _harWindows;
-  final bool _observesAppLifecycle;
-  // Se, riprendendo una sessione aperta, l'ultimo dato registrato e' piu'
-  // vecchio di questa soglia (es. telefono spento per ore), la sessione viene
-  // considerata stantia: si chiude al momento dell'ultimo dato noto invece di
-  // continuare a registrare come se il buco non fosse mai successo.
+  final FsmDiagnosticsRecorder _diagnosticsRecorder;
   final Duration _staleSessionThreshold;
-  // Iniettabile per i test: senza, il controllo di staleness userebbe
-  // DateTime.now() reale, rendendo i test dipendenti da quando vengono
-  // eseguiti rispetto a timestamp fissi nei fixture.
   final DateTime Function() _now;
+
+  AcquisitionSnapshot _currentSnapshot = AcquisitionSnapshot.idle();
+  bool _acceptSnapshots = true;
+
+  AcquisitionSnapshot get currentSnapshot => _currentSnapshot;
+
+  void emitSnapshot(AcquisitionSnapshot snapshot) {
+    if (!_acceptSnapshots) {
+      return;
+    }
+    _currentSnapshot = snapshot;
+    onSnapshot(snapshot);
+  }
+
+  void closeSnapshotEmission() => _acceptSnapshots = false;
 
   late AcquisitionFsm _fsm;
   String? _currentSessionId;
   String? _pendingSyncSessionId;
-  StreamSubscription<AppLifecycleState>? _lifecycleSubscription;
   AppLifecycleState _lifecycleState = AppLifecycleState.resumed;
   DateTime? _latestMotionWindowAt;
   int? _currentRemoteUploadId;
@@ -63,6 +68,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
   double? _latestAccuracyMeters;
 
   LiveAcquisitionStrategy({
+    required this.onSnapshot,
     FsmConfig config = const FsmConfig(),
     AcquisitionLocalDatabase? database,
     Uuid? uuid,
@@ -77,8 +83,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     Duration staleSessionThreshold = const Duration(minutes: 30),
     DateTime Function()? now,
     HeartbeatTimerFactory? heartbeatTimerFactory,
-    Stream<AppLifecycleState>? lifecycleEvents,
-    bool observeAppLifecycle = false,
+    FsmDiagnosticsRecorder? diagnosticsRecorder,
   })  : _config = config,
         _database = database ?? AcquisitionLocalDatabase(),
         _uuid = uuid ?? const Uuid(),
@@ -89,7 +94,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
         _acquisitionMapper = acquisitionMapper ?? AcquisitionMapper(),
         _staleSessionThreshold = staleSessionThreshold,
         _now = now ?? DateTime.now,
-        _observesAppLifecycle = observeAppLifecycle && lifecycleEvents == null,
+        _diagnosticsRecorder = diagnosticsRecorder ?? FsmDiagnosticsRecorder(),
         _ownsRuntime = enableRuntime && runtime == null,
         _runtime =
             enableRuntime ? runtime ?? AcquisitionSensorRuntime() : null {
@@ -104,12 +109,6 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
       target: _heartbeatTarget,
       isTracking: () => currentSnapshot.isTracking,
     );
-    _lifecycleSubscription = lifecycleEvents
-        ?.listen(_applyLifecycleState); // Funzione chiamata quando
-    // il SO si accorge di un cambiamento dello stato dell'app
-    if (_observesAppLifecycle) {
-      WidgetsBinding.instance.addObserver(this);
-    }
   }
 
   HeartbeatTarget? _heartbeatTarget() {
@@ -186,6 +185,10 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     _currentSessionId = sessionId;
     _currentRemoteUploadId = remoteStart?.uploadId;
     _currentDeviceId = deviceId;
+    await _diagnosticsRecorder.start(
+      sessionId: sessionId,
+      startedAt: now,
+    );
     _heartbeat.restart();
     emitSnapshot(
       AcquisitionSnapshot(
@@ -215,13 +218,17 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     _heartbeat.cancel();
 
     final sessionId = _currentSessionId;
+    final endedAt = _now().toUtc();
 
     if (sessionId != null) {
       await _dao.endSession(
         id: sessionId,
-        endedAt: DateTime.now().toUtc(),
+        endedAt: endedAt,
       );
     }
+    final diagnosticsReport = sessionId == null
+        ? null
+        : await _diagnosticsRecorder.finish(endedAt: endedAt);
 
     _currentSessionId = null;
     _currentRemoteUploadId = null;
@@ -234,9 +241,13 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     if (sessionId == null) {
       return const AcquisitionStopResult.none();
     }
-    return AcquisitionStopResult.syncSession(sessionId);
+    return AcquisitionStopResult.syncSession(
+      sessionId,
+      diagnosticsReport: diagnosticsReport,
+    );
   }
 
+  //Intercetto i nuovi dati dai sensoi / gps, richiamo la FSM e salvo i dati nel db
   @override
   Future<void> ingestEvent(TrackingEvent event) async {
     if (!currentSnapshot.isTracking) {
@@ -251,15 +262,20 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
       event,
       evidenceMode: _evidenceModeFor(event.timestamp),
     );
+    _diagnosticsRecorder.record(
+      event: event,
+      decision: decision,
+      config: _config,
+    );
     final transition = decision.transition;
     final sessionId = _currentSessionId;
 
     if (transition != null && sessionId != null) {
+      // Inserisco nel db la transizione di stato
       await _dao.insertTransition(
         sessionId: sessionId,
         fromState: transition.from.wireName,
         toState: transition.to.wireName,
-        reason: transition.reason,
         timestamp: transition.timestamp,
         sigma: _fsm.latestSigma,
         speedMps: _fsm.latestSpeedMetersPerSecond,
@@ -273,6 +289,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
       _latestLongitude = event.longitude;
       _latestAccuracyMeters = event.accuracyMeters;
 
+      // Inerisco nel db i dati del gps
       if (sessionId != null && decision.samplingProfile.persistGpsPoints) {
         await _dao.insertGpsPoint(
           sessionId: sessionId,
@@ -348,19 +365,15 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
 
   @override
   void dispose() {
+    closeSnapshotEmission();
     _heartbeat.cancel();
-    _lifecycleSubscription?.cancel();
-    if (_observesAppLifecycle) {
-      WidgetsBinding.instance.removeObserver(this);
-    }
+    _diagnosticsRecorder.dispose();
     if (_ownsRuntime) {
       _runtime?.dispose();
     }
-    closeSnapshots();
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
+  void applyLifecycleState(AppLifecycleState state) {
     _applyLifecycleState(state);
   }
 
@@ -435,8 +448,7 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
 
       final localSession = await _dao.findOpenSession(active.clientSessionId);
       if (localSession != null) {
-        await _resumeSession(localSession,
-            remoteUploadId: active.uploadId);
+        await _resumeSession(localSession, remoteUploadId: active.uploadId);
         return;
       }
 
@@ -476,10 +488,11 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     }
   }
 
+  // Se non arrivano dati dall'accellerometro da più di 15 secondi (app in background), la decisione la prendo guardando il gps
   FsmEvidenceMode _evidenceModeFor(DateTime timestamp) {
     if (_lifecycleState == AppLifecycleState.resumed ||
         !_isBackgroundInertialStale(timestamp)) {
-      return FsmEvidenceMode.strictSensors;
+      return FsmEvidenceMode.inertialAndGps;
     }
     return FsmEvidenceMode.gpsOnly;
   }
@@ -504,12 +517,6 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     await _resumeSession(session);
   }
 
-  /// Riprende una sessione locale ancora aperta. Ritorna `false` (senza
-  /// riprendere la registrazione) se l'ultimo dato noto e' piu' vecchio di
-  /// [_staleSessionThreshold] — es. il telefono si e' spento per ore: in tal
-  /// caso la sessione viene chiusa al momento dell'ultimo dato registrato
-  /// (non "ora", che includerebbe il buco) e messa in coda di sync, invece di
-  /// continuare a registrare come se il buco non fosse mai successo.
   Future<bool> _resumeSession(
     AcquisitionSession session, {
     int? remoteUploadId,
@@ -553,6 +560,11 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     _latestLatitude = latestGpsPoint?.latitude;
     _latestLongitude = latestGpsPoint?.longitude;
     _latestAccuracyMeters = latestGpsPoint?.accuracyMeters;
+    await _diagnosticsRecorder.start(
+      sessionId: session.id,
+      startedAt: session.startedAt,
+      append: true,
+    );
 
     emitSnapshot(
       AcquisitionSnapshot(
@@ -567,7 +579,6 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
             : FsmTransition(
                 from: TrackingState.fromWire(latestTransition.fromState),
                 to: trackingState,
-                reason: latestTransition.reason,
                 timestamp: latestTransition.timestamp,
               ),
         updatedAt: snapshotUpdatedAt,
@@ -613,7 +624,6 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
       sessionId: session.id,
       fromState: TrackingState.movement.wireName,
       toState: TrackingState.stationary.wireName,
-      reason: _resumeInertialStaleReason,
       timestamp: correctedAt,
       sigma: latestTransition?.sigma ?? 0,
       speedMps: latestTransition?.speedMps ?? 0,
@@ -621,9 +631,6 @@ class LiveAcquisitionStrategy extends WidgetsBindingObserver
     return _dao.latestTransitionForSession(session.id);
   }
 
-  /// Chiude localmente una sessione stantia al momento dell'ultimo dato noto
-  /// (non "ora") e la mette in coda di sync — lo stesso percorso di uno stop
-  /// esplicito, solo innescato automaticamente invece che dall'utente.
   Future<void> _closeStaleSession(
     String sessionId,
     DateTime lastKnownAt,

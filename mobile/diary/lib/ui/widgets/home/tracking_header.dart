@@ -4,6 +4,7 @@ import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubi
 import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_error_presenter.dart';
 import 'package:diary/theme/color_palette.dart';
 import 'package:diary/theme/dimensions.dart';
+import 'package:diary/ui/widgets/home/fsm_diagnostics_report_sheet.dart';
 import 'package:diary/ui/widgets/surface_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -79,7 +80,7 @@ class TrackingHeader extends StatelessWidget {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Chiusura viaggio in corso...')),
         );
-        await cubit.stopTracking();
+        final diagnosticsReport = await cubit.stopTracking();
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -87,6 +88,18 @@ class TrackingHeader extends StatelessWidget {
               backgroundColor: ColorPalette.info,
             ),
           );
+          if (diagnosticsReport != null) {
+            await showFsmDiagnosticsReportSheet(context, diagnosticsReport);
+          } else if (!state.isReplay) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Viaggio salvato, ma il file diagnostico non è disponibile.',
+                ),
+                backgroundColor: ColorPalette.warning,
+              ),
+            );
+          }
         }
       } else {
         await cubit.startTracking();

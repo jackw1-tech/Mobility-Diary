@@ -15,6 +15,7 @@ class AccelerationSample {
 class MotionMetrics {
   const MotionMetrics._();
 
+  // Magnitudo del vettore di accelerazione: SVM
   static double signalVectorMagnitude(AccelerationSample sample) {
     return sqrt(
       sample.x * sample.x + sample.y * sample.y + sample.z * sample.z,

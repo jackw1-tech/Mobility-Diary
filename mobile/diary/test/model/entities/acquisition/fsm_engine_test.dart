@@ -31,7 +31,8 @@ void main() {
       );
 
       expect(decision.state, TrackingState.movement);
-      expect(decision.transition?.reason, 'moving_evidence_confirmed');
+      expect(decision.transition?.from, TrackingState.stationary);
+      expect(decision.transition?.to, TrackingState.movement);
     });
 
     test('stays in movement in background while GPS still reports speed', () {
@@ -75,7 +76,8 @@ void main() {
       );
 
       expect(decision.state, TrackingState.stationary);
-      expect(decision.transition?.reason, 'stationary_evidence_confirmed');
+      expect(decision.transition?.from, TrackingState.movement);
+      expect(decision.transition?.to, TrackingState.stationary);
     });
 
     test('requires both motion and walking speed in strict sensor mode', () {
@@ -161,6 +163,58 @@ void main() {
 
       expect(decision.state, TrackingState.stationary);
       expect(decision.didTransition, isFalse);
+    });
+
+    test('explains whether evidence or debounce blocks stationary', () {
+      final startedAt = DateTime.utc(2026, 1, 1, 8);
+      final fsm = AcquisitionFsm(initialState: TrackingState.movement);
+
+      fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: startedAt,
+          sigma: 0.2,
+          sampleCount: 500,
+        ),
+      );
+      final timerStarted = fsm.apply(
+        GpsFixReceived(
+          timestamp: startedAt,
+          speedMetersPerSecond: 0.1,
+        ),
+      );
+      final staleGps = fsm.apply(
+        MotionWindowEvaluated(
+          timestamp: startedAt.add(const Duration(seconds: 30)),
+          sigma: 0.2,
+          sampleCount: 500,
+        ),
+      );
+      final reset = fsm.apply(
+        GpsFixReceived(
+          timestamp: startedAt.add(const Duration(seconds: 31)),
+          speedMetersPerSecond: 3,
+        ),
+      );
+
+      expect(timerStarted.diagnostics.evidence, MotionEvidence.stationary);
+      expect(
+        timerStarted.diagnostics.stationaryTimerAction,
+        StationaryTimerAction.started,
+      );
+      expect(staleGps.diagnostics.evidence, MotionEvidence.uncertain);
+      expect(
+        staleGps.diagnostics.stationaryTimerAction,
+        StationaryTimerAction.preserved,
+      );
+      expect(
+        staleGps.diagnostics.stationaryEvidenceElapsed,
+        const Duration(seconds: 30),
+      );
+      expect(reset.diagnostics.evidence, MotionEvidence.moving);
+      expect(
+        reset.diagnostics.stationaryTimerAction,
+        StationaryTimerAction.reset,
+      );
     });
   });
 }

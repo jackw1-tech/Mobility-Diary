@@ -165,4 +165,44 @@ void main() {
     expect(session?.remoteUploadId, 42);
     await db.close();
   });
+
+  test('v11 elimina la colonna morta reason da state_transitions', () async {
+    final db = openFromV8(seed: [
+      "INSERT INTO acquisition_sessions (id, device_id, started_at) "
+          "VALUES ('session-1', 'device-1', 0)",
+      "INSERT INTO state_transitions (session_id, from_state, to_state, "
+          "reason, timestamp) VALUES "
+          "('session-1', 'stationary', 'movement', 'evidence_confirmed', 0)",
+    ]);
+
+    expect(
+      await columnsOf(db, 'state_transitions'),
+      isNot(contains('reason')),
+    );
+    // La transizione gia' presente sopravvive alla migrazione.
+    expect(
+      await db.acquisitionDao.transitionsForSession('session-1'),
+      hasLength(1),
+    );
+    await db.close();
+  });
+
+  test(
+      'v12 elimina le colonne morte accepted e rejection_reason da gps_points',
+      () async {
+    final db = openFromV8(seed: [
+      "INSERT INTO acquisition_sessions (id, device_id, started_at) "
+          "VALUES ('session-1', 'device-1', 0)",
+      "INSERT INTO gps_points (session_id, latitude, longitude, timestamp, "
+          "speed_mps, accepted, rejection_reason) VALUES "
+          "('session-1', 45.46, 9.19, 0, 1.0, 0, 'accuracy')",
+    ]);
+
+    final columns = await columnsOf(db, 'gps_points');
+    expect(columns, isNot(contains('accepted')));
+    expect(columns, isNot(contains('rejection_reason')));
+    // Il punto gia' presente sopravvive alla migrazione.
+    expect(await db.acquisitionDao.countGpsPointsForSession('session-1'), 1);
+    await db.close();
+  });
 }

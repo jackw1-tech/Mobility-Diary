@@ -31,7 +31,6 @@ class CoreStateTransition {
   final DateTime timestamp;
   final String fromState;
   final String toState;
-  final String reason;
 
   /// Evidenze della decisione FSM. Nulle per i viaggi rigiocati: il backend
   /// non restituisce le evidenze originali insieme alla transizione.
@@ -42,7 +41,6 @@ class CoreStateTransition {
     required this.timestamp,
     required this.fromState,
     required this.toState,
-    this.reason = '',
     this.sigma,
     this.speedMps,
   });
@@ -51,7 +49,6 @@ class CoreStateTransition {
         timestamp: timestamp.add(offset),
         fromState: fromState,
         toState: toState,
-        reason: reason,
         sigma: sigma,
         speedMps: speedMps,
       );

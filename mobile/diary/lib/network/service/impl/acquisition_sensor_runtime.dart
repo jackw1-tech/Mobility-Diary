@@ -6,8 +6,7 @@ import 'package:diary/network/service/impl/gps_speed_estimator.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 
-typedef AcquisitionEventCallback = Future<void> Function(
-    TrackingEvent event);
+typedef AcquisitionEventCallback = Future<void> Function(TrackingEvent event);
 typedef HarWindowCallback = Future<void> Function(HarSensorWindow window);
 
 class AcquisitionSensorRuntime {
@@ -44,11 +43,7 @@ class AcquisitionSensorRuntime {
     await configure(profile);
   }
 
-  /// [allowGpsRestart] a false quando l'app e' in background: riaprire lo
-  /// stream di posizione significa chiudere l'unica sottoscrizione che tiene
-  /// viva l'app, e iOS puo' sospenderci nel buco tra `cancel` e `listen`
-  /// lasciando il viaggio senza piu' un solo fix. In quel caso il cambio di
-  /// profilo GPS resta in sospeso e viene applicato al ritorno in foreground.
+  // funzione da chiamare quando il profilo di sempling cambia
   Future<void> configure(
     SamplingProfile profile, {
     bool allowGpsRestart = true,
@@ -211,6 +206,7 @@ class AcquisitionSensorRuntime {
     _accelerationWindow.clear();
     final sigma = MotionMetrics.accelerationMagnitudeSigma(window);
 
+    // LiveAcquisitionStrategy -> ingestEvent
     await onEvent(
       MotionWindowEvaluated(
         timestamp: timestamp,
@@ -224,6 +220,7 @@ class AcquisitionSensorRuntime {
     _latestGyroscopeEvent = event;
   }
 
+  // Accomula campioni e ogni 5 secondi inserisce il record HarSensorWindow
   Future<void> _appendHarSensorSample(
     AccelerometerEvent event,
     DateTime timestamp,
@@ -346,20 +343,16 @@ class AcquisitionSensorRuntime {
     return Duration(milliseconds: (1000 / frequencyHz).round());
   }
 
+  // Decide in base alla frequenza / profilo di sampling quanti campioni accumulare in _accelerationWindow per il sigma
   int _windowSizeFor(int frequencyHz) {
-    if (frequencyHz >= 50) {
-      return frequencyHz * _harWindowDuration.inSeconds;
-    }
-
-    return 20;
+    return switch (frequencyHz) {
+      10 => 20,
+      100 => frequencyHz * _harWindowDuration.inSeconds,
+      _ => 20,
+    };
   }
 }
 
-/// Solo `always` basta per registrare un viaggio. Con `whileInUse` iOS ci
-/// consegna i fix finche' l'app e' viva, ma se viene terminata (memoria, o
-/// swipe dell'utente) non puo' piu' rilanciarla: il viaggio si interrompe a
-/// meta' senza che nessuno se ne accorga, ed e' esattamente il modo in cui si
-/// ottiene una traccia con il solo punto di partenza e quello di arrivo.
 bool canStartAcquisitionLocationStream(LocationPermission permission) {
   return permission == LocationPermission.always;
 }
