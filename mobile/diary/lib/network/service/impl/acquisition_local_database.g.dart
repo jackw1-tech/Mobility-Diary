@@ -744,8 +744,8 @@ class $GpsPointsTable extends GpsPoints
       const VerificationMeta('speedMps');
   @override
   late final GeneratedColumn<double> speedMps = GeneratedColumn<double>(
-      'speed_mps', aliasedName, false,
-      type: DriftSqlType.double, requiredDuringInsert: true);
+      'speed_mps', aliasedName, true,
+      type: DriftSqlType.double, requiredDuringInsert: false);
   static const VerificationMeta _accuracyMetersMeta =
       const VerificationMeta('accuracyMeters');
   @override
@@ -795,8 +795,6 @@ class $GpsPointsTable extends GpsPoints
     if (data.containsKey('speed_mps')) {
       context.handle(_speedMpsMeta,
           speedMps.isAcceptableOrUnknown(data['speed_mps']!, _speedMpsMeta));
-    } else if (isInserting) {
-      context.missing(_speedMpsMeta);
     }
     if (data.containsKey('accuracy_meters')) {
       context.handle(
@@ -824,7 +822,7 @@ class $GpsPointsTable extends GpsPoints
       timestamp: attachedDatabase.typeMapping
           .read(DriftSqlType.dateTime, data['${effectivePrefix}timestamp'])!,
       speedMps: attachedDatabase.typeMapping
-          .read(DriftSqlType.double, data['${effectivePrefix}speed_mps'])!,
+          .read(DriftSqlType.double, data['${effectivePrefix}speed_mps']),
       accuracyMeters: attachedDatabase.typeMapping
           .read(DriftSqlType.double, data['${effectivePrefix}accuracy_meters']),
     );
@@ -842,7 +840,7 @@ class GpsPoint extends DataClass implements Insertable<GpsPoint> {
   final double latitude;
   final double longitude;
   final DateTime timestamp;
-  final double speedMps;
+  final double? speedMps;
   final double? accuracyMeters;
   const GpsPoint(
       {required this.id,
@@ -850,7 +848,7 @@ class GpsPoint extends DataClass implements Insertable<GpsPoint> {
       required this.latitude,
       required this.longitude,
       required this.timestamp,
-      required this.speedMps,
+      this.speedMps,
       this.accuracyMeters});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -860,7 +858,9 @@ class GpsPoint extends DataClass implements Insertable<GpsPoint> {
     map['latitude'] = Variable<double>(latitude);
     map['longitude'] = Variable<double>(longitude);
     map['timestamp'] = Variable<DateTime>(timestamp);
-    map['speed_mps'] = Variable<double>(speedMps);
+    if (!nullToAbsent || speedMps != null) {
+      map['speed_mps'] = Variable<double>(speedMps);
+    }
     if (!nullToAbsent || accuracyMeters != null) {
       map['accuracy_meters'] = Variable<double>(accuracyMeters);
     }
@@ -874,7 +874,9 @@ class GpsPoint extends DataClass implements Insertable<GpsPoint> {
       latitude: Value(latitude),
       longitude: Value(longitude),
       timestamp: Value(timestamp),
-      speedMps: Value(speedMps),
+      speedMps: speedMps == null && nullToAbsent
+          ? const Value.absent()
+          : Value(speedMps),
       accuracyMeters: accuracyMeters == null && nullToAbsent
           ? const Value.absent()
           : Value(accuracyMeters),
@@ -890,7 +892,7 @@ class GpsPoint extends DataClass implements Insertable<GpsPoint> {
       latitude: serializer.fromJson<double>(json['latitude']),
       longitude: serializer.fromJson<double>(json['longitude']),
       timestamp: serializer.fromJson<DateTime>(json['timestamp']),
-      speedMps: serializer.fromJson<double>(json['speedMps']),
+      speedMps: serializer.fromJson<double?>(json['speedMps']),
       accuracyMeters: serializer.fromJson<double?>(json['accuracyMeters']),
     );
   }
@@ -903,7 +905,7 @@ class GpsPoint extends DataClass implements Insertable<GpsPoint> {
       'latitude': serializer.toJson<double>(latitude),
       'longitude': serializer.toJson<double>(longitude),
       'timestamp': serializer.toJson<DateTime>(timestamp),
-      'speedMps': serializer.toJson<double>(speedMps),
+      'speedMps': serializer.toJson<double?>(speedMps),
       'accuracyMeters': serializer.toJson<double?>(accuracyMeters),
     };
   }
@@ -914,7 +916,7 @@ class GpsPoint extends DataClass implements Insertable<GpsPoint> {
           double? latitude,
           double? longitude,
           DateTime? timestamp,
-          double? speedMps,
+          Value<double?> speedMps = const Value.absent(),
           Value<double?> accuracyMeters = const Value.absent()}) =>
       GpsPoint(
         id: id ?? this.id,
@@ -922,7 +924,7 @@ class GpsPoint extends DataClass implements Insertable<GpsPoint> {
         latitude: latitude ?? this.latitude,
         longitude: longitude ?? this.longitude,
         timestamp: timestamp ?? this.timestamp,
-        speedMps: speedMps ?? this.speedMps,
+        speedMps: speedMps.present ? speedMps.value : this.speedMps,
         accuracyMeters:
             accuracyMeters.present ? accuracyMeters.value : this.accuracyMeters,
       );
@@ -976,7 +978,7 @@ class GpsPointsCompanion extends UpdateCompanion<GpsPoint> {
   final Value<double> latitude;
   final Value<double> longitude;
   final Value<DateTime> timestamp;
-  final Value<double> speedMps;
+  final Value<double?> speedMps;
   final Value<double?> accuracyMeters;
   const GpsPointsCompanion({
     this.id = const Value.absent(),
@@ -993,13 +995,12 @@ class GpsPointsCompanion extends UpdateCompanion<GpsPoint> {
     required double latitude,
     required double longitude,
     required DateTime timestamp,
-    required double speedMps,
+    this.speedMps = const Value.absent(),
     this.accuracyMeters = const Value.absent(),
   })  : sessionId = Value(sessionId),
         latitude = Value(latitude),
         longitude = Value(longitude),
-        timestamp = Value(timestamp),
-        speedMps = Value(speedMps);
+        timestamp = Value(timestamp);
   static Insertable<GpsPoint> custom({
     Expression<int>? id,
     Expression<String>? sessionId,
@@ -1026,7 +1027,7 @@ class GpsPointsCompanion extends UpdateCompanion<GpsPoint> {
       Value<double>? latitude,
       Value<double>? longitude,
       Value<DateTime>? timestamp,
-      Value<double>? speedMps,
+      Value<double?>? speedMps,
       Value<double?>? accuracyMeters}) {
     return GpsPointsCompanion(
       id: id ?? this.id,
@@ -2969,7 +2970,7 @@ typedef $$GpsPointsTableCreateCompanionBuilder = GpsPointsCompanion Function({
   required double latitude,
   required double longitude,
   required DateTime timestamp,
-  required double speedMps,
+  Value<double?> speedMps,
   Value<double?> accuracyMeters,
 });
 typedef $$GpsPointsTableUpdateCompanionBuilder = GpsPointsCompanion Function({
@@ -2978,7 +2979,7 @@ typedef $$GpsPointsTableUpdateCompanionBuilder = GpsPointsCompanion Function({
   Value<double> latitude,
   Value<double> longitude,
   Value<DateTime> timestamp,
-  Value<double> speedMps,
+  Value<double?> speedMps,
   Value<double?> accuracyMeters,
 });
 
@@ -3181,7 +3182,7 @@ class $$GpsPointsTableTableManager extends RootTableManager<
             Value<double> latitude = const Value.absent(),
             Value<double> longitude = const Value.absent(),
             Value<DateTime> timestamp = const Value.absent(),
-            Value<double> speedMps = const Value.absent(),
+            Value<double?> speedMps = const Value.absent(),
             Value<double?> accuracyMeters = const Value.absent(),
           }) =>
               GpsPointsCompanion(
@@ -3199,7 +3200,7 @@ class $$GpsPointsTableTableManager extends RootTableManager<
             required double latitude,
             required double longitude,
             required DateTime timestamp,
-            required double speedMps,
+            Value<double?> speedMps = const Value.absent(),
             Value<double?> accuracyMeters = const Value.absent(),
           }) =>
               GpsPointsCompanion.insert(

@@ -68,7 +68,7 @@ class GpsPoint(models.Model):
     trip = models.ForeignKey(Trip, related_name="gps_points", on_delete=models.CASCADE)
     timestamp = models.DateTimeField()
     point = models.PointField(geography=True)
-    speed_mps = models.FloatField(default=0)
+    speed_mps = models.FloatField(null=True, blank=True)
     accuracy_meters = models.FloatField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

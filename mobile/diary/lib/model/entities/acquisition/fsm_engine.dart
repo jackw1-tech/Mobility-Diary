@@ -180,8 +180,11 @@ class AcquisitionFsm {
         _latestSigma = event.sigma;
         _latestSigmaAt = event.timestamp;
       case GpsFixReceived():
-        _latestGpsSpeedMetersPerSecond = event.speedMetersPerSecond;
-        _latestGpsSpeedAt = event.timestamp;
+        final speedMetersPerSecond = event.speedMetersPerSecond;
+        if (speedMetersPerSecond != null) {
+          _latestGpsSpeedMetersPerSecond = speedMetersPerSecond;
+          _latestGpsSpeedAt = event.timestamp;
+        }
     }
   }
 

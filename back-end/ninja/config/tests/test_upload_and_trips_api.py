@@ -2,6 +2,9 @@ import json
 
 import pytest
 
+from mobility.models import GpsPoint
+from mobility.ml.pipeline import run_pipeline
+
 
 pytestmark = pytest.mark.django_db
 
@@ -45,6 +48,7 @@ def complete_core(
     session_id="session-001",
     device_id="iphone-mario",
     expected_raw_parts=0,
+    first_speed_mps=1.2,
 ):
     return post_json(
         client,
@@ -61,7 +65,7 @@ def complete_core(
                     "timestamp": STARTED_AT,
                     "latitude": 45.4642,
                     "longitude": 9.1900,
-                    "speed_mps": 1.2,
+                    "speed_mps": first_speed_mps,
                     "accuracy_meters": 4.0,
                 },
                 {
@@ -191,6 +195,88 @@ def test_core_upload_makes_the_trip_visible_with_a_track(
     assert track.status_code == 200
     assert track.json()["point_count"] == 2
     assert track.json()["geojson"]["type"] == "LineString"
+
+
+def test_core_keeps_a_gps_point_when_its_speed_is_unavailable(
+    api_client, mobile_session
+):
+    headers = mobile_session["headers"]
+    upload_id = start_recording(api_client, headers).json()["upload_id"]
+
+    response = complete_core(
+        api_client,
+        headers,
+        upload_id,
+        first_speed_mps=None,
+    )
+
+    assert response.status_code == 200
+    point = GpsPoint.objects.get(timestamp=STARTED_AT)
+    assert point.speed_mps is None
+
+    result = run_pipeline(point.trip)
+    assert result["gps_points"] == 2
+
+
+def test_pipeline_classifies_move_without_sensor_windows_using_gps_fallback(
+    api_client, mobile_session
+):
+    headers = mobile_session["headers"]
+    upload_id = start_recording(
+        api_client, headers, session_id="session-vehicle"
+    ).json()["upload_id"]
+    response = post_json(
+        api_client,
+        "/api/upload/trips/core",
+        {
+            "upload_id": upload_id,
+            "client_session_id": "session-vehicle",
+            "device_id": "iphone-mario",
+            "started_at": STARTED_AT,
+            "ended_at": ENDED_AT,
+            "expected_raw_parts": 0,
+            "gps_points": [
+                {
+                    "timestamp": STARTED_AT,
+                    "latitude": 45.4642,
+                    "longitude": 9.1900,
+                    "speed_mps": 15.0,
+                    "accuracy_meters": 4.0,
+                },
+                {
+                    "timestamp": ENDED_AT,
+                    "latitude": 45.4980,
+                    "longitude": 9.2550,
+                    "speed_mps": 16.5,
+                    "accuracy_meters": 4.0,
+                },
+            ],
+            "state_transitions": [
+                {
+                    "timestamp": STARTED_AT,
+                    "from_state": "IDLE",
+                    "to_state": "MOVING",
+                    "reason": "movement detected",
+                }
+            ],
+        },
+        headers,
+    )
+    assert response.status_code == 200
+    trip_id = response.json()["trip_id"]
+    point = GpsPoint.objects.filter(trip_id=trip_id).first()
+
+    result = run_pipeline(point.trip)
+    assert result["segments"] == 1
+    segment = point.trip.segments.first()
+    assert segment.kind == "MOVE"
+    assert segment.activity_label == "MOVING_VEHICLE"
+
+    diary = api_client.get(f"/api/mobility/trips/{trip_id}/diary", **headers)
+    assert diary.status_code == 200
+    assert len(diary.json()["segments"]) == 1
+    assert diary.json()["segments"][0]["kind"] == "MOVE"
+    assert diary.json()["segments"][0]["activity_label"] == "MOVING_VEHICLE"
 
 
 def test_core_retry_does_not_duplicate_trip_evidence(api_client, mobile_session):

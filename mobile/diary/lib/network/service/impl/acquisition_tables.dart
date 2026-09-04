@@ -30,7 +30,7 @@ class GpsPoints extends Table {
   RealColumn get latitude => real()();
   RealColumn get longitude => real()();
   DateTimeColumn get timestamp => dateTime()();
-  RealColumn get speedMps => real()();
+  RealColumn get speedMps => real().nullable()();
   RealColumn get accuracyMeters => real().nullable()();
 }
 

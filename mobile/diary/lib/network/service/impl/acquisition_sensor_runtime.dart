@@ -1,20 +1,21 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:diary/model/entities/acquisition/acquisition_domain.dart';
-import 'package:diary/network/service/impl/gps_speed_estimator.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart' as ph;
 import 'package:sensors_plus/sensors_plus.dart';
 
 typedef AcquisitionEventCallback = Future<void> Function(TrackingEvent event);
 typedef HarWindowCallback = Future<void> Function(HarSensorWindow window);
 
+// Classe che gestisce e costruire le finestra Har 500 x 6
 class AcquisitionSensorRuntime {
   static const Duration _harWindowDuration = HarSensorWindow.targetDuration;
 
   final List<AccelerationSample> _accelerationWindow = [];
   final List<HarSensorSample> _harWindowSamples = [];
-  final GpsSpeedEstimator _gpsSpeedEstimator = GpsSpeedEstimator();
 
   StreamSubscription<AccelerometerEvent>? _accelerometerSubscription;
   StreamSubscription<GyroscopeEvent>? _gyroscopeSubscription;
@@ -23,7 +24,7 @@ class AcquisitionSensorRuntime {
   DateTime? _harWindowStartedAt;
   AcquisitionEventCallback? _onEvent;
   HarWindowCallback? _onHarWindow;
-  SamplingProfile? _currentProfile;
+  SamplingProfile? _currentSamplingProfile;
   bool _isStarted = false;
   bool _gpsRestartPending = false;
 
@@ -39,7 +40,6 @@ class AcquisitionSensorRuntime {
     _onEvent = onEvent;
     _onHarWindow = onHarWindow;
     _isStarted = true;
-    _gpsSpeedEstimator.reset();
     await configure(profile);
   }
 
@@ -52,8 +52,8 @@ class AcquisitionSensorRuntime {
       return;
     }
 
-    final previousProfile = _currentProfile;
-    _currentProfile = profile;
+    final previousProfile = _currentSamplingProfile;
+    _currentSamplingProfile = profile;
 
     if (previousProfile?.accelerometerHz != profile.accelerometerHz) {
       await _restartAccelerometer(profile.accelerometerHz);
@@ -63,20 +63,21 @@ class AcquisitionSensorRuntime {
       await _restartGyroscope(profile.gyroscopeHz);
     }
 
+    // Quando cambio stato FSM; elimino i dati dei sensori dato che cambierà la frequenza di campionamento
     if (previousProfile?.harWindowEnabled != profile.harWindowEnabled) {
       _resetHarWindow();
     }
 
-    final gpsChanged = previousProfile?.gpsEnabled != profile.gpsEnabled ||
-        previousProfile?.gpsInterval != profile.gpsInterval ||
-        previousProfile?.gpsDistanceFilterMeters !=
-            profile.gpsDistanceFilterMeters;
+    // Stationary <> Movement: 5s <> 2s
+    final gpsChanged = previousProfile?.gpsInterval != profile.gpsInterval;
 
     if (gpsChanged || _gpsRestartPending) {
+      // Se siamo in background non voglio far riavviare il gps
       if (allowGpsRestart) {
         _gpsRestartPending = false;
         await _restartGps(profile);
       } else {
+        // Se siamo in background, non riavvio il gps ma segno che al prossimo foreground lo devo fare
         _gpsRestartPending = true;
       }
     }
@@ -84,7 +85,7 @@ class AcquisitionSensorRuntime {
 
   /// Applica in foreground il riavvio GPS.
   Future<void> applyPendingGpsRestart() async {
-    final profile = _currentProfile;
+    final profile = _currentSamplingProfile;
     if (!_isStarted || !_gpsRestartPending || profile == null) {
       return;
     }
@@ -94,7 +95,7 @@ class AcquisitionSensorRuntime {
 
   Future<void> stop() async {
     _isStarted = false;
-    _currentProfile = null;
+    _currentSamplingProfile = null;
     _gpsRestartPending = false;
     _onEvent = null;
     _onHarWindow = null;
@@ -106,7 +107,6 @@ class AcquisitionSensorRuntime {
     _accelerometerSubscription = null;
     _gyroscopeSubscription = null;
     _positionSubscription = null;
-    _gpsSpeedEstimator.reset();
     _latestGyroscopeEvent = null;
   }
 
@@ -145,17 +145,12 @@ class AcquisitionSensorRuntime {
     await _positionSubscription?.cancel();
     _positionSubscription = null;
 
-    if (!profile.gpsEnabled) {
-      return;
-    }
-
     final hasPermission = await _ensureLocationPermission();
     if (!hasPermission) {
       return;
     }
 
-    final distanceFilter =
-        (profile.gpsDistanceFilterMeters ?? 0).round().clamp(0, 1000000);
+    final distanceFilter = (profile.gpsDistanceFilterMeters ?? 0).round();
 
     _positionSubscription = Geolocator.getPositionStream(
       locationSettings: _locationSettingsFor(profile, distanceFilter),
@@ -169,19 +164,62 @@ class AcquisitionSensorRuntime {
     }
 
     var permission = await Geolocator.checkPermission();
+    developer.log(
+      'checkPermission -> $permission',
+      name: 'mobility.permission',
+    );
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
+      developer.log(
+        'requestPermission (denied -> ?) -> $permission',
+        name: 'mobility.permission',
+      );
     }
 
     if (permission == LocationPermission.whileInUse) {
-      permission = await Geolocator.requestPermission();
+      // Geolocator non chiede mai davvero l'upgrade a "Always" quando il
+      // permesso e' gia' "When In Use": la sua requestPermission() ritorna lo
+      // stato attuale senza mostrare il dialogo nativo (bug noto,
+      // github.com/Baseflow/flutter-geolocator/issues/1223). permission_handler
+      // arriva davvero a chiamare requestAlwaysAuthorization.
+      //
+      // Su iOS 15+ due richieste di permesso privacy incatenate subito una
+      // dopo l'altra vengono soppresse: il dialogo "When In Use" appena
+      // chiuso lascia l'app momentaneamente inactive, e una richiesta fatta
+      // in quella finestra non mostra nulla. Il piccolo ritardo da'
+      // all'app il tempo di tornare active prima della seconda richiesta.
+      await Future<void>.delayed(const Duration(milliseconds: 750));
+      try {
+        final phStatus = await ph.Permission.locationAlways.status;
+        developer.log(
+          'permission_handler status prima della richiesta -> $phStatus',
+          name: 'mobility.permission',
+        );
+        final phResult = await ph.Permission.locationAlways.request();
+        developer.log(
+          'permission_handler locationAlways.request() -> $phResult',
+          name: 'mobility.permission',
+        );
+      } catch (error, stackTrace) {
+        developer.log(
+          'permission_handler locationAlways.request() ha lanciato',
+          name: 'mobility.permission',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
+      permission = await Geolocator.checkPermission();
+      developer.log(
+        'checkPermission dopo il tentativo di upgrade -> $permission',
+        name: 'mobility.permission',
+      );
     }
 
     return canStartAcquisitionLocationStream(permission);
   }
 
   Future<void> _onAccelerometerEvent(AccelerometerEvent event) async {
-    final profile = _currentProfile;
+    final profile = _currentSamplingProfile;
     final onEvent = _onEvent;
     if (!_isStarted || profile == null || onEvent == null) {
       return;
@@ -211,7 +249,6 @@ class AcquisitionSensorRuntime {
       MotionWindowEvaluated(
         timestamp: timestamp,
         sigma: sigma,
-        sampleCount: window.length,
       ),
     );
   }
@@ -225,7 +262,7 @@ class AcquisitionSensorRuntime {
     AccelerometerEvent event,
     DateTime timestamp,
   ) async {
-    final profile = _currentProfile;
+    final profile = _currentSamplingProfile;
     if (profile == null || !profile.harWindowEnabled) {
       return;
     }
@@ -257,7 +294,6 @@ class AcquisitionSensorRuntime {
       endedAt: timestamp,
       accelerometerHz: profile.accelerometerHz,
       gyroscopeHz: profile.gyroscopeHz,
-      magnetometerHz: profile.magnetometerHz,
       samples: List<HarSensorSample>.from(_harWindowSamples),
     );
     _resetHarWindow();
@@ -269,7 +305,8 @@ class AcquisitionSensorRuntime {
     _harWindowStartedAt = null;
   }
 
-  //Prende un il gps, lo ripulisce e lo converte in un GpsFixReceived
+  //Prende un il gps ricevuto da Geolocator e lo converte in un GpsFixReceived -> fa scattare
+  // La funzione ingestEvent di live acquisition strategy repo
   Future<void> _onPosition(Position position) async {
     final onEvent = _onEvent;
     if (!_isStarted || onEvent == null) {
@@ -277,8 +314,8 @@ class AcquisitionSensorRuntime {
     }
 
     final timestamp = position.timestamp.toUtc();
-    final speedMetersPerSecond = _gpsSpeedEstimator.add(
-      GpsSpeedFix(
+    await onEvent(
+      GpsFixReceived.fromPlatform(
         timestamp: timestamp,
         latitude: position.latitude,
         longitude: position.longitude,
@@ -286,18 +323,9 @@ class AcquisitionSensorRuntime {
         platformSpeedMetersPerSecond: position.speed,
       ),
     );
-
-    await onEvent(
-      GpsFixReceived(
-        timestamp: timestamp,
-        latitude: position.latitude,
-        longitude: position.longitude,
-        speedMetersPerSecond: speedMetersPerSecond,
-        accuracyMeters: position.accuracy,
-      ),
-    );
   }
 
+  // Costruisce l'oggetto LocationSettings da passare a Geolocator.getPositionStream
   LocationSettings _locationSettingsFor(
     SamplingProfile profile,
     int distanceFilter,
@@ -320,12 +348,11 @@ class AcquisitionSensorRuntime {
       );
     }
 
+    // ios non supporta l'intervallo
     if (Platform.isIOS || Platform.isMacOS) {
       return AppleSettings(
         accuracy: accuracy,
         distanceFilter: distanceFilter,
-        // During an active trip, pausing in the stationary profile can let iOS
-        // suspend the app long enough that the user comes back to a cold start.
         pauseLocationUpdatesAutomatically: false,
         activityType: ActivityType.fitness,
         showBackgroundLocationIndicator: true,
@@ -346,8 +373,8 @@ class AcquisitionSensorRuntime {
   // Decide in base alla frequenza / profilo di sampling quanti campioni accumulare in _accelerationWindow per il sigma
   int _windowSizeFor(int frequencyHz) {
     return switch (frequencyHz) {
-      10 => 20,
-      100 => frequencyHz * _harWindowDuration.inSeconds,
+      10 => 20, // ogni 2 secondi
+      100 => frequencyHz * _harWindowDuration.inSeconds, // ogni 5 secondi
       _ => 20,
     };
   }

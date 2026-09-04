@@ -150,7 +150,7 @@ class ReplayPointOut(Schema):
     timestamp: datetime
     latitude: float
     longitude: float
-    speed_mps: float
+    speed_mps: float | None
     accuracy_meters: float | None
 
 

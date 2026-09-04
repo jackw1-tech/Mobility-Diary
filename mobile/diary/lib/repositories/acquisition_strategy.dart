@@ -1,8 +1,5 @@
 import 'package:diary/model/entities/acquisition/acquisition_domain.dart';
 
-typedef AcquisitionSnapshotListener = void Function(
-  AcquisitionSnapshot snapshot,
-);
 
 abstract class AcquisitionStrategy {
   Future<void> start();

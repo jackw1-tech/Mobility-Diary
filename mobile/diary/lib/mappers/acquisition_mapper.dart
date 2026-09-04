@@ -75,9 +75,7 @@ class AcquisitionMapper {
     ];
   }
 
-  /// Istante dell'ultimo dato realmente registrato dalla sessione. Serve a
-  /// capire se la sessione e' stantia e a chiuderla al momento giusto invece
-  /// che "ora", che includerebbe il buco (es. telefono spento per ore).
+  /// Calcola il valore massimo tra tutti i time stamp disponibili per capire l'ultimo istante di vita dell'app
   DateTime latestKnownEventAt(
     AcquisitionSession session,
     StateTransition? latestTransition,

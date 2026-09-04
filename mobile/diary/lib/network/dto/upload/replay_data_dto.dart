@@ -34,14 +34,14 @@ class ReplayGpsPointDto {
   final DateTime timestamp;
   final double latitude;
   final double longitude;
-  final double speedMps;
+  final double? speedMps;
   final double? accuracyMeters;
 
   const ReplayGpsPointDto({
     required this.timestamp,
     required this.latitude,
     required this.longitude,
-    required this.speedMps,
+    this.speedMps,
     this.accuracyMeters,
   });
 
@@ -50,7 +50,7 @@ class ReplayGpsPointDto {
       timestamp: DateTime.parse(json['timestamp'] as String).toUtc(),
       latitude: (json['latitude'] as num).toDouble(),
       longitude: (json['longitude'] as num).toDouble(),
-      speedMps: (json['speed_mps'] as num?)?.toDouble() ?? 0,
+      speedMps: (json['speed_mps'] as num?)?.toDouble(),
       accuracyMeters: (json['accuracy_meters'] as num?)?.toDouble(),
     );
   }

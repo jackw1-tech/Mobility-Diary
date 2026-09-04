@@ -39,6 +39,8 @@ void main() {
     expect(report.decisionCount, 1);
     expect(report.content, contains('"type":"fsm_decision"'));
     expect(report.content, contains('"evidence":"uncertain"'));
+    expect(report.content, contains('"platform_speed_mps":0.2'));
+    expect(report.content, contains('"speed_valid":true'));
     expect(
         report.content, contains('"session_id":"session/with unsafe chars"'));
     expect(report.content, isNot(contains('45.4642')));
@@ -96,5 +98,38 @@ void main() {
       '"type":"fsm_decision"'.allMatches(report.content),
       hasLength(2),
     );
+  });
+
+  test('records a rejected platform speed without treating it as zero',
+      () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'mobility-diary-invalid-speed-',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    final timestamp = DateTime.utc(2026, 9, 4, 10);
+    final event = GpsFixReceived.fromPlatform(
+      timestamp: timestamp,
+      latitude: 45,
+      longitude: 9,
+      accuracyMeters: 5,
+      platformSpeedMetersPerSecond: -1,
+    );
+    final recorder = FsmDiagnosticsRecorder(
+      directoryProvider: () async => directory,
+      mirrorToConsole: false,
+    );
+    final decision = AcquisitionFsm().apply(event);
+
+    await recorder.start(sessionId: 'session-id', startedAt: timestamp);
+    recorder.record(
+      event: event,
+      decision: decision,
+      config: const FsmConfig(),
+    );
+    final report = await recorder.finish(endedAt: timestamp);
+
+    expect(report!.content, contains('"platform_speed_mps":-1.0'));
+    expect(report.content, contains('"speed_valid":false'));
+    expect(decision.diagnostics.gpsSpeedAge, isNull);
   });
 }

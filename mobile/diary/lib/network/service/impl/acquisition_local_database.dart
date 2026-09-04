@@ -30,7 +30,7 @@ class AcquisitionLocalDatabase extends _$AcquisitionLocalDatabase {
       : super(executor ?? _openConnection());
 
   @override
-  int get schemaVersion => 12;
+  int get schemaVersion => 13;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -141,6 +141,34 @@ class AcquisitionLocalDatabase extends _$AcquisitionLocalDatabase {
                 'ALTER TABLE gps_points DROP COLUMN accepted',
               );
             }
+          }
+          if (from < 13) {
+            // Una velocita' GPS assente non equivale a zero: il punto resta
+            // valido per la traccia. SQLite non puo' togliere NOT NULL con un
+            // ALTER COLUMN: ricreiamo quindi la tabella preservando le righe.
+            await customStatement('''
+              CREATE TABLE gps_points_v13 (
+                id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL REFERENCES acquisition_sessions (id),
+                latitude REAL NOT NULL,
+                longitude REAL NOT NULL,
+                timestamp INTEGER NOT NULL,
+                speed_mps REAL NULL,
+                accuracy_meters REAL NULL
+              )
+            ''');
+            await customStatement('''
+              INSERT INTO gps_points_v13
+                (id, session_id, latitude, longitude, timestamp, speed_mps,
+                 accuracy_meters)
+              SELECT id, session_id, latitude, longitude, timestamp, speed_mps,
+                     accuracy_meters
+              FROM gps_points
+            ''');
+            await customStatement('DROP TABLE gps_points');
+            await customStatement(
+              'ALTER TABLE gps_points_v13 RENAME TO gps_points',
+            );
           }
         },
       );

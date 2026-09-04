@@ -7,7 +7,7 @@ class CoreGpsPoint {
   final DateTime timestamp;
   final double latitude;
   final double longitude;
-  final double speedMps;
+  final double? speedMps;
   final double? accuracyMeters;
 
   const CoreGpsPoint({

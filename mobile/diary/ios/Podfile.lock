@@ -20,6 +20,8 @@ PODS:
     - Turf (= 4.0.0)
   - package_info_plus (0.4.5):
     - Flutter
+  - permission_handler_apple (9.4.8):
+    - Flutter
   - sensors_plus (0.0.1):
     - Flutter
   - share_plus (0.0.1):
@@ -32,6 +34,7 @@ DEPENDENCIES:
   - geolocator_apple (from `.symlinks/plugins/geolocator_apple/darwin`)
   - mapbox_maps_flutter (from `.symlinks/plugins/mapbox_maps_flutter/ios`)
   - package_info_plus (from `.symlinks/plugins/package_info_plus/ios`)
+  - permission_handler_apple (from `.symlinks/plugins/permission_handler_apple/ios`)
   - sensors_plus (from `.symlinks/plugins/sensors_plus/ios`)
   - share_plus (from `.symlinks/plugins/share_plus/ios`)
 
@@ -53,6 +56,8 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/mapbox_maps_flutter/ios"
   package_info_plus:
     :path: ".symlinks/plugins/package_info_plus/ios"
+  permission_handler_apple:
+    :path: ".symlinks/plugins/permission_handler_apple/ios"
   sensors_plus:
     :path: ".symlinks/plugins/sensors_plus/ios"
   share_plus:
@@ -67,10 +72,11 @@ SPEC CHECKSUMS:
   MapboxCoreMaps: ebf447a998dc312366e05764c00adbb0f245a1b5
   MapboxMaps: 8bb1372be05039df5e92cc8f2782bd39f260e0e7
   package_info_plus: c0502532a26c7662a62a356cebe2692ec5fe4ec4
+  permission_handler_apple: ee2fe0fd04551b304eb002714ff067c371c822ed
   sensors_plus: 7229095999f30740798f0eeef5cd120357a8f4f2
   share_plus: 8b6f8b3447e494cca5317c8c3073de39b3600d1f
   Turf: c9eb11a65d96af58cac523460fd40fec5061b081
 
-PODFILE CHECKSUM: 3e1f5ff4b3f85a849d29ca424b941b2d81696be1
+PODFILE CHECKSUM: b7c5cb0fcdc207c525ce4742dadd5edc32a0cc41
 
 COCOAPODS: 1.16.2

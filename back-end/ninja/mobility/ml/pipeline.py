@@ -262,7 +262,7 @@ def _build_virtual_stop(trip, start, end) -> None:
 Stima una label di movimento di ripiego usando la velocita GPS.
 """
 def _fallback_move_label(points) -> str:
-    speeds = [p.speed_mps for p in points]
+    speeds = [p.speed_mps for p in points if p.speed_mps is not None]
     label = _label_from_speed(statistics.median(speeds) if speeds else None)
     return label if label != ActivityLabel.IDLE else ActivityLabel.WALKING
 
@@ -292,7 +292,8 @@ def _build_move(trip, start, end, windows, labels, gps, gps_timestamps) -> None:
         if start <= w.start_timestamp < end
     ]
     if not inside:
-        _build_move_segment(trip, start, end, ActivityLabel.IDLE, gps, gps_timestamps)
+        points = _gps_in(gps, gps_timestamps, start, end)
+        _build_move_segment(trip, start, end, _fallback_move_label(points), gps, gps_timestamps)
         return
 
     inside = _smooth_isolated_label_changes(inside)

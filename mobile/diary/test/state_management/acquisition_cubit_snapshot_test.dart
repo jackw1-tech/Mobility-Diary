@@ -50,7 +50,6 @@ void main() {
       MotionWindowEvaluated(
         timestamp: DateTime.utc(2026, 9, 4, 10),
         sigma: 1.25,
-        sampleCount: 50,
       ),
     );
 

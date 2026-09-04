@@ -98,6 +98,10 @@ class FsmDiagnosticsRecorder {
         MotionWindowEvaluated() => 'motion_window',
         GpsFixReceived() => 'gps_fix',
       },
+      if (event is GpsFixReceived) ...{
+        'platform_speed_mps': event.platformSpeedMetersPerSecond,
+        'speed_valid': event.hasUsableSpeed,
+      },
       'timestamp': event.timestamp.toUtc().toIso8601String(),
       'mode': diagnostics.evidenceMode.name,
       'state_before': diagnostics.previousState.name,

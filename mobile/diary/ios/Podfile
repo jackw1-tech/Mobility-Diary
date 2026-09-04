@@ -43,6 +43,12 @@ post_install do |installer|
     # va riallineato dopo, altrimenti la build fallisce sul deployment target.
     target.build_configurations.each do |config|
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
+
+      # permission_handler compila uno stub vuoto per ogni permesso finche'
+      # non lo abiliti esplicitamente via macro: qui serve solo la posizione
+      # (whenInUse + always), tutti gli altri permessi restano disattivati.
+      config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= ['$(inherited)']
+      config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'PERMISSION_LOCATION=1'
     end
   end
 end

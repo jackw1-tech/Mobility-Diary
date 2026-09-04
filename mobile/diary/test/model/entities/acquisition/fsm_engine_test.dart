@@ -4,6 +4,32 @@ import 'package:diary/model/entities/acquisition/tracking_state.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('an unavailable GPS speed does not become stationary speed zero', () {
+    final startedAt = DateTime.utc(2026, 9, 4, 10);
+    final fsm = AcquisitionFsm(
+      config: const FsmConfig(gpsSpeedFreshness: Duration(seconds: 5)),
+    );
+    fsm.apply(
+      GpsFixReceived(timestamp: startedAt, speedMetersPerSecond: 3),
+    );
+    final later = startedAt.add(const Duration(seconds: 6));
+    fsm.apply(
+      MotionWindowEvaluated(timestamp: later, sigma: 0.1),
+    );
+
+    final decision = fsm.apply(
+      GpsFixReceived(
+        timestamp: later,
+        speedMetersPerSecond: null,
+        platformSpeedMetersPerSecond: -1,
+      ),
+    );
+
+    expect(decision.diagnostics.evidence, MotionEvidence.uncertain);
+    expect(decision.diagnostics.gpsSpeedMetersPerSecond, 3);
+    expect(decision.diagnostics.gpsSpeedAge, const Duration(seconds: 6));
+  });
+
   group('AcquisitionFsm', () {
     test('starts movement from sustained vehicle GPS even with low motion', () {
       final startedAt = DateTime.utc(2026, 1, 1, 8);
@@ -13,7 +39,6 @@ void main() {
         MotionWindowEvaluated(
           timestamp: startedAt,
           sigma: 0.3,
-          sampleCount: 20,
         ),
       );
       fsm.apply(
@@ -88,7 +113,6 @@ void main() {
         MotionWindowEvaluated(
           timestamp: startedAt,
           sigma: 2,
-          sampleCount: 20,
         ),
       );
       final lowSpeed = fsm.apply(
@@ -151,7 +175,6 @@ void main() {
         MotionWindowEvaluated(
           timestamp: startedAt,
           sigma: 2,
-          sampleCount: 20,
         ),
       );
       final decision = fsm.apply(
@@ -173,7 +196,6 @@ void main() {
         MotionWindowEvaluated(
           timestamp: startedAt,
           sigma: 0.2,
-          sampleCount: 500,
         ),
       );
       final timerStarted = fsm.apply(
@@ -186,7 +208,6 @@ void main() {
         MotionWindowEvaluated(
           timestamp: startedAt.add(const Duration(seconds: 30)),
           sigma: 0.2,
-          sampleCount: 500,
         ),
       );
       final reset = fsm.apply(

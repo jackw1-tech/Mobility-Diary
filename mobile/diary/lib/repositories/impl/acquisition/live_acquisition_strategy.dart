@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 
 import 'package:diary/network/service/impl/acquisition_local_database.dart';
 import 'package:diary/model/entities/acquisition/acquisition_domain.dart';
@@ -34,7 +35,7 @@ class LiveAcquisitionStrategy implements AcquisitionStrategy {
   final TripUploadService? _uploadService;
   final UploadMapper _mapper;
   final AcquisitionMapper _acquisitionMapper;
-  final AcquisitionSnapshotListener onSnapshot;
+  final void Function(AcquisitionSnapshot snapshot) onSnapshot;
   late final UploadHeartbeat _heartbeat;
   late final HarWindowRecorder _harWindows;
   final FsmDiagnosticsRecorder _diagnosticsRecorder;
@@ -46,6 +47,8 @@ class LiveAcquisitionStrategy implements AcquisitionStrategy {
 
   AcquisitionSnapshot get currentSnapshot => _currentSnapshot;
 
+  /// Aggiorna lo stato locale e notifica la UI tramite [onSnapshot].
+  /// Se la strategia è in fase di chiusura (_acceptSnapshots == false), scarta l'evento.
   void emitSnapshot(AcquisitionSnapshot snapshot) {
     if (!_acceptSnapshots) {
       return;
@@ -131,12 +134,28 @@ class LiveAcquisitionStrategy implements AcquisitionStrategy {
   }
 
   Future<void> startTracking() async {
+    developer.log('startTracking() chiamata', name: 'mobility.permission');
     if (currentSnapshot.isTracking) {
+      developer.log(
+        'startTracking() esce subito: currentSnapshot.isTracking gia\' true',
+        name: 'mobility.permission',
+      );
       return;
     }
     final runtime = _runtime;
-    if (runtime != null && !await runtime.hasAcquisitionLocationPermission()) {
-      throw const AcquisitionPermissionException();
+    developer.log(
+      'runtime == null? ${runtime == null}',
+      name: 'mobility.permission',
+    );
+    if (runtime != null) {
+      final hasPermission = await runtime.hasAcquisitionLocationPermission();
+      developer.log(
+        'hasAcquisitionLocationPermission() -> $hasPermission',
+        name: 'mobility.permission',
+      );
+      if (!hasPermission) {
+        throw const AcquisitionPermissionException();
+      }
     }
     if (await _dao.latestUnclosedCoreSyncJob() != null) {
       throw const UploadApiException('Richiesta upload fallita');
@@ -247,7 +266,7 @@ class LiveAcquisitionStrategy implements AcquisitionStrategy {
     );
   }
 
-  //Intercetto i nuovi dati dai sensoi / gps, richiamo la FSM e salvo i dati nel db
+  //Intercetto i nuovi dati dai sensori / gps, richiamo la FSM e salvo i dati nel db
   @override
   Future<void> ingestEvent(TrackingEvent event) async {
     if (!currentSnapshot.isTracking) {
@@ -290,7 +309,7 @@ class LiveAcquisitionStrategy implements AcquisitionStrategy {
       _latestAccuracyMeters = event.accuracyMeters;
 
       // Inerisco nel db i dati del gps
-      if (sessionId != null && decision.samplingProfile.persistGpsPoints) {
+      if (sessionId != null) {
         await _dao.insertGpsPoint(
           sessionId: sessionId,
           latitude: event.latitude!,
@@ -631,6 +650,7 @@ class LiveAcquisitionStrategy implements AcquisitionStrategy {
     return _dao.latestTransitionForSession(session.id);
   }
 
+  /// Chiude una sessione se è da troppo tempo che non arrivano dati
   Future<void> _closeStaleSession(
     String sessionId,
     DateTime lastKnownAt,
@@ -643,7 +663,7 @@ class LiveAcquisitionStrategy implements AcquisitionStrategy {
   Future<void> _persistHarWindowIfActive(HarSensorWindow window) async {
     final sessionId = _currentSessionId;
     if (sessionId == null ||
-        !currentSnapshot.samplingProfile.persistSensorWindows) {
+        !currentSnapshot.samplingProfile.harWindowEnabled) {
       return;
     }
 

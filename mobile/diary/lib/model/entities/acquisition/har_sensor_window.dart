@@ -47,7 +47,6 @@ class HarSensorWindow {
   final DateTime endedAt;
   final int accelerometerHz;
   final int gyroscopeHz;
-  final int magnetometerHz;
   final List<HarSensorSample> samples;
 
   const HarSensorWindow({
@@ -55,7 +54,6 @@ class HarSensorWindow {
     required this.endedAt,
     required this.accelerometerHz,
     required this.gyroscopeHz,
-    required this.magnetometerHz,
     required this.samples,
   });
 

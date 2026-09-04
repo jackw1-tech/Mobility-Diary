@@ -187,8 +187,7 @@ void main() {
     await db.close();
   });
 
-  test(
-      'v12 elimina le colonne morte accepted e rejection_reason da gps_points',
+  test('v12 elimina le colonne morte accepted e rejection_reason da gps_points',
       () async {
     final db = openFromV8(seed: [
       "INSERT INTO acquisition_sessions (id, device_id, started_at) "
@@ -202,6 +201,25 @@ void main() {
     expect(columns, isNot(contains('accepted')));
     expect(columns, isNot(contains('rejection_reason')));
     // Il punto gia' presente sopravvive alla migrazione.
+    expect(await db.acquisitionDao.countGpsPointsForSession('session-1'), 1);
+    await db.close();
+  });
+
+  test('v13 rende nullable la velocita GPS senza perdere i punti', () async {
+    final db = openFromV8(seed: [
+      "INSERT INTO acquisition_sessions (id, device_id, started_at) "
+          "VALUES ('session-1', 'device-1', 0)",
+      "INSERT INTO gps_points (session_id, latitude, longitude, timestamp, "
+          "speed_mps) VALUES ('session-1', 45.46, 9.19, 0, 1.0)",
+    ]);
+
+    final columns =
+        await db.customSelect("PRAGMA table_info('gps_points')").get();
+    final speedColumn = columns.singleWhere(
+      (row) => row.read<String>('name') == 'speed_mps',
+    );
+
+    expect(speedColumn.read<int>('notnull'), 0);
     expect(await db.acquisitionDao.countGpsPointsForSession('session-1'), 1);
     await db.close();
   });

@@ -23,13 +23,16 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
   final DateTime? _scheduledStartAt;
   final double _requestedReplaySpeedMultiplier;
   final ReplayTimerFactory _timerFactory;
-  final AcquisitionSnapshotListener onSnapshot;
+  /// Callback per notificare il Repository (e di riflesso la UI) a ogni cambio di stato.
+  final void Function(AcquisitionSnapshot snapshot) onSnapshot;
 
   AcquisitionSnapshot _currentSnapshot = AcquisitionSnapshot.idle();
   bool _acceptSnapshots = true;
 
   AcquisitionSnapshot get currentSnapshot => _currentSnapshot;
 
+  /// Aggiorna lo stato locale e notifica la UI tramite [onSnapshot].
+  /// Se la strategia è in fase di chiusura (_acceptSnapshots == false), scarta l'evento.
   void emitSnapshot(AcquisitionSnapshot snapshot) {
     if (!_acceptSnapshots) {
       return;
@@ -260,7 +263,7 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
         _latestLatitude = p.latitude;
         _latestLongitude = p.longitude;
         _latestAccuracyMeters = p.accuracyMeters;
-        latestSpeedMps = p.speedMps;
+        latestSpeedMps = p.speedMps ?? latestSpeedMps;
         nextPointIdx++;
         updated = true;
       }

@@ -197,8 +197,7 @@ class AcquisitionCubit extends Cubit<AcquisitionCubitState> {
   }) {
     _stopReplayIfCompleted(snapshot);
 
-    final routePoints =
-        resetRoute ? <LatLng>[] : _updatedRoutePoints(snapshot);
+    final routePoints = resetRoute ? <LatLng>[] : _updatedRoutePoints(snapshot);
     emit(
       AcquisitionCubitState.fromSnapshot(
         snapshot,

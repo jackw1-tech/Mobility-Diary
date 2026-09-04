@@ -127,7 +127,7 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
     required double latitude,
     required double longitude,
     required DateTime timestamp,
-    required double speedMps,
+    required double? speedMps,
     double? accuracyMeters,
   }) {
     return into(gpsPoints).insert(
@@ -136,7 +136,7 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
         latitude: latitude,
         longitude: longitude,
         timestamp: asUtc(timestamp),
-        speedMps: speedMps,
+        speedMps: Value(speedMps),
         accuracyMeters: Value(accuracyMeters),
       ),
     );

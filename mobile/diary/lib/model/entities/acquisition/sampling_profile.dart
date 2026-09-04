@@ -3,50 +3,39 @@ import 'tracking_state.dart';
 class SamplingProfile {
   final int accelerometerHz;
   final int gyroscopeHz;
-  final int magnetometerHz;
-  final bool gpsEnabled;
-  final Duration? gpsInterval;
-  final double? gpsDistanceFilterMeters;
+  final Duration?
+      gpsInterval; // Solo su Android -> Non darmi un punto più spesso di X secondi
+  final double?
+      gpsDistanceFilterMeters; // Non darmi un punto se non mi sono spostato di almeno X metri dall'ultimo punto
+  // In stationary i dati dei sensori vengono solo usati per capire se sono
+  // ancora fermo: non viene costruita la finestra 500x6 e quindi non c'e'
+  // nulla da salvare per la classificazione HAR.
   final bool harWindowEnabled;
-  final bool persistSensorWindows;
-  final bool persistGpsPoints;
 
   const SamplingProfile({
     required this.accelerometerHz,
     required this.gyroscopeHz,
-    required this.magnetometerHz,
-    required this.gpsEnabled,
     required this.gpsInterval,
     required this.gpsDistanceFilterMeters,
     required this.harWindowEnabled,
-    required this.persistSensorWindows,
-    required this.persistGpsPoints,
   });
 
   const SamplingProfile.stationary()
       : this(
           accelerometerHz: 10,
           gyroscopeHz: 0,
-          magnetometerHz: 0,
-          gpsEnabled: true,
           gpsInterval: const Duration(seconds: 5),
           gpsDistanceFilterMeters: 3,
           harWindowEnabled: false,
-          persistSensorWindows: false,
-          persistGpsPoints: true,
         );
 
   const SamplingProfile.movement()
       : this(
           accelerometerHz: 100,
           gyroscopeHz: 100,
-          magnetometerHz: 0,
-          gpsEnabled: true,
           gpsInterval: const Duration(seconds: 2),
           gpsDistanceFilterMeters: 3,
           harWindowEnabled: true,
-          persistSensorWindows: true,
-          persistGpsPoints: true,
         );
 
   // Stato FSM -> traduzione -> SamplingProfile
