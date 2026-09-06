@@ -86,9 +86,11 @@ class AcquisitionCubit extends Cubit<AcquisitionCubitState> {
   }
 
   Future<void> startTracking() async {
-    if (_trackingRepository.currentSnapshot.isTracking) {
+    if (state.isTransitioning ||
+        _trackingRepository.currentSnapshot.isTracking) {
       return;
     }
+    emit(state.copyWith(isTransitioning: true, clearErrorMessage: true));
     _prepareFreshAcquisitionState();
     try {
       await _trackingRepository.startTracking();
@@ -96,15 +98,30 @@ class AcquisitionCubit extends Cubit<AcquisitionCubitState> {
       _cancelFreshAcquisitionState();
       emit(state.copyWith(errorMessage: error.toString()));
       rethrow;
+    } finally {
+      if (!isClosed) emit(state.copyWith(isTransitioning: false));
     }
   }
 
   Future<AcquisitionDiagnosticsReport?> stopTracking() async {
+    if (state.isTransitioning) return null;
+    emit(state.copyWith(isTransitioning: true, clearErrorMessage: true));
     if (state.isReplay) {
-      await stopReplay();
-      return null;
+      try {
+        await stopReplay();
+        return null;
+      } finally {
+        if (!isClosed) emit(state.copyWith(isTransitioning: false));
+      }
     }
-    return _trackingRepository.stopTracking();
+    try {
+      return await _trackingRepository.stopTracking();
+    } catch (error) {
+      if (!isClosed) emit(state.copyWith(errorMessage: error.toString()));
+      rethrow;
+    } finally {
+      if (!isClosed) emit(state.copyWith(isTransitioning: false));
+    }
   }
 
   Future<void> ingestEvent(TrackingEvent event) async {
@@ -202,6 +219,7 @@ class AcquisitionCubit extends Cubit<AcquisitionCubitState> {
       AcquisitionCubitState.fromSnapshot(
         snapshot,
         syncSnapshot: state.syncSnapshot,
+        isTransitioning: state.isTransitioning,
         routePoints: routePoints,
         completedReplayTripId:
             clearCompletedReplayTripId ? null : state.completedReplayTripId,

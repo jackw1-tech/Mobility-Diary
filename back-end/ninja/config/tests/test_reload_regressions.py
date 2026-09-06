@@ -108,6 +108,7 @@ def test_direct_reload_queues_raw_regeneration_without_reading_the_object(
     assert result["core_status"] == TripUpload.PhaseStatus.COMPLETED
     assert result["raw_status"] == TripUpload.PhaseStatus.PENDING
     assert result["map_available"] is True
+    assert Trip.objects.get(id=result["trip_id"]).client_session_id == "reload-request-1"
     assert reads == []
     assert queued == [(result["upload_id"], source.id, -172800000000)]
 

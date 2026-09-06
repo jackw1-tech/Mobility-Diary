@@ -1,4 +1,4 @@
-import 'package:diary/theme/color_palette.dart';
+
 import 'package:diary/theme/dimensions.dart';
 import 'package:flutter/material.dart';
 
@@ -25,7 +25,7 @@ class StateMessage extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: ColorPalette.textSecondary),
+            Icon(icon, color: Theme.of(context).colorScheme.onSurfaceVariant),
             const SizedBox(height: Dimensions.paddingSmall),
             Text(text, textAlign: TextAlign.center),
             if (onRetry != null) ...[

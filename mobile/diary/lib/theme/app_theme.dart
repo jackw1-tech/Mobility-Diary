@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:diary/theme/app_text_styles.dart';
 import 'package:diary/theme/color_palette.dart';
 import 'package:diary/theme/dimensions.dart';
+import 'package:diary/theme/semantic_colors.dart';
 
 /// Tema ispirato al design system Uber:
 ///  - duetto bianco/nero, nero `primary` come unico colore di conversione;
@@ -10,8 +11,15 @@ import 'package:diary/theme/dimensions.dart';
 ///  - card piatte (Level 0) con raggio 16px;
 ///  - input riempiti su canvas-soft;
 ///  - nav e scaffold su canvas bianco.
+///
+/// In dark mode il contrasto si inverte: sfondo quasi nero, testo bianco,
+/// il bianco diventa il colore di conversione.
 class AppTheme {
   static const StadiumBorder _pill = StadiumBorder();
+
+  // ─────────────────────────────────────────────────────────────────────
+  // LIGHT THEME
+  // ─────────────────────────────────────────────────────────────────────
 
   static ThemeData get lightTheme {
     const colorScheme = ColorScheme(
@@ -22,7 +30,9 @@ class AppTheme {
       onSecondary: Colors.white,
       surface: ColorPalette.surface,
       onSurface: ColorPalette.textPrimary,
+      onSurfaceVariant: ColorPalette.textSecondary,
       surfaceContainerHighest: ColorPalette.surfaceSoft,
+      surfaceContainerHigh: ColorPalette.surfaceSofter,
       error: ColorPalette.error,
       onError: Colors.white,
       outline: ColorPalette.surfacePressed,
@@ -32,8 +42,9 @@ class AppTheme {
     return ThemeData(
       useMaterial3: true,
       colorScheme: colorScheme,
-      scaffoldBackgroundColor: ColorPalette.surface,
+      scaffoldBackgroundColor: ColorPalette.background,
       textTheme: AppTextStyles.textTheme,
+      extensions: const [SemanticColors.light],
       dividerTheme: const DividerThemeData(
         color: ColorPalette.hairline,
         thickness: 1,
@@ -191,7 +202,187 @@ class AppTheme {
     );
   }
 
-  // Il brand Uber e' una sola voce bianco/nero: niente tema scuro dedicato,
-  // si riusa quello chiaro per coerenza assoluta.
-  static ThemeData get darkTheme => lightTheme;
+  // ─────────────────────────────────────────────────────────────────────
+  // DARK THEME — inversione contrasto Uber-style
+  // ─────────────────────────────────────────────────────────────────────
+
+  static ThemeData get darkTheme {
+    const colorScheme = ColorScheme(
+      brightness: Brightness.dark,
+      primary: ColorPalette.darkPrimary,
+      onPrimary: ColorPalette.darkSurface,
+      secondary: ColorPalette.darkPrimary,
+      onSecondary: ColorPalette.darkSurface,
+      surface: ColorPalette.darkSurface,
+      onSurface: ColorPalette.darkTextPrimary,
+      onSurfaceVariant: ColorPalette.darkTextSecondary,
+      surfaceContainerHighest: ColorPalette.darkSurfaceSoft,
+      surfaceContainerHigh: ColorPalette.darkSurfaceSofter,
+      error: ColorPalette.darkError,
+      onError: Colors.black,
+      outline: ColorPalette.darkSurfacePressed,
+      outlineVariant: ColorPalette.darkHairline,
+    );
+
+    return ThemeData(
+      useMaterial3: true,
+      colorScheme: colorScheme,
+      scaffoldBackgroundColor: ColorPalette.darkBackground,
+      textTheme: AppTextStyles.textTheme,
+      extensions: const [SemanticColors.dark],
+      dividerTheme: const DividerThemeData(
+        color: ColorPalette.darkHairline,
+        thickness: 1,
+        space: 1,
+      ),
+
+      // Nav bar: sfondo scuro, testo bianco, piatta.
+      appBarTheme: const AppBarTheme(
+        backgroundColor: ColorPalette.darkSurface,
+        foregroundColor: ColorPalette.darkTextPrimary,
+        surfaceTintColor: Colors.transparent,
+        elevation: Dimensions.appBarElevation,
+        scrolledUnderElevation: 0,
+        centerTitle: false,
+        titleTextStyle: TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0,
+          color: ColorPalette.darkTextPrimary,
+        ),
+      ),
+
+      // CTA primario: pillola bianca.
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: ColorPalette.darkPrimary,
+          foregroundColor: ColorPalette.darkSurface,
+          minimumSize: const Size(0, Dimensions.buttonHeight),
+          padding: const EdgeInsets.symmetric(
+            horizontal: Dimensions.paddingLarge,
+            vertical: Dimensions.paddingSmall,
+          ),
+          shape: _pill,
+        ),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: ColorPalette.darkPrimary,
+          foregroundColor: ColorPalette.darkSurface,
+          elevation: 0,
+          minimumSize: const Size(0, Dimensions.buttonHeight),
+          padding: const EdgeInsets.symmetric(
+            horizontal: Dimensions.paddingLarge,
+            vertical: Dimensions.paddingSmall,
+          ),
+          shape: _pill,
+        ),
+      ),
+      // CTA secondario: pillola scura con bordo bianco.
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: ColorPalette.darkTextPrimary,
+          minimumSize: const Size(0, Dimensions.buttonHeight),
+          padding: const EdgeInsets.symmetric(
+            horizontal: Dimensions.paddingLarge,
+            vertical: Dimensions.paddingSmall,
+          ),
+          side: const BorderSide(color: ColorPalette.darkTextPrimary),
+          shape: _pill,
+        ),
+      ),
+      // Azione terziaria: testo bianco.
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: ColorPalette.darkTextPrimary,
+          padding: const EdgeInsets.symmetric(
+            horizontal: Dimensions.paddingMedium,
+            vertical: Dimensions.paddingSmall,
+          ),
+          shape: _pill,
+        ),
+      ),
+
+      // Card canonica: sfondo scuro, raggio 16, bordo hairline scuro.
+      cardTheme: CardThemeData(
+        color: ColorPalette.darkSurface,
+        surfaceTintColor: Colors.transparent,
+        elevation: Dimensions.cardElevation,
+        margin: EdgeInsets.zero,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(Dimensions.borderRadiusLarge),
+          side: const BorderSide(color: ColorPalette.darkHairline),
+        ),
+      ),
+
+      // Input riempito su surface-soft scuro.
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: ColorPalette.darkSurfaceSoft,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: Dimensions.paddingMedium,
+          vertical: Dimensions.paddingMedium,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(Dimensions.borderRadiusSmall),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(Dimensions.borderRadiusSmall),
+          borderSide: BorderSide.none,
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(Dimensions.borderRadiusSmall),
+          borderSide:
+              const BorderSide(color: ColorPalette.darkPrimary, width: 1.5),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(Dimensions.borderRadiusSmall),
+          borderSide: const BorderSide(color: ColorPalette.darkError),
+        ),
+        labelStyle: const TextStyle(color: ColorPalette.darkTextSecondary),
+        hintStyle: const TextStyle(color: ColorPalette.darkTextHint),
+      ),
+
+      // Chip: pillola su surface-soft scuro.
+      chipTheme: ChipThemeData(
+        backgroundColor: ColorPalette.darkSurfaceSoft,
+        labelStyle: AppTextStyles.button.copyWith(fontSize: 14),
+        side: BorderSide.none,
+        shape: _pill,
+      ),
+
+      // SnackBar: bianco su scuro.
+      snackBarTheme: SnackBarThemeData(
+        backgroundColor: ColorPalette.darkPrimary,
+        contentTextStyle: const TextStyle(color: ColorPalette.darkSurface),
+        behavior: SnackBarBehavior.fixed,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(Dimensions.borderRadiusLarge),
+        ),
+      ),
+
+      // Drawer / dialog su surface scuro.
+      drawerTheme: const DrawerThemeData(
+        backgroundColor: ColorPalette.darkSurface,
+        surfaceTintColor: Colors.transparent,
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: ColorPalette.darkSurface,
+        surfaceTintColor: Colors.transparent,
+        elevation: Dimensions.dialogElevation,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(Dimensions.borderRadiusLarge),
+        ),
+      ),
+
+      floatingActionButtonTheme: const FloatingActionButtonThemeData(
+        backgroundColor: ColorPalette.darkPrimary,
+        foregroundColor: ColorPalette.darkSurface,
+      ),
+      progressIndicatorTheme: const ProgressIndicatorThemeData(
+        color: ColorPalette.darkPrimary,
+      ),
+    );
+  }
 }

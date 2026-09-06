@@ -33,4 +33,30 @@ class ColorPalette {
   static const Color success = Color(0xFF1F8A4C);
   static const Color warning = Color(0xFFEC7E00);
   static const Color info = Color(0xFF000000); // "in corso": ink, on-brand
+
+  // ── Dark mode ─────────────────────────────────────────────────────────
+  // Inversione contrasto Uber-style: sfondo quasi nero, testo bianco.
+
+  // Primary: il bianco diventa il colore di conversione su sfondo scuro.
+  static const Color darkPrimary = Color(0xFFFFFFFF);
+  static const Color darkSecondary = Color(0xFFB0B0B0);
+
+  // Superfici
+  static const Color darkBackground = Color(0xFF121212);
+  static const Color darkSurface = Color(0xFF1E1E1E);
+  static const Color darkSurfaceSoft = Color(0xFF2C2C2C);
+  static const Color darkSurfaceSofter = Color(0xFF252525);
+  static const Color darkSurfacePressed = Color(0xFF3A3A3A);
+  static const Color darkHairline = Color(0xFF3A3A3A);
+
+  // Testo
+  static const Color darkTextPrimary = Color(0xFFFFFFFF);
+  static const Color darkTextSecondary = Color(0xFFB0B0B0);
+  static const Color darkTextHint = Color(0xFF6E6E6E);
+
+  // Stato di sincronizzazione — versioni più luminose per sfondo scuro.
+  static const Color darkError = Color(0xFFEF5350);
+  static const Color darkSuccess = Color(0xFF4CAF50);
+  static const Color darkWarning = Color(0xFFFFA726);
+  static const Color darkInfo = Color(0xFFFFFFFF); // "in corso": bianco, on-brand
 }

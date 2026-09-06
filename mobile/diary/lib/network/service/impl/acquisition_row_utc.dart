@@ -1,10 +1,7 @@
 import 'package:diary/network/service/impl/acquisition_local_database.dart';
 import 'package:drift/drift.dart';
 
-/// SQLite non conserva il fuso: le righe rilette vanno rinormalizzate a UTC
-/// prima di uscire dal DAO, altrimenti i confronti temporali a valle
-/// (staleness, retry, ordinamenti) userebbero un'ora locale implicita.
-
+/// SQLite e Drift salvano i DateTime come numeri interi, le date vanno normalizzate a UTC
 DateTime asUtc(DateTime value) {
   return value.isUtc ? value : value.toUtc();
 }

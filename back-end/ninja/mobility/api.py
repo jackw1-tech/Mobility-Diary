@@ -343,11 +343,6 @@ def get_trip_privacy_export(request, trip_id: int):
 
 @router.get("/trips", response=list[TripListItemOut], auth=mobile_bearer_auth)
 def list_trips(request):
-    """Elenco dei viaggi dell'utente, dal piu' recente.
-
-    `has_track` e' calcolato a DB (path non null) senza caricare la geometria,
-    cosi' la UI sa se il pulsante "Vedi su mappa" puo' mostrare qualcosa.
-    """
     return trip_list_items_for_user(request.user.user_id)
 
 

@@ -188,20 +188,19 @@ void main() {
       expect(decision.didTransition, isFalse);
     });
 
-    test('explains whether evidence or debounce blocks stationary', () {
+    test(
+        'keeps accumulating stationary evidence in movement even when GPS is stale',
+        () {
       final startedAt = DateTime.utc(2026, 1, 1, 8);
       final fsm = AcquisitionFsm(initialState: TrackingState.movement);
 
-      fsm.apply(
+      // In movement l'evidenza si basa soprattutto sul sigma: da fermo il
+      // gps puo' non aggiornarsi mai (distanceFilter), quindi non deve
+      // essere un requisito per far partire/accumulare il timer.
+      final timerStarted = fsm.apply(
         MotionWindowEvaluated(
           timestamp: startedAt,
           sigma: 0.2,
-        ),
-      );
-      final timerStarted = fsm.apply(
-        GpsFixReceived(
-          timestamp: startedAt,
-          speedMetersPerSecond: 0.1,
         ),
       );
       final staleGps = fsm.apply(
@@ -222,15 +221,17 @@ void main() {
         timerStarted.diagnostics.stationaryTimerAction,
         StationaryTimerAction.started,
       );
-      expect(staleGps.diagnostics.evidence, MotionEvidence.uncertain);
+      expect(staleGps.diagnostics.evidence, MotionEvidence.stationary);
       expect(
         staleGps.diagnostics.stationaryTimerAction,
-        StationaryTimerAction.preserved,
+        StationaryTimerAction.accumulating,
       );
       expect(
         staleGps.diagnostics.stationaryEvidenceElapsed,
         const Duration(seconds: 30),
       );
+      // Un fix da veicolo (>= vehicleGpsSpeedThresholdMps) resta comunque
+      // sufficiente da solo a segnalare movimento e resettare il timer.
       expect(reset.diagnostics.evidence, MotionEvidence.moving);
       expect(
         reset.diagnostics.stationaryTimerAction,

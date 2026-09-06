@@ -29,7 +29,9 @@ from .significant_places import mine_user_significant_places
 
 logger = logging.getLogger(__name__)
 
-
+""" 
+Aggiorna i campi di TripUpload per indiciare che sta cominciando il caricamento della parte raw del viaggio ricaricato
+"""
 @shared_task(bind=True, max_retries=3, retry_backoff=True, default_retry_delay=30)
 def prepare_reloaded_trip_raw(
     self,
@@ -37,16 +39,11 @@ def prepare_reloaded_trip_raw(
     source_trip_id: int,
     shift_microseconds: int,
 ) -> dict:
-    """Rigenera i raw del Ricaricamento Diretto fuori dalla POST.
-
-    Il lock rende innocui retry HTTP e consegne Celery duplicate. Un fallimento
-    finale resta esplicito su TripUpload, evitando un derivato GPS-only che
-    sembri completato.
-    """
     task_started = perf_counter()
     try:
         with transaction.atomic():
             upload = upload_repository.locked_upload_by_id(upload_id)
+            # protezione per non farlo avvenire due volte
             if upload.raw_status in {
                 TripUpload.PhaseStatus.QUEUED,
                 TripUpload.PhaseStatus.PROCESSING,
@@ -74,7 +71,7 @@ def prepare_reloaded_trip_raw(
                 ]
             )
 
-            # Import locale: replay_raw importa process_trip_har_final.
+          
             from .replay_raw import regenerate_raw_and_queue_har
 
             regenerate_raw_and_queue_har(
@@ -491,11 +488,6 @@ def process_trip_har_final(
             job.error = ""
             job.save(update_fields=["status", "result", "error", "updated_at"])
         phase_timings_ms["mark_completed"] = _elapsed_ms(finalize_started)
-
-        # Prewarm: calcola e cache il diario privato ora, fuori dal percorso
-        # critico dell'utente, cosi' il primo click su questo viaggio trova
-        # gia' la cache calda invece di pagare il calcolo al momento. Non
-        # critico: un fallimento qui non deve far fallire l'upload.
         try:
             places_version = get_places_version(trip.user_id)
             cache_diary(trip.id, places_version, build_private_diary(trip))

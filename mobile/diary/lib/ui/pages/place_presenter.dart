@@ -1,18 +1,18 @@
 import 'package:diary/model/entities/places/place_mining_status.dart';
 import 'package:diary/model/entities/places/place_review.dart';
-import 'package:diary/theme/color_palette.dart';
+import 'package:diary/theme/semantic_colors.dart';
 import 'package:flutter/material.dart';
 
 /// Helper di presentazione condivisi fra la lista e il dettaglio dei luoghi.
 
-Color placeStateColor(PlaceReview place) {
+Color placeStateColor(PlaceReview place, {required SemanticColors sem}) {
   switch (place.state) {
     case 'CONFIRMED':
-      return ColorPalette.success;
+      return sem.success;
     case 'REJECTED':
-      return ColorPalette.error;
+      return sem.error;
     default:
-      return ColorPalette.warning;
+      return sem.warning;
   }
 }
 
@@ -78,7 +78,7 @@ String placeMiningStatusTitle(PlaceMiningStatus status) {
 
 String placeMiningStatusMessage(PlaceMiningStatus status) {
   if (status.isRunning) {
-    return 'Puoi leggere l’ultimo snapshot salvato, ma le azioni di review restano bloccate finche\' il ricalcolo non finisce.';
+    return 'Puoi leggere l\'ultimo snapshot salvato, ma le azioni di review restano bloccate finche\' il ricalcolo non finisce.';
   }
   if (status.isPending) {
     return 'Il ricalcolo dei luoghi e\' stato richiesto. Puoi aggiornare manualmente questa schermata per verificare quando sara\' pronto.';
@@ -87,7 +87,7 @@ String placeMiningStatusMessage(PlaceMiningStatus status) {
     final suffix = status.errorMessage.isEmpty
         ? ''
         : ' Dettaglio: ${status.errorMessage}.';
-    return 'L’ultimo ricalcolo non e\' andato a buon fine e la review resta bloccata finche\' non verra\' eseguita una nuova analisi.$suffix';
+    return 'L\'ultimo ricalcolo non e\' andato a buon fine e la review resta bloccata finche\' non verra\' eseguita una nuova analisi.$suffix';
   }
   return '';
 }

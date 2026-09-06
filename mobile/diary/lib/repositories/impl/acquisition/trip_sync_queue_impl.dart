@@ -3,7 +3,6 @@ import 'package:diary/model/entities/acquisition/upload_models.dart';
 import 'package:diary/mappers/upload_mapper.dart';
 import 'package:diary/network/service/trip_upload_service.dart';
 import 'package:diary/repositories/impl/acquisition/trip_package_builder.dart';
-import 'package:diary/repositories/trip_sync_queue.dart';
 import 'package:diary/network/service/trips_service.dart';
 import 'package:drift/drift.dart' show Value;
 
@@ -15,7 +14,7 @@ import 'package:drift/drift.dart' show Value;
 /// Un fallimento definitivo (core o raw) non resta mai in attesa di un'azione
 /// dell'utente: viene scartato in automatico (Trip lato backend eliminato se
 /// gia' esistente, dati locali cancellati) — vedi [_discardJob].
-class TripSyncQueueImpl implements TripSyncQueue {
+class TripSyncQueueImpl {
   final AcquisitionDao _dao;
   final TripPackageBuilder _builder;
   final TripUploadService _service;
@@ -60,7 +59,6 @@ class TripSyncQueueImpl implements TripSyncQueue {
               Duration(minutes: 10),
             ];
 
-  @override
   Future<void> kick() => processDue();
 
   //Esegue uno alla volta i sync job in ordine cronologico, prima i vecchi
@@ -110,8 +108,7 @@ class TripSyncQueueImpl implements TripSyncQueue {
         if (uploadId == null) {
           throw const UploadApiException('remote upload assente');
         }
-        status =
-            _mapper.mapUploadStatus(await _service.getStatus(uploadId));
+        status = _mapper.mapUploadStatus(await _service.getStatus(uploadId));
       } else {
         final corePayload = package.corePayload!;
         await _dao.updateSyncJob(
@@ -161,8 +158,7 @@ class TripSyncQueueImpl implements TripSyncQueue {
             uploadId,
             totalParts: package.rawParts.length,
           );
-          status =
-              _mapper.mapUploadStatus(await _service.getStatus(uploadId));
+          status = _mapper.mapUploadStatus(await _service.getStatus(uploadId));
           if (await _handleRawOutcome(job, package, uploadId, status)) {
             return;
           }
@@ -172,8 +168,7 @@ class TripSyncQueueImpl implements TripSyncQueue {
             uploadId,
             totalParts: package.rawParts.length,
           );
-          status =
-              _mapper.mapUploadStatus(await _service.getStatus(uploadId));
+          status = _mapper.mapUploadStatus(await _service.getStatus(uploadId));
           if (await _handleRawOutcome(job, package, uploadId, status)) {
             return;
           }
@@ -304,9 +299,8 @@ class TripSyncQueueImpl implements TripSyncQueue {
     return _dao.updateSyncJob(
       job.id,
       coreStatus: syncJobWaitingProcessing,
-      remoteUploadId: remoteUploadId == null
-          ? const Value.absent()
-          : Value(remoteUploadId),
+      remoteUploadId:
+          remoteUploadId == null ? const Value.absent() : Value(remoteUploadId),
       nextRetryAt: Value(DateTime.now().toUtc().add(delay ?? _pollDelay)),
     );
   }
@@ -319,9 +313,8 @@ class TripSyncQueueImpl implements TripSyncQueue {
     return _dao.updateSyncJob(
       job.id,
       rawStatus: syncJobWaitingProcessing,
-      remoteUploadId: remoteUploadId == null
-          ? const Value.absent()
-          : Value(remoteUploadId),
+      remoteUploadId:
+          remoteUploadId == null ? const Value.absent() : Value(remoteUploadId),
       nextRetryAt: Value(DateTime.now().toUtc().add(delay ?? _pollDelay)),
     );
   }

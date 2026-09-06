@@ -2,22 +2,15 @@ import 'dart:async';
 
 import 'package:diary/model/entities/trips/trip_track.dart';
 import 'package:diary/repositories/trip_track_repository.dart';
+import 'package:diary/state_management/cubits/trip_track_cubit/trip_diary_load_policy.dart';
 import 'package:diary/state_management/cubits/trip_track_cubit/trip_track_cubit_state.dart';
 import 'package:diary/utils/app_result.dart';
 import 'package:diary/utils/trip_detail_diagnostics.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 class TripTrackCubit extends Cubit<TripTrackCubitState> {
-  static const _defaultDiaryPollingInterval = Duration(seconds: 1);
-  static const _defaultDiaryRequestTimeout = Duration(seconds: 20);
-  static const _defaultDiaryRetryBaseDelay = Duration(seconds: 2);
-  static const _defaultDiaryRetryMaxDelay = Duration(seconds: 30);
-
   final TripTrackRepository _repository;
-  final Duration _diaryPollingInterval;
-  final Duration _diaryRequestTimeout;
-  final Duration _diaryRetryBaseDelay;
-  final Duration _diaryRetryMaxDelay;
+  final TripDiaryLoadPolicy _diaryLoadPolicy;
   final Map<int, TripTrack> _trackCache = {};
   Timer? _diaryPollingTimer;
   int? _tripId;
@@ -27,16 +20,11 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
 
   TripTrackCubit(
     this._repository, {
-    Duration diaryPollingInterval = _defaultDiaryPollingInterval,
-    Duration diaryRequestTimeout = _defaultDiaryRequestTimeout,
-    Duration diaryRetryBaseDelay = _defaultDiaryRetryBaseDelay,
-    Duration diaryRetryMaxDelay = _defaultDiaryRetryMaxDelay,
-  })  : _diaryPollingInterval = diaryPollingInterval,
-        _diaryRequestTimeout = diaryRequestTimeout,
-        _diaryRetryBaseDelay = diaryRetryBaseDelay,
-        _diaryRetryMaxDelay = diaryRetryMaxDelay,
+    TripDiaryLoadPolicy diaryLoadPolicy = const TripDiaryLoadPolicy(),
+  })  : _diaryLoadPolicy = diaryLoadPolicy,
         super(const TripTrackCubitState.initial());
 
+  // Funzione richiamata dal cubit che chiede i dati del singolo viaggio in Trip Detail Page
   Future<void> load(int tripId, {String? diagnosticsTraceId}) {
     _tripId = tripId;
     _diagnosticsTraceId = diagnosticsTraceId;
@@ -60,8 +48,10 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
     await _loadDiary(tripId, _loadGeneration, pollPendingDiary: true);
   }
 
+  // Fa due chiamate parallele, una per il diario e una per la traccia del viaggio
   Future<void> _startLoad(int tripId) async {
-    final generation = ++_loadGeneration;
+    final generation =
+        ++_loadGeneration; // Protezione race condition quando cambio velocemente da un viaggio allìaltro
     final traceId = _diagnosticsTraceId;
     _stopDiaryPolling();
     _diaryFailureStreak = 0;
@@ -87,6 +77,7 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
     ]);
   }
 
+  //
   Future<void> _loadTrack(int tripId, int generation) async {
     final cached = _trackCache[tripId];
     final AppResult<TripTrack> result;
@@ -146,20 +137,16 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
       _diagnosticsTraceId,
       'diary_repository_future',
       () => _repository.fetchDiary(tripId),
-      timeout: _diaryRequestTimeout,
+      timeout: _diaryLoadPolicy.requestTimeout,
     );
     if (!_isCurrent(tripId, generation)) return;
 
     final failure = result.failure;
     if (failure != null) {
-      // Un errore di trasporto non dice nulla sull'arricchimento: si continua
-      // a interrogare il diario con backoff invece di dichiarare fallito
-      // l'HAR e spegnere il polling per sempre.
       _diaryFailureStreak += 1;
-      final retryDelay = _diaryRetryDelay(_diaryFailureStreak);
-      final keepsPreviousDiary =
-          state.diaryStatus == DiaryLoadStatus.loaded ||
-              state.diaryStatus == DiaryLoadStatus.pending;
+      final retryDelay = _diaryLoadPolicy.retryDelay(_diaryFailureStreak);
+      final keepsPreviousDiary = state.diaryStatus == DiaryLoadStatus.loaded ||
+          state.diaryStatus == DiaryLoadStatus.pending;
       TripDetailDiagnostics.event(
         _diagnosticsTraceId,
         'diary_fetch_failure',
@@ -195,14 +182,15 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
       _diagnosticsTraceId,
       'diary_result_available',
       fields: {
-        'processed': diary.processed,
+        'enrichment_completed': diary.enrichmentCompleted,
         'segment_count': diary.segments.length,
         'place_count': diary.places.length,
         'generation': generation,
       },
     );
-    final enrichmentFailed = !diary.processed && diary.enrichmentFailed;
-    final enrichmentPending = !diary.processed && !enrichmentFailed;
+    final enrichmentFailed =
+        !diary.enrichmentCompleted && diary.enrichmentFailed;
+    final enrichmentPending = !diary.enrichmentCompleted && !enrichmentFailed;
     final segments = [
       for (final segment in diary.drawableSegments)
         TripTrackSegmentState(
@@ -227,15 +215,18 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
     // Il polling ripete la stessa risposta ogni secondo: se il contenuto non
     // e' cambiato si riusa la stessa istanza di lista, cosi' la mappa non
     // rilegge come "nuovi" segmenti identici e non ridisegna nulla.
-    final nextSegments = _sameTrackSegments(state.segments, segments)
+    final nextSegments = _sameList(state.segments, segments, _sameTrackSegment)
         ? state.segments
         : segments;
     final rawDiarySegments =
-        diary.processed ? diary.segments : const <TripDiarySegment>[];
-    final nextDiarySegments =
-        _sameDiarySegments(state.diarySegments, rawDiarySegments)
-            ? state.diarySegments
-            : rawDiarySegments;
+        diary.enrichmentCompleted ? diary.segments : const <TripDiarySegment>[];
+    final nextDiarySegments = _sameList(
+      state.diarySegments,
+      rawDiarySegments,
+      _sameDiarySegment,
+    )
+        ? state.diarySegments
+        : rawDiarySegments;
     final next = state.copyWith(
       diaryStatus: diaryStatus,
       points: state.points.isEmpty && fallbackPoints.isNotEmpty
@@ -243,7 +234,7 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
           : state.points,
       segments: nextSegments,
       diarySegments: nextDiarySegments,
-      distanceMeters: diary.processed && diary.segments.isNotEmpty
+      distanceMeters: diary.enrichmentCompleted && diary.segments.isNotEmpty
           ? diary.movementDistanceMeters
           : state.distanceMeters,
       enrichmentPending: enrichmentPending,
@@ -342,12 +333,15 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
       _stopDiaryPolling();
       return;
     }
-    _scheduleDiaryPoll(tripId, generation, delay: _diaryPollingInterval);
+    _scheduleDiaryPoll(
+      tripId,
+      generation,
+      delay: _diaryLoadPolicy.pollingInterval,
+    );
   }
 
-  /// Un solo timer alla volta, riarmato dopo ogni tentativo concluso: senza
-  /// timer periodico non esiste piu' un tick che possa sovrapporsi a una
-  /// richiesta in volo ne' un latch da sbloccare.
+  /// Polling da 1 secondo per il diario
+  /// Non serve per la traccia, quando questa funzione viene eseguita, il back end ha già il trip salvato con la LineString
   void _scheduleDiaryPoll(
     int tripId,
     int generation, {
@@ -368,61 +362,10 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
     });
   }
 
-  Duration _diaryRetryDelay(int failureStreak) {
-    final multiplier = 1 << (failureStreak - 1).clamp(0, 10);
-    final delay = _diaryRetryBaseDelay * multiplier;
-    return delay > _diaryRetryMaxDelay ? _diaryRetryMaxDelay : delay;
-  }
-
-  bool _sameTrackSegments(
-    List<TripTrackSegmentState> current,
-    List<TripTrackSegmentState> next,
-  ) {
-    if (identical(current, next)) return true;
-    if (current.length != next.length) return false;
-    for (var index = 0; index < current.length; index += 1) {
-      final a = current[index];
-      final b = next[index];
-      if (a.activityLabel != b.activityLabel ||
-          a.distanceMeters != b.distanceMeters ||
-          a.startTimestamp != b.startTimestamp ||
-          a.endTimestamp != b.endTimestamp ||
-          a.points.length != b.points.length) {
-        return false;
-      }
-      for (var point = 0; point < a.points.length; point += 1) {
-        if (a.points[point] != b.points[point]) return false;
-      }
-    }
-    return true;
-  }
-
-  bool _sameDiarySegments(
-    List<TripDiarySegment> current,
-    List<TripDiarySegment> next,
-  ) {
-    if (identical(current, next)) return true;
-    if (current.length != next.length) return false;
-    for (var index = 0; index < current.length; index += 1) {
-      final a = current[index];
-      final b = next[index];
-      if (a.segmentKind != b.segmentKind ||
-          a.startTimestamp != b.startTimestamp ||
-          a.endTimestamp != b.endTimestamp ||
-          a.activity != b.activity ||
-          a.distanceMeters != b.distanceMeters ||
-          a.place?.id != b.place?.id ||
-          a.points.length != b.points.length) {
-        return false;
-      }
-    }
-    return true;
-  }
-
   String _enrichmentFailureMessage(String? reasonCode) {
     return switch (reasonCode) {
       'diary_enrichment_failed' =>
-        'Non siamo riusciti a elaborare il diario di questo viaggio.',
+        'Non siamo riusciti ad arricchire il diario di questo viaggio.',
       _ => 'Diario non disponibile per questo viaggio.',
     };
   }
@@ -442,4 +385,38 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
     _stopDiaryPolling();
     return super.close();
   }
+}
+
+bool _sameList<T>(
+  List<T> current,
+  List<T> next,
+  bool Function(T current, T next) sameItem,
+) {
+  if (identical(current, next)) return true;
+  if (current.length != next.length) return false;
+  for (var index = 0; index < current.length; index += 1) {
+    if (!sameItem(current[index], next[index])) return false;
+  }
+  return true;
+}
+
+bool _sameTrackSegment(
+  TripTrackSegmentState current,
+  TripTrackSegmentState next,
+) {
+  return current.activityLabel == next.activityLabel &&
+      current.distanceMeters == next.distanceMeters &&
+      current.startTimestamp == next.startTimestamp &&
+      current.endTimestamp == next.endTimestamp &&
+      _sameList(current.points, next.points, (a, b) => a == b);
+}
+
+bool _sameDiarySegment(TripDiarySegment current, TripDiarySegment next) {
+  return current.segmentKind == next.segmentKind &&
+      current.startTimestamp == next.startTimestamp &&
+      current.endTimestamp == next.endTimestamp &&
+      current.activity == next.activity &&
+      current.distanceMeters == next.distanceMeters &&
+      current.place?.id == next.place?.id &&
+      _sameList(current.points, next.points, (a, b) => a == b);
 }

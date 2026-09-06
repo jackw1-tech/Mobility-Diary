@@ -1,4 +1,4 @@
-import 'package:diary/theme/color_palette.dart';
+import 'package:diary/theme/semantic_colors.dart';
 import 'package:diary/theme/dimensions.dart';
 import 'package:diary/ui/pages/analytics_presenter.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -20,6 +20,8 @@ class TimeByCategoryChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final sem = Theme.of(context).extension<SemanticColors>()!;
     final trackTop = _trackTop();
     return SizedBox(
       height: 200,
@@ -57,8 +59,8 @@ class TimeByCategoryChart extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 10,
                       color: value.toInt() == selectedIndex
-                          ? ColorPalette.textPrimary
-                          : ColorPalette.textSecondary,
+                          ? colorScheme.onSurface
+                          : colorScheme.onSurfaceVariant,
                       fontWeight: value.toInt() == selectedIndex
                           ? FontWeight.w700
                           : FontWeight.normal,
@@ -73,7 +75,7 @@ class TimeByCategoryChart extends StatelessWidget {
               BarChartGroupData(
                 x: i,
                 barRods: [
-                  _rod(bars[i], dimmed: i != selectedIndex, trackTop: trackTop),
+                  _rod(bars[i], dimmed: i != selectedIndex, trackTop: trackTop, sem: sem),
                 ],
               ),
           ],
@@ -100,6 +102,7 @@ class TimeByCategoryChart extends StatelessWidget {
     AnalyticsBar bar, {
     required bool dimmed,
     required double trackTop,
+    required SemanticColors sem,
   }) {
     final stack = <BarChartRodStackItem>[];
     var from = 0.0;
@@ -124,7 +127,7 @@ class TimeByCategoryChart extends StatelessWidget {
         show: true,
         toY: trackTop,
         color:
-            dimmed ? ColorPalette.surfaceSofter : ColorPalette.surfacePressed,
+            dimmed ? sem.surfaceSofter : sem.surfacePressed,
       ),
     );
   }

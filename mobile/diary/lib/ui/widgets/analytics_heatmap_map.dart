@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:math';
 
-import 'package:diary/theme/color_palette.dart';
+import 'package:diary/theme/semantic_colors.dart';
 import 'package:diary/ui/pages/analytics_presenter.dart';
 import 'package:flutter/material.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
@@ -64,6 +64,10 @@ class _AnalyticsHeatmapMapState extends State<AnalyticsHeatmapMap> {
           'properties': {'weight': point.weight},
         },
     ];
+
+    final primaryColor = Theme.of(context).colorScheme.primary.toARGB32();
+    final surfaceColor = Theme.of(context).colorScheme.surface.toARGB32();
+
     await map.style.addSource(GeoJsonSource(
       id: _sourceId,
       data: jsonEncode({'type': 'FeatureCollection', 'features': features}),
@@ -72,7 +76,7 @@ class _AnalyticsHeatmapMapState extends State<AnalyticsHeatmapMap> {
       await map.style.addLayer(CircleLayer(
         id: _markerLayerId,
         sourceId: _sourceId,
-        circleColor: ColorPalette.primary.toARGB32(),
+        circleColor: primaryColor,
         circleOpacity: 0.82,
         circleRadiusExpression: [
           'interpolate',
@@ -83,7 +87,7 @@ class _AnalyticsHeatmapMapState extends State<AnalyticsHeatmapMap> {
           max(widget.heatmap.maxWeight, 1.0),
           18.0,
         ],
-        circleStrokeColor: ColorPalette.surface.toARGB32(),
+        circleStrokeColor: surfaceColor,
         circleStrokeWidth: 3,
       ));
     } else {
@@ -129,7 +133,9 @@ class _AnalyticsHeatmapMapState extends State<AnalyticsHeatmapMap> {
       children: [
         MapWidget(
           key: const ValueKey('analytics-heatmap'),
-          styleUri: MapboxStyles.MAPBOX_STREETS,
+          styleUri: Theme.of(context).brightness == Brightness.dark
+              ? MapboxStyles.DARK
+              : MapboxStyles.MAPBOX_STREETS,
           // ignore: deprecated_member_use
           cameraOptions: CameraOptions(
             center: Point(coordinates: Position(first.lon, first.lat)),
@@ -196,18 +202,19 @@ class _HeatmapSummary extends StatelessWidget {
     final visitLabel =
         visits.round() == 1 ? '1 visita' : '${visits.round()} visite';
 
+    final sem = Theme.of(context).extension<SemanticColors>()!;
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: ColorPalette.surface.withValues(alpha: 0.92),
+        color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.92),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: ColorPalette.hairline),
+        border: Border.all(color: sem.hairline),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         child: Text(
           '$placeLabel · $visitLabel',
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: ColorPalette.textPrimary,
+                color: Theme.of(context).colorScheme.onSurface,
                 fontWeight: FontWeight.w700,
               ),
         ),

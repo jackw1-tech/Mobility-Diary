@@ -4,7 +4,6 @@ import 'package:diary/model/entities/trips/trip_reload.dart';
 import 'package:diary/repositories/trips_repository.dart';
 import 'package:diary/state_management/cubits/trips_list_cubit/trips_list_cubit_state.dart';
 import 'package:diary/utils/trip_detail_diagnostics.dart';
-import 'package:diary/utils/trip_reload_diagnostics.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 class TripsListCubit extends Cubit<TripsListCubitState> {
@@ -19,7 +18,7 @@ class TripsListCubit extends Cubit<TripsListCubitState> {
 
   Future<void> loadReloadable() => _load(_repository.fetchReloadableTrips);
 
-  Future<bool> deleteTrip(int tripId) async {
+  Future<String?> deleteTrip(int tripId) async {
     emit(
       TripsListCubitState(
         status: state.status,
@@ -38,10 +37,9 @@ class TripsListCubit extends Cubit<TripsListCubitState> {
           trips: state.trips,
           error: state.error,
           reloadingTripId: state.reloadingTripId,
-          mutationError: failure.message,
         ),
       );
-      return false;
+      return failure.message;
     }
     final trips = state.trips.where((trip) => trip.id != tripId).toList();
     emit(
@@ -52,10 +50,10 @@ class TripsListCubit extends Cubit<TripsListCubitState> {
         reloadingTripId: state.reloadingTripId,
       ),
     );
-    return true;
+    return null;
   }
 
-  Future<bool> setTripReloadable(int tripId, bool isReloadable) async {
+  Future<String?> setTripReloadable(int tripId, bool isReloadable) async {
     return _updateTrip(
       tripId,
       () => _repository.setTripReloadable(
@@ -65,14 +63,14 @@ class TripsListCubit extends Cubit<TripsListCubitState> {
     );
   }
 
-  Future<bool> updateTripNote(int tripId, String note) async {
+  Future<String?> updateTripNote(int tripId, String note) async {
     return _updateTrip(
       tripId,
       () => _repository.updateTripNote(tripId: tripId, note: note),
     );
   }
 
-  Future<bool> _updateTrip(
+  Future<String?> _updateTrip(
     int tripId,
     Future<AppResult<TripListItem>> Function() update,
   ) async {
@@ -100,7 +98,7 @@ class TripsListCubit extends Cubit<TripsListCubitState> {
           reloadingTripId: state.reloadingTripId,
         ),
       );
-      return true;
+      return null;
     }
     emit(
       TripsListCubitState(
@@ -108,40 +106,18 @@ class TripsListCubit extends Cubit<TripsListCubitState> {
         trips: state.trips,
         error: state.error,
         reloadingTripId: state.reloadingTripId,
-        mutationError: failure.message,
       ),
     );
-    return false;
+    return failure.message;
   }
 
-  /// Slot liberi in cui e' possibile ricollocare [sourceTripId]. Ritorna `null`
-  /// se la chiamata fallisce, esponendo il motivo in `state.reloadError`.
+  /// Slot liberi in cui e' possibile inserire un viaggio da replay o caricamento diretto
   Future<TripReloadSlots?> loadReloadSlots(int sourceTripId) async {
-    final stopwatch = Stopwatch()..start();
-    TripReloadDiagnostics.eventForTrip(sourceTripId, 'slots_fetch_start');
     final result = await _repository.fetchReloadSlots(sourceTripId);
     final failure = result.failure;
     if (failure == null) {
-      final slots = result.requireValue;
-      TripReloadDiagnostics.eventForTrip(
-        sourceTripId,
-        'slots_fetch_complete',
-        fields: {
-          'duration_ms': stopwatch.elapsedMilliseconds,
-          'slot_count': slots.slots.length,
-          'duration_seconds': slots.durationSeconds,
-        },
-      );
-      return slots;
+      return result.requireValue;
     }
-    TripReloadDiagnostics.eventForTrip(
-      sourceTripId,
-      'slots_fetch_failure',
-      fields: {
-        'duration_ms': stopwatch.elapsedMilliseconds,
-        'failure_type': failure.runtimeType,
-      },
-    );
     emit(
       TripsListCubitState(
         status: state.status,
@@ -150,7 +126,6 @@ class TripsListCubit extends Cubit<TripsListCubitState> {
         reloadingTripId: state.reloadingTripId,
         reloadError: failure.message,
         mutatingTripId: state.mutatingTripId,
-        mutationError: state.mutationError,
       ),
     );
     return null;
@@ -158,12 +133,6 @@ class TripsListCubit extends Cubit<TripsListCubitState> {
 
   Future<int?> reloadTrip(int sourceTripId,
       {DateTime? scheduledStartAt}) async {
-    final stopwatch = Stopwatch()..start();
-    TripReloadDiagnostics.eventForTrip(
-      sourceTripId,
-      'reload_request_start',
-      fields: {'has_scheduled_start': scheduledStartAt != null},
-    );
     emit(
       TripsListCubitState(
         status: state.status,
@@ -171,7 +140,6 @@ class TripsListCubit extends Cubit<TripsListCubitState> {
         error: state.error,
         reloadingTripId: sourceTripId,
         mutatingTripId: state.mutatingTripId,
-        mutationError: state.mutationError,
       ),
     );
     final result = await _repository.reloadTrip(
@@ -181,39 +149,16 @@ class TripsListCubit extends Cubit<TripsListCubitState> {
     final failure = result.failure;
     if (failure == null) {
       final reload = result.requireValue;
-      TripReloadDiagnostics.eventForTrip(
-        sourceTripId,
-        'reload_request_complete',
-        fields: {
-          'duration_ms': stopwatch.elapsedMilliseconds,
-          'derived_trip': reload.tripId,
-          'upload_id': reload.uploadId,
-          'core_status': reload.coreStatus,
-          'raw_status': reload.rawStatus,
-          'gps_points': reload.gpsPoints,
-          'path_points': reload.pathPoints,
-          'map_available': reload.mapAvailable,
-        },
-      );
       emit(
         TripsListCubitState(
           status: state.status,
           trips: state.trips,
           error: state.error,
           mutatingTripId: state.mutatingTripId,
-          mutationError: state.mutationError,
         ),
       );
       return reload.tripId;
     }
-    TripReloadDiagnostics.eventForTrip(
-      sourceTripId,
-      'reload_request_failure',
-      fields: {
-        'duration_ms': stopwatch.elapsedMilliseconds,
-        'failure_type': failure.runtimeType,
-      },
-    );
     emit(
       TripsListCubitState(
         status: state.status,
@@ -221,7 +166,6 @@ class TripsListCubit extends Cubit<TripsListCubitState> {
         error: state.error,
         reloadError: failure.message,
         mutatingTripId: state.mutatingTripId,
-        mutationError: state.mutationError,
       ),
     );
     return null;

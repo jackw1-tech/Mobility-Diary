@@ -1,4 +1,3 @@
-import 'package:diary/theme/color_palette.dart';
 import 'package:diary/theme/dimensions.dart';
 import 'package:flutter/material.dart';
 
@@ -23,7 +22,11 @@ class DrawerMessage extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 40, color: ColorPalette.textSecondary),
+            Icon(
+              icon,
+              size: 40,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
             const SizedBox(height: Dimensions.paddingSmall),
             Text(text, textAlign: TextAlign.center),
             if (onRetry != null) ...[

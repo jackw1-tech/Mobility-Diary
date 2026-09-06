@@ -7,7 +7,6 @@ import 'package:diary/network/service/impl/acquisition_sensor_runtime.dart';
 import 'package:diary/repositories/impl/acquisition/live_acquisition_strategy.dart'
     hide HeartbeatTimerFactory;
 import 'package:diary/repositories/impl/acquisition/replay_acquisition_strategy.dart';
-import 'package:diary/repositories/trip_sync_queue.dart';
 import 'package:diary/mappers/acquisition_mapper.dart';
 import 'package:diary/mappers/upload_mapper.dart';
 import 'package:diary/network/service/trip_upload_service.dart';
@@ -49,7 +48,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
   final Future<String> Function()? _deviceIdProvider;
   final bool _enableRuntime;
   final AcquisitionSensorRuntime? _runtime;
-  final TripSyncQueue? _syncQueue;
+  final Future<void> Function()? _syncKick;
   final TripUploadService? _uploadService;
   final UploadMapper _mapper;
   final AcquisitionMapper _acquisitionMapper;
@@ -59,7 +58,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
   final DateTime Function() _now;
   final bool _observesAppLifecycle;
 
-  AcquisitionStrategy? _activeStrategy;
+  AcquisitionStrategy? _activeAcquisitionStrategy;
   StreamSubscription<AppLifecycleState>? _lifecycleSubscription;
   Timer? _syncRetryTimer;
   AcquisitionSyncSnapshot _currentSyncSnapshot =
@@ -73,7 +72,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     Future<String> Function()? deviceIdProvider,
     bool enableRuntime = true,
     AcquisitionSensorRuntime? runtime,
-    TripSyncQueue? syncQueue,
+    Future<void> Function()? syncKick,
     TripUploadService? uploadService,
     UploadMapper? mapper,
     AcquisitionMapper? acquisitionMapper,
@@ -90,7 +89,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
         _deviceIdProvider = deviceIdProvider,
         _enableRuntime = enableRuntime,
         _runtime = runtime,
-        _syncQueue = syncQueue,
+        _syncKick = syncKick,
         _uploadService = uploadService,
         _mapper = mapper ?? UploadMapper(),
         _acquisitionMapper = acquisitionMapper ?? AcquisitionMapper(),
@@ -173,15 +172,9 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
 
   @override
   Future<AcquisitionDiagnosticsReport?> stopTracking() async {
-    final strategy = _activeStrategy;
-    if (strategy == null) {
-      if (currentSnapshot.isTracking) {
-        emitSnapshot(AcquisitionSnapshot.idle());
-      }
-      return null;
-    }
+    final strategy = _activeAcquisitionStrategy;
 
-    final result = await strategy.stop();
+    final result = await strategy!.stop();
     await _handleStopResult(result);
     await _disposeActiveStrategy();
     return result.diagnosticsReport;
@@ -189,7 +182,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
 
   @override
   Future<ReplayStopResult> stopReplay() async {
-    final strategy = _activeStrategy;
+    final strategy = _activeAcquisitionStrategy;
     if (strategy == null || !currentSnapshot.isReplay) {
       throw const UploadApiException('Invalid state for stopReplay');
     }
@@ -207,7 +200,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
 
   @override
   Future<void> ingestEvent(TrackingEvent event) async {
-    final strategy = _activeStrategy;
+    final strategy = _activeAcquisitionStrategy;
     if (strategy == null) {
       return;
     }
@@ -218,7 +211,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
   // se ci sono upload pendenti da completare
   @override
   Future<void> resumeSync() async {
-    if (_activeStrategy == null) {
+    if (_activeAcquisitionStrategy == null) {
       final liveStrategy = _createLiveStrategy();
       _attachStrategy(liveStrategy);
       final result = await liveStrategy.resumeOrReconcile();
@@ -226,13 +219,14 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
       if (!currentSnapshot.isTracking) {
         await _disposeActiveStrategy();
       }
-    } else if (_activeStrategy is LiveAcquisitionStrategy) {
-      final liveStrategy = _activeStrategy! as LiveAcquisitionStrategy;
+    } else if (_activeAcquisitionStrategy is LiveAcquisitionStrategy) {
+      final liveStrategy =
+          _activeAcquisitionStrategy! as LiveAcquisitionStrategy;
       final result = await liveStrategy.resumeOrReconcile();
       await _handleStopResult(result);
     }
 
-    await _syncQueue?.kick();
+    await _syncKick?.call();
   }
 
   @override
@@ -247,14 +241,14 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
   // Cerca la lista dei punti della sessione di tracking attuale
   @override
   Future<List<AcquisitionRoutePoint>> currentSessionRoute() async {
-    final strategy = _activeStrategy;
+    final strategy = _activeAcquisitionStrategy;
     if (strategy == null) return const [];
     return strategy.currentSessionRoute();
   }
 
   @override
   Future<List<List<double>>> currentSensorWindow() async {
-    final strategy = _activeStrategy;
+    final strategy = _activeAcquisitionStrategy;
     if (strategy == null) return const [];
     return strategy.currentSensorWindow();
   }
@@ -266,7 +260,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     if (_observesAppLifecycle) {
       WidgetsBinding.instance.removeObserver(this);
     }
-    _activeStrategy?.dispose();
+    _activeAcquisitionStrategy?.dispose();
     closeSnapshots();
     _database.close();
   }
@@ -298,13 +292,13 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
   }
 
   void _attachStrategy(AcquisitionStrategy strategy) {
-    _activeStrategy?.dispose();
-    _activeStrategy = strategy;
+    _activeAcquisitionStrategy?.dispose();
+    _activeAcquisitionStrategy = strategy;
   }
 
   Future<void> _disposeActiveStrategy() async {
-    _activeStrategy?.dispose();
-    _activeStrategy = null;
+    _activeAcquisitionStrategy?.dispose();
+    _activeAcquisitionStrategy = null;
   }
 
   Future<void> _ensureNoUnclosedCoreSyncJob() async {
@@ -320,7 +314,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
       return;
     }
     await _dao.createSyncJobIfAbsent(syncSessionId);
-    unawaited(_syncQueue?.kick() ?? Future<void>.value());
+    _kickSync();
   }
 
   Future<void> _enqueuePendingLiveSyncIfNeeded(
@@ -335,12 +329,12 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
   // Inoltra il lifecycle alla sola strategia che ne ha bisogno e riattiva la
   // coda di sync quando l'app torna in primo piano.
   void _handleLifecycleState(AppLifecycleState state) {
-    final strategy = _activeStrategy;
+    final strategy = _activeAcquisitionStrategy;
     if (strategy is LiveAcquisitionStrategy) {
       strategy.applyLifecycleState(state);
     }
     if (state == AppLifecycleState.resumed) {
-      unawaited(_syncQueue?.kick() ?? Future<void>.value());
+      _kickSync();
     }
   }
 
@@ -359,9 +353,12 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     final now = DateTime.now().toUtc();
     final delay =
         nextRetryAt.isAfter(now) ? nextRetryAt.difference(now) : Duration.zero;
-    _syncRetryTimer = Timer(delay, () {
-      unawaited(_syncQueue?.kick() ?? Future<void>.value());
-    });
+    _syncRetryTimer = Timer(delay, _kickSync);
+  }
+
+  void _kickSync() {
+    final kick = _syncKick;
+    if (kick != null) unawaited(kick());
   }
 
   AcquisitionSyncSnapshot _syncSnapshotFromJob(SyncJob? job) =>

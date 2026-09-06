@@ -1,6 +1,5 @@
 import 'package:diary/state_management/cubits/auth_cubit/auth_cubit.dart';
 import 'package:diary/state_management/cubits/auth_cubit/auth_cubit_state.dart';
-import 'package:diary/theme/color_palette.dart';
 import 'package:diary/theme/dimensions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -35,6 +34,8 @@ class _AuthPageState extends State<AuthPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return BlocConsumer<AuthCubit, AuthCubitState>(
       listenWhen: (previous, current) =>
           previous.errorMessage != current.errorMessage &&
@@ -43,13 +44,12 @@ class _AuthPageState extends State<AuthPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(state.errorMessage!),
-            backgroundColor: ColorPalette.error,
+            backgroundColor: colorScheme.error,
           ),
         );
       },
       builder: (context, state) {
         return Scaffold(
-          backgroundColor: ColorPalette.background,
           body: SafeArea(
             child: Center(
               child: SingleChildScrollView(
@@ -57,7 +57,7 @@ class _AuthPageState extends State<AuthPage> {
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 460),
                   child: Material(
-                    color: ColorPalette.surface,
+                    color: colorScheme.surface,
                     elevation: Dimensions.cardElevation,
                     borderRadius: BorderRadius.circular(
                       Dimensions.borderRadiusLarge,
@@ -178,11 +178,12 @@ class _AuthPageState extends State<AuthPage> {
                             FilledButton.icon(
                               onPressed: state.isLoading ? null : _submit,
                               icon: state.isLoading
-                                  ? const SizedBox(
+                                  ? SizedBox(
                                       width: 18,
                                       height: 18,
                                       child: CircularProgressIndicator(
                                         strokeWidth: 2,
+                                        color: colorScheme.onPrimary,
                                       ),
                                     )
                                   : Icon(
@@ -266,18 +267,20 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Row(
       children: [
         Container(
           width: 48,
           height: 48,
           decoration: BoxDecoration(
-            color: ColorPalette.primary.withValues(alpha: 0.12),
+            color: colorScheme.primary.withValues(alpha: 0.12),
             borderRadius: BorderRadius.circular(Dimensions.borderRadiusMedium),
           ),
           child: Icon(
             isRegister ? Icons.person_add_alt_1 : Icons.lock_open,
-            color: ColorPalette.primary,
+            color: colorScheme.primary,
           ),
         ),
         const SizedBox(width: Dimensions.paddingMedium),

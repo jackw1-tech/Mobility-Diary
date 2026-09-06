@@ -1,5 +1,5 @@
 import 'package:diary/model/entities/analytics/analytics.dart';
-import 'package:diary/theme/color_palette.dart';
+
 import 'package:diary/theme/dimensions.dart';
 import 'package:diary/ui/pages/analytics_presenter.dart';
 import 'package:diary/ui/widgets/analytics/analytics_atoms.dart';
@@ -163,7 +163,7 @@ class _BucketWindowSlider extends StatelessWidget {
                 textAlign: TextAlign.end,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: ColorPalette.textSecondary,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
               ),
             ),

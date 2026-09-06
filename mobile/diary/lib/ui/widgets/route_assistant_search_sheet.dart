@@ -97,11 +97,11 @@ class _RouteAssistantSearchSheetState extends State<RouteAssistantSearchSheet> {
                     ? null
                     : _confirm,
                 icon: state.isRouting
-                    ? const SizedBox.square(
+                    ? SizedBox.square(
                         dimension: 18,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          color: Colors.white,
+                          color: Theme.of(context).colorScheme.onPrimary,
                         ),
                       )
                     : const Icon(Icons.navigation_outlined),

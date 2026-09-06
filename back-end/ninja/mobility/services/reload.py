@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import logging
 import math
 from dataclasses import dataclass
@@ -46,6 +45,7 @@ class ReloadStorageUnavailable(ReloadServiceError):
     status_code = 503
 
 
+
 @dataclass(frozen=True)
 class ReloadTimeline:
     points: list[GpsPoint]
@@ -54,6 +54,7 @@ class ReloadTimeline:
     end: datetime
 
 
+## Costruisco la risposta degli slot disponibili
 def reload_slots_for_trip(
     *,
     user_id: int,
@@ -104,12 +105,7 @@ def reload_trip_from_source(
     result_trip_id: int | None = None
 
     now = now or timezone.now()
-    source = _owned_source_or_error(user_id, trip_id)
-    client_session_id = _reload_client_session_id(
-        user_id,
-        source.id,
-        reload_request_id,
-    )
+    client_session_id = f"reload-{reload_request_id}"
 
     try:
         with transaction.atomic():
@@ -118,6 +114,8 @@ def reload_trip_from_source(
                 user_id, client_session_id
             )
             if existing is not None:
+                # Il viaggio era già stato completato, ma il mobile non ha
+                # ricevuto la risposta.
                 if existing.trip_id is not None:
                     phase_timings_ms["idempotent_lookup"] = _elapsed_ms(lookup_started)
                     phase_timings_ms["task_total"] = _elapsed_ms(task_started)
@@ -128,9 +126,14 @@ def reload_trip_from_source(
                         phase_timings_ms=phase_timings_ms,
                     )
                     return reload_response(existing)
+                # Tentativo incompleto: elimino e ricomincio.
                 upload_repository.delete_upload(existing)
 
-            source = trips_repository.locked_trip_by_id(source.id)
+            source = trips_repository.locked_trip_by_id_for_user(
+                trip_id, user_id
+            )
+            if source is None:
+                raise ReloadNotFound("Trip non trovato")
             if not _is_reloadable_source(source):
                 raise ReloadServiceError("viaggio non ricaricabile")
             phase_timings_ms["lookup_and_lock"] = _elapsed_ms(lookup_started)
@@ -157,8 +160,8 @@ def reload_trip_from_source(
                 user_id=user_id,
                 client_session_id=client_session_id,
                 device_id="reload",
-                core_status=TripUpload.PhaseStatus.COMPLETED,
-                raw_status=TripUpload.PhaseStatus.PENDING,
+                core_status=TripUpload.PhaseStatus.COMPLETED, # Copio i dati core direttamente dal db
+                raw_status=TripUpload.PhaseStatus.PENDING, # Devo cambiare la date 
                 expected_raw_parts=0,
                 started_at=reload_start,
                 ended_at=reload_end,
@@ -184,7 +187,7 @@ def reload_trip_from_source(
             copy_started = perf_counter()
             _copy_core_evidence(timeline, trip, shift)
             build_trip_path(trip)
-            trip.refresh_from_db(fields=["path", "distance_meters"])
+            trip.refresh_from_db(fields=["path", "distance_meters"]) #aggiorno l'oggetto trip dopo l update di build_trip_path
             phase_timings_ms["copy_core_evidence"] = _elapsed_ms(copy_started)
 
             upload.trip = trip
@@ -192,7 +195,7 @@ def reload_trip_from_source(
 
             queue_started = perf_counter()
             shift_us = _timedelta_microseconds(shift)
-            transaction.on_commit(
+            transaction.on_commit( # Prima Django crea finisce la transazione -> Commit -> A commit riuscito parte il task 
                 lambda: prepare_reloaded_trip_raw.delay(
                     upload.id,
                     source.id,
@@ -257,7 +260,7 @@ def reload_response(upload: TripUpload) -> dict:
         "map_available": trip.path is not None,
     }
 
-
+# Get riutilizzabile del trip
 def _owned_source_or_error(user_id: int, trip_id: int) -> Trip:
     trip = trips_repository.trip_by_id_for_user(trip_id, user_id)
     if trip is None:
@@ -265,25 +268,22 @@ def _owned_source_or_error(user_id: int, trip_id: int) -> Trip:
     return trip
 
 
-def _reloadable_source_or_error(user_id: int, trip_id: int) -> Trip:
-    source = _owned_source_or_error(user_id, trip_id)
-    if not _is_reloadable_source(source):
-        raise ReloadServiceError("viaggio non ricaricabile")
-    return source
 
-
+# Controlla il flag is reloadble del trip
 def _is_reloadable_source(source: Trip) -> bool:
     return source.is_reloadable and source.status in [
         Trip.Status.CLOSED,
         Trip.Status.PROCESSED,
     ]
 
+# Funzione che cerca il trip e indica se è ricaricabile
+def _reloadable_source_or_error(user_id: int, trip_id: int) -> Trip:
+    source = _owned_source_or_error(user_id, trip_id)
+    if not _is_reloadable_source(source):
+        raise ReloadServiceError("viaggio non ricaricabile")
+    return source
 
-def _reload_client_session_id(user_id: int, source_trip_id: int, request_id: str) -> str:
-    key = f"{user_id}:{source_trip_id}:{request_id}".encode("utf-8")
-    return f"reload-{hashlib.sha256(key).hexdigest()[:57]}"
-
-
+# Parto da un viaggio e restituisco un oggetto che contiene lista di punti, lista di transizioni, start e end di quel trip
 def _source_timeline(source: Trip) -> ReloadTimeline:
     source_points = list(source.gps_points.order_by("timestamp"))
     source_transitions = list(source.state_transitions.order_by("timestamp"))
@@ -305,10 +305,8 @@ def _source_timeline(source: Trip) -> ReloadTimeline:
     )
 
 
-def _user_trip_overlaps(user_id: int, start: datetime, end: datetime) -> bool:
-    return trips_repository.trip_overlaps_window(user_id, start=start, end=end)
 
-
+# Controllo finale extra se lo slot selezionato è effettivamente disponibile
 def _ensure_reload_slot_available(
     user_id: int,
     start: datetime,
@@ -317,16 +315,70 @@ def _ensure_reload_slot_available(
 ) -> None:
     if end > now:
         raise ReloadServiceError("scegli uno slot nel passato")
-    if _user_trip_overlaps(user_id, start, end):
+    if trips_repository.trip_overlaps_window(user_id, start=start, end=end):
         raise ReloadServiceError("slot sovrapposto a un viaggio esistente")
 
 
-def _ceil_to_step(value: datetime, step_minutes: int) -> datetime:
+#Prende un orarioe lo arrotonda al prossimo "step" da 15 minuti
+def _round_up_to_next_step(moment: datetime, step_minutes: int) -> datetime:
     step_seconds = step_minutes * 60
-    timestamp = math.ceil(value.timestamp() / step_seconds) * step_seconds
+    timestamp = math.ceil(moment.timestamp() / step_seconds) * step_seconds
     return datetime.fromtimestamp(timestamp, tz=dt_timezone.utc)
 
 
+
+
+# Creo una lista di intervalli che non posso usare nei 14 giorni
+def _busy_intervals_within_window(
+    busy_rows,
+    *,
+    window_start: datetime,
+    now: datetime,
+) -> list[tuple[datetime, datetime]]:
+    intervals_in_window = []
+    for trip_start, trip_end in busy_rows:
+        if not trip_start:
+            continue
+        overlap_start = max(trip_start, window_start)
+        overlap_end = min(trip_end or now, now)
+        if overlap_start < overlap_end:
+            intervals_in_window.append((overlap_start, overlap_end))
+    return intervals_in_window
+
+## Per tutti e 14 giorni, gli va a levare gli slot non disponibili
+def _free_intervals(
+    busy: list[tuple[datetime, datetime]],
+    *,
+    window_start: datetime,
+    now: datetime,
+) -> list[tuple[datetime, datetime]]:
+    free_intervals = []
+    next_free_start = window_start
+    for busy_start, busy_end in busy:
+        if busy_start > next_free_start:
+            free_intervals.append((next_free_start, busy_start))
+        next_free_start = max(next_free_start, busy_end)
+    if next_free_start < now:
+        free_intervals.append((next_free_start, now))
+    return free_intervals
+
+
+#Per ogni singolo buco libero trovato nei 14 giorni, ci trovo dei possibili slot considerando la durata del trip
+def _candidate_slots_in_interval(
+    free_start: datetime,
+    free_end: datetime,
+    *,
+    duration: timedelta,
+    step_minutes: int,
+) -> list[dict[str, datetime]]:
+    slots = []
+    candidate = _round_up_to_next_step(free_start, step_minutes)
+    while candidate + duration <= free_end:
+        slots.append({"started_at": candidate, "ended_at": candidate + duration})
+        candidate += timedelta(minutes=step_minutes)
+    return slots
+
+# Sapendo quanto è la duration del viaggio, calcolo gli slot disponibili
 def _reload_slot_candidates(
     *,
     user_id: int,
@@ -336,41 +388,25 @@ def _reload_slot_candidates(
     step_minutes: int,
     limit: int,
 ) -> list[dict[str, datetime]]:
-    window_start = now - timedelta(days=max(1, min(days, 30)))
-    step_minutes = max(5, min(step_minutes, 60))
-    limit = max(1, min(limit, 500))
+    window_start = now - timedelta(days)
+
     busy_rows = trips_repository.trip_busy_intervals(
         user_id, before=now, active_after=window_start
     )
-    busy = [
-        (max(start, window_start), min(end or now, now))
-        for start, end in busy_rows
-        if start and max(start, window_start) < min(end or now, now)
-    ]
-    free: list[tuple[datetime, datetime]] = []
-    cursor = window_start
-    for start, end in busy:
-        if start > cursor:
-            free.append((cursor, start))
-        if end > cursor:
-            cursor = end
-    if cursor < now:
-        free.append((cursor, now))
+    busy = _busy_intervals_within_window(busy_rows, window_start=window_start, now=now)
+    free = _free_intervals(busy, window_start=window_start, now=now)
 
-    slots: list[dict[str, datetime]] = []
-    for free_start, free_end in free:
-        candidate = _ceil_to_step(free_start, step_minutes)
-        while candidate + duration <= free_end:
-            slots.append(
-                {
-                    "started_at": candidate,
-                    "ended_at": candidate + duration,
-                }
-            )
-            candidate += timedelta(minutes=step_minutes)
+    slots = [
+        slot
+        for free_start, free_end in free
+        for slot in _candidate_slots_in_interval(
+            free_start, free_end, duration=duration, step_minutes=step_minutes
+        )
+    ]
     return list(reversed(slots[-limit:]))
 
 
+# Per il nuovo trip, inserisce tutti i punti gps e i cambiamenti di stato del vecchio viaggio con i timestamp shiftati
 def _copy_core_evidence(
     timeline: ReloadTimeline,
     trip: Trip,
@@ -402,14 +438,8 @@ def _copy_core_evidence(
         ]
     )
 
-
+#Recupera tutte le righe TripUploadPart e con una chiamata head controlla se i dati sono presenti nello storage
 def _ensure_source_raw_objects_available(source: Trip) -> int:
-    """Preflight leggero prima di creare un derivato.
-
-    Il contenuto viene trasformato dal worker, ma la POST conserva il contratto
-    forte del Ricaricamento Diretto: se una parte dichiarata non esiste piu',
-    nessun viaggio parziale viene creato.
-    """
     parts = list(upload_repository.completed_raw_parts_for_trip(source))
     if not parts:
         raise ReloadServiceError("telemetrie sorgente non disponibili")

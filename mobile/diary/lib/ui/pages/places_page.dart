@@ -4,7 +4,7 @@ import 'package:diary/repositories/places_repository.dart';
 import 'package:diary/routers/app_router.dart';
 import 'package:diary/state_management/cubits/places_cubit/places_cubit.dart';
 import 'package:diary/state_management/cubits/places_cubit/places_cubit_state.dart';
-import 'package:diary/theme/color_palette.dart';
+import 'package:diary/theme/semantic_colors.dart';
 import 'package:diary/theme/dimensions.dart';
 import 'package:diary/ui/pages/place_presenter.dart';
 import 'package:diary/ui/widgets/state_message.dart';
@@ -91,7 +91,7 @@ class _PlaceMiningBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       margin: const EdgeInsets.only(bottom: Dimensions.paddingMedium),
-      color: ColorPalette.warning.withValues(alpha: 0.14),
+      color: Theme.of(context).extension<SemanticColors>()!.warning.withValues(alpha: 0.14),
       child: Padding(
         padding: const EdgeInsets.all(Dimensions.paddingMedium),
         child: Column(
@@ -157,7 +157,7 @@ class _PlaceCard extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.only(bottom: Dimensions.paddingSmall),
       child: ListTile(
-        leading: Icon(placeStateIcon(place), color: placeStateColor(place)),
+        leading: Icon(placeStateIcon(place), color: placeStateColor(place, sem: Theme.of(context).extension<SemanticColors>()!)),
         title: Text(
           place.label,
           style: const TextStyle(fontWeight: FontWeight.w700),

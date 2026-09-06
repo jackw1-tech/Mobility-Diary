@@ -68,14 +68,8 @@ abstract class AcquisitionTrackingRepository {
 
   Future<void> ingestEvent(TrackingEvent event);
 
-  /// Percorso GPS accettato della sessione di tracking attualmente ripristinata,
-  /// in ordine cronologico. Vuoto se non si sta tracciando. Serve a ridisegnare
-  /// subito la polyline sulla mappa quando si riapre l'app su un viaggio in corso.
   Future<List<AcquisitionRoutePoint>> currentSessionRoute();
 
-  /// Ultima finestra sensori (500x6) della sessione di tracking reale in corso,
-  /// per la classificazione live dell'assistente di percorso. Vuota se non c'e'
-  /// un Viaggio in Corso reale (il replay non persiste su SQLite).
   Future<List<List<double>>> currentSensorWindow();
 
   void dispose();

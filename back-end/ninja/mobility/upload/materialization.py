@@ -84,7 +84,7 @@ def materialize_inline_core_upload(
     )
 
 """ 
-A partire da una lista di punti gps, costruisce una LineString 
+A partire da una lista di punti gps, costruisce la LineString dell'intero Trip
 """
 def build_trip_path(trip: Trip) -> int:
     """Deriva la LineString del viaggio dai GPS ordinati nel DB."""
@@ -100,7 +100,7 @@ def build_trip_path(trip: Trip) -> int:
         trip.save(update_fields=["path", "distance_meters", "updated_at"])
         return len(coords)
 
-    trip.path = LineString(coords, srid=4326)
+    trip.path = LineString(coords, srid=4326) #(longitudine, latitudine)
     trip.distance_meters = None
     trip.save(update_fields=["path", "distance_meters", "updated_at"])
 

@@ -6,7 +6,6 @@ import 'package:diary/repositories/privacy_settings_repository.dart';
 import 'package:diary/state_management/cubits/auth_cubit/auth_cubit.dart';
 import 'package:diary/state_management/cubits/auth_cubit/auth_cubit_state.dart';
 import 'package:diary/state_management/cubits/privacy_settings_cubit/privacy_settings_cubit.dart';
-import 'package:diary/theme/color_palette.dart';
 import 'package:diary/theme/dimensions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -22,7 +21,6 @@ class ProfilePage extends StatelessWidget {
           PrivacySettingsCubit(context.read<PrivacySettingsRepository>())
             ..load(),
       child: Scaffold(
-        backgroundColor: ColorPalette.background,
         appBar: AppBar(title: const Text('Profilo')),
         body: SafeArea(
           child: ListView(
@@ -151,17 +149,18 @@ class _InlineError extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final errorColor = Theme.of(context).colorScheme.error;
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: ColorPalette.error.withValues(alpha: 0.08),
-        border: Border.all(color: ColorPalette.error.withValues(alpha: 0.3)),
+        color: errorColor.withValues(alpha: 0.08),
+        border: Border.all(color: errorColor.withValues(alpha: 0.3)),
         borderRadius: BorderRadius.circular(Dimensions.borderRadiusSmall),
       ),
       child: Padding(
         padding: const EdgeInsets.all(Dimensions.paddingSmall),
         child: Row(
           children: [
-            const Icon(Icons.error_outline, color: ColorPalette.error),
+            Icon(Icons.error_outline, color: errorColor),
             const SizedBox(width: Dimensions.paddingSmall),
             Expanded(child: Text(message)),
             IconButton(
@@ -217,7 +216,7 @@ class _Section extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: ColorPalette.surface,
+      color: Theme.of(context).colorScheme.surface,
       elevation: Dimensions.cardElevation,
       borderRadius: BorderRadius.circular(Dimensions.borderRadiusSmall),
       child: Padding(

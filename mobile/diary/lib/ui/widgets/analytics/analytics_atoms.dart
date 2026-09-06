@@ -1,4 +1,4 @@
-import 'package:diary/theme/color_palette.dart';
+
 import 'package:diary/theme/dimensions.dart';
 import 'package:diary/ui/pages/analytics_presenter.dart';
 import 'package:flutter/material.dart';
@@ -37,7 +37,7 @@ class AnalyticsSectionEmpty extends StatelessWidget {
       style: Theme.of(context)
           .textTheme
           .bodyMedium
-          ?.copyWith(color: ColorPalette.textSecondary),
+          ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
     );
   }
 }

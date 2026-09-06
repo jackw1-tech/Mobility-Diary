@@ -1,6 +1,6 @@
 import 'package:diary/state_management/cubits/trip_track_cubit/trip_track_cubit_state.dart';
-import 'package:diary/theme/color_palette.dart';
 import 'package:diary/theme/dimensions.dart';
+import 'package:diary/theme/semantic_colors.dart';
 import 'package:diary/ui/pages/trip_diary_presenter.dart';
 import 'package:diary/ui/pages/trip_map_presenter.dart';
 import 'package:diary/ui/widgets/trip_map/segment_details_sheet.dart';
@@ -205,6 +205,13 @@ class _TripTrackMapState extends State<TripTrackMap> {
           'duration_ms': stageWatch.elapsedMilliseconds,
         },
       );
+      if (!mounted) return;
+      final theme = Theme.of(context);
+      final isDark = theme.brightness == Brightness.dark;
+      final colorScheme = theme.colorScheme;
+      final semantic =
+          theme.extension<SemanticColors>() ?? SemanticColors.light;
+
       if (_showSegments && widget.state.segments.isNotEmpty) {
         final segments = widget.state.segments;
         final segmentWatch = Stopwatch()..start();
@@ -215,7 +222,7 @@ class _TripTrackMapState extends State<TripTrackMap> {
           final annotation = await _drawLine(
             lineManager,
             segment.points,
-            activityColor(segment.activityLabel),
+            activityColor(segment.activityLabel, colorScheme: colorScheme),
             isSelected: false,
           );
           if (_isStale(drawId, 'segment_draw')) return;
@@ -257,7 +264,7 @@ class _TripTrackMapState extends State<TripTrackMap> {
         await _drawLine(
           lineManager,
           points,
-          ColorPalette.primary,
+          colorScheme.primary,
           isSelected: false,
         );
         if (_isStale(drawId, 'raw_line_draw')) return;
@@ -285,9 +292,9 @@ class _TripTrackMapState extends State<TripTrackMap> {
             coordinates:
                 Position(points.first.longitude, points.first.latitude),
           ),
-          circleColor: ColorPalette.success.toARGB32(),
+          circleColor: semantic.success.toARGB32(),
           circleRadius: 7,
-          circleStrokeColor: Colors.white.toARGB32(),
+          circleStrokeColor: (isDark ? Colors.black : Colors.white).toARGB32(),
           circleStrokeWidth: 2,
         ),
       );
@@ -296,9 +303,9 @@ class _TripTrackMapState extends State<TripTrackMap> {
           geometry: Point(
             coordinates: Position(points.last.longitude, points.last.latitude),
           ),
-          circleColor: ColorPalette.error.toARGB32(),
+          circleColor: semantic.error.toARGB32(),
           circleRadius: 7,
-          circleStrokeColor: Colors.white.toARGB32(),
+          circleStrokeColor: (isDark ? Colors.black : Colors.white).toARGB32(),
           circleStrokeWidth: 2,
         ),
       );
@@ -310,9 +317,10 @@ class _TripTrackMapState extends State<TripTrackMap> {
             geometry: Point(
               coordinates: Position(place.longitude, place.latitude),
             ),
-            circleColor: Colors.black.toARGB32(),
+            circleColor: colorScheme.primary.toARGB32(),
             circleRadius: 6,
-            circleStrokeColor: Colors.white.toARGB32(),
+            circleStrokeColor:
+                (isDark ? Colors.black : Colors.white).toARGB32(),
             circleStrokeWidth: 2,
           ),
         );
@@ -407,11 +415,12 @@ class _TripTrackMapState extends State<TripTrackMap> {
     if (segment == null) return;
     await _highlightSelectedSegment(segmentKey(segment));
     if (!mounted) return;
+    final colorScheme = Theme.of(context).colorScheme;
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
       builder: (context) => SegmentDetailsSheet(
-        color: activityColor(segment.activityLabel),
+        color: activityColor(segment.activityLabel, colorScheme: colorScheme),
         activityLabel: activityLabelText(segment.activityLabel),
         distanceMeters: segment.distanceMeters,
         startTimestamp: segment.startTimestamp,
@@ -437,8 +446,11 @@ class _TripTrackMapState extends State<TripTrackMap> {
     await lineManager.deleteAll();
     _segmentByAnnotationId.clear();
 
+    if (!mounted) return;
+    final colorScheme = Theme.of(context).colorScheme;
     for (final segment in widget.state.segments) {
-      final color = activityColor(segment.activityLabel);
+      final color =
+          activityColor(segment.activityLabel, colorScheme: colorScheme);
       final isSelected = _selectedSegmentKey != null &&
           _selectedSegmentKey == segmentKey(segment);
       final annotation = await _drawLine(
@@ -482,12 +494,15 @@ class _TripTrackMapState extends State<TripTrackMap> {
     final points = widget.state.points;
     final hasEnrichmentBanner =
         widget.state.enrichmentPending || widget.state.enrichmentFailed;
+    final theme = Theme.of(context);
 
     return Stack(
       children: [
         MapWidget(
           key: const ValueKey('trip-track-map'),
-          styleUri: MapboxStyles.MAPBOX_STREETS,
+          styleUri: theme.brightness == Brightness.dark
+              ? MapboxStyles.DARK
+              : MapboxStyles.MAPBOX_STREETS,
           // ignore: deprecated_member_use
           cameraOptions: CameraOptions(
             center: Point(
@@ -500,16 +515,16 @@ class _TripTrackMapState extends State<TripTrackMap> {
           onStyleLoadedListener: _onStyleLoaded,
         ),
         if (widget.state.enrichmentPending)
-          const EnrichmentBanner(
+          EnrichmentBanner(
             icon: Icons.auto_awesome,
-            color: ColorPalette.info,
+            color: theme.colorScheme.primary,
             message: 'Analisi diario in corso',
             showProgress: true,
           ),
         if (widget.state.enrichmentFailed)
           EnrichmentBanner(
             icon: Icons.error_outline,
-            color: ColorPalette.error,
+            color: theme.colorScheme.error,
             message: widget.state.enrichmentErrorMessage ??
                 'Diario non disponibile per questo viaggio.',
           ),

@@ -49,6 +49,7 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
     );
   }
 
+  // Get dell'acquisition session
   Future<AcquisitionSession?> findSession(String id) {
     return (select(acquisitionSessions)
           ..where((session) => session.id.equals(id)))
@@ -275,8 +276,7 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
     return job?.localSessionId;
   }
 
-  /// Crea il SyncJob per la sessione se non esiste gia' (idempotente: un re-stop
-  /// non duplica il job). Ritorna il job esistente o quello appena creato.
+  /// Crea il SyncJob per la sessione oppure se esiste già returna quello in corso
   Future<SyncJob> createSyncJobIfAbsent(String localSessionId) async {
     final existing = await (select(syncJobs)
           ..where((j) => j.localSessionId.equals(localSessionId)))

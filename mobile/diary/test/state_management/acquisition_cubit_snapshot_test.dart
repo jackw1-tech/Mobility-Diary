@@ -57,6 +57,39 @@ void main() {
     expect(cubit.state.latestSigma, 1.25);
   });
 
+  test('live tracking publishes GPS points for the map route', () async {
+    final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+    final repository = AcquisitionRepositoryImpl(
+      database: database,
+      enableRuntime: false,
+    );
+    final cubit = AcquisitionCubit(
+      trackingRepository: repository,
+      syncRepository: repository,
+    );
+    addTearDown(() async {
+      await cubit.close();
+      repository.dispose();
+    });
+
+    await cubit.restoreActiveTrip();
+    await cubit.startTracking();
+    await cubit.ingestEvent(
+      GpsFixReceived(
+        timestamp: DateTime.utc(2026, 9, 4, 10),
+        latitude: 45.4642,
+        longitude: 9.19,
+        accuracyMeters: 5,
+        speedMetersPerSecond: 1.5,
+      ),
+    );
+
+    expect(cubit.state.isTracking, isTrue);
+    expect(cubit.state.routePoints, hasLength(1));
+    expect(cubit.state.routePoints.single.latitude, 45.4642);
+    expect(cubit.state.routePoints.single.longitude, 9.19);
+  });
+
   test('returns the finalized diagnostics report when live tracking stops',
       () async {
     final trackingRepository = _FakeTrackingRepository();
@@ -84,13 +117,74 @@ void main() {
 
     expect(await cubit.stopTracking(), same(report));
   });
+
+  test('coalesces concurrent live tracking starts', () async {
+    final startCompleter = Completer<void>();
+    final trackingRepository = _FakeTrackingRepository(
+      startCompleter: startCompleter,
+    );
+    final cubit = AcquisitionCubit(
+      trackingRepository: trackingRepository,
+      syncRepository: _FakeSyncRepository(),
+    );
+    addTearDown(() async {
+      await cubit.close();
+      await trackingRepository.close();
+    });
+    await Future<void>.delayed(Duration.zero);
+
+    final first = cubit.startTracking();
+    final second = cubit.startTracking();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(trackingRepository.startCalls, 1);
+
+    startCompleter.complete();
+    await Future.wait([first, second]);
+  });
+
+  test('coalesces concurrent live tracking stops', () async {
+    final stopCompleter = Completer<AcquisitionDiagnosticsReport?>();
+    final trackingRepository = _FakeTrackingRepository(
+      initialSnapshot: _trackingSnapshot(),
+      stopCompleter: stopCompleter,
+    );
+    final cubit = AcquisitionCubit(
+      trackingRepository: trackingRepository,
+      syncRepository: _FakeSyncRepository(),
+    );
+    addTearDown(() async {
+      await cubit.close();
+      await trackingRepository.close();
+    });
+    await Future<void>.delayed(Duration.zero);
+
+    final first = cubit.stopTracking();
+    final second = cubit.stopTracking();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(trackingRepository.stopCalls, 1);
+
+    stopCompleter.complete(null);
+    await Future.wait([first, second]);
+  });
 }
 
 class _FakeTrackingRepository implements AcquisitionTrackingRepository {
   final _snapshots =
       StreamController<AcquisitionSnapshot>.broadcast(sync: true);
-  AcquisitionSnapshot _currentSnapshot = AcquisitionSnapshot.idle();
+  late AcquisitionSnapshot _currentSnapshot;
+  final Completer<void>? startCompleter;
+  final Completer<AcquisitionDiagnosticsReport?>? stopCompleter;
   AcquisitionDiagnosticsReport? stopReport;
+  int startCalls = 0;
+  int stopCalls = 0;
+
+  _FakeTrackingRepository({
+    AcquisitionSnapshot? initialSnapshot,
+    this.startCompleter,
+    this.stopCompleter,
+  }) : _currentSnapshot = initialSnapshot ?? AcquisitionSnapshot.idle();
 
   @override
   Stream<AcquisitionSnapshot> get snapshots => _snapshots.stream;
@@ -103,7 +197,6 @@ class _FakeTrackingRepository implements AcquisitionTrackingRepository {
     _currentSnapshot = AcquisitionSnapshot(
       isTracking: true,
       trackingState: TrackingState.stationary,
-      samplingProfile: const SamplingProfile.stationary(),
       latestSigma: (event as MotionWindowEvaluated).sigma,
       latestSpeedMetersPerSecond: 0,
       lastTransition: null,
@@ -113,7 +206,10 @@ class _FakeTrackingRepository implements AcquisitionTrackingRepository {
   }
 
   @override
-  Future<void> startTracking() async {}
+  Future<void> startTracking() async {
+    startCalls += 1;
+    await startCompleter?.future;
+  }
 
   @override
   Future<void> startReplay(
@@ -123,7 +219,10 @@ class _FakeTrackingRepository implements AcquisitionTrackingRepository {
   }) async {}
 
   @override
-  Future<AcquisitionDiagnosticsReport?> stopTracking() async => stopReport;
+  Future<AcquisitionDiagnosticsReport?> stopTracking() {
+    stopCalls += 1;
+    return stopCompleter?.future ?? Future.value(stopReport);
+  }
 
   @override
   Future<ReplayStopResult> stopReplay() async {
@@ -141,6 +240,15 @@ class _FakeTrackingRepository implements AcquisitionTrackingRepository {
 
   Future<void> close() => _snapshots.close();
 }
+
+AcquisitionSnapshot _trackingSnapshot() => AcquisitionSnapshot(
+      isTracking: true,
+      trackingState: TrackingState.stationary,
+      latestSigma: 0,
+      latestSpeedMetersPerSecond: 0,
+      lastTransition: null,
+      updatedAt: DateTime.utc(2026, 9, 4, 10),
+    );
 
 class _FakeSyncRepository implements AcquisitionSyncRepository {
   @override

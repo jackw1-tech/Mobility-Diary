@@ -1,17 +1,11 @@
 import 'dart:convert';
 
-import 'package:diary/theme/color_palette.dart';
+import 'package:flutter/material.dart';
 import 'package:diary/ui/widgets/route_assistant_controls.dart';
 import 'package:latlong2/latlong.dart' as ll;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 
-/// Possiede i source/layer Mapbox della mappa live (percorso in
-/// registrazione, percorso del Route Assistant, marker di replay) e le
-/// relative operazioni di install/update. Costruita solo dopo che lo style
-/// e' caricato: la sua sola esistenza significa "pronta a disegnare".
 class LiveMapLayers {
-  LiveMapLayers._(this._map);
-
   static const String _liveRouteSourceId = 'live-route-source';
   static const String _liveRouteCasingLayerId = 'live-route-casing';
   static const String _liveRouteLayerId = 'live-route-line';
@@ -22,10 +16,26 @@ class LiveMapLayers {
   static const String _assistantRouteLayerId = 'route-assistant-line';
 
   final MapboxMap _map;
+  final int _primaryColor;
+  final int _surfaceColor;
+
+  LiveMapLayers._(this._map,
+      {required int primaryColor, required int surfaceColor})
+      : _primaryColor = primaryColor,
+        _surfaceColor = surfaceColor;
 
   /// Installa tutti i source/layer sullo style appena caricato.
-  static Future<LiveMapLayers> install(MapboxMap map) async {
-    final layers = LiveMapLayers._(map);
+  /// I colori vengono passati dal tema corrente.
+  static Future<LiveMapLayers> install(
+    MapboxMap map, {
+    required Color primary,
+    required Color surface,
+  }) async {
+    final layers = LiveMapLayers._(
+      map,
+      primaryColor: primary.toARGB32(),
+      surfaceColor: surface.toARGB32(),
+    );
     await layers._installLiveRouteLayer();
     await layers._installReplayMarkerLayer();
     await layers._installAssistantRouteLayer();
@@ -40,7 +50,7 @@ class LiveMapLayers {
     await _map.style.addLayer(LineLayer(
       id: _liveRouteCasingLayerId,
       sourceId: _liveRouteSourceId,
-      lineColor: ColorPalette.surface.toARGB32(),
+      lineColor: _surfaceColor,
       lineWidth: 8.0,
       lineJoin: LineJoin.ROUND,
       lineCap: LineCap.ROUND,
@@ -48,7 +58,7 @@ class LiveMapLayers {
     await _map.style.addLayer(LineLayer(
       id: _liveRouteLayerId,
       sourceId: _liveRouteSourceId,
-      lineColor: ColorPalette.primary.toARGB32(),
+      lineColor: _primaryColor,
       lineWidth: 4.5,
       lineJoin: LineJoin.ROUND,
       lineCap: LineCap.ROUND,
@@ -78,16 +88,16 @@ class LiveMapLayers {
     await _map.style.addLayer(CircleLayer(
       id: _replayMarkerHaloLayerId,
       sourceId: _replayMarkerSourceId,
-      circleColor: ColorPalette.primary.toARGB32(),
+      circleColor: _primaryColor,
       circleOpacity: 0.22,
       circleRadius: 18,
     ));
     await _map.style.addLayer(CircleLayer(
       id: _replayMarkerDotLayerId,
       sourceId: _replayMarkerSourceId,
-      circleColor: ColorPalette.primary.toARGB32(),
+      circleColor: _primaryColor,
       circleRadius: 8,
-      circleStrokeColor: ColorPalette.surface.toARGB32(),
+      circleStrokeColor: _surfaceColor,
       circleStrokeWidth: 3,
     ));
   }

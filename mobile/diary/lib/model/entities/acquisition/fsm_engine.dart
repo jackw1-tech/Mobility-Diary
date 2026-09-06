@@ -131,6 +131,10 @@ class AcquisitionFsm {
 
   double get latestSpeedMetersPerSecond => _latestGpsSpeedMetersPerSecond;
 
+  DateTime? get latestSigmaAt => _latestSigmaAt;
+
+  DateTime? get latestSpeedAt => _latestGpsSpeedAt;
+
   TrackingState? get currentState => _state;
 
   void forceState(TrackingState state, double sigma, double speedMps) {
@@ -239,19 +243,36 @@ class AcquisitionFsm {
     DateTime timestamp,
     FsmEvidenceMode evidenceMode,
   ) {
-    // Gps come primo filtro
     final gpsSpeed = _freshGpsSpeed(timestamp);
-    if (gpsSpeed == null) {
-      return MotionEvidence.uncertain;
-    }
 
     // Circa 2.5 m/s (9 km/h) -> Sono in auto o in bici, non ho bisogno dell'accellerometro
-    if (gpsSpeed >= config.vehicleGpsSpeedThresholdMps) {
+    if (gpsSpeed != null && gpsSpeed >= config.vehicleGpsSpeedThresholdMps) {
       return MotionEvidence.moving;
     }
 
     if (evidenceMode == FsmEvidenceMode.gpsOnly) {
-      return _gpsOnlyEvidence(gpsSpeed);
+      return gpsSpeed == null
+          ? MotionEvidence.uncertain
+          : _gpsOnlyEvidence(gpsSpeed);
+    }
+
+    if (_state == TrackingState.movement) {
+      final sigma = _freshSigma(timestamp);
+      if (sigma == null) {
+        return MotionEvidence.uncertain;
+      }
+      if (sigma < config.stationaryMotionSigmaThreshold) {
+        return MotionEvidence.stationary;
+      }
+      if (sigma >= config.movingMotionSigmaThreshold) {
+        return MotionEvidence.moving;
+      }
+      return MotionEvidence.uncertain;
+    }
+
+    // Sono fermo, do più importanza al gps per capire se mi sto muovendo
+    if (gpsSpeed == null) {
+      return MotionEvidence.uncertain;
     }
 
     final sigma = _freshSigma(timestamp);

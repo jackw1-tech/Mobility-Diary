@@ -1,7 +1,7 @@
 import 'dart:developer' as developer;
 
 /// Motore condiviso delle tracce diagnostiche temporanee (Dettaglio Viaggio,
-/// caricamento diretto delle tracce riutilizzabili, ...).
+/// Ricaricamento Diretto dei Viaggi Ricaricabili, ...).
 ///
 /// Ogni traccia e' legata a un id tecnico (l'id del viaggio) e produce righe
 /// di log con un prefisso dedicato, cosi' che l'intero flusso si estragga dai

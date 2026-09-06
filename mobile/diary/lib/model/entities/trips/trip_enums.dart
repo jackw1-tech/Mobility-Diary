@@ -1,6 +1,6 @@
 enum TripStatus {
-  processed('PROCESSED'),
-  processing('PROCESSING'),
+  enriched('PROCESSED'),
+  enriching('PROCESSING'),
   failed('FAILED'),
   unknown('');
 
@@ -18,7 +18,7 @@ enum TripStatus {
 
 enum TripDiaryStatus {
   closed('CLOSED'),
-  processed('PROCESSED'),
+  enriched('PROCESSED'),
   pending('PENDING'),
   failed('FAILED'),
   unknown('');

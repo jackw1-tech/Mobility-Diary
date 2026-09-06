@@ -3,7 +3,7 @@ import 'package:diary/model/entities/places/place_review.dart';
 import 'package:diary/repositories/places_repository.dart';
 import 'package:diary/state_management/cubits/place_detail_cubit/place_detail_cubit.dart';
 import 'package:diary/state_management/cubits/place_detail_cubit/place_detail_state.dart';
-import 'package:diary/theme/color_palette.dart';
+import 'package:diary/theme/semantic_colors.dart';
 import 'package:diary/theme/dimensions.dart';
 import 'package:diary/ui/pages/place_presenter.dart';
 import 'package:flutter/material.dart';
@@ -41,7 +41,7 @@ class _PlaceDetailView extends StatelessWidget {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(state.error!),
-            backgroundColor: ColorPalette.error,
+            backgroundColor: Theme.of(context).colorScheme.error,
           ),
         );
       },
@@ -91,6 +91,14 @@ class _PlaceMapState extends State<_PlaceMap> {
     if (map == null || !_styleReady) return;
     final place = widget.place;
 
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final onSurfaceVariantColor =
+        Theme.of(context).colorScheme.onSurfaceVariant.toARGB32();
+    final sem =
+        Theme.of(context).extension<SemanticColors>() ?? SemanticColors.light;
+    final stateColor = placeStateColor(place, sem: sem).toARGB32();
+    final strokeColor = (isDark ? Colors.black : Colors.white).toARGB32();
+
     final circleManager = await map.annotations.createCircleAnnotationManager();
     // Evidenza: ogni visita di supporto come punto neutro.
     for (final visit in place.visits) {
@@ -98,9 +106,9 @@ class _PlaceMapState extends State<_PlaceMap> {
         CircleAnnotationOptions(
           geometry:
               Point(coordinates: Position(visit.longitude, visit.latitude)),
-          circleColor: ColorPalette.textSecondary.toARGB32(),
+          circleColor: onSurfaceVariantColor,
           circleRadius: 6,
-          circleStrokeColor: Colors.white.toARGB32(),
+          circleStrokeColor: strokeColor,
           circleStrokeWidth: 2,
         ),
       );
@@ -109,9 +117,9 @@ class _PlaceMapState extends State<_PlaceMap> {
     await circleManager.create(
       CircleAnnotationOptions(
         geometry: Point(coordinates: Position(place.longitude, place.latitude)),
-        circleColor: placeStateColor(place).toARGB32(),
+        circleColor: stateColor,
         circleRadius: 11,
-        circleStrokeColor: Colors.white.toARGB32(),
+        circleStrokeColor: strokeColor,
         circleStrokeWidth: 3,
       ),
     );
@@ -136,7 +144,9 @@ class _PlaceMapState extends State<_PlaceMap> {
     final place = widget.place;
     return MapWidget(
       key: const ValueKey('place-detail-map'),
-      styleUri: MapboxStyles.MAPBOX_STREETS,
+      styleUri: Theme.of(context).brightness == Brightness.dark
+          ? MapboxStyles.DARK
+          : MapboxStyles.MAPBOX_STREETS,
       // ignore: deprecated_member_use
       cameraOptions: CameraOptions(
         center: Point(coordinates: Position(place.longitude, place.latitude)),
@@ -168,7 +178,7 @@ class _PlaceEvidencePanel extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(placeStateIcon(place), color: placeStateColor(place)),
+              Icon(placeStateIcon(place), color: placeStateColor(place, sem: Theme.of(context).extension<SemanticColors>()!)),
               const SizedBox(width: Dimensions.paddingSmall),
               Text(
                 placeStateLabel(place.state),
@@ -182,7 +192,7 @@ class _PlaceEvidencePanel extends StatelessWidget {
           Text(
             placeWhyProposed(place),
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: ColorPalette.textSecondary,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
           ),
         ],
@@ -218,7 +228,7 @@ class _PlaceActionBar extends StatelessWidget {
             'Review temporaneamente bloccata: l’analisi dei luoghi non e\' ancora pronta.',
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: ColorPalette.textSecondary,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
           ),
         ),

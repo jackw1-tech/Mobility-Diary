@@ -2,10 +2,10 @@ import 'acquisition_diagnostics_report.dart';
 
 class ReplayStopResult {
   final int? tripId;
-
   const ReplayStopResult({required this.tripId});
 }
 
+// Classe che trasporta i dati finali di una AcquisitionStrategy (Live/Replay) quando si chiude
 class AcquisitionStopResult {
   final String? syncSessionId;
   final ReplayStopResult? replayResult;

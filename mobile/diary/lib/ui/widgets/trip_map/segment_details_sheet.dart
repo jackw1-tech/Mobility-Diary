@@ -1,4 +1,3 @@
-import 'package:diary/theme/color_palette.dart';
 import 'package:diary/theme/dimensions.dart';
 import 'package:diary/ui/pages/trip_diary_presenter.dart';
 import 'package:flutter/material.dart';
@@ -23,6 +22,8 @@ class SegmentDetailsSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final duration = endTimestamp.difference(startTimestamp);
+    final secondaryColor = Theme.of(context).colorScheme.onSurfaceVariant;
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         Dimensions.paddingLarge,
@@ -37,7 +38,7 @@ class SegmentDetailsSheet extends StatelessWidget {
           Text(
             'Segmento del diario',
             style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: ColorPalette.textSecondary,
+                  color: secondaryColor,
                   fontWeight: FontWeight.w700,
                 ),
           ),
@@ -66,7 +67,7 @@ class SegmentDetailsSheet extends StatelessWidget {
                     Text(
                       'Il sistema ha riconosciuto questo tratto come $activityLabel.',
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: ColorPalette.textSecondary,
+                            color: secondaryColor,
                           ),
                     ),
                   ],
@@ -106,16 +107,18 @@ class _DetailRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final secondaryColor = Theme.of(context).colorScheme.onSurfaceVariant;
+
     return Row(
       children: [
-        Icon(icon, size: 18, color: ColorPalette.textSecondary),
+        Icon(icon, size: 18, color: secondaryColor),
         const SizedBox(width: Dimensions.paddingSmall),
         SizedBox(
           width: 72,
           child: Text(
             label,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: ColorPalette.textSecondary,
+                  color: secondaryColor,
                   fontWeight: FontWeight.w700,
                 ),
           ),

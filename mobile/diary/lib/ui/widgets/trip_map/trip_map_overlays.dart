@@ -1,4 +1,3 @@
-import 'package:diary/theme/color_palette.dart';
 import 'package:diary/theme/dimensions.dart';
 import 'package:diary/ui/pages/trip_diary_presenter.dart';
 import 'package:flutter/material.dart';
@@ -26,7 +25,7 @@ class EnrichmentBanner extends StatelessWidget {
       top: Dimensions.paddingMedium,
       right: Dimensions.paddingMedium,
       child: Material(
-        color: ColorPalette.surface,
+        color: Theme.of(context).colorScheme.surface,
         elevation: Dimensions.cardElevation,
         borderRadius: BorderRadius.circular(Dimensions.borderRadiusMedium),
         child: ClipRRect(
@@ -74,7 +73,7 @@ class ViewModeToggle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: ColorPalette.surface,
+      color: Theme.of(context).colorScheme.surface,
       elevation: Dimensions.cardElevation,
       borderRadius: BorderRadius.circular(Dimensions.borderRadiusLarge),
       child: Padding(
@@ -110,7 +109,7 @@ class DistanceOverlay extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(Dimensions.borderRadiusLarge),
         boxShadow: [
           BoxShadow(
@@ -124,7 +123,7 @@ class DistanceOverlay extends StatelessWidget {
         padding: const EdgeInsets.all(Dimensions.paddingMedium),
         child: Row(
           children: [
-            const Icon(Icons.route, color: ColorPalette.primary),
+            Icon(Icons.route, color: Theme.of(context).colorScheme.primary),
             const SizedBox(width: Dimensions.paddingSmall),
             Text(
               formatDistance(distanceMeters),

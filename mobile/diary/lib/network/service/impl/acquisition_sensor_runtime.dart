@@ -3,6 +3,7 @@ import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:diary/model/entities/acquisition/acquisition_domain.dart';
+import 'package:diary/network/service/impl/gps_speed_estimator.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart' as ph;
 import 'package:sensors_plus/sensors_plus.dart';
@@ -16,6 +17,7 @@ class AcquisitionSensorRuntime {
 
   final List<AccelerationSample> _accelerationWindow = [];
   final List<HarSensorSample> _harWindowSamples = [];
+  final GpsSpeedEstimator _gpsSpeedEstimator = GpsSpeedEstimator();
 
   StreamSubscription<AccelerometerEvent>? _accelerometerSubscription;
   StreamSubscription<GyroscopeEvent>? _gyroscopeSubscription;
@@ -26,7 +28,24 @@ class AcquisitionSensorRuntime {
   HarWindowCallback? _onHarWindow;
   SamplingProfile? _currentSamplingProfile;
   bool _isStarted = false;
-  bool _gpsRestartPending = false;
+
+  // Contatore diagnostico: incrementato ad OGNI callback grezza
+  // dell'accelerometro, indipendentemente dal completamento di una finestra.
+  // Serve a distinguere "l'OS ha smesso di consegnare eventi" (es. app in
+  // background) da "gli eventi arrivano ma la finestra non si completa".
+  int _rawAccelerometerEventCount = 0;
+  DateTime? _latestRawAccelerometerEventAt;
+
+  int get rawAccelerometerEventCount => _rawAccelerometerEventCount;
+  DateTime? get latestRawAccelerometerEventAt => _latestRawAccelerometerEventAt;
+
+  // Stessa logica del contatore raw: totali assoluti, non "quante volte la UI
+  // si e' ridisegnata" — cosi' non si perdono conteggi se la UI salta frame.
+  int _completedSigmaWindowCount = 0;
+  int _gpsFixCount = 0;
+
+  int get completedSigmaWindowCount => _completedSigmaWindowCount;
+  int get gpsFixCount => _gpsFixCount;
 
   /// Blocca l acquisizione nel caso non ci sia il permesso Always
   Future<bool> hasAcquisitionLocationPermission() =>
@@ -40,14 +59,17 @@ class AcquisitionSensorRuntime {
     _onEvent = onEvent;
     _onHarWindow = onHarWindow;
     _isStarted = true;
+    _rawAccelerometerEventCount = 0;
+    _latestRawAccelerometerEventAt = null;
+    _completedSigmaWindowCount = 0;
+    _gpsFixCount = 0;
+    _gpsSpeedEstimator.reset();
     await configure(profile);
+    await _restartGps(profile);
   }
 
   // funzione da chiamare quando il profilo di sempling cambia
-  Future<void> configure(
-    SamplingProfile profile, {
-    bool allowGpsRestart = true,
-  }) async {
+  Future<void> configure(SamplingProfile profile) async {
     if (!_isStarted) {
       return;
     }
@@ -67,36 +89,11 @@ class AcquisitionSensorRuntime {
     if (previousProfile?.harWindowEnabled != profile.harWindowEnabled) {
       _resetHarWindow();
     }
-
-    // Stationary <> Movement: 5s <> 2s
-    final gpsChanged = previousProfile?.gpsInterval != profile.gpsInterval;
-
-    if (gpsChanged || _gpsRestartPending) {
-      // Se siamo in background non voglio far riavviare il gps
-      if (allowGpsRestart) {
-        _gpsRestartPending = false;
-        await _restartGps(profile);
-      } else {
-        // Se siamo in background, non riavvio il gps ma segno che al prossimo foreground lo devo fare
-        _gpsRestartPending = true;
-      }
-    }
-  }
-
-  /// Applica in foreground il riavvio GPS.
-  Future<void> applyPendingGpsRestart() async {
-    final profile = _currentSamplingProfile;
-    if (!_isStarted || !_gpsRestartPending || profile == null) {
-      return;
-    }
-    _gpsRestartPending = false;
-    await _restartGps(profile);
   }
 
   Future<void> stop() async {
     _isStarted = false;
     _currentSamplingProfile = null;
-    _gpsRestartPending = false;
     _onEvent = null;
     _onHarWindow = null;
     _accelerationWindow.clear();
@@ -107,6 +104,7 @@ class AcquisitionSensorRuntime {
     _accelerometerSubscription = null;
     _gyroscopeSubscription = null;
     _positionSubscription = null;
+    _gpsSpeedEstimator.reset();
     _latestGyroscopeEvent = null;
   }
 
@@ -225,6 +223,9 @@ class AcquisitionSensorRuntime {
       return;
     }
 
+    _rawAccelerometerEventCount++;
+    _latestRawAccelerometerEventAt = DateTime.now().toUtc();
+
     _accelerationWindow.add(
       AccelerationSample(
         x: event.x,
@@ -242,6 +243,7 @@ class AcquisitionSensorRuntime {
 
     final window = List<AccelerationSample>.from(_accelerationWindow);
     _accelerationWindow.clear();
+    _completedSigmaWindowCount++;
     final sigma = MotionMetrics.accelerationMagnitudeSigma(window);
 
     // LiveAcquisitionStrategy -> ingestEvent
@@ -313,13 +315,24 @@ class AcquisitionSensorRuntime {
       return;
     }
 
+    _gpsFixCount++;
     final timestamp = position.timestamp.toUtc();
-    await onEvent(
-      GpsFixReceived.fromPlatform(
+    final speedMetersPerSecond = _gpsSpeedEstimator.add(
+      GpsSpeedFix(
         timestamp: timestamp,
         latitude: position.latitude,
         longitude: position.longitude,
         accuracyMeters: position.accuracy,
+        platformSpeedMetersPerSecond: position.speed,
+      ),
+    );
+    await onEvent(
+      GpsFixReceived(
+        timestamp: timestamp,
+        latitude: position.latitude,
+        longitude: position.longitude,
+        accuracyMeters: position.accuracy,
+        speedMetersPerSecond: speedMetersPerSecond,
         platformSpeedMetersPerSecond: position.speed,
       ),
     );
@@ -330,13 +343,12 @@ class AcquisitionSensorRuntime {
     SamplingProfile profile,
     int distanceFilter,
   ) {
-    final interval = profile.gpsInterval;
     const accuracy = LocationAccuracy.high;
-    if (Platform.isAndroid && interval != null) {
+    if (Platform.isAndroid) {
       return AndroidSettings(
         accuracy: accuracy,
         distanceFilter: distanceFilter,
-        intervalDuration: interval,
+        intervalDuration: Duration.zero,
         foregroundNotificationConfig: const ForegroundNotificationConfig(
           notificationTitle: 'Mobility Diary attivo',
           notificationText:

@@ -1,4 +1,3 @@
-import 'package:diary/theme/color_palette.dart';
 import 'package:diary/theme/dimensions.dart';
 import 'package:flutter/material.dart';
 
@@ -36,7 +35,10 @@ class TrackError extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.error_outline, color: ColorPalette.error),
+            Icon(
+              Icons.error_outline,
+              color: Theme.of(context).colorScheme.error,
+            ),
             const SizedBox(height: Dimensions.paddingSmall),
             Text(
               message,

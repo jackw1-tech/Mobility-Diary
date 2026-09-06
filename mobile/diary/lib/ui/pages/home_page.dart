@@ -9,8 +9,9 @@ import 'package:diary/state_management/cubits/route_assistant_cubit/route_assist
 import 'package:diary/state_management/cubits/route_assistant_cubit/route_assistant_cubit_state.dart';
 import 'package:diary/routers/app_router.dart';
 import 'package:diary/theme/dimensions.dart';
-import 'package:diary/theme/color_palette.dart';
+import 'package:diary/theme/semantic_colors.dart';
 import 'package:diary/ui/pages/auth_page.dart';
+import 'package:diary/ui/pages/home_acquisition_rebuild.dart';
 import 'package:diary/ui/pages/home_sync_presenter.dart';
 import 'package:diary/ui/widgets/home/core_metrics.dart';
 import 'package:diary/ui/widgets/home/home_map_overlays.dart';
@@ -92,7 +93,8 @@ class _AuthenticatedHomePageState extends State<_AuthenticatedHomePage> {
             current.syncSnapshot,
           ),
           listener: (context, state) {
-            final snack = syncDebugSnackBar(state.syncSnapshot);
+            final sem = Theme.of(context).extension<SemanticColors>()!;
+            final snack = syncDebugSnackBar(state.syncSnapshot, sem: sem);
             if (snack != null) {
               ScaffoldMessenger.of(context).showSnackBar(snack);
             }
@@ -111,9 +113,7 @@ class _AuthenticatedHomePageState extends State<_AuthenticatedHomePage> {
         ),
       ],
       child: BlocBuilder<AcquisitionCubit, AcquisitionCubitState>(
-        buildWhen: (previous, current) =>
-            previous.snapshot.replaySecondsRemaining !=
-            current.snapshot.replaySecondsRemaining,
+        buildWhen: shouldRebuildHomeForAcquisition,
         builder: (context, state) {
           return Scaffold(
             drawer: const TripsDrawer(),
@@ -182,16 +182,17 @@ class _AuthenticatedHomePageState extends State<_AuthenticatedHomePage> {
                         minChildSize: _minSheetExtent,
                         maxChildSize: _maxSheetExtent,
                         builder: (context, scrollController) {
+                          final sem = Theme.of(context).extension<SemanticColors>()!;
                           return DecoratedBox(
-                            decoration: const BoxDecoration(
-                              color: ColorPalette.background,
-                              borderRadius: BorderRadius.vertical(
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).scaffoldBackgroundColor,
+                              borderRadius: const BorderRadius.vertical(
                                 top: Radius.circular(
                                   Dimensions.borderRadiusLarge,
                                 ),
                               ),
                               border: Border(
-                                top: BorderSide(color: ColorPalette.hairline),
+                                top: BorderSide(color: sem.hairline),
                               ),
                             ),
                             child: ListView(
@@ -232,7 +233,6 @@ class _AuthLoadingPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const Scaffold(
-      backgroundColor: ColorPalette.background,
       body: Center(
         child: CircularProgressIndicator(),
       ),

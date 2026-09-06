@@ -32,14 +32,8 @@ def _public_client():
 def bucket_name() -> str:
     return settings.S3_BUCKET_NAME
 
-
+# Nome del file
 def raw_part_object_key(base_path: str, sequence: int) -> str:
-    """Percorso di una parte raw nel bucket.
-
-    Unico punto in cui vive il nome: lo usano sia l'upload dal mobile
-    (presign) sia la rigenerazione bucket-to-bucket del replay, che devono
-    per forza concordare.
-    """
     return f"{base_path}sensor_windows_part_{sequence:04d}.json.gz"
 
 
@@ -77,6 +71,7 @@ def read_object(object_key: str) -> bytes:
     return response["Body"].read()
 
 
+# Scrittura sullo storage
 def write_object(
     object_key: str,
     body: bytes,

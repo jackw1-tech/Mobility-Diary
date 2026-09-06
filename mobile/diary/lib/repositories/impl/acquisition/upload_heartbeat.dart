@@ -7,7 +7,6 @@ typedef HeartbeatTimerFactory = Timer Function(
   void Function(Timer timer) callback,
 );
 
-/// Coordinate della sessione remota da tenere viva.
 class HeartbeatTarget {
   final int uploadId;
   final String clientSessionId;
@@ -20,11 +19,6 @@ class HeartbeatTarget {
   });
 }
 
-/// Tiene viva l'upload sul backend mentre il viaggio e' in corso.
-///
-/// Bersaglio e stato di tracking vengono riletti a ogni battito invece di
-/// essere catturati all'avvio del timer: la sessione puo' cambiare (resume,
-/// stop, recupero da conflitto) mentre il timer e' gia' in piedi.
 class UploadHeartbeat {
   final TripUploadService? _service;
   final Duration _interval;
@@ -70,9 +64,7 @@ class UploadHeartbeat {
         clientSessionId: target.clientSessionId,
         deviceId: target.deviceId,
       );
-    } catch (_) {
-      // Heartbeat best-effort: non deve mai fermare i sensori locali.
-    }
+    } catch (_) {}
   }
 
   void cancel() => _timer?.cancel();

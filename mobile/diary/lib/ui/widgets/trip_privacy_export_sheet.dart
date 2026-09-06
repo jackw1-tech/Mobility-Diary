@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:diary/model/entities/privacy/trip_privacy_export.dart';
 import 'package:diary/repositories/trip_privacy_export_repository.dart';
 import 'package:diary/state_management/cubits/trip_privacy_export_cubit/trip_privacy_export_cubit.dart';
-import 'package:diary/theme/color_palette.dart';
+import 'package:diary/theme/semantic_colors.dart';
 import 'package:diary/theme/dimensions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -81,7 +81,7 @@ class _ReadyView extends StatelessWidget {
       children: [
         Row(
           children: [
-            const Icon(Icons.ios_share, color: ColorPalette.primary),
+            Icon(Icons.ios_share, color: Theme.of(context).colorScheme.primary),
             const SizedBox(width: Dimensions.paddingSmall),
             Expanded(
               child: Text(
@@ -103,31 +103,17 @@ class _ReadyView extends StatelessWidget {
           'Livello privacy: ${export.level.label}',
           style: textTheme.bodyMedium,
         ),
-        if (export.approximatedCoordinates)
-          Padding(
-            padding: const EdgeInsets.only(top: Dimensions.paddingXSmall),
-            child: Text(
-              'Le coordinate sono approssimate: non sono letture GPS originali.',
-              style: textTheme.bodySmall
-                  ?.copyWith(color: ColorPalette.textSecondary),
-            ),
-          )
-        else
-          Padding(
-            padding: const EdgeInsets.only(top: Dimensions.paddingXSmall),
-            child: Text(
-              'Export NON protetto: condividilo solo con destinatari fidati.',
-              style: textTheme.bodySmall?.copyWith(color: ColorPalette.warning),
-            ),
-          ),
         const SizedBox(height: Dimensions.paddingMedium),
         Expanded(
           child: DecoratedBox(
             decoration: BoxDecoration(
-              color: ColorPalette.surfaceSofter,
+              color:
+                  Theme.of(context).extension<SemanticColors>()!.surfaceSofter,
               borderRadius:
                   BorderRadius.circular(Dimensions.borderRadiusMedium),
-              border: Border.all(color: ColorPalette.hairline),
+              border: Border.all(
+                  color:
+                      Theme.of(context).extension<SemanticColors>()!.hairline),
             ),
             child: Scrollbar(
               child: SingleChildScrollView(
@@ -204,7 +190,8 @@ class _ProtectionChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = isProtected ? ColorPalette.success : ColorPalette.warning;
+    final sem = Theme.of(context).extension<SemanticColors>()!;
+    final color = isProtected ? sem.success : sem.warning;
     return Container(
       padding: const EdgeInsets.symmetric(
         horizontal: Dimensions.paddingSmall,
@@ -234,8 +221,8 @@ class _ErrorView extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.error_outline,
-              color: ColorPalette.textSecondary, size: 40),
+          Icon(Icons.error_outline,
+              color: Theme.of(context).colorScheme.onSurfaceVariant, size: 40),
           const SizedBox(height: Dimensions.paddingSmall),
           Text(message, textAlign: TextAlign.center),
           const SizedBox(height: Dimensions.paddingMedium),

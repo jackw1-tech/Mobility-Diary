@@ -5,7 +5,6 @@ import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubi
 import 'package:diary/state_management/cubits/trips_list_cubit/trips_list_cubit.dart';
 import 'package:diary/ui/widgets/trip_reload_sheets.dart';
 import 'package:diary/utils/trip_detail_diagnostics.dart';
-import 'package:diary/utils/trip_reload_diagnostics.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -99,77 +98,38 @@ Future<void> playTripLive(BuildContext context, TripListItem trip) async {
   }
 }
 
+// Funzione che viene eseguita quando esegup un caricamento diretto
 Future<void> startTripReload(BuildContext context, TripListItem trip) async {
-  final traceId = TripReloadDiagnostics.start(
-    trip.id,
-    source: 'drawer_direct_load_button',
-  );
-  TripReloadDiagnostics.event(
-    traceId,
-    'direct_load_tap',
-    fields: {'is_reloadable': trip.isReloadable, 'has_track': trip.hasTrack},
-  );
   final selectedStart = await pickReloadStart(context, trip);
-  if (selectedStart == null || !context.mounted) {
-    TripReloadDiagnostics.finish(
-      traceId,
-      reason: selectedStart == null ? 'slot_not_selected' : 'context_unmounted',
-    );
-    return;
-  }
-  TripReloadDiagnostics.event(traceId, 'cubit_reload_dispatched');
+  if (selectedStart == null || !context.mounted) return;
   final tripId = await context.read<TripsListCubit>().reloadTrip(
         trip.id,
         scheduledStartAt: selectedStart,
       );
-  if (!context.mounted) {
-    TripReloadDiagnostics.finish(traceId, reason: 'context_unmounted');
-    return;
-  }
+  if (!context.mounted) return;
   if (tripId == null) {
     final error = context.read<TripsListCubit>().state.reloadError;
-    TripReloadDiagnostics.event(
-      traceId,
-      'direct_load_failed',
-      fields: {'has_error_message': error != null},
-    );
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(error ?? 'Ricaricamento non riuscito')),
     );
-    TripReloadDiagnostics.finish(traceId, reason: 'reload_failed');
     return;
   }
-  TripReloadDiagnostics.event(
-    traceId,
-    'derived_trip_ready',
-    fields: {'derived_trip': tripId},
-  );
   Scaffold.of(context).closeDrawer();
-  TripReloadDiagnostics.event(traceId, 'drawer_close_dispatched');
-  // La traccia del viaggio derivato riparte sul flusso Dettaglio Viaggio:
-  // i due filtri di log si agganciano sullo stesso id di viaggio.
-  TripDetailDiagnostics.start(tripId, source: 'direct_load_reload');
+  // Il dettaglio mantiene una propria traccia tecnica legata al viaggio
+  // derivato, senza propagare diagnostica attraverso repository e HTTP.
+  TripDetailDiagnostics.start(tripId, source: 'direct_reload');
   context.router.push(TripDetailRoute(tripId: tripId));
-  TripReloadDiagnostics.event(traceId, 'route_push_dispatched');
-  TripReloadDiagnostics.finish(traceId, reason: 'detail_route_pushed');
 }
 
-/// Condivisa fra caricamento diretto e replay live: gli eventi diagnostici
-/// finiscono nella traccia solo se il chiamante ne ha aperta una per
-/// [trip], quindi il replay resta silenzioso.
+/// Funzione che mostra la lista di slot disponibili per replay o caricamento diretto
 Future<DateTime?> pickReloadStart(
   BuildContext context,
   TripListItem trip,
 ) async {
   final cubit = context.read<TripsListCubit>();
-  TripReloadDiagnostics.eventForTrip(trip.id, 'slot_pick_started');
   final slots = await cubit.loadReloadSlots(trip.id);
-  if (!context.mounted) {
-    TripReloadDiagnostics.eventForTrip(trip.id, 'slot_pick_context_unmounted');
-    return null;
-  }
+  if (!context.mounted) return null;
   if (slots == null) {
-    TripReloadDiagnostics.eventForTrip(trip.id, 'slot_pick_unavailable');
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(cubit.state.reloadError ?? 'Slot non disponibili'),
@@ -178,30 +138,16 @@ Future<DateTime?> pickReloadStart(
     return null;
   }
   if (slots.slots.isEmpty) {
-    TripReloadDiagnostics.eventForTrip(trip.id, 'slot_pick_empty');
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Nessuno slot libero nel passato')),
     );
     return null;
   }
-  TripReloadDiagnostics.eventForTrip(
-    trip.id,
-    'slot_sheet_opened',
-    fields: {
-      'slot_count': slots.slots.length,
-      'duration_seconds': slots.durationSeconds,
-    },
-  );
-  final selected = await showModalBottomSheet<DateTime>(
+  return showModalBottomSheet<DateTime>(
     context: context,
     showDragHandle: true,
     builder: (_) => ReloadSlotSheet(slots: slots.slots),
   );
-  TripReloadDiagnostics.eventForTrip(
-    trip.id,
-    selected == null ? 'slot_sheet_dismissed' : 'slot_selected',
-  );
-  return selected;
 }
 
 Future<double?> _pickReplaySpeed(BuildContext context) {
@@ -221,7 +167,6 @@ Future<void> _setNote(
     context,
     (cubit) => cubit.updateTripNote(trip.id, note),
     successMessage: 'Nota salvata',
-    fallbackError: 'Nota non salvata',
   );
 }
 
@@ -234,7 +179,6 @@ Future<void> _setReloadable(
     context,
     (cubit) => cubit.setTripReloadable(trip.id, value),
     successMessage: value ? 'Viaggio riutilizzabile' : 'Riutilizzo rimosso',
-    fallbackError: 'Modifica non riuscita',
   );
 }
 
@@ -243,22 +187,19 @@ Future<void> _delete(BuildContext context, TripListItem trip) async {
     context,
     (cubit) => cubit.deleteTrip(trip.id),
     successMessage: 'Viaggio eliminato',
-    fallbackError: 'Eliminazione non riuscita',
   );
 }
 
 Future<void> _runMutation(
   BuildContext context,
-  Future<bool> Function(TripsListCubit cubit) action, {
+  Future<String?> Function(TripsListCubit cubit) action, {
   required String successMessage,
-  required String fallbackError,
 }) async {
-  final ok = await action(context.read<TripsListCubit>());
+  final error = await action(context.read<TripsListCubit>());
   if (!context.mounted) return;
-  final state = context.read<TripsListCubit>().state;
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
-      content: Text(ok ? successMessage : state.mutationError ?? fallbackError),
+      content: Text(error ?? successMessage),
     ),
   );
 }

@@ -3,8 +3,6 @@ import 'tracking_state.dart';
 class SamplingProfile {
   final int accelerometerHz;
   final int gyroscopeHz;
-  final Duration?
-      gpsInterval; // Solo su Android -> Non darmi un punto più spesso di X secondi
   final double?
       gpsDistanceFilterMeters; // Non darmi un punto se non mi sono spostato di almeno X metri dall'ultimo punto
   // In stationary i dati dei sensori vengono solo usati per capire se sono
@@ -15,7 +13,6 @@ class SamplingProfile {
   const SamplingProfile({
     required this.accelerometerHz,
     required this.gyroscopeHz,
-    required this.gpsInterval,
     required this.gpsDistanceFilterMeters,
     required this.harWindowEnabled,
   });
@@ -24,7 +21,6 @@ class SamplingProfile {
       : this(
           accelerometerHz: 10,
           gyroscopeHz: 0,
-          gpsInterval: const Duration(seconds: 5),
           gpsDistanceFilterMeters: 3,
           harWindowEnabled: false,
         );
@@ -33,7 +29,6 @@ class SamplingProfile {
       : this(
           accelerometerHz: 100,
           gyroscopeHz: 100,
-          gpsInterval: const Duration(seconds: 2),
           gpsDistanceFilterMeters: 3,
           harWindowEnabled: true,
         );

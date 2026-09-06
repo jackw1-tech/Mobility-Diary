@@ -2,24 +2,36 @@ import 'package:diary/model/entities/acquisition/acquisition_domain.dart';
 import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubit.dart';
 import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubit_state.dart';
 import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_error_presenter.dart';
-import 'package:diary/theme/color_palette.dart';
 import 'package:diary/theme/dimensions.dart';
+import 'package:diary/theme/semantic_colors.dart';
 import 'package:diary/ui/widgets/home/fsm_diagnostics_report_sheet.dart';
 import 'package:diary/ui/widgets/surface_card.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 /// Intestazione del bottom sheet della home: stato dei sensori e pulsante
 /// start/stop del viaggio.
-class TrackingHeader extends StatelessWidget {
+class TrackingHeader extends StatefulWidget {
   final AcquisitionCubitState state;
 
   const TrackingHeader({required this.state, super.key});
 
   @override
+  State<TrackingHeader> createState() => _TrackingHeaderState();
+}
+
+class _TrackingHeaderState extends State<TrackingHeader> {
+  bool _isHandlingTap = false;
+
+  @override
   Widget build(BuildContext context) {
-    final statusColor =
-        state.isTracking ? ColorPalette.success : ColorPalette.textSecondary;
+    final state = widget.state;
+    final semantic =
+        Theme.of(context).extension<SemanticColors>() ?? SemanticColors.light;
+    final statusColor = state.isTracking
+        ? semantic.success
+        : Theme.of(context).colorScheme.onSurfaceVariant;
 
     return SurfaceCard(
       child: Row(
@@ -54,16 +66,27 @@ class TrackingHeader extends StatelessWidget {
                 Text(
                   state.isTracking ? 'sensori attivi' : 'sensori fermi',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: ColorPalette.textSecondary,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
                 ),
               ],
             ),
           ),
           FilledButton.icon(
-            onPressed: () => _toggleTracking(context, state),
-            icon: Icon(state.isTracking ? Icons.stop : Icons.play_arrow),
-            label: Text(state.isTracking ? 'Stop' : 'Start'),
+            onPressed: state.isTransitioning || _isHandlingTap
+                ? null
+                : () => _toggleTracking(context, state),
+            icon: state.isTransitioning || _isHandlingTap
+                ? const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Icon(state.isTracking ? Icons.stop : Icons.play_arrow),
+            label: Text(
+              state.isTransitioning || _isHandlingTap
+                  ? (state.isTracking ? 'Arresto...' : 'Avvio...')
+                  : (state.isTracking ? 'Stop' : 'Start'),
+            ),
           ),
         ],
       ),
@@ -74,7 +97,12 @@ class TrackingHeader extends StatelessWidget {
     BuildContext context,
     AcquisitionCubitState state,
   ) async {
+    if (_isHandlingTap || state.isTransitioning) return;
+    setState(() => _isHandlingTap = true);
     final cubit = context.read<AcquisitionCubit>();
+    final semantic =
+        Theme.of(context).extension<SemanticColors>() ?? SemanticColors.light;
+    final colorScheme = Theme.of(context).colorScheme;
     try {
       if (state.isTracking) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -83,31 +111,30 @@ class TrackingHeader extends StatelessWidget {
         final diagnosticsReport = await cubit.stopTracking();
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Viaggio salvato. Sincronizzazione in background.'),
-              backgroundColor: ColorPalette.info,
+            SnackBar(
+              content: const Text(
+                'Viaggio salvato. Sincronizzazione in background.',
+              ),
+              backgroundColor: semantic.info,
+              action: kDebugMode && diagnosticsReport != null
+                  ? SnackBarAction(
+                      label: 'Log',
+                      onPressed: () => showFsmDiagnosticsReportSheet(
+                        context,
+                        diagnosticsReport,
+                      ),
+                    )
+                  : null,
             ),
           );
-          if (diagnosticsReport != null) {
-            await showFsmDiagnosticsReportSheet(context, diagnosticsReport);
-          } else if (!state.isReplay) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text(
-                  'Viaggio salvato, ma il file diagnostico non è disponibile.',
-                ),
-                backgroundColor: ColorPalette.warning,
-              ),
-            );
-          }
         }
       } else {
         await cubit.startTracking();
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Acquisizione avviata con successo.'),
-              backgroundColor: ColorPalette.success,
+            SnackBar(
+              content: const Text('Acquisizione avviata con successo.'),
+              backgroundColor: semantic.success,
             ),
           );
         }
@@ -117,10 +144,12 @@ class TrackingHeader extends StatelessWidget {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(trackingErrorMessage(e)),
-            backgroundColor: ColorPalette.error,
+            backgroundColor: colorScheme.error,
           ),
         );
       }
+    } finally {
+      if (mounted) setState(() => _isHandlingTap = false);
     }
   }
 }

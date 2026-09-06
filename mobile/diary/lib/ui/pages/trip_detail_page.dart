@@ -5,7 +5,7 @@ import 'package:diary/repositories/trips_repository.dart';
 import 'package:diary/state_management/cubits/trip_track_cubit/trip_track_cubit.dart';
 import 'package:diary/state_management/cubits/trips_list_cubit/trips_list_cubit.dart';
 import 'package:diary/state_management/cubits/trips_list_cubit/trips_list_cubit_state.dart';
-import 'package:diary/theme/color_palette.dart';
+import 'package:diary/theme/semantic_colors.dart';
 import 'package:diary/theme/dimensions.dart';
 import 'package:diary/ui/pages/trip_diary_tabs.dart';
 import 'package:diary/ui/pages/trip_map_page.dart';
@@ -184,13 +184,20 @@ class _SameDayTripSelectorState extends State<_SameDayTripSelector> {
               width: 44,
               height: 44,
               decoration: BoxDecoration(
-                color: ColorPalette.primary,
+                color: Theme.of(context).colorScheme.primary,
                 borderRadius:
                     BorderRadius.circular(Dimensions.borderRadiusPill),
-                border: Border.all(color: Colors.white, width: 2),
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.surface,
+                  width: 2,
+                ),
               ),
-              child: const Center(
-                child: Icon(Icons.more_vert, color: Colors.white, size: 20),
+              child: Center(
+                child: Icon(
+                  Icons.more_vert,
+                  color: Theme.of(context).colorScheme.onPrimary,
+                  size: 20,
+                ),
               ),
             ),
           ),
@@ -198,10 +205,10 @@ class _SameDayTripSelectorState extends State<_SameDayTripSelector> {
             const SizedBox(height: Dimensions.paddingSmall),
             DecoratedBox(
               decoration: BoxDecoration(
-                color: ColorPalette.surface.withValues(alpha: 0.96),
+                color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.96),
                 borderRadius:
                     BorderRadius.circular(Dimensions.borderRadiusMedium),
-                border: Border.all(color: ColorPalette.hairline),
+                border: Border.all(color: Theme.of(context).extension<SemanticColors>()!.hairline),
               ),
               child: Padding(
                 padding: const EdgeInsets.all(Dimensions.paddingSmall),
@@ -236,7 +243,7 @@ class _SameDayTripSelectorState extends State<_SameDayTripSelector> {
                     Text(
                       '${safeIndex + 1}/${widget.trips.length}',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: ColorPalette.textSecondary,
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
                           ),
                     ),
                   ],

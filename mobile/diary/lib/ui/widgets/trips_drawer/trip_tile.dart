@@ -81,9 +81,8 @@ class TripTile extends StatelessWidget {
           children: [
             IconButton(
               tooltip: 'Dettaglio',
-              onPressed:
-                  trip.hasTrack ? () => openTripDetail(context, trip) : null,
-              icon: const Icon(Icons.route),
+              onPressed: () => openTripDetail(context, trip),
+              icon: Icon(trip.hasTrack ? Icons.route : Icons.view_timeline),
             ),
             if (isMutating)
               const SizedBox.square(
@@ -93,8 +92,7 @@ class TripTile extends StatelessWidget {
             else
               PopupMenuButton<TripAction>(
                 tooltip: 'Azioni viaggio',
-                onSelected: (action) =>
-                    handleTripAction(context, trip, action),
+                onSelected: (action) => handleTripAction(context, trip, action),
                 itemBuilder: (_) => [
                   PopupMenuItem(
                     value: TripAction.note,

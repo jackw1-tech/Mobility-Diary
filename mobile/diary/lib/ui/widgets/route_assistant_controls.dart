@@ -102,14 +102,14 @@ class RouteDetectedModeIndicator extends StatelessWidget {
         child: Tooltip(
           message: _tooltip,
           child: Material(
-            color: Colors.white,
+            color: Theme.of(context).colorScheme.surface,
             shape: const CircleBorder(),
             elevation: 2,
             child: SizedBox.square(
               dimension: 48,
               child: Icon(
                 _icon,
-                color: Colors.black87,
+                color: Theme.of(context).colorScheme.onSurface,
               ),
             ),
           ),
@@ -164,16 +164,27 @@ class _ControlButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final surfaceColor = colorScheme.surface;
+    final onSurfaceColor = colorScheme.onSurface;
+    final hasCustomBg = background != null;
+
+    final iconColor = hasCustomBg
+        ? Colors.black87
+        : (onPressed == null
+            ? onSurfaceColor.withValues(alpha: 0.38)
+            : onSurfaceColor);
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Material(
-        color: background ?? Colors.white,
+        color: background ?? surfaceColor,
         shape: const CircleBorder(),
         elevation: 2,
         child: IconButton(
           icon: Icon(icon),
           tooltip: tooltip,
-          color: onPressed == null ? Colors.black26 : Colors.black87,
+          color: iconColor,
           onPressed: onPressed,
         ),
       ),

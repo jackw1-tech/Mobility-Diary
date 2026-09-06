@@ -1,8 +1,8 @@
 import 'dart:async';
 
 import 'package:diary/model/entities/acquisition/acquisition_domain.dart';
-import 'package:diary/theme/color_palette.dart';
 import 'package:diary/theme/dimensions.dart';
+import 'package:diary/theme/semantic_colors.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
@@ -33,7 +33,10 @@ class FsmDiagnosticsReportView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
+    final theme = Theme.of(context);
+    final textTheme = theme.textTheme;
+    final semantic = theme.extension<SemanticColors>() ?? SemanticColors.light;
+
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(
@@ -48,8 +51,8 @@ class FsmDiagnosticsReportView extends StatelessWidget {
           children: [
             Row(
               children: [
-                const Icon(Icons.description_outlined,
-                    color: ColorPalette.primary),
+                Icon(Icons.description_outlined,
+                    color: theme.colorScheme.primary),
                 const SizedBox(width: Dimensions.paddingSmall),
                 Expanded(
                   child: Text(
@@ -74,10 +77,10 @@ class FsmDiagnosticsReportView extends StatelessWidget {
             const SizedBox(height: Dimensions.paddingMedium),
             DecoratedBox(
               decoration: BoxDecoration(
-                color: ColorPalette.surfaceSofter,
+                color: semantic.surfaceSofter,
                 borderRadius:
                     BorderRadius.circular(Dimensions.borderRadiusMedium),
-                border: Border.all(color: ColorPalette.hairline),
+                border: Border.all(color: semantic.hairline),
               ),
               child: Padding(
                 padding: const EdgeInsets.all(Dimensions.paddingMedium),
@@ -97,7 +100,7 @@ class FsmDiagnosticsReportView extends StatelessWidget {
                     Text(
                       _formatBytes(report.sizeBytes),
                       style: textTheme.bodySmall
-                          ?.copyWith(color: ColorPalette.textSecondary),
+                          ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
                     ),
                   ],
                 ),
@@ -141,9 +144,9 @@ class FsmDiagnosticsReportView extends StatelessWidget {
     } catch (_) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Impossibile condividere il file diagnostico.'),
-          backgroundColor: ColorPalette.error,
+        SnackBar(
+          content: const Text('Impossibile condividere il file diagnostico.'),
+          backgroundColor: Theme.of(context).colorScheme.error,
         ),
       );
     }

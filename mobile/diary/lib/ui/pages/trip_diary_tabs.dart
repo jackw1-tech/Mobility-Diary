@@ -1,7 +1,7 @@
 import 'package:diary/model/entities/trips/trip_track.dart';
 import 'package:diary/state_management/cubits/trip_track_cubit/trip_track_cubit.dart';
 import 'package:diary/state_management/cubits/trip_track_cubit/trip_track_cubit_state.dart';
-import 'package:diary/theme/color_palette.dart';
+import 'package:diary/theme/semantic_colors.dart';
 import 'package:diary/theme/dimensions.dart';
 import 'package:diary/ui/pages/trip_diary_presenter.dart';
 import 'package:flutter/material.dart';
@@ -19,11 +19,11 @@ class TripDiaryTab extends StatelessWidget {
         if (message != null) return message;
         final segments = state.diarySegments;
         if (segments.isEmpty) {
-          return _message(Icons.timeline, 'Nessun segmento');
+          return _message(context, Icons.timeline, 'Nessun segmento');
         }
         return ListView.separated(
           padding: const EdgeInsets.all(Dimensions.paddingMedium),
-          itemBuilder: (context, index) => _segmentTile(segments[index]),
+          itemBuilder: (context, index) => _segmentTile(context, segments[index]),
           separatorBuilder: (_, __) =>
               const SizedBox(height: Dimensions.paddingSmall),
           itemCount: segments.length,
@@ -45,7 +45,7 @@ class TripStatsTab extends StatelessWidget {
         if (message != null) return message;
         final stats = TripStats.fromSegments(state.diarySegments);
         if (stats.isEmpty) {
-          return _message(Icons.bar_chart, 'Nessuna statistica');
+          return _message(context, Icons.bar_chart, 'Nessuna statistica');
         }
         return ListView(
           padding: const EdgeInsets.all(Dimensions.paddingMedium),
@@ -92,18 +92,20 @@ Widget? _stateMessage(
     case DiaryLoadStatus.loading:
       return const Center(child: CircularProgressIndicator());
     case DiaryLoadStatus.pending:
-      return _message(Icons.auto_awesome, pending);
+      return _message(context, Icons.auto_awesome, pending);
     case DiaryLoadStatus.failed:
       // Solo l'arricchimento fallito e' definitivo: un errore di trasporto
       // viene gia' ritentato da solo, e l'utente puo' forzarlo subito.
       if (state.enrichmentFailed) {
         return _message(
+          context,
           Icons.error_outline,
           state.enrichmentErrorMessage ??
               'Diario non disponibile per questo viaggio.',
         );
       }
       return _message(
+        context,
         Icons.wifi_off_outlined,
         state.diaryError ?? 'Diario non raggiungibile.',
         action: TextButton.icon(
@@ -118,7 +120,7 @@ Widget? _stateMessage(
   }
 }
 
-Widget _segmentTile(TripDiarySegment segment) {
+Widget _segmentTile(BuildContext context, TripDiarySegment segment) {
   final isMove = !isStopSegment(segment);
   final details = [
     formatTimeRange(segment),
@@ -128,7 +130,7 @@ Widget _segmentTile(TripDiarySegment segment) {
   ].join(' · ');
 
   return DecoratedBox(
-    decoration: _boxDecoration(),
+    decoration: _boxDecoration(context),
     child: ListTile(
       leading: Icon(isMove ? Icons.directions : Icons.pause_circle_outline),
       title: Text(segmentTitle(segment)),
@@ -144,13 +146,13 @@ Widget _metricCard(
   String value,
 ) {
   return DecoratedBox(
-    decoration: _boxDecoration(),
+    decoration: _boxDecoration(context),
     child: Padding(
       padding: const EdgeInsets.all(Dimensions.paddingMedium),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: ColorPalette.primary),
+          Icon(icon, color: Theme.of(context).colorScheme.primary),
           const Spacer(),
           Text(label, style: Theme.of(context).textTheme.bodySmall),
           Text(
@@ -189,18 +191,20 @@ Widget _activityBar(
 }
 
 Widget _message(
+  BuildContext context,
   IconData icon,
   String text, {
   Widget? action,
   String? hint,
 }) {
+  final onSurfaceVariant = Theme.of(context).colorScheme.onSurfaceVariant;
   return Center(
     child: Padding(
       padding: const EdgeInsets.all(Dimensions.paddingMedium),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: ColorPalette.textSecondary, size: 40),
+          Icon(icon, color: onSurfaceVariant, size: 40),
           const SizedBox(height: Dimensions.paddingSmall),
           Text(text, textAlign: TextAlign.center),
           if (hint != null) ...[
@@ -208,7 +212,7 @@ Widget _message(
             Text(
               hint,
               textAlign: TextAlign.center,
-              style: const TextStyle(color: ColorPalette.textSecondary),
+              style: TextStyle(color: onSurfaceVariant),
             ),
           ],
           if (action != null) ...[
@@ -221,10 +225,11 @@ Widget _message(
   );
 }
 
-BoxDecoration _boxDecoration() {
+BoxDecoration _boxDecoration(BuildContext context) {
+  final sem = Theme.of(context).extension<SemanticColors>()!;
   return BoxDecoration(
-    color: ColorPalette.surface,
+    color: Theme.of(context).colorScheme.surface,
     borderRadius: BorderRadius.circular(Dimensions.borderRadiusMedium),
-    border: Border.all(color: ColorPalette.hairline),
+    border: Border.all(color: sem.hairline),
   );
 }

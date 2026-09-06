@@ -23,6 +23,7 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
   final DateTime? _scheduledStartAt;
   final double _requestedReplaySpeedMultiplier;
   final ReplayTimerFactory _timerFactory;
+
   /// Callback per notificare il Repository (e di riflesso la UI) a ogni cambio di stato.
   final void Function(AcquisitionSnapshot snapshot) onSnapshot;
 
@@ -118,7 +119,6 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
       AcquisitionSnapshot(
         isTracking: true,
         trackingState: TrackingState.stationary,
-        samplingProfile: const SamplingProfile.stationary(),
         latestSigma: 0,
         latestSpeedMetersPerSecond: 0,
         lastTransition: null,
@@ -205,7 +205,6 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
       AcquisitionSnapshot(
         isTracking: true,
         trackingState: TrackingState.stationary,
-        samplingProfile: const SamplingProfile.stationary(),
         latestSigma: 0,
         latestSpeedMetersPerSecond: 0,
         lastTransition: null,
@@ -279,7 +278,6 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
           AcquisitionSnapshot(
             isTracking: true,
             trackingState: currentState,
-            samplingProfile: SamplingProfile.forState(currentState),
             latestSigma: 0,
             latestSpeedMetersPerSecond: latestSpeedMps,
             lastTransition: lastFsmTransition,

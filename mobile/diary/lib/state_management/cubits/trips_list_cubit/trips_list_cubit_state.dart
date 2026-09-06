@@ -15,7 +15,6 @@ class TripsListCubitState {
   final int? reloadingTripId;
   final String? reloadError;
   final int? mutatingTripId;
-  final String? mutationError;
 
   const TripsListCubitState({
     required this.status,
@@ -24,7 +23,6 @@ class TripsListCubitState {
     this.reloadingTripId,
     this.reloadError,
     this.mutatingTripId,
-    this.mutationError,
   });
 
   const TripsListCubitState.initial()
@@ -33,8 +31,7 @@ class TripsListCubitState {
         error = null,
         reloadingTripId = null,
         reloadError = null,
-        mutatingTripId = null,
-        mutationError = null;
+        mutatingTripId = null;
 
   bool get isLoading => status == TripsListStatus.loading;
 }

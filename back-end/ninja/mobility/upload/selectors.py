@@ -110,7 +110,7 @@ def create_upload(
 def upload_with_trip(upload_id: int) -> TripUpload:
     return TripUpload.objects.select_related("trip").get(id=upload_id)
 
-
+# Blocca la riga
 def locked_upload_by_id(upload_id: int) -> TripUpload:
     return TripUpload.objects.select_for_update().get(id=upload_id)
 
@@ -138,7 +138,6 @@ def locked_upload_by_client_session(
 
 
 def create_upload_with_fields(**fields) -> TripUpload:
-    """Crea una TripUpload con i campi indicati (nessuna decisione qui)."""
     return TripUpload.objects.create(**fields)
 
 

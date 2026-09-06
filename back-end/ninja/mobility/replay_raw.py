@@ -62,7 +62,7 @@ _DECODE_ERRORS = (
     ValueError,
 )
 
-
+# Da Stringa json -> DateTime
 def _window_field(window: dict, field: str) -> datetime:
     if field not in window:
         raise ValueError(f"timestamp raw mancante: {field}")
@@ -73,17 +73,14 @@ def _window_field(window: dict, field: str) -> datetime:
         parsed = timezone.make_aware(parsed, dt_timezone.utc)
     return parsed
 
-
+# Esegue il singolo shift
 def _shift_field(window: dict, field: str, shift) -> None:
-    # I microsecondi vanno preservati: le finestre sono lunghe 5 s e la
-    # pipeline HAR le ordina e le allinea sui timestamp: troncarli al secondo
-    # farebbe collassare finestre distinte sullo stesso istante.
     shifted = _window_field(window, field) + shift
     window[field] = (
         shifted.astimezone(dt_timezone.utc).isoformat().replace("+00:00", "Z")
     )
 
-
+# Scaricare il file raw,  shifto la start e la end della singola window da 500 
 def _shifted_part_body(object_key: str, shift, cutoff) -> bytes | None:
     raw = gzip.decompress(storage.read_object(object_key))
     payload = json.loads(raw.decode("utf-8"))
@@ -153,8 +150,6 @@ def regenerate_raw_and_queue_har(
     now,
     cutoff: datetime | None = None,
 ) -> None:
-    """Rigenera i raw sorgente nell'upload e accoda l'HAR. Rigetta con 409 se
-    le telemetrie sorgenti mancano/illeggibili, con 503 se lo storage fallisce."""
     parts = upload_selectors.completed_raw_parts_for_trip(source)
     if not parts.exists():
         raise ReplayRawError("telemetrie sorgente non disponibili")
@@ -171,7 +166,7 @@ def regenerate_raw_and_queue_har(
     if not shifted_parts:
         raise ReplayRawError("telemetrie sorgente non disponibili")
 
-    written: list[str] = []
+    written: list[str] = [] #Lista con cui traccio le scritture sullo storage
     try:
         for sequence, body in enumerate(shifted_parts, start=1):
             object_key = storage.raw_part_object_key(
@@ -187,8 +182,8 @@ def regenerate_raw_and_queue_har(
                 upload,
                 sequence=sequence,
                 sha256=sha256,
-                object_key=object_key,
-                received_at=now,
+                object_key=object_key, 
+                received_at=now, #Il file è già caricato -> Creo la TripUploadPArt già "completa"
             )
         upload.expected_raw_parts = len(shifted_parts)
         upload.raw_status = TripUpload.PhaseStatus.QUEUED
@@ -197,14 +192,11 @@ def regenerate_raw_and_queue_har(
             update_fields=["expected_raw_parts", "raw_status", "queued_at", "updated_at"]
         )
         job = har_jobs_repository.create_har_job(upload.trip_id)
-        # Senza cutoff il derivato ha esattamente le righe del sorgente
-        # traslate: la proiezione Timescale puo' essere clonata dentro
-        # Postgres invece di essere ricostruita riga per riga dagli oggetti.
         clone_shift_us = _timedelta_microseconds(shift) if cutoff is None else None
         transaction.on_commit(
             lambda: process_trip_har_final.delay(job.id, upload.id, clone_shift_us)
         )
-    except Exception:
+    except Exception: #Se succede qualcosa,cancello i file già caricati
         for object_key in written:
             try:
                 storage.delete_object(object_key)

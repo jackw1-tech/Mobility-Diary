@@ -11,6 +11,7 @@ class AcquisitionCubitState {
   final AcquisitionSnapshot snapshot;
   final AcquisitionSyncSnapshot syncSnapshot;
   final String? errorMessage;
+  final bool isTransitioning;
 
   /// Percorso accumulato durante la sessione di tracking corrente, in ordine
   /// cronologico. Si svuota a ogni nuovo `startTracking`.
@@ -22,6 +23,7 @@ class AcquisitionCubitState {
     required this.snapshot,
     this.syncSnapshot = const AcquisitionSyncSnapshot.none(),
     this.errorMessage,
+    this.isTransitioning = false,
     this.routePoints = const [],
     this.completedReplayTripId,
   });
@@ -34,6 +36,7 @@ class AcquisitionCubitState {
     AcquisitionSnapshot snapshot, {
     AcquisitionSyncSnapshot syncSnapshot = const AcquisitionSyncSnapshot.none(),
     String? errorMessage,
+    bool isTransitioning = false,
     List<LatLng> routePoints = const [],
     int? completedReplayTripId,
   }) {
@@ -44,6 +47,7 @@ class AcquisitionCubitState {
       snapshot: snapshot,
       syncSnapshot: syncSnapshot,
       errorMessage: errorMessage,
+      isTransitioning: isTransitioning,
       routePoints: routePoints,
       completedReplayTripId: completedReplayTripId,
     );
@@ -55,6 +59,7 @@ class AcquisitionCubitState {
     AcquisitionSyncSnapshot? syncSnapshot,
     String? errorMessage,
     bool clearErrorMessage = false,
+    bool? isTransitioning,
     List<LatLng>? routePoints,
     int? completedReplayTripId,
     bool clearCompletedReplayTripId = false,
@@ -65,6 +70,7 @@ class AcquisitionCubitState {
       syncSnapshot: syncSnapshot ?? this.syncSnapshot,
       errorMessage:
           clearErrorMessage ? null : errorMessage ?? this.errorMessage,
+      isTransitioning: isTransitioning ?? this.isTransitioning,
       routePoints: routePoints ?? this.routePoints,
       completedReplayTripId: clearCompletedReplayTripId
           ? null
@@ -83,8 +89,6 @@ class AcquisitionCubitState {
   }
 
   TrackingState get trackingState => snapshot.trackingState;
-
-  SamplingProfile get samplingProfile => snapshot.samplingProfile;
 
   double get latestSigma => snapshot.latestSigma;
 

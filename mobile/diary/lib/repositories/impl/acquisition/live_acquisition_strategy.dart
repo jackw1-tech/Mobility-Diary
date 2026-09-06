@@ -213,7 +213,6 @@ class LiveAcquisitionStrategy implements AcquisitionStrategy {
       AcquisitionSnapshot(
         isTracking: true,
         trackingState: TrackingState.stationary,
-        samplingProfile: const SamplingProfile.stationary(),
         latestSigma: 0,
         latestSpeedMetersPerSecond: 0,
         lastTransition: null,
@@ -257,11 +256,8 @@ class LiveAcquisitionStrategy implements AcquisitionStrategy {
     _fsm = AcquisitionFsm(config: _config);
     emitSnapshot(AcquisitionSnapshot.idle());
 
-    if (sessionId == null) {
-      return const AcquisitionStopResult.none();
-    }
     return AcquisitionStopResult.syncSession(
-      sessionId,
+      sessionId!,
       diagnosticsReport: diagnosticsReport,
     );
   }
@@ -325,9 +321,14 @@ class LiveAcquisitionStrategy implements AcquisitionStrategy {
       AcquisitionSnapshot(
         isTracking: true,
         trackingState: decision.state,
-        samplingProfile: decision.samplingProfile,
         latestSigma: _fsm.latestSigma,
         latestSpeedMetersPerSecond: _fsm.latestSpeedMetersPerSecond,
+        latestSigmaAt: _fsm.latestSigmaAt,
+        latestSpeedAt: _fsm.latestSpeedAt,
+        rawAccelerometerEventCount: _runtime?.rawAccelerometerEventCount ?? 0,
+        latestRawAccelerometerEventAt: _runtime?.latestRawAccelerometerEventAt,
+        completedSigmaWindowCount: _runtime?.completedSigmaWindowCount ?? 0,
+        gpsFixCount: _runtime?.gpsFixCount ?? 0,
         lastTransition: decision.transition,
         updatedAt: event.timestamp,
         latitude: _latestLatitude,
@@ -335,10 +336,7 @@ class LiveAcquisitionStrategy implements AcquisitionStrategy {
         accuracyMeters: _latestAccuracyMeters,
       ),
     );
-    await _runtime?.configure(
-      decision.samplingProfile,
-      allowGpsRestart: _lifecycleState == AppLifecycleState.resumed,
-    );
+    await _runtime?.configure(decision.samplingProfile);
   }
 
   Future<AcquisitionStopResult> resumeOrReconcile() async {
@@ -503,7 +501,6 @@ class LiveAcquisitionStrategy implements AcquisitionStrategy {
     if (state == AppLifecycleState.resumed) {
       //manda l heartbeat e aggiorna il last seen del trip
       unawaited(_heartbeat.send());
-      unawaited(_runtime?.applyPendingGpsRestart() ?? Future<void>.value());
     }
   }
 
@@ -589,7 +586,6 @@ class LiveAcquisitionStrategy implements AcquisitionStrategy {
       AcquisitionSnapshot(
         isTracking: true,
         trackingState: trackingState,
-        samplingProfile: profile,
         latestSigma: latestTransition?.sigma ?? 0,
         latestSpeedMetersPerSecond:
             latestGpsPoint?.speedMps ?? latestTransition?.speedMps ?? 0,
@@ -663,7 +659,7 @@ class LiveAcquisitionStrategy implements AcquisitionStrategy {
   Future<void> _persistHarWindowIfActive(HarSensorWindow window) async {
     final sessionId = _currentSessionId;
     if (sessionId == null ||
-        !currentSnapshot.samplingProfile.harWindowEnabled) {
+        currentSnapshot.trackingState != TrackingState.movement) {
       return;
     }
 

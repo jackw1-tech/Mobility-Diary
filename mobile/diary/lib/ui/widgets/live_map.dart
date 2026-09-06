@@ -1,6 +1,6 @@
 import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubit_state.dart';
 import 'package:diary/state_management/cubits/current_location_cubit/current_location_cubit.dart';
-import 'package:diary/theme/color_palette.dart';
+
 import 'package:diary/ui/widgets/live_map_camera_controller.dart';
 import 'package:diary/ui/widgets/live_map_layers.dart';
 import 'package:flutter/material.dart';
@@ -92,7 +92,12 @@ class _LiveMapState extends State<LiveMap> {
     if (map == null) return;
     final cubit = context.read<AcquisitionCubit>();
     final assistant = context.read<RouteAssistantCubit>();
-    final layers = await LiveMapLayers.install(map);
+    final colorScheme = Theme.of(context).colorScheme;
+    final layers = await LiveMapLayers.install(
+      map,
+      primary: colorScheme.primary,
+      surface: colorScheme.surface,
+    );
     _layers = layers;
     await layers.redrawRoute(cubit.state.routePoints);
     await _camera?.syncNativePuck(isReplay: cubit.state.isReplay);
@@ -172,7 +177,9 @@ class _LiveMapState extends State<LiveMap> {
         children: [
           MapWidget(
             key: const ValueKey('live-map'),
-            styleUri: MapboxStyles.MAPBOX_STREETS,
+            styleUri: Theme.of(context).brightness == Brightness.dark
+                ? MapboxStyles.DARK
+                : MapboxStyles.MAPBOX_STREETS,
             // ignore: deprecated_member_use
             cameraOptions: CameraOptions(
               center: _initialCenter,
@@ -245,11 +252,12 @@ class _RecenterButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return FloatingActionButton.small(
       heroTag: 'live-map-recenter',
-      backgroundColor: Colors.white,
+      backgroundColor: colorScheme.surface,
       foregroundColor:
-          active ? ColorPalette.primary : ColorPalette.textSecondary,
+          active ? colorScheme.primary : colorScheme.onSurfaceVariant,
       onPressed: onPressed,
       child: const Icon(Icons.my_location),
     );

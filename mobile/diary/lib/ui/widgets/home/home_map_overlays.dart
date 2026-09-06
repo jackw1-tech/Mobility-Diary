@@ -1,6 +1,6 @@
 import 'package:diary/model/entities/route_assistant/route_assistant_domain.dart';
-import 'package:diary/theme/color_palette.dart';
 import 'package:diary/theme/dimensions.dart';
+import 'package:diary/theme/semantic_colors.dart';
 import 'package:flutter/material.dart';
 
 /// Overlay ancorati sopra il bottom sheet della home: riepilogo del percorso
@@ -47,14 +47,18 @@ class _RouteSummaryPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final semantic = theme.extension<SemanticColors>() ?? SemanticColors.light;
+    final primaryColor = theme.colorScheme.primary;
+
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 520),
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: ColorPalette.surface,
+            color: theme.colorScheme.surface,
             borderRadius: BorderRadius.circular(Dimensions.borderRadiusLarge),
-            border: Border.all(color: ColorPalette.hairline),
+            border: Border.all(color: semantic.hairline),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.12),
@@ -78,7 +82,7 @@ class _RouteSummaryPanel extends StatelessWidget {
                       route.durationSeconds,
                       routeUpdatedAt,
                     ),
-                    color: ColorPalette.primary,
+                    color: primaryColor,
                   ),
                 ),
                 const SizedBox(width: Dimensions.paddingSmall),
@@ -87,7 +91,7 @@ class _RouteSummaryPanel extends StatelessWidget {
                     icon: Icons.straighten,
                     label: 'Mancano',
                     value: _distanceLabel(route.distanceMeters),
-                    color: ColorPalette.info,
+                    color: primaryColor,
                   ),
                 ),
                 const SizedBox(width: Dimensions.paddingSmall),
@@ -96,7 +100,7 @@ class _RouteSummaryPanel extends StatelessWidget {
                     icon: Icons.schedule,
                     label: 'Tempo',
                     value: _durationLabel(route.durationSeconds),
-                    color: ColorPalette.accent,
+                    color: primaryColor,
                   ),
                 ),
               ],
@@ -137,7 +141,7 @@ class _RouteSummaryItem extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: ColorPalette.textSecondary,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
               ),
               const SizedBox(height: 2),
@@ -164,12 +168,15 @@ class _ReplayCountdownPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final semantic =
+        Theme.of(context).extension<SemanticColors>() ?? SemanticColors.light;
+
     return Center(
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: ColorPalette.surface,
+          color: Theme.of(context).colorScheme.surface,
           borderRadius: BorderRadius.circular(Dimensions.borderRadiusLarge),
-          border: Border.all(color: ColorPalette.warning),
+          border: Border.all(color: semantic.warning),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.12),
@@ -186,16 +193,16 @@ class _ReplayCountdownPill extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(
+              Icon(
                 Icons.timer_outlined,
-                color: ColorPalette.warning,
+                color: semantic.warning,
                 size: 18,
               ),
               const SizedBox(width: Dimensions.paddingSmall),
               Text(
                 'Fine tra ${seconds}s',
                 style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: ColorPalette.warning,
+                      color: semantic.warning,
                       fontWeight: FontWeight.w700,
                     ),
               ),

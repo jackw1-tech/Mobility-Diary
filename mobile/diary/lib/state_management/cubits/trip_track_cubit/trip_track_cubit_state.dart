@@ -27,6 +27,7 @@ class TripTrackCubitState {
   final double distanceMeters;
   final bool enrichmentPending;
   final bool enrichmentFailed;
+
   /// Il diario non e' arrivato per un errore di trasporto e un nuovo
   /// tentativo e' gia' programmato: distingue l'attesa dal fallimento
   /// definitivo dell'arricchimento.

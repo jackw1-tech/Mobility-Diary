@@ -1,10 +1,14 @@
 import 'package:diary/state_management/cubits/trip_track_cubit/trip_track_cubit_state.dart';
-import 'package:diary/theme/color_palette.dart';
 import 'package:flutter/material.dart';
 
 /// Colore con cui viene disegnato un segmento in base all'attivita'
 /// riconosciuta dal backend.
-Color activityColor(String label) {
+///
+/// I colori attivita' sono fissi (non variano con il tema) perche' devono
+/// rimanere distinguibili sulla mappa indipendentemente dal brightness.
+/// L'unico fallback che prima usava `ColorPalette.primary` ora usa
+/// `onSurface` dal [ColorScheme] del tema corrente.
+Color activityColor(String label, {required ColorScheme colorScheme}) {
   switch (label) {
     case 'WALKING':
       return const Color(0xFF1F8A4C);
@@ -15,7 +19,7 @@ Color activityColor(String label) {
     case 'MOVING_VEHICLE':
       return const Color(0xFF6D5DF6);
     default:
-      return ColorPalette.primary;
+      return colorScheme.primary;
   }
 }
 

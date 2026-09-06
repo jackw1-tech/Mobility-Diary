@@ -119,7 +119,7 @@ class TripNoteUpdateIn(Schema):
 
 
 class TripReloadIn(Schema):
-    reload_request_id: str
+    reload_request_id: str = Field(min_length=1, max_length=57)
     scheduled_start_at: datetime | None = None
 
 

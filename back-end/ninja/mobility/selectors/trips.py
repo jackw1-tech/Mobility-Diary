@@ -48,10 +48,6 @@ def locked_trip_by_client_session(client_session_id: str) -> Trip | None:
     )
 
 
-def locked_trip_by_id(trip_id: int) -> Trip:
-    return Trip.objects.select_for_update().get(id=trip_id)
-
-
 def trip_path_length_meters(trip: Trip) -> float:
     row = (
         Trip.objects.filter(pk=trip.pk)
@@ -169,12 +165,10 @@ def trip_overlaps_window(
         queryset = queryset.exclude(client_session_id=exclude_client_session_id)
     return queryset.exists()
 
-
+# Prende i viaggi del passato (started_at__lt < ora)
+# e che finiscono in nei giorni in cui mi interessa trovare uno slot (ended_at > oggi - 14 giorni )
+# restituisce solo tuple di date
 def trip_busy_intervals(user_id: int, *, before, active_after):
-    """Intervalli (started_at, ended_at) dei Trip dell'utente che si sovrappongono
-    alla finestra [active_after, before): usato per calcolare gli slot liberi
-    del Ricaricamento Diretto.
-    """
     return (
         Trip.objects.filter(user_id=user_id, started_at__lt=before)
         .filter(Q(ended_at__isnull=True) | Q(ended_at__gt=active_after))

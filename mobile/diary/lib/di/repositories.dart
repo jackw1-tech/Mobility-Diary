@@ -39,7 +39,7 @@ List<RepositoryProvider> buildRepositories({
           );
           return AcquisitionRepositoryImpl(
             database: database,
-            syncQueue: syncQueue,
+            syncKick: syncQueue.kick,
             uploadService: uploadService,
             mapper: mapper,
             acquisitionMapper: context.read<AcquisitionMapper>(),

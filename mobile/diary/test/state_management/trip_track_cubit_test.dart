@@ -4,16 +4,28 @@ import 'package:diary/model/entities/trips/trip_enums.dart';
 import 'package:diary/model/entities/trips/trip_track.dart';
 import 'package:diary/repositories/trip_track_repository.dart';
 import 'package:diary/state_management/cubits/trip_track_cubit/trip_track_cubit.dart';
+import 'package:diary/state_management/cubits/trip_track_cubit/trip_diary_load_policy.dart';
 import 'package:diary/state_management/cubits/trip_track_cubit/trip_track_cubit_state.dart';
 import 'package:diary/utils/app_result.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('shows a processed diary without waiting for a slow track', () async {
+  test('diary load policy caps exponential retry delays', () {
+    const policy = TripDiaryLoadPolicy(
+      retryBaseDelay: Duration(seconds: 2),
+      retryMaxDelay: Duration(seconds: 5),
+    );
+
+    expect(policy.retryDelay(1), const Duration(seconds: 2));
+    expect(policy.retryDelay(2), const Duration(seconds: 4));
+    expect(policy.retryDelay(3), const Duration(seconds: 5));
+  });
+
+  test('shows an enriched diary without waiting for a slow track', () async {
     final trackResult = Completer<AppResult<TripTrack>>();
     final repository = _FakeTripTrackRepository(
       fetchTrack: (_) => trackResult.future,
-      fetchDiary: (_) async => AppResult.success(_processedDiary()),
+      fetchDiary: (_) async => AppResult.success(_enrichedDiary()),
     );
     final cubit = TripTrackCubit(repository);
     addTearDown(cubit.close);
@@ -50,6 +62,7 @@ void main() {
 
     await cubit.load(1);
     final segmentsBeforePoll = cubit.state.segments;
+    final diarySegmentsBeforePoll = cubit.state.diarySegments;
     await Future<void>.delayed(const Duration(milliseconds: 1100));
 
     expect(cubit.state.status, TripTrackStatus.loaded);
@@ -61,6 +74,8 @@ void main() {
       isTrue,
       reason: 'un diario invariato non deve ridisegnare la mappa',
     );
+    expect(
+        identical(cubit.state.diarySegments, diarySegmentsBeforePoll), isTrue);
   });
 
   test('reuses the page-scoped track when the same trip is reloaded', () async {
@@ -73,7 +88,7 @@ void main() {
       },
       fetchDiary: (_) async {
         diaryRequests += 1;
-        return AppResult.success(_processedDiary());
+        return AppResult.success(_enrichedDiary());
       },
     );
     final cubit = TripTrackCubit(repository);
@@ -87,12 +102,32 @@ void main() {
     expect(diaryRequests, 2);
   });
 
+  test('reuses equal diary segments during an in-place refresh', () async {
+    var diaryRequests = 0;
+    final repository = _FakeTripTrackRepository(
+      fetchTrack: (_) async => AppResult.success(_track()),
+      fetchDiary: (_) async {
+        diaryRequests += 1;
+        return AppResult.success(_enrichedDiary());
+      },
+    );
+    final cubit = TripTrackCubit(repository);
+    addTearDown(cubit.close);
+
+    await cubit.load(1);
+    final segmentsBeforeRefresh = cubit.state.diarySegments;
+    await cubit.retryDiaryNow();
+
+    expect(diaryRequests, 2);
+    expect(identical(cubit.state.diarySegments, segmentsBeforeRefresh), isTrue);
+  });
+
   test('uses diary geometry when track loading fails', () async {
     final repository = _FakeTripTrackRepository(
       fetchTrack: (_) async => const AppResult.failure(
         NetworkFailure('traccia non disponibile'),
       ),
-      fetchDiary: (_) async => AppResult.success(_processedDiary()),
+      fetchDiary: (_) async => AppResult.success(_enrichedDiary()),
     );
     final cubit = TripTrackCubit(repository);
     addTearDown(cubit.close);
@@ -142,14 +177,16 @@ void main() {
         if (diaryRequests <= 2) {
           return const AppResult.failure(NetworkFailure('rete assente'));
         }
-        return AppResult.success(_processedDiary());
+        return AppResult.success(_enrichedDiary());
       },
     );
     final cubit = TripTrackCubit(
       repository,
-      diaryPollingInterval: const Duration(milliseconds: 10),
-      diaryRetryBaseDelay: const Duration(milliseconds: 20),
-      diaryRetryMaxDelay: const Duration(milliseconds: 60),
+      diaryLoadPolicy: const TripDiaryLoadPolicy(
+        pollingInterval: Duration(milliseconds: 10),
+        retryBaseDelay: Duration(milliseconds: 20),
+        retryMaxDelay: Duration(milliseconds: 60),
+      ),
     );
     addTearDown(cubit.close);
 
@@ -172,15 +209,17 @@ void main() {
       fetchDiary: (_) async {
         diaryRequests += 1;
         if (diaryRequests == 1) return Completer<AppResult<TripDiary>>().future;
-        return AppResult.success(_processedDiary());
+        return AppResult.success(_enrichedDiary());
       },
     );
     final cubit = TripTrackCubit(
       repository,
-      diaryPollingInterval: const Duration(milliseconds: 10),
-      diaryRequestTimeout: const Duration(milliseconds: 40),
-      diaryRetryBaseDelay: const Duration(milliseconds: 20),
-      diaryRetryMaxDelay: const Duration(milliseconds: 60),
+      diaryLoadPolicy: const TripDiaryLoadPolicy(
+        pollingInterval: Duration(milliseconds: 10),
+        requestTimeout: Duration(milliseconds: 40),
+        retryBaseDelay: Duration(milliseconds: 20),
+        retryMaxDelay: Duration(milliseconds: 60),
+      ),
     );
     addTearDown(cubit.close);
 
@@ -202,7 +241,9 @@ void main() {
     );
     final cubit = TripTrackCubit(
       repository,
-      diaryPollingInterval: const Duration(milliseconds: 10),
+      diaryLoadPolicy: const TripDiaryLoadPolicy(
+        pollingInterval: Duration(milliseconds: 10),
+      ),
     );
     addTearDown(cubit.close);
 
@@ -243,7 +284,7 @@ void main() {
           : Future.value(AppResult.success(_track(tripId: 2))),
       fetchDiary: (tripId) => tripId == 1
           ? oldDiary.future
-          : Future.value(AppResult.success(_processedDiary(tripId: 2))),
+          : Future.value(AppResult.success(_enrichedDiary(tripId: 2))),
     );
     final cubit = TripTrackCubit(repository);
     addTearDown(cubit.close);
@@ -252,7 +293,7 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     await cubit.load(2);
     oldTrack.complete(AppResult.success(_track(tripId: 1)));
-    oldDiary.complete(AppResult.success(_processedDiary(tripId: 1)));
+    oldDiary.complete(AppResult.success(_enrichedDiary(tripId: 1)));
     await Future<void>.delayed(Duration.zero);
 
     expect(cubit.state.tripId, 2);
@@ -293,10 +334,10 @@ TripTrack _track({int tripId = 1}) => TripTrack(
       },
     );
 
-TripDiary _processedDiary({int tripId = 1}) => TripDiary(
+TripDiary _enrichedDiary({int tripId = 1}) => TripDiary(
       tripId: tripId,
-      status: TripDiaryStatus.processed,
-      processed: true,
+      status: TripDiaryStatus.enriched,
+      enrichmentCompleted: true,
       enrichmentFailed: false,
       segments: [
         TripDiarySegment(
@@ -320,7 +361,7 @@ TripDiary _processedDiary({int tripId = 1}) => TripDiary(
 TripDiary _pendingDiary({int tripId = 1}) => TripDiary(
       tripId: tripId,
       status: TripDiaryStatus.closed,
-      processed: false,
+      enrichmentCompleted: false,
       enrichmentFailed: false,
       segments: const [],
       places: const [],
@@ -329,7 +370,7 @@ TripDiary _pendingDiary({int tripId = 1}) => TripDiary(
 TripDiary _failedDiary({int tripId = 1}) => TripDiary(
       tripId: tripId,
       status: TripDiaryStatus.closed,
-      processed: false,
+      enrichmentCompleted: false,
       enrichmentFailed: true,
       enrichmentFailureReason: 'diary_enrichment_failed',
       segments: const [],

@@ -1,5 +1,5 @@
 import 'package:diary/model/entities/acquisition/acquisition_domain.dart';
-import 'package:diary/theme/color_palette.dart';
+import 'package:diary/theme/semantic_colors.dart';
 import 'package:flutter/material.dart';
 
 /// Presentazione degli snack di debug sync mostrati sulla home: decidono se e
@@ -20,14 +20,14 @@ bool shouldShowSyncDebugSnack(
       previous.lastError != current.lastError;
 }
 
-SnackBar? syncDebugSnackBar(AcquisitionSyncSnapshot sync) {
+SnackBar? syncDebugSnackBar(AcquisitionSyncSnapshot sync, {required SemanticColors sem}) {
   final message = syncDebugMessage(sync);
   if (message == null) return null;
 
   return SnackBar(
     content: Text(message),
     duration: const Duration(milliseconds: 2200),
-    backgroundColor: syncDebugSnackColor(sync),
+    backgroundColor: syncDebugSnackColor(sync, sem: sem),
   );
 }
 
@@ -84,12 +84,12 @@ String? syncDebugMessage(AcquisitionSyncSnapshot sync) {
   return null;
 }
 
-Color syncDebugSnackColor(AcquisitionSyncSnapshot sync) {
-  if (sync.isNonRecoverable) return ColorPalette.error;
-  if (sync.isFailed) return ColorPalette.warning;
+Color syncDebugSnackColor(AcquisitionSyncSnapshot sync, {required SemanticColors sem}) {
+  if (sync.isNonRecoverable) return sem.error;
+  if (sync.isFailed) return sem.warning;
   if (sync.status == AcquisitionSyncStatus.completed &&
       sync.rawStatus == AcquisitionSyncStatus.completed) {
-    return ColorPalette.success;
+    return sem.success;
   }
-  return ColorPalette.info;
+  return sem.info;
 }

@@ -387,10 +387,7 @@ class PartPresignResult:
     expires_in: int
 
 
-"""
-Dichiara e presigna una parte raw: valida che la sequenza sia stata annunciata
-nel manifest iniziale, poi apre la fase RECEIVING alla prima parte ricevuta.
-"""
+
 def presign_raw_part(
     *,
     user_id: int,
