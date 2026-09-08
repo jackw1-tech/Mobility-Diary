@@ -5,6 +5,8 @@ import 'package:diary/ui/widgets/trip_map/trip_track_map.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+// in base allo stato emesso da TripTrackCubit mostri oppure no la mappa in TripDetailPage
+// La differenza tra un trip con solo path e un trip con har completato (segmenti) è all'interno dell'oggeto state
 class TripMapPage extends StatelessWidget {
   final Widget? topLeftOverlay;
 

@@ -72,7 +72,7 @@ void main() {
 
     final trip = TripsMapper().mapTripListItem(dto);
 
-    expect(trip.tripStatus, TripStatus.enriched);
+    expect(trip.tripStatus, TripStatus.processed);
     expect(trip.startedAt.isUtc, isTrue);
     expect(trip.distanceMeters, 1250.5);
     expect(trip.note, 'Universita');
@@ -106,8 +106,8 @@ void main() {
 
     final diary = TripsMapper().mapTripDiary(dto);
 
-    expect(diary.diaryStatus, TripDiaryStatus.enriched);
-    expect(diary.enrichmentCompleted, isTrue);
+    expect(diary.diaryStatus, TripDiaryStatus.processed);
+    expect(diary.processed, isTrue);
     expect(diary.drawableSegments.length, 1);
     expect(diary.drawableSegments.single.points.first.latitude, 45.46);
     expect(diary.drawableSegments.single.points.first.longitude, 9.19);

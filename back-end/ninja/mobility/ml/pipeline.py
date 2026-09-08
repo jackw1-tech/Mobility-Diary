@@ -60,6 +60,9 @@ def _path_distance(points) -> float:
 
 """
 Crea la LineString del segmento dai punti GPS, se ci sono almeno due coordinate.
+Considera però solo i punti di quello specifico segmento
+Questo porta ad avere una differenza di punti nella mappa traccia e quella in segmenti nel front end
+La mappa traccia mostra tutti i punti del gps, la mappa segmenti solo i punti gps attribuiti ad un movimento
 """
 def _segment_path(points):
     coords = [(p.point.x, p.point.y) for p in points]

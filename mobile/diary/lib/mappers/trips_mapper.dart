@@ -61,9 +61,9 @@ class TripsMapper {
   TripDiary mapTripDiary(TripDiaryDto dto) => TripDiary(
         tripId: dto.tripId,
         status: TripDiaryStatus.fromWire(dto.status),
-        enrichmentCompleted: dto.processed,
-        enrichmentFailed: dto.enrichmentFailed,
-        enrichmentFailureReason: dto.enrichmentFailureReason,
+        processed: dto.processed,
+        processingFailed: dto.processingFailed,
+        processingFailureReason: dto.processingFailureReason,
         segments: dto.segments.map(mapTripDiarySegment).toList(growable: false),
         places: dto.places.map(mapTripDiaryPlace).toList(growable: false),
       );

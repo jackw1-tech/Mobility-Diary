@@ -1,6 +1,6 @@
 enum TripStatus {
-  enriched('PROCESSED'),
-  enriching('PROCESSING'),
+  processed('PROCESSED'),
+  processing('PROCESSING'),
   failed('FAILED'),
   unknown('');
 
@@ -18,7 +18,7 @@ enum TripStatus {
 
 enum TripDiaryStatus {
   closed('CLOSED'),
-  enriched('PROCESSED'),
+  processed('PROCESSED'),
   pending('PENDING'),
   failed('FAILED'),
   unknown('');
@@ -27,6 +27,7 @@ enum TripDiaryStatus {
 
   const TripDiaryStatus(this.wireName);
 
+  // String BackEnd -> Oggetto Dart
   static TripDiaryStatus fromWire(String value) {
     for (final status in TripDiaryStatus.values) {
       if (status.wireName == value) return status;

@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 from accounts.models import UserPrivacySettings
 
-from .diary_projection import ProjectedDiarySegment, project_diary_segments
+from .diary_projection import ProjectedDiarySegment
 from .models import HabitualPlace, MobilitySegment, Trip
 from .privacy import (
     PRIVACY_AWARE_STOP_LABEL,
@@ -15,11 +15,7 @@ from .privacy import (
     privacy_cell_size_meters,
 )
 from .selectors.places import confirmed_places_for_user
-from .significant_places import (
-    place_label,
-    stop_like_source_intervals,
-    visible_stop_summary,
-)
+from .significant_places import VisibleStopSummary, place_label, project_diary_with_places
 
 NEUTRAL_VISIBLE_STOP_TITLE = "Sosta rilevata"
 APPROXIMATE_TIME_GRANULARITY = timedelta(minutes=5)
@@ -86,24 +82,11 @@ def build_trip_privacy_export(trip: Trip, *, level: str) -> DiaryPrivacyExport:
     virtual_stop_intervals = list(trip.virtual_stop_intervals.all())
     gps = list(trip.gps_points.order_by("timestamp"))
     confirmed = confirmed_places_for_user(trip.user_id)
-    source_intervals = stop_like_source_intervals(
-        persisted_segments,
-        virtual_stop_intervals,
-    )
-    private_segments = project_diary_segments(
-        persisted_segments,
-        virtual_stop_intervals,
-    )
     segments = [
-        _export_segment(
-            segment,
-            level=level,
-            protected=protected,
-            gps=gps,
-            confirmed=confirmed,
-            source_intervals=source_intervals,
+        _export_segment(segment, summary, level=level, protected=protected)
+        for segment, summary in project_diary_with_places(
+            persisted_segments, virtual_stop_intervals, gps, confirmed
         )
-        for segment in private_segments
     ]
     if level == UserPrivacySettings.Level.AGGREGATED:
         return _aggregated_export(
@@ -156,12 +139,10 @@ def _aggregated_export(
 
 def _export_segment(
     segment: ProjectedDiarySegment,
+    summary: VisibleStopSummary | None,
     *,
     level: str,
     protected: bool,
-    gps,
-    confirmed,
-    source_intervals,
 ) -> DiaryExportSegment:
     coordinates, distance_meters = _move_coordinates_and_distance(
         segment,
@@ -176,13 +157,7 @@ def _export_segment(
         start_label=published_start.strftime("%H:%M"),
         end_label=published_end.strftime("%H:%M"),
         activity_label=segment.activity_label,
-        title=_segment_title(
-            segment,
-            protected=protected,
-            gps=gps,
-            confirmed=confirmed,
-            source_intervals=source_intervals,
-        ),
+        title=_segment_title(segment, summary, protected=protected),
         point_count=len(coordinates),
         coordinates=coordinates,
         duration=published_end - published_start,
@@ -287,16 +262,13 @@ def _aggregate_segments_by_period(
 
 def _segment_title(
     segment: ProjectedDiarySegment,
+    summary: VisibleStopSummary | None,
     *,
     protected: bool,
-    gps,
-    confirmed,
-    source_intervals,
 ) -> str:
     if segment.kind == MobilitySegment.Kind.MOVE:
         return _activity_label_it(segment.activity_label)
 
-    summary = visible_stop_summary(segment, source_intervals, gps, confirmed)
     place = None if summary is None else summary.matched_place
     if not protected:
         return NEUTRAL_VISIBLE_STOP_TITLE if place is None else place_label(place)

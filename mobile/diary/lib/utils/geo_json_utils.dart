@@ -1,9 +1,6 @@
 import 'package:latlong2/latlong.dart';
 
-/// Converte una geometry GeoJSON `LineString` in una polilinea di [LatLng].
-/// Ritorna una lista vuota per geometry nulle, di tipo diverso o malformate.
-/// Funzione pura condivisa da model e DTO che espongono entrambi una
-/// geometry grezza (nessuna logica di business, solo trasformazione dati).
+/// Partiamo dal GeoJson restituito e costruiamo una lista di oggetti LatLng
 List<LatLng> latLngsFromGeoJsonLineString(Map<String, dynamic>? geometry) {
   if (geometry == null || geometry['type'] != 'LineString') return const [];
 

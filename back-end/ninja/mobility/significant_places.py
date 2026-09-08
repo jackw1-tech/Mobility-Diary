@@ -16,6 +16,7 @@ from datetime import datetime
 from django.contrib.gis.geos import Point
 from django.db import transaction
 
+from .diary_projection import ProjectedDiarySegment, project_diary_segments
 from .geo import haversine_meters
 from .models import CandidateVisit, HabitualPlace, MobilitySegment
 from .selectors import place_mining as place_mining_repository
@@ -43,9 +44,6 @@ CLUSTER_PROJECTION_SRID = 3035
 # Overlay read-time sul diario (ADR 0024): una sosta prende il Luogo Confermato
 # piu' vicino entro questa soglia.
 OVERLAY_MATCH_METERS = STAY_RADIUS_METERS
-# Entro questa differenza di distanza due luoghi sono "in parita'": a parita'
-# vince quello etichettato manualmente (PRD / ADR 0028).
-OVERLAY_TIE_METERS = 25.0
 NEUTRAL_PLACE_LABEL = "luogo abituale"
 
 # Namespace per pg_advisory_xact_lock: isola il lock di mining da altri lock.
@@ -263,17 +261,9 @@ def place_label(place: HabitualPlace) -> str:
     return place.custom_name or place.category or NEUTRAL_PLACE_LABEL
 
 
-def _is_manually_labeled(place: HabitualPlace) -> bool:
-    return bool(place.custom_name or place.category)
-
-
+# Prendo la latitutine e longitudine del centroide del mio singolo segmento di stop (virtual oppure vero stop)
+# e restituisco il place più vicno
 def match_confirmed_place(lat: float, lon: float, places) -> HabitualPlace | None:
-    """Il Luogo Confermato che meglio descrive (lat, lon), o None.
-
-    `places` sono i Luoghi Confermati dell'utente. Vince il piu' vicino entro la
-    soglia di overlay; a parita' effettiva di distanza (entro OVERLAY_TIE_METERS)
-    vince un luogo etichettato manualmente su uno puramente automatico (ADR 0028).
-    """
     within = [
         (haversine_meters(lat, lon, place.center.y, place.center.x), place)
         for place in places
@@ -281,60 +271,11 @@ def match_confirmed_place(lat: float, lon: float, places) -> HabitualPlace | Non
     within = [(d, place) for d, place in within if d <= OVERLAY_MATCH_METERS]
     if not within:
         return None
-    nearest = min(distance for distance, _ in within)
-    contenders = [
-        (distance, place)
-        for distance, place in within
-        if distance <= nearest + OVERLAY_TIE_METERS
-    ]
-    contenders.sort(
-        key=lambda item: (0 if _is_manually_labeled(item[1]) else 1, item[0])
-    )
-    return contenders[0][1]
+    return min(within, key=lambda item: item[0])[1]
 
 
-def _centroids_for_intervals(intervals, gps_points) -> dict[int, tuple[float, float] | None]:
-    """Calcola in una sola scansione i centroidi degli intervalli richiesti."""
-    ordered = sorted(
-        intervals,
-        key=lambda interval: (interval.start_timestamp, interval.end_timestamp),
-    )
-    stats = {id(interval): [0.0, 0.0, 0] for interval in ordered}
-    active = []
-    next_interval = 0
-
-    for gps_point in gps_points:
-        timestamp = gps_point.timestamp
-        while (
-            next_interval < len(ordered)
-            and ordered[next_interval].start_timestamp <= timestamp
-        ):
-            active.append(ordered[next_interval])
-            next_interval += 1
-
-        if not active:
-            continue
-
-        still_active = []
-        for interval in active:
-            if interval.end_timestamp < timestamp:
-                continue
-            still_active.append(interval)
-            stats[id(interval)][0] += gps_point.point.y
-            stats[id(interval)][1] += gps_point.point.x
-            stats[id(interval)][2] += 1
-        active = still_active
-
-    centroids = {}
-    for interval in ordered:
-        sum_lat, sum_lon, count = stats[id(interval)]
-        centroids[id(interval)] = None if count == 0 else (sum_lat / count, sum_lon / count)
-    return centroids
-
-
-def stop_centroid(stop_like_interval, gps_points, centroid_cache=None) -> tuple[float, float] | None:
-    if centroid_cache is not None:
-        return centroid_cache.get(id(stop_like_interval))
+# Per ogni intervallo calcola quanti punti gps li riguardano e fa una media di latitudine e lontitudine
+def stop_centroid(stop_like_interval, gps_points) -> tuple[float, float] | None:
     points = [
         g
         for g in gps_points
@@ -346,64 +287,37 @@ def stop_centroid(stop_like_interval, gps_points, centroid_cache=None) -> tuple[
     lon = sum(g.point.x for g in points) / len(points)
     return lat, lon
 
-
-def stop_like_source_intervals(segments, virtual_stop_intervals):
-    return [
-        *[
-            segment
-            for segment in segments
-            if segment.kind == MobilitySegment.Kind.STOP
-            or segment.activity_label == "IDLE"
-        ],
-        *virtual_stop_intervals,
-    ]
-
-
+"""Associa ad un segmento di stop un place confermato, usando il centroide
+GPS dell'intero periodo di sosta (non dei singoli pezzi grezzi che lo compongono).
+"""
 def visible_stop_summary(
     visible_stop,
-    source_intervals,
     gps_points,
     confirmed_places,
 ) -> VisibleStopSummary | None:
-    relevant_intervals = [
-        interval
-        for interval in source_intervals
-        if _intervals_touch_or_overlap(interval, visible_stop)
-    ]
-    if not relevant_intervals:
+    centroid = stop_centroid(visible_stop, gps_points)
+    if centroid is None:
         return None
-
-    intervals_for_centroids = {id(interval): interval for interval in relevant_intervals}
-    intervals_for_centroids.setdefault(id(visible_stop), visible_stop)
-    centroid_cache = _centroids_for_intervals(
-        intervals_for_centroids.values(),
-        gps_points,
-    )
-    centroids = [
-        centroid
-        for interval in relevant_intervals
-        if (centroid := stop_centroid(interval, gps_points, centroid_cache)) is not None
-    ]
-    if not centroids:
-        return None
-    lat, lon = stop_centroid(visible_stop, gps_points, centroid_cache) or (
-        sum(lat for lat, _ in centroids) / len(centroids),
-        sum(lon for _, lon in centroids) / len(centroids),
-    )
-    matches = {
-        match.id: match
-        for centroid in centroids
-        if (match := match_confirmed_place(*centroid, confirmed_places)) is not None
-    }
+    lat, lon = centroid
     return VisibleStopSummary(
         lat=lat,
         lon=lon,
-        matched_place=next(iter(matches.values())) if len(matches) == 1 else None,
+        matched_place=match_confirmed_place(lat, lon, confirmed_places),
     )
 
-
-def _intervals_touch_or_overlap(first, second) -> bool:
-    return (
-        first.start_timestamp <= second.end_timestamp
-        and second.start_timestamp <= first.end_timestamp
-    )
+# unisco segmenti reali e stop virtuali e associo ad ogni stop un place
+def project_diary_with_places(
+    persisted_segments,
+    virtual_stop_intervals,
+    gps_points,
+    confirmed_places,
+) -> list[tuple[ProjectedDiarySegment, VisibleStopSummary | None]]:
+    return [
+        (
+            segment,
+            visible_stop_summary(segment, gps_points, confirmed_places)
+            if segment.kind == MobilitySegment.Kind.STOP
+            else None,
+        )
+        for segment in project_diary_segments(persisted_segments, virtual_stop_intervals)
+    ]

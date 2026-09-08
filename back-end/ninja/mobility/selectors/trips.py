@@ -185,9 +185,8 @@ def reloadable_source_trip_exists(source_trip_id: int, user_id: int) -> bool:
         status__in=[Trip.Status.CLOSED, Trip.Status.PROCESSED],
     ).exists()
 
-
+# Funzione che restituisce true se l'upload raw è fallito
 def trip_diary_enrichment_failed(trip_id: int, user_id: int) -> bool:
-    """True se l'arricchimento del diario (fase raw) e' fallito in modo definitivo."""
     return TripUpload.objects.filter(
         trip_id=trip_id,
         user_id=user_id,
@@ -213,11 +212,11 @@ def trip_list_item_by_id(trip_id: int) -> dict[str, Any]:
     trip = Trip.objects.filter(id=trip_id).annotate(**_trip_list_annotations()).get()
     return _trip_list_item(trip)
 
-
+# Restituisco il trip e il suo path per mostrarlo nel front end
 def trip_track_for_user(trip_id: int, user_id: int) -> dict[str, Any] | None:
     row = (
         Trip.objects.filter(pk=trip_id, user_id=user_id)
-        .annotate(track_geojson=AsGeoJSON("path"))
+        .annotate(track_geojson=AsGeoJSON("path")) # LineString -> GeoJSON
         .values("id", "track_geojson", "distance_meters")
         .first()
     )

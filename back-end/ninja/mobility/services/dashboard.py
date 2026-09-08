@@ -36,8 +36,8 @@ from ..privacy import (
     privacy_metrics as compute_privacy_metrics,
 )
 from ..selectors import trips as trips_repository
-from ..significant_places import place_label
-from .diary_view import DiarySegmentPlace, build_private_diary
+from ..significant_places import VisibleStopSummary, place_label
+from .diary_view import build_private_diary
 
 
 class DashboardServiceError(ServiceError):
@@ -136,7 +136,7 @@ def privacy_track_view(trip: Trip, *, level: str) -> TrackView:
 
 
 def _segment_place_view(
-    segment_place: DiarySegmentPlace | None,
+    segment_place: VisibleStopSummary | None,
     *,
     level: str | None,
 ) -> DiarySegmentPlaceView | None:

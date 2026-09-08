@@ -158,9 +158,9 @@ void main() {
     expect(cubit.state.diaryStatus, DiaryLoadStatus.failed);
     expect(cubit.state.points, hasLength(3));
     expect(
-      cubit.state.enrichmentFailed,
+      cubit.state.processingFailed,
       isFalse,
-      reason: 'un errore di rete non e\' un fallimento dell\'arricchimento',
+      reason: 'un errore di rete non e\' un fallimento dell\'elaborazione',
     );
     expect(cubit.state.diaryRetryPending, isTrue);
     expect(cubit.state.diaryError, 'diario non disponibile');
@@ -252,7 +252,7 @@ void main() {
 
     expect(diaryRequests, 1);
     expect(cubit.state.diaryStatus, DiaryLoadStatus.failed);
-    expect(cubit.state.enrichmentFailed, isTrue);
+    expect(cubit.state.processingFailed, isTrue);
     expect(cubit.state.diaryRetryPending, isFalse);
   });
 
@@ -336,9 +336,9 @@ TripTrack _track({int tripId = 1}) => TripTrack(
 
 TripDiary _enrichedDiary({int tripId = 1}) => TripDiary(
       tripId: tripId,
-      status: TripDiaryStatus.enriched,
-      enrichmentCompleted: true,
-      enrichmentFailed: false,
+      status: TripDiaryStatus.processed,
+      processed: true,
+      processingFailed: false,
       segments: [
         TripDiarySegment(
           kind: TripDiarySegmentKind.move,
@@ -361,8 +361,8 @@ TripDiary _enrichedDiary({int tripId = 1}) => TripDiary(
 TripDiary _pendingDiary({int tripId = 1}) => TripDiary(
       tripId: tripId,
       status: TripDiaryStatus.closed,
-      enrichmentCompleted: false,
-      enrichmentFailed: false,
+      processed: false,
+      processingFailed: false,
       segments: const [],
       places: const [],
     );
@@ -370,9 +370,9 @@ TripDiary _pendingDiary({int tripId = 1}) => TripDiary(
 TripDiary _failedDiary({int tripId = 1}) => TripDiary(
       tripId: tripId,
       status: TripDiaryStatus.closed,
-      enrichmentCompleted: false,
-      enrichmentFailed: true,
-      enrichmentFailureReason: 'diary_enrichment_failed',
+      processed: false,
+      processingFailed: true,
+      processingFailureReason: 'diary_enrichment_failed',
       segments: const [],
       places: const [],
     );

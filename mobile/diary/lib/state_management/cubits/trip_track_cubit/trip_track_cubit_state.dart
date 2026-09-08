@@ -25,14 +25,14 @@ class TripTrackCubitState {
   final List<TripTrackSegmentState> segments;
   final List<TripDiarySegment> diarySegments;
   final double distanceMeters;
-  final bool enrichmentPending;
-  final bool enrichmentFailed;
+  final bool processingPending;
+  final bool processingFailed;
 
   /// Il diario non e' arrivato per un errore di trasporto e un nuovo
   /// tentativo e' gia' programmato: distingue l'attesa dal fallimento
-  /// definitivo dell'arricchimento.
+  /// definitivo dell'elaborazione.
   final bool diaryRetryPending;
-  final String? enrichmentErrorMessage;
+  final String? processingErrorMessage;
   final String? trackError;
   final String? diaryError;
   final String? error;
@@ -47,10 +47,10 @@ class TripTrackCubitState {
     this.segments = const [],
     this.diarySegments = const [],
     this.distanceMeters = 0,
-    this.enrichmentPending = false,
-    this.enrichmentFailed = false,
+    this.processingPending = false,
+    this.processingFailed = false,
     this.diaryRetryPending = false,
-    this.enrichmentErrorMessage,
+    this.processingErrorMessage,
     this.trackError,
     this.diaryError,
     this.error,
@@ -66,10 +66,10 @@ class TripTrackCubitState {
         segments = const [],
         diarySegments = const [],
         distanceMeters = 0,
-        enrichmentPending = false,
-        enrichmentFailed = false,
+        processingPending = false,
+        processingFailed = false,
         diaryRetryPending = false,
-        enrichmentErrorMessage = null,
+        processingErrorMessage = null,
         trackError = null,
         diaryError = null,
         error = null;
@@ -85,10 +85,10 @@ class TripTrackCubitState {
     List<TripTrackSegmentState>? segments,
     List<TripDiarySegment>? diarySegments,
     double? distanceMeters,
-    bool? enrichmentPending,
-    bool? enrichmentFailed,
+    bool? processingPending,
+    bool? processingFailed,
     bool? diaryRetryPending,
-    Object? enrichmentErrorMessage = _notProvided,
+    Object? processingErrorMessage = _notProvided,
     Object? trackError = _notProvided,
     Object? diaryError = _notProvided,
     Object? error = _notProvided,
@@ -103,12 +103,12 @@ class TripTrackCubitState {
       segments: segments ?? this.segments,
       diarySegments: diarySegments ?? this.diarySegments,
       distanceMeters: distanceMeters ?? this.distanceMeters,
-      enrichmentPending: enrichmentPending ?? this.enrichmentPending,
-      enrichmentFailed: enrichmentFailed ?? this.enrichmentFailed,
+      processingPending: processingPending ?? this.processingPending,
+      processingFailed: processingFailed ?? this.processingFailed,
       diaryRetryPending: diaryRetryPending ?? this.diaryRetryPending,
-      enrichmentErrorMessage: identical(enrichmentErrorMessage, _notProvided)
-          ? this.enrichmentErrorMessage
-          : enrichmentErrorMessage as String?,
+      processingErrorMessage: identical(processingErrorMessage, _notProvided)
+          ? this.processingErrorMessage
+          : processingErrorMessage as String?,
       trackError: identical(trackError, _notProvided)
           ? this.trackError
           : trackError as String?,

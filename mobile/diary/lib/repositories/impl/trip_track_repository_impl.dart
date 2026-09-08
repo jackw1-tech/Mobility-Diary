@@ -60,7 +60,7 @@ class TripTrackRepositoryImpl implements TripTrackRepository {
             'diary_service_returned_dto',
             fields: {
               'duration_ms': serviceWatch.elapsedMilliseconds,
-              'enrichment_completed': dto.processed,
+              'processing_completed': dto.processed,
               'segment_count': dto.segments.length,
               'place_count': dto.places.length,
             },

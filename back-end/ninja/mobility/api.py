@@ -125,16 +125,9 @@ def _visible_stop_place_out(summary) -> PlaceOut:
     )
 
 
+#Costruisce il diario che vedo sull app (precisione massima)
 @router.get("/trips/{trip_id}/diary", response=DiaryOut, auth=mobile_bearer_auth)
 def get_trip_diary(request, trip_id: int):
-    """Diario read-time delle soste visibili, con overlay dei Luoghi Confermati.
-
-    I MobilitySegment persistiti non vengono riscritti: la sosta prende a tempo
-    di lettura la propria posizione dai GpsPoint dell'intervallo e, se c'e' un
-    match univoco, anche l'etichetta del Luogo Confermato piu' vicino. La
-    proiezione vera e propria vive in `services.diary_view.build_private_diary`
-    ed e' condivisa con la dashboard web (stessa regola, stesso posto).
-    """
     trip = get_object_or_404(Trip, id=trip_id, user_id=request.user.user_id)
     failure_reason = (
         DIARY_ENRICHMENT_FAILED_REASON
@@ -143,28 +136,22 @@ def get_trip_diary(request, trip_id: int):
     )
 
     places_version = get_places_version(request.user.user_id)
-    if trip.status == Trip.Status.PROCESSED:
+    if trip.status == Trip.Status.PROCESSED: #Il viaggio è stato completamente processato
         diary_segments = get_cached_diary(trip_id, places_version)
-        # Una lista vuota puo' essere stata scritta da una versione precedente
-        # mentre HAR era ancora in corso. Ricostruirla impedisce di restituire
-        # processed=true con segmenti obsoleti e costa solo per il raro diario
-        # realmente vuoto.
         if not diary_segments:
             diary_segments = build_private_diary(trip)
             cache_diary(trip_id, places_version, diary_segments)
     else:
-        # I risultati intermedi non sono cacheabili: stato e segmenti vengono
-        # aggiornati asincronicamente dalla pipeline HAR.
-        diary_segments = build_private_diary(trip)
+        diary_segments = build_private_diary(trip) #Restituisce una lista vuota, ma devo comunque rispondere
 
     segments: list[SegmentOut] = []
-    overlaid: dict[int, PlaceOut] = {}
+    matched_places: dict[int, PlaceOut] = {}
     for seg in diary_segments:
         place_out = None
         if seg.place is not None:
             place_out = _visible_stop_place_out(seg.place)
             if seg.place.matched_place is not None:
-                overlaid[seg.place.matched_place.id] = _place_out(seg.place.matched_place)
+                matched_places[seg.place.matched_place.id] = _place_out(seg.place.matched_place)
         segments.append(
             SegmentOut(
                 kind=seg.kind,
@@ -179,11 +166,11 @@ def get_trip_diary(request, trip_id: int):
     return DiaryOut(
         trip_id=trip.id,
         status=trip.status,
-        processed=trip.status == Trip.Status.PROCESSED,
+        processed=trip.status == Trip.Status.PROCESSED, #Il dato più importante che restituisco se il viaggo non è stato ancora processato
         enrichment_failed=failure_reason is not None,
         enrichment_failure_reason=failure_reason,
         segments=segments,
-        places=list(overlaid.values()),
+        places=list(matched_places.values()),
     )
 
 

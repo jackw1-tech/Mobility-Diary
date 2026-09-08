@@ -2,15 +2,15 @@ import 'package:diary/theme/dimensions.dart';
 import 'package:diary/ui/pages/trip_diary_presenter.dart';
 import 'package:flutter/material.dart';
 
-/// Banner in cima alla mappa che racconta lo stato dell'arricchimento AI del
-/// diario (in corso oppure fallito).
-class EnrichmentBanner extends StatelessWidget {
+/// Banner in cima alla mappa che racconta lo stato dell'elaborazione AI del
+/// diario (in corso oppure fallita).
+class ProcessingBanner extends StatelessWidget {
   final IconData icon;
   final Color color;
   final String message;
   final bool showProgress;
 
-  const EnrichmentBanner({
+  const ProcessingBanner({
     required this.icon,
     required this.color,
     required this.message,

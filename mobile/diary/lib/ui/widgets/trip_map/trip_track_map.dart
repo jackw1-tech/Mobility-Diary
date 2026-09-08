@@ -10,9 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 
-/// Mappa Mapbox della traccia di un viaggio: disegna la polyline (intera o
-/// spezzata per segmenti), i marker di partenza/arrivo e le soste riconosciute,
-/// e apre il dettaglio toccando un segmento.
+/// Mappa Mapbox della traccia di un viaggio in trip detail page
 class TripTrackMap extends StatefulWidget {
   final TripTrackCubitState state;
   final Widget? topLeftOverlay;
@@ -67,11 +65,11 @@ class _TripTrackMapState extends State<TripTrackMap> {
         'segment_count': widget.state.segments.length,
       },
     );
+    // Quando cambia il widget perchè il diary ha finito il caricamento -> riemetto ripTrackStatus.loaded ma lo era già quindi viene eseguita didUpdateWidget
     if (justSegmented) {
-      // L'AI ha appena finito di segmentare il viaggio: passa alla vista
-      // segmentata anche se l'utente stava guardando la traccia intera.
       _showSegments = true;
     }
+    //Facco scattare l'effettivo ridisegno solo se points, segments o diarySegments sono diversi (quando l har ha finito quindi -> dal diary)
     if (oldWidget.state.points != widget.state.points ||
         oldWidget.state.segments != widget.state.segments ||
         oldWidget.state.diarySegments != widget.state.diarySegments) {
@@ -120,10 +118,6 @@ class _TripTrackMapState extends State<TripTrackMap> {
     await _drawTrack();
   }
 
-  /// Un disegno e' obsoleto appena ne parte uno piu' recente: la sequenza va
-  /// controllata dopo ogni await, altrimenti due passate concorrenti si
-  /// rubano gli annotation manager e sulla mappa puo' restare la traccia
-  /// grezza di quella vecchia al posto dei segmenti appena arrivati.
   bool _isStale(int drawId, String stage) {
     if (drawId == _drawSequence && mounted) return false;
     _log(
@@ -401,8 +395,6 @@ class _TripTrackMapState extends State<TripTrackMap> {
           ],
         ),
         lineColor: color.toARGB32(),
-        // Un tratto un po' piu' spesso rende il tap molto piu' affidabile su
-        // mobile senza snaturare la leggibilita' della mappa.
         lineWidth: isSelected ? 12.0 : 9.0,
         lineOpacity: isSelected ? 1.0 : 0.82,
         lineJoin: LineJoin.ROUND,
@@ -492,8 +484,8 @@ class _TripTrackMapState extends State<TripTrackMap> {
   @override
   Widget build(BuildContext context) {
     final points = widget.state.points;
-    final hasEnrichmentBanner =
-        widget.state.enrichmentPending || widget.state.enrichmentFailed;
+    final hasProcessingBanner =
+        widget.state.processingPending || widget.state.processingFailed;
     final theme = Theme.of(context);
 
     return Stack(
@@ -514,23 +506,23 @@ class _TripTrackMapState extends State<TripTrackMap> {
           onMapCreated: _onMapCreated,
           onStyleLoadedListener: _onStyleLoaded,
         ),
-        if (widget.state.enrichmentPending)
-          EnrichmentBanner(
+        if (widget.state.processingPending)
+          ProcessingBanner(
             icon: Icons.auto_awesome,
             color: theme.colorScheme.primary,
             message: 'Analisi diario in corso',
             showProgress: true,
           ),
-        if (widget.state.enrichmentFailed)
-          EnrichmentBanner(
+        if (widget.state.processingFailed)
+          ProcessingBanner(
             icon: Icons.error_outline,
             color: theme.colorScheme.error,
-            message: widget.state.enrichmentErrorMessage ??
+            message: widget.state.processingErrorMessage ??
                 'Diario non disponibile per questo viaggio.',
           ),
         if (widget.state.isSegmented)
           Positioned(
-            top: hasEnrichmentBanner ? 96 : Dimensions.paddingMedium,
+            top: hasProcessingBanner ? 96 : Dimensions.paddingMedium,
             right: Dimensions.paddingMedium,
             child: ViewModeToggle(
               showSegments: _showSegments,
@@ -539,7 +531,7 @@ class _TripTrackMapState extends State<TripTrackMap> {
           ),
         if (widget.topLeftOverlay != null)
           Positioned(
-            top: hasEnrichmentBanner ? 96 : Dimensions.paddingMedium,
+            top: hasProcessingBanner ? 96 : Dimensions.paddingMedium,
             left: Dimensions.paddingMedium,
             child: widget.topLeftOverlay!,
           ),

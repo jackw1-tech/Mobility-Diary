@@ -13,9 +13,7 @@ class PlaceOut(Schema):
     id: int
     lat: float
     lon: float
-    # Etichetta visualizzabile: nome manuale, categoria, o "luogo abituale".
     label: str
-    # Categoria chiusa (casa/universita/...) se etichettato, altrimenti vuota.
     category: str = ""
 
 
@@ -72,7 +70,7 @@ class SegmentOut(Schema):
     end_timestamp: datetime
     activity_label: str
     distance_meters: float
-    path_geojson: dict[str, Any] | None = None
+    path_geojson: dict[str, Any] | None = None # Non invio l'oggetto Geo, invio il GeoJson
     place: PlaceOut | None = None
 
 
@@ -238,7 +236,6 @@ class AnalyticsWeeklyHeatmapOut(Schema):
 
 
 class AnalyticsOut(Schema):
-    """Analitiche Personali: bucket finestrati + aggregati cumulativi (ADR 0030)."""
 
     granularity: str
     # False quando l'utente non ha ancora Viaggi sincronizzati (empty state).

@@ -18,7 +18,7 @@ void main() {
       id: 1,
       startedAt: DateTime.utc(2026, 9, 4, 10),
       endedAt: DateTime.utc(2026, 9, 4, 11),
-      status: TripStatus.enriched,
+      status: TripStatus.processed,
       distanceMeters: null,
       hasTrack: false,
     );

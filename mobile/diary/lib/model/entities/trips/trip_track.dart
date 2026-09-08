@@ -23,18 +23,18 @@ class TripTrack {
 class TripDiary {
   final int tripId;
   final TripDiaryStatus diaryStatus;
-  final bool enrichmentCompleted;
-  final bool enrichmentFailed;
-  final String? enrichmentFailureReason;
+  final bool processed;
+  final bool processingFailed;
+  final String? processingFailureReason;
   final List<TripDiarySegment> segments;
   final List<TripDiaryPlace> places;
 
   const TripDiary({
     required this.tripId,
     required TripDiaryStatus status,
-    required this.enrichmentCompleted,
-    required this.enrichmentFailed,
-    this.enrichmentFailureReason,
+    required this.processed,
+    required this.processingFailed,
+    this.processingFailureReason,
     required this.segments,
     required this.places,
   }) : diaryStatus = status;

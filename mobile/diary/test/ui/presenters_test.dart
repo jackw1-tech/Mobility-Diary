@@ -31,7 +31,7 @@ TripListItem trip(int id, DateTime startedAt, {bool hasTrack = true}) {
     id: id,
     startedAt: startedAt,
     endedAt: startedAt.add(const Duration(minutes: 10)),
-    status: TripStatus.enriched,
+    status: TripStatus.processed,
     distanceMeters: 500,
     hasTrack: hasTrack,
   );

@@ -1,20 +1,4 @@
-"""Cache Redis del diario privato (`build_private_diary`) di un Trip.
-
-Il calcolo (GPS grezzi del viaggio + matching con i Luoghi Confermati
-dell'utente) e' a tempo di lettura per costruzione: un Luogo Confermato/
-Rifiutato/Rietichettato dopo la fine del viaggio deve riflettersi sui diari
-gia' visualizzati. Non si puo' pero' sapere a buon mercato QUALI viaggi
-passati tocchi una modifica ai luoghi (il matching e' geometrico, non una
-relazione salvata) — invalidare "a generazione" risolve senza doverlo sapere:
-
-- ogni utente ha un contatore `places_version` in Redis;
-- la chiave di cache di un diario include la versione corrente;
-- confermare/rifiutare/rietichettare un luogo fa solo un INCR (O(1), nessuna
-  query): la versione cambia, tutte le chiavi vecchie diventano irraggiungibili
-  per costruzione (chiave diversa), senza dover enumerare o cancellare nulla.
-
-TTL lungo (default una settimana): non e' il meccanismo di invalidazione
-(lo e' il contatore), serve solo a liberare le entry ormai orfane.
+"""Cache Redis del diario privato di un Trip.
 """
 
 from __future__ import annotations
@@ -37,7 +21,7 @@ def _get_redis_client() -> Redis:
 def _places_version_key(user_id: int) -> str:
     return f"places_version:{user_id}"
 
-
+# Restituisce la chiave dell'ultimo aggiornamento dei luoghi significativi
 def get_places_version(user_id: int) -> int:
     try:
         raw = _get_redis_client().get(_places_version_key(user_id))
@@ -57,11 +41,11 @@ def bump_places_version(user_id: int) -> None:
     except RedisError:
         return
 
-
+#Costruisce la chiave
 def _diary_cache_key(trip_id: int, places_version: int) -> str:
     return f"private_diary:{trip_id}:{places_version}"
 
-
+#Cerco nella cache il diario
 def get_cached_diary(
     trip_id: int, places_version: int
 ) -> "list[DiarySegmentView] | None":
@@ -72,11 +56,11 @@ def get_cached_diary(
     if raw is None:
         return None
     try:
-        return pickle.loads(raw)
+        return pickle.loads(raw) #Byte -> Oggetto Python
     except (pickle.PickleError, EOFError, TypeError, ValueError):
         return None
 
-
+# Inserisco in cache il diario
 def cache_diary(
     trip_id: int,
     places_version: int,
@@ -87,7 +71,7 @@ def cache_diary(
         return
     try:
         _get_redis_client().setex(
-            _diary_cache_key(trip_id, places_version), ttl, pickle.dumps(diary)
+            _diary_cache_key(trip_id, places_version), ttl, pickle.dumps(diary) #Oggetto python -> Byte
         )
     except RedisError:
         return

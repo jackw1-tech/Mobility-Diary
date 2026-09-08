@@ -85,9 +85,9 @@ def materialize_inline_core_upload(
 
 """ 
 A partire da una lista di punti gps, costruisce la LineString dell'intero Trip
+La line string è costruita usando TUTTI i punti, anche quelli che sono attribuiti ad un segmento in cui sono fermo
 """
 def build_trip_path(trip: Trip) -> int:
-    """Deriva la LineString del viaggio dai GPS ordinati nel DB."""
     coords = [
         (point.x, point.y)
         for point in trip_evidence_repository.gps_points_ordered(trip).values_list(

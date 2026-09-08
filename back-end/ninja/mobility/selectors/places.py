@@ -3,19 +3,12 @@ from __future__ import annotations
 from ..models import HabitualPlace, PlaceMiningStatus
 
 
+"""Get dei luoghi congermati dall'utente"""
 def confirmed_places_for_user(
     user_id: int,
     *,
     only_fields: tuple[str, ...] | None = None,
 ) -> list[HabitualPlace]:
-    """Luoghi Confermati dell'utente, usati come overlay read-time del diario.
-
-    Query unica per questa esigenza: prima era ripetuta identica in
-    mobility.api, mobility.diary_export, accounts.auth_web.users_api e (con
-    un sottoinsieme di campi via `.only()`) tre volte in
-    mobility.selectors.analytics. `only_fields` preserva quell'ottimizzazione
-    per i chiamanti che non hanno bisogno dell'oggetto completo.
-    """
     queryset = HabitualPlace.objects.filter(
         user_id=user_id,
         state=HabitualPlace.State.CONFIRMED,

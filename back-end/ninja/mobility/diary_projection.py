@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from django.contrib.gis.geos import LineString
 
-from .models import ActivityLabel, MobilitySegment, Trip, VirtualStopInterval
-
-STOP_GAP_TOLERANCE = timedelta(0)
+from .models import ActivityLabel, MobilitySegment, VirtualStopInterval
 
 
 @dataclass(frozen=True)
@@ -25,16 +23,13 @@ class _StopLikeInterval:
     start_timestamp: datetime
     end_timestamp: datetime
 
-
+"""Riordina i segmenti e fonde gli intervalli di sosta
+Restituisce una lista di ProjectedDiarySegment che possono essere movimenti o soste
+"""
 def project_diary_segments(
     segments: list[MobilitySegment],
     virtual_stop_intervals: list[VirtualStopInterval] | None = None,
 ) -> list[ProjectedDiarySegment]:
-    """Build one visible diary timeline from real moves and stop-like evidence.
-
-    Place semantics are applied as a read-time overlay by the diary endpoint, not
-    here: this projection only normalizes stop/move structure.
-    """
     ordered_segments = sorted(
         segments,
         key=lambda segment: (
@@ -43,7 +38,7 @@ def project_diary_segments(
             segment.pk or 0,
         ),
     )
-    projected_moves = [
+    moves = [
         ProjectedDiarySegment(
             kind=segment.kind,
             start_timestamp=segment.start_timestamp,
@@ -55,14 +50,14 @@ def project_diary_segments(
         for segment in ordered_segments
         if not _is_stop_like(segment)
     ]
-    projected_stops = _merge_stop_like_intervals(
+    stops = _merge_stop_like_intervals(
         _collect_stop_like_intervals(
             ordered_segments,
             virtual_stop_intervals or [],
         )
     )
     return sorted(
-        [*projected_moves, *projected_stops],
+        [*moves, *stops],
         key=lambda segment: (
             segment.start_timestamp,
             segment.end_timestamp,
@@ -70,22 +65,14 @@ def project_diary_segments(
         ),
     )
 
-
-def project_trip_diary_segments(trip: Trip) -> list[ProjectedDiarySegment]:
-    return project_diary_segments(
-        list(trip.segments.all()),
-        list(trip.virtual_stop_intervals.all()),
-    )
-
-
+"""Valuta se un segmento è di Stop"""
 def _is_stop_like(segment: MobilitySegment) -> bool:
-    # Backward compatibility for legacy MOVE/IDLE rows produced before issue 02.
     return (
         segment.kind == MobilitySegment.Kind.STOP
         or segment.activity_label == ActivityLabel.IDLE
     )
 
-
+"""Prende due liste di elementi diversi ma con start e stop come attributi comune -> _StopLikeInterval """
 def _collect_stop_like_intervals(
     segments: list[MobilitySegment],
     virtual_stop_intervals: list[VirtualStopInterval],
@@ -110,18 +97,19 @@ def _collect_stop_like_intervals(
         key=lambda interval: (interval.start_timestamp, interval.end_timestamp),
     )
 
-
+"""Unisce i segmenti di stop e i virtual stop intervals
+"""
 def _merge_stop_like_intervals(
     intervals: list[_StopLikeInterval],
 ) -> list[ProjectedDiarySegment]:
     if not intervals:
         return []
-
+    #lista di liste di due elementi
     merged: list[list[datetime]] = []
     for interval in intervals:
         if (
             not merged
-            or interval.start_timestamp > merged[-1][1] + STOP_GAP_TOLERANCE
+            or interval.start_timestamp > merged[-1][1]
         ):
             merged.append([interval.start_timestamp, interval.end_timestamp])
             continue

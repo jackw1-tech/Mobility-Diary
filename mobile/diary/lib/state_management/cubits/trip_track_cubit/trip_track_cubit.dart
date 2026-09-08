@@ -77,7 +77,7 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
     ]);
   }
 
-  //
+  // Chiamo il back end e richiedo i dati del trip e il suo path (LineString -> GeoJSON)
   Future<void> _loadTrack(int tripId, int generation) async {
     final cached = _trackCache[tripId];
     final AppResult<TripTrack> result;
@@ -95,7 +95,10 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
         () => _repository.fetchTrack(tripId),
       );
     }
-    if (!_isCurrent(tripId, generation)) return;
+    if (!_isCurrent(tripId, generation)) {
+      return;
+    } // Protezione per scartare chiamate arrivate ma vecchie
+    // Accade quando cambio velocemente da un viaggio all'altro con lo slider
 
     final failure = result.failure;
     if (failure != null) {
@@ -128,6 +131,7 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
     _emitResolved(next);
   }
 
+  // Chiamo il back end per ottenere il diario da visualizzare (diario preciso) , viene rieseguita ad ogni polling
   Future<void> _loadDiary(
     int tripId,
     int generation, {
@@ -162,8 +166,8 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
         state.copyWith(
           diaryStatus:
               keepsPreviousDiary ? state.diaryStatus : DiaryLoadStatus.failed,
-          enrichmentFailed: false,
-          enrichmentErrorMessage: null,
+          processingFailed: false,
+          processingErrorMessage: null,
           diaryError: keepsPreviousDiary ? null : failure.message,
           diaryRetryPending: pollPendingDiary,
         ),
@@ -182,15 +186,17 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
       _diagnosticsTraceId,
       'diary_result_available',
       fields: {
-        'enrichment_completed': diary.enrichmentCompleted,
+        'processing_completed': diary.processed,
         'segment_count': diary.segments.length,
         'place_count': diary.places.length,
         'generation': generation,
       },
     );
-    final enrichmentFailed =
-        !diary.enrichmentCompleted && diary.enrichmentFailed;
-    final enrichmentPending = !diary.enrichmentCompleted && !enrichmentFailed;
+    final processingFailed = !diary.processed && diary.processingFailed;
+    final processingPending = !diary.processed && !processingFailed;
+    // Il backEnd manda solo  "segments": []
+    // Il front li divide in segmenti di movimento "segment" -> andranno sulla mappa
+    // e in rawDiarySegments (tutti) che andranno nella tab diario
     final segments = [
       for (final segment in diary.drawableSegments)
         TripTrackSegmentState(
@@ -204,22 +210,21 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
     final fallbackPoints = [
       for (final segment in segments) ...segment.points,
     ];
-    final diaryStatus = enrichmentFailed
+    final diaryStatus = processingFailed
         ? DiaryLoadStatus.failed
-        : enrichmentPending
+        : processingPending
             ? DiaryLoadStatus.pending
             : DiaryLoadStatus.loaded;
-    final failureMessage = enrichmentFailed
-        ? _enrichmentFailureMessage(diary.enrichmentFailureReason)
+    final failureMessage = processingFailed
+        ? _processingFailureMessage(diary.processingFailureReason)
         : null;
-    // Il polling ripete la stessa risposta ogni secondo: se il contenuto non
-    // e' cambiato si riusa la stessa istanza di lista, cosi' la mappa non
-    // rilegge come "nuovi" segmenti identici e non ridisegna nulla.
+
     final nextSegments = _sameList(state.segments, segments, _sameTrackSegment)
         ? state.segments
         : segments;
+    // Mostro il diario solo quando il viaggo è stato interamente processato
     final rawDiarySegments =
-        diary.enrichmentCompleted ? diary.segments : const <TripDiarySegment>[];
+        diary.processed ? diary.segments : const <TripDiarySegment>[];
     final nextDiarySegments = _sameList(
       state.diarySegments,
       rawDiarySegments,
@@ -234,12 +239,12 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
           : state.points,
       segments: nextSegments,
       diarySegments: nextDiarySegments,
-      distanceMeters: diary.enrichmentCompleted && diary.segments.isNotEmpty
+      distanceMeters: diary.processed && diary.segments.isNotEmpty
           ? diary.movementDistanceMeters
           : state.distanceMeters,
-      enrichmentPending: enrichmentPending,
-      enrichmentFailed: enrichmentFailed,
-      enrichmentErrorMessage: failureMessage,
+      processingPending: processingPending,
+      processingFailed: processingFailed,
+      processingErrorMessage: failureMessage,
       diaryError: failureMessage,
       diaryRetryPending: false,
     );
@@ -247,7 +252,7 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
     _pollPendingDiaryIfNeeded(
       tripId,
       generation,
-      pending: enrichmentPending && pollPendingDiary,
+      pending: processingPending && pollPendingDiary,
     );
   }
 
@@ -296,6 +301,7 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
     return !isClosed && _tripId == tripId && _loadGeneration == generation;
   }
 
+  // Funzione chiamata in modo asincrono tra loadTrack e loadDiary, in base allo stato fa aggiornare la UI
   void _emitResolved(TripTrackCubitState next) {
     if (isClosed) return;
     final trackDone = next.trackStatus == TrackLoadStatus.loaded ||
@@ -324,6 +330,7 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
     emit(next.copyWith(status: TripTrackStatus.empty, error: null));
   }
 
+  // Controlla se la fase raw è ancora pending e nel caso fa partire il polling
   void _pollPendingDiaryIfNeeded(
     int tripId,
     int generation, {
@@ -362,10 +369,10 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
     });
   }
 
-  String _enrichmentFailureMessage(String? reasonCode) {
+  String _processingFailureMessage(String? reasonCode) {
     return switch (reasonCode) {
       'diary_enrichment_failed' =>
-        'Non siamo riusciti ad arricchire il diario di questo viaggio.',
+        'Non siamo riusciti a elaborare il diario di questo viaggio.',
       _ => 'Diario non disponibile per questo viaggio.',
     };
   }

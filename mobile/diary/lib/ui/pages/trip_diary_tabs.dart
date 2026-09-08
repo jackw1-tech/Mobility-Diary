@@ -96,11 +96,11 @@ Widget? _stateMessage(
     case DiaryLoadStatus.failed:
       // Solo l'arricchimento fallito e' definitivo: un errore di trasporto
       // viene gia' ritentato da solo, e l'utente puo' forzarlo subito.
-      if (state.enrichmentFailed) {
+      if (state.processingFailed) {
         return _message(
           context,
           Icons.error_outline,
-          state.enrichmentErrorMessage ??
+          state.processingErrorMessage ??
               'Diario non disponibile per questo viaggio.',
         );
       }
