@@ -54,10 +54,12 @@ String iconIdForCategory(String category) {
   return 'habitual-place-icon-$resolved';
 }
 
-/// Disegna un pallino colorato con l'icona della categoria al centro, e lo
-/// rasterizza in RGBA 32-bit con alpha premoltiplicato (formato richiesto da
-/// MbxImage/addStyleImage).
-Future<Uint8List> renderCategoryIconRgba(
+/// Disegna un pallino colorato con l'icona della categoria al centro e lo
+/// codifica in PNG: nonostante la doc di MbxImage parli di RGBA grezzo,
+/// le implementazioni native di addStyleImage (UIImage(data:) su iOS,
+/// BitmapFactory.decodeByteArray su Android) si aspettano byte di
+/// un'immagine codificata.
+Future<Uint8List> renderCategoryIconPng(
   CategoryMarker marker, {
   double size = 96,
 }) async {
@@ -94,17 +96,9 @@ Future<Uint8List> renderCategoryIconRgba(
 
   final picture = recorder.endRecording();
   final image = await picture.toImage(size.round(), size.round());
-  final byteData = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
-  final straight = byteData!.buffer.asUint8List();
-
-  // MbxImage vuole alpha premoltiplicato: colore * (alpha / 255).
-  final premultiplied = Uint8List(straight.length);
-  for (var i = 0; i < straight.length; i += 4) {
-    final a = straight[i + 3];
-    premultiplied[i] = (straight[i] * a) ~/ 255;
-    premultiplied[i + 1] = (straight[i + 1] * a) ~/ 255;
-    premultiplied[i + 2] = (straight[i + 2] * a) ~/ 255;
-    premultiplied[i + 3] = a;
-  }
-  return premultiplied;
+  final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+  return byteData!.buffer.asUint8List(
+    byteData.offsetInBytes,
+    byteData.lengthInBytes,
+  );
 }

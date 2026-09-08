@@ -1,6 +1,7 @@
 FROM postgis/postgis:16-3.4
 
-RUN apt-get update \
+RUN sed -i '/debian-security/d' /etc/apt/sources.list \
+    && apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         gnupg \

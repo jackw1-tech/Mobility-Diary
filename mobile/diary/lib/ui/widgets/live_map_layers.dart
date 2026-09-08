@@ -37,6 +37,7 @@ class LiveMapLayers {
   final MapboxMap _map;
   final int _primaryColor;
   final int _surfaceColor;
+  bool _habitualPlacesReady = false;
 
   LiveMapLayers._(this._map,
       {required int primaryColor, required int surfaceColor})
@@ -100,41 +101,50 @@ class LiveMapLayers {
     ));
   }
 
+  // Isolata in try/catch: se la registrazione delle icone fallisse a runtime,
+  // non deve interrompere l'installazione degli altri layer (route, replay).
   Future<void> _installHabitualPlacesLayer() async {
-    for (final marker in categoryMarkers) {
-      final rgba = await renderCategoryIconRgba(marker);
-      await _map.style.addStyleImage(
-        iconIdForCategory(marker.category),
-        3.0,
-        MbxImage(
-          width: _categoryIconRenderSize,
-          height: _categoryIconRenderSize,
-          data: rgba,
-        ),
-        false,
-        [],
-        [],
-        null,
-      );
+    try {
+      for (final marker in categoryMarkers) {
+        final png = await renderCategoryIconPng(marker);
+        await _map.style.addStyleImage(
+          iconIdForCategory(marker.category),
+          3.0,
+          MbxImage(
+            width: _categoryIconRenderSize,
+            height: _categoryIconRenderSize,
+            data: png,
+          ),
+          false,
+          [],
+          [],
+          null,
+        );
+      }
+      await _map.style.addSource(GeoJsonSource(
+        id: _habitualPlacesSourceId,
+        data: _labeledPointsGeoJson(const []),
+      ));
+      await _map.style.addLayer(SymbolLayer(
+        id: _habitualPlacesLabelLayerId,
+        sourceId: _habitualPlacesSourceId,
+        iconImageExpression: ['get', 'iconId'],
+        iconAllowOverlap: true,
+        textFieldExpression: ['get', 'label'],
+        textSize: 12,
+        textColor: _primaryColor,
+        textHaloColor: _surfaceColor,
+        textHaloWidth: 1.5,
+        textAnchor: TextAnchor.TOP,
+        textOffset: [0, 1.1],
+        textAllowOverlap: true,
+      ));
+      _habitualPlacesReady = true;
+    } catch (error, stackTrace) {
+      debugPrint(
+          'live_map_layers: habitual places layer install failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
     }
-    await _map.style.addSource(GeoJsonSource(
-      id: _habitualPlacesSourceId,
-      data: _labeledPointsGeoJson(const []),
-    ));
-    await _map.style.addLayer(SymbolLayer(
-      id: _habitualPlacesLabelLayerId,
-      sourceId: _habitualPlacesSourceId,
-      iconImageExpression: ['get', 'iconId'],
-      iconAllowOverlap: true,
-      textFieldExpression: ['get', 'label'],
-      textSize: 12,
-      textColor: _primaryColor,
-      textHaloColor: _surfaceColor,
-      textHaloWidth: 1.5,
-      textAnchor: TextAnchor.TOP,
-      textOffset: [0, 1.1],
-      textAllowOverlap: true,
-    ));
   }
 
   Future<void> _installReplayMarkerLayer() async {
@@ -171,12 +181,14 @@ class LiveMapLayers {
 
   /// Mostra i luoghi abituali confermati (pallino + etichetta) sulla mappa
   /// live, tipicamente solo quando non c'e' un tracking in corso.
-  Future<void> updateHabitualPlaces(List<LabeledPoint> places) =>
-      _map.style.setStyleSourceProperty(
-        _habitualPlacesSourceId,
-        'data',
-        _labeledPointsGeoJson(places),
-      );
+  Future<void> updateHabitualPlaces(List<LabeledPoint> places) {
+    if (!_habitualPlacesReady) return Future.value();
+    return _map.style.setStyleSourceProperty(
+      _habitualPlacesSourceId,
+      'data',
+      _labeledPointsGeoJson(places),
+    );
+  }
 
   Future<void> updateReplayMarker({
     required bool isReplay,

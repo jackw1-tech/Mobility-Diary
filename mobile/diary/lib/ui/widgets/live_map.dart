@@ -123,6 +123,10 @@ class _LiveMapState extends State<LiveMap> {
       return;
     }
     final confirmed = _placesCubit?.state.confirmed ?? const [];
+    debugPrint(
+      'live_map: sync habitual places, confirmed=${confirmed.length}, '
+      'status=${_placesCubit?.state.status}',
+    );
     await _layers?.updateHabitualPlaces([
       for (final place in confirmed)
         LabeledPoint(
