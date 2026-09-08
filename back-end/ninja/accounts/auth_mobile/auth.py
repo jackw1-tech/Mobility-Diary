@@ -22,7 +22,7 @@ class MobileBearerAuth(HttpBearer):
             if access_token is None or not access_token.is_valid:
                 delete_cached_auth_context(cached_context.token_hash)
                 return None
-            request.user = cached_context.user
+            request.user = cached_context
             return cached_context
 
         token_hash = AccessToken.hash_raw_token(token)
@@ -31,9 +31,9 @@ class MobileBearerAuth(HttpBearer):
         if access_token is None or not access_token.is_valid:
             return None
 
-        cache_access_token(token, access_token)
+        cache_access_token(access_token)
         context = context_from_access_token(access_token)
-        request.user = context.user
+        request.user = context
         return context
 
 

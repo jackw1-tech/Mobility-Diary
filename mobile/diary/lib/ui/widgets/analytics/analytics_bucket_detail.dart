@@ -5,7 +5,6 @@ import 'package:diary/ui/pages/trip_diary_presenter.dart'
 import 'package:diary/ui/widgets/analytics/analytics_atoms.dart';
 import 'package:flutter/material.dart';
 
-/// Statistiche del singolo giorno/settimana selezionato nel grafico.
 class AnalyticsBucketDetail extends StatelessWidget {
   final String title;
   final AnalyticsSummary summary;

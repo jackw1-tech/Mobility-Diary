@@ -14,21 +14,17 @@ def create_har_job(trip_id: int) -> HarJob:
     return HarJob.objects.create(trip_id=trip_id)
 
 
-def locked_har_job(job_id: int) -> HarJob:
-    return HarJob.objects.select_for_update().get(id=job_id)
-
-
-def locked_har_job_with_trip(job_id: int) -> HarJob:
+def locked_har_job_for_processing(job_id: int) -> HarJob:
     return HarJob.objects.select_for_update().select_related("trip").get(id=job_id)
 
 
-def har_job_with_trip(job_id: int) -> HarJob:
+def har_job_for_raw_persistence(job_id: int) -> HarJob:
     return HarJob.objects.select_related("trip").get(id=job_id)
 
 
 def merge_har_job_result(job_id: int, updates: dict) -> dict:
     with transaction.atomic():
-        job = locked_har_job(job_id)
+        job = HarJob.objects.select_for_update().get(id=job_id)
         result = job.result if isinstance(job.result, dict) else {}
         result = {**result, **updates}
         job.result = result

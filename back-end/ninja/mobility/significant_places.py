@@ -46,10 +46,6 @@ CLUSTER_PROJECTION_SRID = 3035
 OVERLAY_MATCH_METERS = STAY_RADIUS_METERS
 NEUTRAL_PLACE_LABEL = "luogo abituale"
 
-# Namespace per pg_advisory_xact_lock: isola il lock di mining da altri lock.
-_MINING_LOCK_NAMESPACE = 0x5350  # "SP"
-
-
 @dataclass(frozen=True)
 class DetectedVisit:
     lat: float
@@ -66,18 +62,10 @@ class VisibleStopSummary:
     matched_place: HabitualPlace | None
 
 
-def _point_fields(point) -> tuple[datetime, Point, float | None]:
-    """Rende omogeneo l'accesso ai campi minimi richiesti dalla stay-detection."""
-    if hasattr(point, "timestamp"):
-        return point.timestamp, point.point, getattr(point, "accuracy_meters", None)
-    timestamp, geometry, *rest = point
-    accuracy = rest[0] if rest else None
-    return timestamp, geometry, accuracy
-
-""" 
+"""
 Algoritmo di stay detection (Pre processing per DBSCAN)
 """
-def detect_visits(points) -> list[DetectedVisit]:
+def detect_visits(points: list[tuple[datetime, Point]]) -> list[DetectedVisit]:
     visits: list[DetectedVisit] = []
     cluster_started_at: datetime | None = None
     cluster_ended_at: datetime | None = None
@@ -100,10 +88,7 @@ def detect_visits(points) -> list[DetectedVisit]:
             )
         )
 
-    for p in points:
-        timestamp, point, accuracy_meters = _point_fields(p)
-        if accuracy_meters is not None and accuracy_meters > MAX_ACCURACY_METERS:
-            continue
+    for timestamp, point in points:
         lat, lon = point.y, point.x
         if point_count:
             gap = (timestamp - cluster_ended_at).total_seconds()
@@ -127,19 +112,18 @@ def detect_visits(points) -> list[DetectedVisit]:
     return visits
 
 """
-Funzione che prende tutti i GPS dei viaggi dell’utente X e scarta quelli imprecisi
-"""
-def _user_points_for_detection(user_id: int):
-    return place_mining_repository.points_for_stay_detection(
-        user_id, max_accuracy_meters=MAX_ACCURACY_METERS
-    )
-
-"""
 GPS dell’utente -> visite candidate -> cluster di visite -> luoghi abituali
 """
 def mine_user_significant_places(user_id: int) -> dict:
     with transaction.atomic():
-        detected = detect_visits(_user_points_for_detection(user_id))
+        detected = detect_visits(
+            list(
+                place_mining_repository.points_for_stay_detection(
+                    user_id,
+                    max_accuracy_meters=MAX_ACCURACY_METERS,
+                )
+            )
+        )
         manual_places = place_mining_repository.manually_reviewed_places_for_user(
             user_id
         )

@@ -7,12 +7,8 @@ import 'package:diary/ui/widgets/trip_reload_sheets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-/// Azioni del menu contestuale di un viaggio nel drawer.
 enum TripAction { note, toggleReloadable, delete }
 
-/// Dialoghi, conferme e mutazioni innescate da una riga del drawer. Stanno
-/// fuori dal widget perche' sono flusso di interazione, non layout: il tile
-/// resta leggibile e queste restano testabili una per una.
 
 void openTripDetail(BuildContext context, TripListItem trip) {
   Scaffold.of(context).closeDrawer();

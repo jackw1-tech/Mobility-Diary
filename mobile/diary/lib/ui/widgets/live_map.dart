@@ -63,9 +63,6 @@ class _LiveMapState extends State<LiveMap> {
   }
 
   Future<void> _resolveInitialCenter() async {
-    // La UI non parla mai direttamente col LocationRepository: la posizione
-    // arriva dal CurrentLocationCubit, come vuole il flusso Pine UI -> Cubit
-    // -> Repository.
     final cubit = context.read<CurrentLocationCubit>();
     final location = await cubit.resolve();
     if (!mounted) return;

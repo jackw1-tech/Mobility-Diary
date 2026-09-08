@@ -2,8 +2,6 @@ import 'package:diary/model/entities/acquisition/acquisition_domain.dart';
 import 'package:diary/theme/semantic_colors.dart';
 import 'package:flutter/material.dart';
 
-/// Presentazione degli snack di debug sync mostrati sulla home: decidono se e
-/// come raccontare all'utente l'avanzamento dell'upload di un viaggio.
 
 bool shouldShowSyncDebugSnack(
   AcquisitionSyncSnapshot previous,

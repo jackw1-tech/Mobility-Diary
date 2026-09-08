@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-/// Maniglia grigia in cima ai bottom sheet trascinabili.
 class SheetHandle extends StatelessWidget {
   const SheetHandle({super.key});
 

@@ -1,4 +1,5 @@
 from ninja import Router
+from ninja.responses import Status
 
 from ..schemas import MessageOut, UserOut
 from . import services
@@ -25,8 +26,8 @@ def register_user(request, payload: RegisterIn):
             last_name=payload.last_name,
         )
     except services.AuthMobileServiceError as exc:
-        return exc.status_code, {"detail": exc.message}
-    return 201, result
+        return Status(exc.status_code, {"detail": exc.message})
+    return Status(201, result)
 
 """
 Rotta di login di un Utente, se trovato, va a creare un token di accesso che verrà insviato all utente
@@ -44,7 +45,7 @@ def login_user(request, payload: LoginIn):
             password=payload.password,
         )
     except services.AuthMobileServiceError as exc:
-        return exc.status_code, {"detail": exc.message}
+        return Status(exc.status_code, {"detail": exc.message})
 
 
 """

@@ -156,8 +156,6 @@ async function renderMap() {
       drawLine(dashboard.track.geojson, '#111111', 3, 0.18, visiblePoints);
     }
   } else if (showFullTripGhost.value) {
-    // Filtro luogo/attività attivo: mostra comunque la traccia come sfondo
-    // debole, senza farla contare per il fit-bounds della camera.
     for (const dashboard of visibleDashboards.value) {
       drawLine(dashboard.track.geojson, '#111111', 2, 0.06, visiblePoints, false);
     }
@@ -318,8 +316,6 @@ watch(dashboards, (list) => {
   selectedTripIds.value = list.map((dashboard) => dashboard.trip.id);
 });
 watch(selectedTripIds, (ids) => {
-  // Non si puo' scendere a zero viaggi selezionati: torna alla vista "tutti"
-  // invece di restare bloccati su una dashboard vuota.
   if (ids.length === 0 && dashboards.value.length > 0) {
     selectedTripIds.value = dashboards.value.map((dashboard) => dashboard.trip.id);
   }

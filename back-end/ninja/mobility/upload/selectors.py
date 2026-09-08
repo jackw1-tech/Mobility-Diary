@@ -54,19 +54,12 @@ def upload_part_by_sequence(
     ).first()
 
 
-def mark_part_received(part: TripUploadPart, *, received_at) -> None:
-    part.received_at = received_at
-    part.save(update_fields=["received_at"])
-
-
-def owned_uploads_for_owner(user_id: int) -> QuerySet[TripUpload]:
-    return TripUpload.objects.select_related("trip").filter(user_id=user_id)
-
-""" 
+"""
 Prende una trip uploads solo se appartiene all'utente autenticato
 """
 def active_uploads_for_owner(user_id: int) -> QuerySet[TripUpload]:
-    return owned_uploads_for_owner(user_id).filter(
+    return TripUpload.objects.select_related("trip").filter(
+        user_id=user_id,
         recording_started_at__isnull=False,
         recording_closed_at__isnull=True,
         recording_abandoned_at__isnull=True,
@@ -137,9 +130,23 @@ def locked_upload_by_client_session(
     )
 
 
-def create_upload_with_fields(**fields) -> TripUpload:
-    return TripUpload.objects.create(**fields)
-
-
-def delete_upload(upload: TripUpload) -> None:
-    upload.delete()
+def create_reloaded_upload(
+    *,
+    user_id: int,
+    client_session_id: str,
+    started_at,
+    ended_at,
+    source_trip: Trip,
+) -> TripUpload:
+    return TripUpload.objects.create(
+        user_id=user_id,
+        client_session_id=client_session_id,
+        device_id="reload",
+        core_status=TripUpload.PhaseStatus.COMPLETED,
+        raw_status=TripUpload.PhaseStatus.PENDING,
+        expected_raw_parts=0,
+        started_at=started_at,
+        ended_at=ended_at,
+        completed_at=ended_at,
+        source_trip=source_trip,
+    )

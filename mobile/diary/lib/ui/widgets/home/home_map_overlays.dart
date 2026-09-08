@@ -3,8 +3,6 @@ import 'package:diary/theme/dimensions.dart';
 import 'package:diary/theme/semantic_colors.dart';
 import 'package:flutter/material.dart';
 
-/// Overlay ancorati sopra il bottom sheet della home: riepilogo del percorso
-/// suggerito dall'assistente e countdown di fine replay.
 class HomeMapOverlays extends StatelessWidget {
   final RouteAssistantRoute? route;
   final DateTime? routeUpdatedAt;

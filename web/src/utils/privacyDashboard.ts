@@ -38,8 +38,6 @@ export function isProtectedLevel(level: PrivacyLevel): boolean {
   return level !== 'precise';
 }
 
-// Mirrors formatDistance in ./formatters; kept inline so this module stays
-// dependency-free and runnable under the extensionless node --test pipeline.
 export function formatMeters(meters: number): string {
   if (meters >= 1000) return `${(meters / 1000).toFixed(1)} km`;
   return `${Math.round(meters)} m`;

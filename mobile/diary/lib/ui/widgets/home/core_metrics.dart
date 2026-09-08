@@ -3,8 +3,6 @@ import 'package:diary/theme/dimensions.dart';
 import 'package:diary/ui/widgets/surface_card.dart';
 import 'package:flutter/material.dart';
 
-/// Riga di metriche live (sigma e velocita') mostrata sotto l'intestazione del
-/// bottom sheet della home.
 class CoreMetrics extends StatefulWidget {
   final AcquisitionCubitState state;
 

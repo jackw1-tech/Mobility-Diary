@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import logging
 import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
-from time import perf_counter
 
 from django.contrib.gis.geos import Point
 from django.db import transaction
@@ -25,8 +23,6 @@ from ..replay_raw import (
 from ..selectors import trip_evidence as trip_evidence_repository
 from ..selectors import trips as trips_repository
 from ..selectors.trips import source_has_raw_sensor_evidence
-
-logger = logging.getLogger(__name__)
 
 
 class ReloadServiceError(ServiceError):
@@ -99,17 +95,11 @@ def reload_trip_from_source(
     if upload_repository.active_uploads_for_owner(user_id).exists():
         raise ReloadServiceError("viaggio in corso attivo")
 
-    task_started = perf_counter()
-    phase_timings_ms: dict[str, float] = {}
-    upload_id: int | None = None
-    result_trip_id: int | None = None
-
     now = now or timezone.now()
     client_session_id = f"reload-{reload_request_id}"
 
     try:
         with transaction.atomic():
-            lookup_started = perf_counter()
             existing = upload_repository.locked_upload_by_client_session(
                 user_id, client_session_id
             )
@@ -117,17 +107,9 @@ def reload_trip_from_source(
                 # Il viaggio era già stato completato, ma il mobile non ha
                 # ricevuto la risposta.
                 if existing.trip_id is not None:
-                    phase_timings_ms["idempotent_lookup"] = _elapsed_ms(lookup_started)
-                    phase_timings_ms["task_total"] = _elapsed_ms(task_started)
-                    _log_reload_timing(
-                        "idempotent_hit",
-                        upload_id=existing.id,
-                        trip_id=existing.trip_id,
-                        phase_timings_ms=phase_timings_ms,
-                    )
                     return reload_response(existing)
                 # Tentativo incompleto: elimino e ricomincio.
-                upload_repository.delete_upload(existing)
+                existing.delete()
 
             source = trips_repository.locked_trip_by_id_for_user(
                 trip_id, user_id
@@ -136,13 +118,9 @@ def reload_trip_from_source(
                 raise ReloadNotFound("Trip non trovato")
             if not _is_reloadable_source(source):
                 raise ReloadServiceError("viaggio non ricaricabile")
-            phase_timings_ms["lookup_and_lock"] = _elapsed_ms(lookup_started)
 
-            preflight_started = perf_counter()
             _ensure_source_raw_objects_available(source)
-            phase_timings_ms["raw_preflight"] = _elapsed_ms(preflight_started)
 
-            timeline_started = perf_counter()
             timeline = _source_timeline(source)
             duration = timeline.end - timeline.start
             reload_end = now
@@ -153,24 +131,16 @@ def reload_trip_from_source(
                 reload_end = reload_start + duration
                 _ensure_reload_slot_available(user_id, reload_start, reload_end, now)
             shift = reload_start - timeline.start
-            phase_timings_ms["build_timeline"] = _elapsed_ms(timeline_started)
 
-            create_started = perf_counter()
-            upload = upload_repository.create_upload_with_fields(
+            upload = upload_repository.create_reloaded_upload(
                 user_id=user_id,
                 client_session_id=client_session_id,
-                device_id="reload",
-                core_status=TripUpload.PhaseStatus.COMPLETED, # Copio i dati core direttamente dal db
-                raw_status=TripUpload.PhaseStatus.PENDING, # Devo cambiare la date 
-                expected_raw_parts=0,
                 started_at=reload_start,
                 ended_at=reload_end,
-                completed_at=reload_end,
                 source_trip=source,
             )
             upload.raw_base_path = f"uploads/{upload.id}/"
             upload.save(update_fields=["raw_base_path", "updated_at"])
-            upload_id = upload.id
 
             trip = trips_repository.create_trip(
                 user_id=user_id,
@@ -181,66 +151,27 @@ def reload_trip_from_source(
                 ended_at=reload_end,
                 reloaded_from_trip=source,
             )
-            result_trip_id = trip.id
-            phase_timings_ms["create_records"] = _elapsed_ms(create_started)
 
-            copy_started = perf_counter()
             _copy_core_evidence(timeline, trip, shift)
             build_trip_path(trip)
             trip.refresh_from_db(fields=["path", "distance_meters"]) #aggiorno l'oggetto trip dopo l update di build_trip_path
-            phase_timings_ms["copy_core_evidence"] = _elapsed_ms(copy_started)
 
             upload.trip = trip
             upload.save(update_fields=["trip", "updated_at"])
 
-            queue_started = perf_counter()
             shift_us = _timedelta_microseconds(shift)
-            transaction.on_commit( # Prima Django crea finisce la transazione -> Commit -> A commit riuscito parte il task 
+            transaction.on_commit( # Prima Django crea finisce la transazione -> Commit -> A commit riuscito parte il task
                 lambda: prepare_reloaded_trip_raw.delay(
                     upload.id,
                     source.id,
                     shift_us,
                 )
             )
-            phase_timings_ms["queue_raw_regeneration"] = _elapsed_ms(queue_started)
-            phase_timings_ms["task_total"] = _elapsed_ms(task_started)
-            _log_reload_timing(
-                "completed",
-                upload_id=upload_id,
-                trip_id=result_trip_id,
-                phase_timings_ms=phase_timings_ms,
-            )
             return reload_response(upload)
     except ReplayStorageUnavailable as exc:
-        phase_timings_ms["task_total_until_error"] = _elapsed_ms(task_started)
-        _log_reload_timing(
-            "failed_storage",
-            upload_id=upload_id,
-            trip_id=result_trip_id,
-            phase_timings_ms=phase_timings_ms,
-            error=exc.message,
-        )
         raise ReloadStorageUnavailable(exc.message) from exc
     except ReplayRawError as exc:
-        phase_timings_ms["task_total_until_error"] = _elapsed_ms(task_started)
-        _log_reload_timing(
-            "failed_raw",
-            upload_id=upload_id,
-            trip_id=result_trip_id,
-            phase_timings_ms=phase_timings_ms,
-            error=exc.message,
-        )
         raise ReloadServiceError(exc.message) from exc
-    except Exception as exc:
-        phase_timings_ms["task_total_until_error"] = _elapsed_ms(task_started)
-        _log_reload_timing(
-            "failed_unexpected",
-            upload_id=upload_id,
-            trip_id=result_trip_id,
-            phase_timings_ms=phase_timings_ms,
-            error=str(exc),
-        )
-        raise
 
 
 def reload_response(upload: TripUpload) -> dict:
@@ -260,15 +191,6 @@ def reload_response(upload: TripUpload) -> dict:
         "map_available": trip.path is not None,
     }
 
-# Get riutilizzabile del trip
-def _owned_source_or_error(user_id: int, trip_id: int) -> Trip:
-    trip = trips_repository.trip_by_id_for_user(trip_id, user_id)
-    if trip is None:
-        raise ReloadNotFound("Trip non trovato")
-    return trip
-
-
-
 # Controlla il flag is reloadble del trip
 def _is_reloadable_source(source: Trip) -> bool:
     return source.is_reloadable and source.status in [
@@ -278,7 +200,9 @@ def _is_reloadable_source(source: Trip) -> bool:
 
 # Funzione che cerca il trip e indica se è ricaricabile
 def _reloadable_source_or_error(user_id: int, trip_id: int) -> Trip:
-    source = _owned_source_or_error(user_id, trip_id)
+    source = trips_repository.trip_by_id_for_user(trip_id, user_id)
+    if source is None:
+        raise ReloadNotFound("Trip non trovato")
     if not _is_reloadable_source(source):
         raise ReloadServiceError("viaggio non ricaricabile")
     return source
@@ -464,51 +388,3 @@ def _timedelta_microseconds(value: timedelta) -> int:
         + value.seconds * 1_000_000
         + value.microseconds
     )
-
-
-def _elapsed_ms(started_at: float) -> float:
-    return (perf_counter() - started_at) * 1000
-
-
-def _rounded(values: dict[str, float]) -> dict[str, float]:
-    return {key: round(value, 2) for key, value in values.items()}
-
-
-def _percentage(value: float, total_ms: float) -> float:
-    if total_ms <= 0:
-        return 0.0
-    return round((value / total_ms) * 100, 2)
-
-
-def _percentages(values: dict[str, float], total_ms: float) -> dict[str, float]:
-    return {key: _percentage(value, total_ms) for key, value in values.items()}
-
-
-def _log_reload_timing(
-    status: str,
-    *,
-    upload_id: int | None,
-    trip_id: int | None,
-    phase_timings_ms: dict[str, float],
-    error: str | None = None,
-) -> None:
-    total_ms = phase_timings_ms.get("task_total") or phase_timings_ms.get(
-        "task_total_until_error"
-    ) or sum(
-        value
-        for key, value in phase_timings_ms.items()
-        if not key.startswith("task_total")
-    )
-
-    log_payload = {
-        "status": status,
-        "upload_id": upload_id,
-        "trip_id": trip_id,
-        "total_ms": round(total_ms, 2),
-        "phases_ms": _rounded(phase_timings_ms),
-        "phases_pct": _percentages(phase_timings_ms, total_ms),
-    }
-    if error:
-        log_payload["error"] = error
-
-    logger.info("[RELOAD-TRIP-TIMING] %s", log_payload)

@@ -6,8 +6,6 @@ import 'package:diary/utils/date_time_utils.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-/// Riga di un viaggio nel drawer. In modalita' `reloadable` mostra i pulsanti
-/// Live e Carica, altrimenti dettaglio e menu azioni.
 class TripTile extends StatelessWidget {
   final TripListItem trip;
   final bool reloadable;

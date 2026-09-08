@@ -58,7 +58,7 @@ def trip_path_length_meters(trip: Trip) -> float:
     distance = row["path_length"]
     if distance is None:
         return 0.0
-    return float(distance.m if hasattr(distance, "m") else distance)
+    return float(distance.m)
 
 
 def locked_trip_by_id_for_user(trip_id: int, user_id: int) -> Trip | None:

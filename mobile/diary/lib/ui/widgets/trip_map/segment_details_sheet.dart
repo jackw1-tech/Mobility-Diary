@@ -2,7 +2,6 @@ import 'package:diary/theme/dimensions.dart';
 import 'package:diary/ui/pages/trip_diary_presenter.dart';
 import 'package:flutter/material.dart';
 
-/// Bottom sheet aperto toccando un segmento sulla mappa del viaggio.
 class SegmentDetailsSheet extends StatelessWidget {
   final Color color;
   final String activityLabel;

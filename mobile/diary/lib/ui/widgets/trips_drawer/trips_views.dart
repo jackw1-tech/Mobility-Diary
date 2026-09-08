@@ -6,8 +6,6 @@ import 'package:diary/ui/widgets/trips_drawer_presenter.dart';
 import 'package:diary/utils/date_time_utils.dart';
 import 'package:flutter/material.dart';
 
-/// Elenco piatto dei viaggi, usato sia in modalita' lista sia in modalita'
-/// "solo ricaricabili".
 class TripsListView extends StatelessWidget {
   final List<TripListItem> trips;
   final bool reloadable;
@@ -31,7 +29,6 @@ class TripsListView extends StatelessWidget {
   }
 }
 
-/// Vista a due livelli: prima i giorni, poi i viaggi del giorno scelto.
 class TripsByDayView extends StatelessWidget {
   final List<TripDayGroup> groups;
   final TripDayGroup? selectedDay;

@@ -7,9 +7,6 @@ import 'package:drift/native.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
-// Chi importa il database vuole quasi sempre anche il DAO, le tabelle e le
-// costanti di stato: riesportarli evita che ogni chiamante debba conoscere la
-// suddivisione interna di questo modulo.
 export 'package:diary/network/service/impl/acquisition_dao.dart';
 export 'package:diary/network/service/impl/acquisition_tables.dart';
 

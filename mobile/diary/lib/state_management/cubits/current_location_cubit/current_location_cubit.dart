@@ -3,18 +3,12 @@ import 'package:diary/state_management/cubits/current_location_cubit/current_loc
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:latlong2/latlong.dart' as ll;
 
-/// Espone la posizione corrente alla UI senza che questa debba parlare con il
-/// [LocationRepository]: la mappa live la usa per il centro iniziale e per il
-/// pulsante "ricentra".
 class CurrentLocationCubit extends Cubit<CurrentLocationCubitState> {
   final LocationRepository _repository;
 
   CurrentLocationCubit(this._repository)
       : super(const CurrentLocationCubitState.initial());
 
-  /// Risolve la posizione corrente e la pubblica nello stato. Ritorna anche il
-  /// valore letto (`null` se non disponibile) per i chiamanti che devono
-  /// reagire subito, ad esempio per animare la camera.
   Future<ll.LatLng?> resolve() async {
     emit(
       const CurrentLocationCubitState(status: CurrentLocationStatus.loading),

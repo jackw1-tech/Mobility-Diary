@@ -1,5 +1,3 @@
-/// Dati sorgente di un viaggio da rigiocare, come li restituisce
-/// GET /mobility/trips/reloadable/{id}/replay-data (schema ReplayDataOut).
 class ReplayDataDto {
   final int sourceTripId;
   final List<ReplayGpsPointDto> gpsPoints;
@@ -29,7 +27,6 @@ class ReplayDataDto {
   }
 }
 
-/// Schema ReplayPointOut.
 class ReplayGpsPointDto {
   final DateTime timestamp;
   final double latitude;
@@ -56,8 +53,6 @@ class ReplayGpsPointDto {
   }
 }
 
-/// Schema ReplayTransitionOut. Il backend non restituisce reason/sigma/speed:
-/// una transizione rigiocata non porta con se' le evidenze dell'originale.
 class ReplayStateTransitionDto {
   final DateTime timestamp;
   final String fromState;

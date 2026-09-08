@@ -26,17 +26,6 @@ class MobileAuthContext:
     def user_id(self) -> int:
         return self.id
 
-    @property
-    def user(self) -> "MobileAuthContext":
-        return self
-
-    @property
-    def is_authenticated(self) -> bool:
-        return True
-
-    def get_username(self) -> str:
-        return self.email
-
     def as_payload(self) -> dict[str, Any]:
         return {
             "id": self.id,
@@ -79,7 +68,7 @@ def get_redis_client() -> Redis:
 """
 Funzione che salva su redis il token di accesso
 """
-def cache_access_token(raw_token: str, access_token: AccessToken) -> None:
+def cache_access_token(access_token: AccessToken) -> None:
     ttl = _ttl_seconds(access_token.expires_at)
     if ttl <= 0:
         return

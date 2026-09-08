@@ -8,10 +8,6 @@ import 'package:diary/ui/widgets/analytics/time_by_category_chart.dart';
 import 'package:diary/ui/widgets/surface_card.dart';
 import 'package:flutter/material.dart';
 
-/// Sezione "Tempo per attivita'": grafico selezionabile + legenda + dettaglio
-/// del giorno/settimana selezionato (preselezionato sull'ultimo bucket = oggi
-/// / settimana corrente). La selezione e' solo stato di UI: i dati di ogni
-/// bucket sono gia' nel DTO, non serve richiamare il backend.
 class AnalyticsTrendSection extends StatefulWidget {
   final Analytics data;
 

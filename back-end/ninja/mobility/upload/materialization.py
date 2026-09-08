@@ -39,12 +39,11 @@ def materialized_trip_counts(trip: Trip | None) -> MaterializedTripCounts:
             path_points=0,
             distance_meters=0,
         )
-    gps_count = trip_evidence_repository.gps_point_count(trip)
-    transition_count = trip_evidence_repository.state_transition_count(trip)
+    counts = trip_evidence_repository.evidence_counts(trip)
     return MaterializedTripCounts(
-        gps_points=gps_count,
-        state_transitions=transition_count,
-        path_points=gps_count,
+        gps_points=counts.gps_points,
+        state_transitions=counts.state_transitions,
+        path_points=counts.gps_points,
         distance_meters=float(trip.distance_meters or 0),
     )
 
@@ -90,9 +89,7 @@ La line string è costruita usando TUTTI i punti, anche quelli che sono attribui
 def build_trip_path(trip: Trip) -> int:
     coords = [
         (point.x, point.y)
-        for point in trip_evidence_repository.gps_points_ordered(trip).values_list(
-            "point", flat=True
-        )
+        for point in trip_evidence_repository.ordered_gps_coordinates(trip)
     ]
     if len(set(coords)) < 2:
         trip.path = None
@@ -104,7 +101,7 @@ def build_trip_path(trip: Trip) -> int:
     trip.distance_meters = None
     trip.save(update_fields=["path", "distance_meters", "updated_at"])
 
-    trip.distance_meters = _distance_meters_from_postgis(trip)
+    trip.distance_meters = trips_repository.trip_path_length_meters(trip)
     trip.save(update_fields=["distance_meters", "updated_at"])
     return len(coords)
 
@@ -184,9 +181,3 @@ def _get_or_create_inline_trip(upload: TripUpload) -> Trip:
         update_fields.append("ended_at")
     trip.save(update_fields=update_fields)
     return trip
-
-""" 
-Usa la funzione di PostGIS per calcolare la distanza del viaggio, in metri, a partire dalla LineString
-"""
-def _distance_meters_from_postgis(trip: Trip) -> float:
-    return trips_repository.trip_path_length_meters(trip)

@@ -186,12 +186,9 @@ async function selectPrivacyLevel(level: PrivacyLevel) {
   try {
     const response = await fetchTripDashboard(userId.value, tripId.value, level);
     if (dashboard.value) {
-      // Swap only the privacy-aware view so the private comparison, local
-      // filters, and the owner's saved preference stay untouched.
       dashboard.value.privacy_aware = response.privacy_aware;
     }
   } catch {
-    // Keep the previously rendered privacy-aware view on a failed preview.
   } finally {
     privacyLoading.value = false;
   }
@@ -293,8 +290,6 @@ function drawPrivacyPlaces(visiblePoints: LatLngTuple[]) {
     const [lon, lat] = coordinates;
     const position: LatLngTuple = [lat, lon];
     visiblePoints.push(position);
-    // The label is already masked server-side for non-precise levels, so the
-    // tooltip never leaks a sensitive place name.
     L.circleMarker(position, {
       color: '#0f766e',
       fillColor: '#0f766e',

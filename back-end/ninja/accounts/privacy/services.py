@@ -1,9 +1,3 @@
-"""Business logic delle preferenze privacy dell'utente mobile.
-
-Orchestrazione pura: nessuna query ORM diretta, nessuna dipendenza da Ninja.
-Le query passano dal repository condiviso del context (accounts.repositories).
-"""
-
 from __future__ import annotations
 
 from shared.exceptions import ServiceError

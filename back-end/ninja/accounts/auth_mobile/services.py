@@ -63,13 +63,13 @@ def _clean_email(email: str) -> str:
 """Genera il token , lo stora hashato e lo mette in cache."""
 def issue_access_token_for_user(user) -> tuple[str, AccessToken]:
     raw_token = secrets.token_urlsafe(48) # 64 caratteri
-    ttl_days = getattr(settings, "MOBILE_ACCESS_TOKEN_TTL_DAYS", 30)
+    ttl_days = settings.MOBILE_ACCESS_TOKEN_TTL_DAYS
     access_token = auth_mobile_repositories.create_access_token(
         user,
         token_hash=AccessToken.hash_raw_token(raw_token),
         expires_at=timezone.now() + timedelta(days=ttl_days),
     )
-    cache_access_token(raw_token, access_token)
+    cache_access_token(access_token)
     return raw_token, access_token
 
 

@@ -24,7 +24,6 @@ services:
       - .env
     volumes:
       - ../ninja:/app
-      - ../../manual_har:/app/manual_har:ro
     expose:
       - "8000"
     healthcheck:
@@ -53,31 +52,12 @@ services:
       - .env
     volumes:
       - ../ninja:/app
-      - ../../manual_har:/app/manual_har:ro
     healthcheck:
       test: ["CMD-SHELL", "celery -A config inspect ping -d celery@$$(hostname) | grep -q OK"]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 30s
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-
-  beat:
-    build:
-      context: ../ninja
-    restart: unless-stopped
-    command: celery -A config beat -l info
-    env_file:
-      - .env
-    volumes:
-      - ../ninja:/app
-      - ../../manual_har:/app/manual_har:ro
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -98,7 +78,6 @@ services:
       POSTGRES_PORT: 5432
     volumes:
       - ../ninja:/app
-      - ../../manual_har:/app/manual_har:ro
     depends_on:
       db:
         condition: service_healthy

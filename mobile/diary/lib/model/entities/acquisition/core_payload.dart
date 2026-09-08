@@ -1,8 +1,3 @@
-/// Contenuto del payload "core" di un viaggio: la traccia GPS e le transizioni
-/// FSM. Ci arrivano per due strade — dal DB locale per un viaggio registrato
-/// dal vivo, dal backend per un viaggio rigiocato — e da entrambe escono con
-/// la stessa forma verso POST /upload/core-inline.
-
 class CoreGpsPoint {
   final DateTime timestamp;
   final double latitude;
@@ -32,8 +27,6 @@ class CoreStateTransition {
   final String fromState;
   final String toState;
 
-  /// Evidenze della decisione FSM. Nulle per i viaggi rigiocati: il backend
-  /// non restituisce le evidenze originali insieme alla transizione.
   final double? sigma;
   final double? speedMps;
 
@@ -54,7 +47,6 @@ class CoreStateTransition {
       );
 }
 
-/// Traccia sorgente di un viaggio da rigiocare, gia' ordinata per timestamp.
 class ReplaySource {
   final int sourceTripId;
   final List<CoreGpsPoint> points;

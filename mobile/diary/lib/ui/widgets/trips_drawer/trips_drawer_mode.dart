@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 
-/// Le tre viste del drawer dei viaggi: elenco piatto, raggruppamento per
-/// giorno, solo viaggi ricaricabili.
 enum TripsDrawerMode { list, days, reloadable }
 
 class TripsDrawerModeToggle extends StatelessWidget {

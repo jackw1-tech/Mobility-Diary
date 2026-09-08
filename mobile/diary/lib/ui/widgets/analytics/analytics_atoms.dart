@@ -3,9 +3,7 @@ import 'package:diary/theme/dimensions.dart';
 import 'package:diary/ui/pages/analytics_presenter.dart';
 import 'package:flutter/material.dart';
 
-/// Elementi minimi condivisi dalle sezioni della pagina Statistiche.
 
-/// Pallino colorato che identifica una categoria di mobilita'.
 class AnalyticsDot extends StatelessWidget {
   final Color color;
 
@@ -24,7 +22,6 @@ class AnalyticsDot extends StatelessWidget {
   }
 }
 
-/// Testo grigio mostrato quando una sezione non ha ancora dati.
 class AnalyticsSectionEmpty extends StatelessWidget {
   final String text;
 
@@ -42,7 +39,6 @@ class AnalyticsSectionEmpty extends StatelessWidget {
   }
 }
 
-/// Riga etichetta a sinistra, valore in grassetto a destra.
 class AnalyticsStatRow extends StatelessWidget {
   final String label;
   final String value;
@@ -74,7 +70,6 @@ class AnalyticsStatRow extends StatelessWidget {
   }
 }
 
-/// Riga con pallino di categoria a sinistra e valore in grassetto a destra.
 class AnalyticsDotStatRow extends StatelessWidget {
   final Color color;
   final String label;
@@ -111,7 +106,6 @@ class AnalyticsDotStatRow extends StatelessWidget {
   }
 }
 
-/// Legenda dei colori delle categorie di mobilita'.
 class AnalyticsCategoryLegend extends StatelessWidget {
   const AnalyticsCategoryLegend({super.key});
 

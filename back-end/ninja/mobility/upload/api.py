@@ -243,10 +243,13 @@ def complete_raw_upload_route(request, upload_id: int, payload: CompleteIn):
     except UploadServiceError as exc:
         raise HttpError(exc.status_code, exc.message) from exc
 
-    return 202, CompleteOut(
-        upload_id=upload.id,
-        core_status=upload.core_status,
-        raw_status=upload.raw_status,
+    return Status(
+        202,
+        CompleteOut(
+            upload_id=upload.id,
+            core_status=upload.core_status,
+            raw_status=upload.raw_status,
+        ),
     )
 
 

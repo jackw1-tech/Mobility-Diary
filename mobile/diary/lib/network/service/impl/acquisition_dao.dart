@@ -4,9 +4,6 @@ import 'package:drift/drift.dart';
 
 part 'acquisition_dao.g.dart';
 
-/// Accesso al database locale dell'acquisizione. Tutte le scritture
-/// normalizzano i timestamp a UTC e tutte le letture li rinormalizzano
-/// uscendo, cosi' il resto dell'app non vede mai un'ora locale implicita.
 @DriftAccessor(
   tables: [
     AcquisitionSessions,
@@ -77,7 +74,6 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
         .then((session) => session == null ? null : sessionAsUtc(session));
   }
 
-  // --- Transizioni FSM --------------------------------------------------- //
 
   Future<void> insertTransition({
     required String sessionId,
@@ -121,7 +117,6 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
             transition == null ? null : transitionAsUtc(transition));
   }
 
-  // --- Punti GPS --------------------------------------------------------- //
 
   Future<int> insertGpsPoint({
     required String sessionId,
@@ -225,8 +220,6 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
         .then((windows) => windows.map(sensorWindowAsUtc).toList());
   }
 
-  /// Finestra sensori piu' recente della sessione: usata dalla classificazione
-  /// live dell'assistente di percorso. Null se la sessione non ne ha ancora.
   Future<SensorWindow?> latestSensorWindow(String sessionId) {
     return (select(sensorWindows)
           ..where((window) => window.sessionId.equals(sessionId))
@@ -245,7 +238,6 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
     return query.map((row) => row.read(count) ?? 0).getSingle();
   }
 
-  // --- Pulizia ----------------------------------------------------------- //
 
   /// Cancella del tutto una sessione ormai
   Future<void> purgeSyncedSession(String sessionId) {
@@ -264,11 +256,7 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
     });
   }
 
-  // --- SyncJob ----------------------------------------------------------- //
 
-  /// Sessione locale che ha prodotto un dato Trip remoto, se ancora presente
-  /// sul device (es. core riuscito ma raw fallito in modo definitivo: la riga
-  /// resta per permettere un retry manuale anche se il Trip e' gia' visibile).
   Future<String?> localSessionIdForRemoteTrip(int tripId) async {
     final job = await (select(syncJobs)
           ..where((j) => j.remoteTripId.equals(tripId)))
@@ -300,8 +288,6 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
     return syncJobAsUtc(created);
   }
 
-  /// Job su cui il processore puo' lavorare ora: stato attivo e senza un
-  /// next_retry_at futuro.
   Future<List<SyncJob>> claimableSyncJobs(DateTime now) {
     final nowUtc = asUtc(now);
     return (select(syncJobs)

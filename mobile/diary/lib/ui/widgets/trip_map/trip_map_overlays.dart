@@ -59,7 +59,6 @@ class ProcessingBanner extends StatelessWidget {
   }
 }
 
-/// Selettore traccia intera / segmenti, visibile solo a viaggio segmentato.
 class ViewModeToggle extends StatelessWidget {
   final bool showSegments;
   final ValueChanged<bool> onChanged;
@@ -99,7 +98,6 @@ class ViewModeToggle extends StatelessWidget {
   }
 }
 
-/// Pillola in basso con la distanza totale del viaggio.
 class DistanceOverlay extends StatelessWidget {
   final double distanceMeters;
 

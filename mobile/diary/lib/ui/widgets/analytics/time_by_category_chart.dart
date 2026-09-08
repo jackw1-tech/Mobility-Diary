@@ -4,8 +4,6 @@ import 'package:diary/ui/pages/analytics_presenter.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
-/// Istogramma impilato dei minuti per categoria, una colonna per bucket.
-/// La colonna selezionata resta a colori pieni, le altre sono attenuate.
 class TimeByCategoryChart extends StatelessWidget {
   final List<AnalyticsBar> bars;
   final int selectedIndex;
@@ -33,8 +31,6 @@ class TimeByCategoryChart extends StatelessWidget {
           barTouchData: BarTouchData(
             enabled: true,
             handleBuiltInTouches: false,
-            // La traccia di sfondo a piena altezza rende l'intera colonna
-            // toccabile, anche i giorni senza attivita'.
             allowTouchBarBackDraw: true,
             touchExtraThreshold:
                 const EdgeInsets.symmetric(horizontal: Dimensions.paddingSmall),

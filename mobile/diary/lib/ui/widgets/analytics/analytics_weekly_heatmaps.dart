@@ -4,8 +4,6 @@ import 'package:diary/ui/widgets/analytics/analytics_atoms.dart';
 import 'package:diary/ui/widgets/analytics_heatmap_map.dart';
 import 'package:flutter/material.dart';
 
-/// Sezione "Luoghi piu' frequentati": una heatmap per settimana, toccabile per
-/// aprirla a tutto schermo.
 class AnalyticsWeeklyHeatmaps extends StatelessWidget {
   final List<AnalyticsWeeklyHeatmapViewModel> weeks;
 

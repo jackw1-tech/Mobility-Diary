@@ -61,8 +61,6 @@ class _TripTrackMapState extends State<TripTrackMap> {
     _map = map;
     await map.scaleBar.updateSettings(ScaleBarSettings(enabled: false));
     await map.compass.updateSettings(CompassSettings(enabled: false));
-    // Dentro una TabBarView vogliamo che i drag restino alla mappa e non
-    // vengano interpretati come tentativi di cambio tab o gesture mancanti.
     await map.gestures.updateSettings(
       GesturesSettings(
         scrollEnabled: true,

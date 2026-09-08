@@ -1,7 +1,5 @@
 import 'package:drift/drift.dart';
 
-/// Schema locale dell'acquisizione: una sessione con i suoi dati grezzi (GPS,
-/// transizioni FSM, finestre sensori) e la coda di sincronizzazione.
 
 class AcquisitionSessions extends Table {
   TextColumn get id => text()();
@@ -44,16 +42,11 @@ class SensorWindows extends Table {
   TextColumn get matrixJson => text()();
 }
 
-/// Coda di sincronizzazione persistente: un job per sessione conclusa.
-/// Disaccoppia lo stato del viaggio dallo stato di upload, cosi' lo STOP non
-/// resta bloccato sulla rete e la sync riprende all'apertura app
-/// (REPORT_STRATEGIA_UPLOAD_ASINCRONA.md D5, SyncJob).
 class SyncJobs extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get localSessionId =>
       text().references(AcquisitionSessions, #id)();
   IntColumn get remoteUploadId => integer().nullable()();
-  // Trip di dominio materializzato dal backend (null finche' il core non completa).
   IntColumn get remoteTripId => integer().nullable()();
   IntColumn get corePayloadSizeBytes =>
       integer().withDefault(const Constant(0))();
@@ -75,7 +68,6 @@ class SyncJobs extends Table {
       ];
 }
 
-// Stati del SyncJob (vedi report). Tenuti come costanti per evitare enum nel DB.
 const String syncJobPending = 'PENDING';
 const String syncJobPackaging = 'PACKAGING';
 const String syncJobUploading = 'UPLOADING';
@@ -84,7 +76,6 @@ const String syncJobCompleted = 'COMPLETED';
 const String syncJobFailedRetryable = 'FAILED_RETRYABLE';
 const String syncJobFailedFinal = 'FAILED_FINAL';
 
-// Stati su cui il processore puo' ancora lavorare (claimable).
 const List<String> syncJobActiveStatuses = [
   syncJobPending,
   syncJobPackaging,

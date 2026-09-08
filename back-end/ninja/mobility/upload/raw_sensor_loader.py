@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import gzip
-from dataclasses import dataclass, field
-from time import perf_counter
 
 from ..ml.pipeline import PipelineSensorWindow
 from ..models import TripUpload
@@ -17,31 +15,15 @@ from .raw_sensor_codec import (
 )
 
 
-@dataclass(frozen=True)
-class RawSensorLoadResult:
-    windows: list[PipelineSensorWindow]
-    part_count: int
-    compressed_bytes: int
-    decompressed_bytes: int
-    timings_ms: dict[str, float] = field(default_factory=dict)
-
-
 """
 Dato il trip, mette tutte insieme le sensor window
 """
-def load_raw_sensor_windows_with_metrics(
+def load_raw_sensor_windows(
     upload: TripUpload,
-) -> RawSensorLoadResult:
-    cache_started = perf_counter()
+) -> list[PipelineSensorWindow]:
     cached_windows = get_cached_raw_sensor_windows(upload.id)
     if cached_windows is not None:
-        return RawSensorLoadResult(
-            windows=cached_windows,
-            part_count=0,
-            compressed_bytes=0,
-            decompressed_bytes=0,
-            timings_ms={"cache_hit": _elapsed_ms(cache_started)},
-        )
+        return cached_windows
 
     parts = list(
         upload.parts.filter(
@@ -50,69 +32,25 @@ def load_raw_sensor_windows_with_metrics(
     )
 
     windows: list[PipelineSensorWindow] = []
-    compressed_bytes = 0
-    decompressed_bytes = 0
-    timings_ms = {
-        "storage_read": 0.0,
-        "gzip_decompress": 0.0,
-        "payload_decode": 0.0,
-        "sort_windows": 0.0,
-    }
     for part in parts:
-        part_result = _load_raw_sensor_part_windows_with_metrics(part.object_key)
-        windows.extend(part_result.windows)
-        compressed_bytes += part_result.compressed_bytes
-        decompressed_bytes += part_result.decompressed_bytes
-        for key, value in part_result.timings_ms.items():
-            timings_ms[key] = timings_ms.get(key, 0.0) + value
+        windows.extend(_load_raw_sensor_part_windows(part.object_key))
 
-    sort_started = perf_counter()
     windows = sorted(windows, key=lambda window: window.start_timestamp)
-    timings_ms["sort_windows"] += _elapsed_ms(sort_started)
 
-    result = RawSensorLoadResult(
-        windows=windows,
-        part_count=len(parts),
-        compressed_bytes=compressed_bytes,
-        decompressed_bytes=decompressed_bytes,
-        timings_ms=timings_ms,
-    )
     cache_raw_sensor_windows(upload.id, windows)
-    return result
+    return windows
 
-""" 
+"""
 Scarica dall'object storage l'oggetto
 """
-def _load_raw_sensor_part_windows_with_metrics(
+def _load_raw_sensor_part_windows(
     object_key: str,
-) -> RawSensorLoadResult:
-    read_started = perf_counter()
+) -> list[PipelineSensorWindow]:
     raw = storage.read_object(object_key)
-    storage_read_ms = _elapsed_ms(read_started)
 
-    decompress_started = perf_counter()
     try:
         decompressed = gzip.decompress(raw)
     except (gzip.BadGzipFile, EOFError) as exc:
         raise InvalidRawSensorPayload("payload raw sensor gzip non valido") from exc
-    gzip_decompress_ms = _elapsed_ms(decompress_started)
 
-    decode_started = perf_counter()
-    windows = decode_sensor_windows_payload(decompressed)
-    payload_decode_ms = _elapsed_ms(decode_started)
-
-    return RawSensorLoadResult(
-        windows=windows,
-        part_count=1,
-        compressed_bytes=len(raw),
-        decompressed_bytes=len(decompressed),
-        timings_ms={
-            "storage_read": storage_read_ms,
-            "gzip_decompress": gzip_decompress_ms,
-            "payload_decode": payload_decode_ms,
-        },
-    )
-
-
-def _elapsed_ms(started_at: float) -> float:
-    return (perf_counter() - started_at) * 1000
+    return decode_sensor_windows_payload(decompressed)

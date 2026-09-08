@@ -328,9 +328,6 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
     final replayEndedAt =
         scheduledStartAt != null ? cutoffTimestamp.add(shift) : now;
 
-    // Il viaggio rigiocato viene ricollocato nel tempo: ogni campione slitta
-    // dello stesso offset, cosi' il backend lo riceve come se fosse appena
-    // accaduto (o allo slot scelto dall'utente).
     final shiftedPoints = [
       for (final point in filteredPoints) point.shiftedBy(shift),
     ];

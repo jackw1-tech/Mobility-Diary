@@ -46,9 +46,6 @@ class UploadMapper {
     );
   }
 
-  /// Traccia sorgente di un replay, ordinata per timestamp: il backend la
-  /// restituisce gia' ordinata, ma l'ordinamento e' un requisito del timer di
-  /// replay, non un dettaglio del trasporto.
   ReplaySource mapReplayData(ReplayDataDto dto) {
     final points = [
       for (final point in dto.gpsPoints)
@@ -77,10 +74,6 @@ class UploadMapper {
     );
   }
 
-  /// Corpo di POST /upload/core-inline. Unico punto in cui il payload core
-  /// prende la sua forma wire: prima veniva costruito due volte, una in
-  /// TripPackageBuilder per i viaggi live e una in ReplayAcquisitionStrategy
-  /// per quelli rigiocati.
   Map<String, dynamic> toCorePayloadJson({
     required String clientSessionId,
     required String deviceId,

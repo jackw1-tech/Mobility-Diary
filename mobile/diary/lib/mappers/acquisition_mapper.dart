@@ -1,10 +1,6 @@
 import 'package:diary/model/entities/acquisition/acquisition_domain.dart';
 import 'package:diary/network/service/impl/acquisition_local_database.dart';
 
-/// Converte le righe del database locale di acquisizione nelle entity di
-/// dominio. E' il gemello locale di [UploadMapper], che copre invece i DTO
-/// di rete: il DB Drift e' l'altra sorgente dati dell'acquisizione, e le sue
-/// righe generate sono a tutti gli effetti i suoi "DTO".
 class AcquisitionMapper {
   AcquisitionSyncSnapshot mapSyncSnapshot(SyncJob? job) {
     if (job == null) {
@@ -46,7 +42,6 @@ class AcquisitionMapper {
     return AcquisitionSyncStatus.none;
   }
 
-  /// Punti GPS di una sessione locale, nella forma condivisa col payload core.
   List<CoreGpsPoint> mapGpsPoints(List<GpsPoint> rows) {
     return [
       for (final row in rows)
@@ -60,8 +55,6 @@ class AcquisitionMapper {
     ];
   }
 
-  /// Transizioni FSM di una sessione locale. A differenza di quelle rigiocate
-  /// portano le evidenze della decisione (sigma e velocita').
   List<CoreStateTransition> mapStateTransitions(List<StateTransition> rows) {
     return [
       for (final row in rows)

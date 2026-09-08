@@ -163,8 +163,7 @@ WEB_REFRESH_TOKEN_TTL_DAYS = int(os.getenv("WEB_REFRESH_TOKEN_TTL_DAYS", "7"))
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6381/0")
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", REDIS_URL)
-CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6381/1")
-CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_IGNORE_RESULT = True
 
 # Cache delle finestre sensore decodificate di un viaggio sorgente (Riproduzione
 # Live): evita di riscaricare/decomprimere/decodificare da object storage ad
@@ -200,18 +199,11 @@ S3_PUBLIC_ENDPOINT_URL = os.getenv(
 )
 S3_ACCESS_KEY_ID = os.getenv("S3_ACCESS_KEY_ID", "minioadmin")
 S3_SECRET_ACCESS_KEY = os.getenv("S3_SECRET_ACCESS_KEY", "minioadmin")
-S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", os.getenv("S3_BUCKET", "mobility-trips"))
+S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "mobility-trips")
 S3_REGION = os.getenv("S3_REGION", "us-east-1")
 S3_PRESIGN_EXPIRES_SECONDS = int("900")
-RAW_SENSOR_COPY_FORMAT = os.getenv("RAW_SENSOR_COPY_FORMAT", "binary")
-
-
 #Sezione HAR
-HAR_CNN_MODEL_PATH = str(BASE_DIR / "manual_har" / "shl_cnn1d_full_100pct_5class_best.keras")
-HAR_GRU_MODEL_PATH = str(BASE_DIR / "manual_har" / "shl_6ch_5class_gru_best.keras")
 HAR_FUSED_MODEL_PATH = str(BASE_DIR / "manual_har" / "shl_har_fused.keras")
 HAR_FUSED_INFERENCE_PATH = str(BASE_DIR / "manual_har" / "inference.py")
-HAR_MODEL_BACKEND = os.getenv("HAR_MODEL_BACKEND", "auto")
 HAR_FUSED_SEQUENCE_LENGTH = int(os.getenv("HAR_FUSED_SEQUENCE_LENGTH", "128"))
-HAR_GRU_SEQUENCE_LENGTH = 32
 HAR_WINDOW_SAMPLE_COUNT = 500

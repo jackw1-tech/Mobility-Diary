@@ -12,9 +12,7 @@ from django.contrib.auth import get_user_model
 from django.db.models import Count, FloatField, Max, Q, QuerySet, Sum, Value
 from django.db.models.functions import Coalesce
 
-# Import esplicito di un modulo di un altro context (consentito dalle regole
-# di direzione): la dashboard web ha bisogno di statistiche Viaggio per
-# utente, ma il modello Trip resta di proprieta' di mobility.
+
 from mobility.models import Trip
 
 from .models import UserPrivacySettings

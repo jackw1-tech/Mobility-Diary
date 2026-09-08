@@ -193,8 +193,6 @@ def process_inline_core_upload(
         upload = _get_inline_core_upload(
             user_id=user_id,
             payload=payload,
-            expected_raw_parts=expected_raw_parts,
-            raw_status=raw_status,
         )
         
         if not upload.raw_base_path:
@@ -468,7 +466,8 @@ def confirm_raw_part(
     if stored_checksum != storage.checksum_header_value(part.sha256):
         raise UploadPartMismatch("checksum sha256 non corrisponde")
 
-    upload_repository.mark_part_received(part, received_at=now)
+    part.received_at = now
+    part.save(update_fields=["received_at"])
     _mark_raw_received_if_complete(upload)
     return part
 
@@ -525,8 +524,6 @@ def _get_inline_core_upload(
     *,
     user_id: int,
     payload,
-    expected_raw_parts: int,
-    raw_status: str,
 ) -> TripUpload:
     upload = _locked_owned_upload(user_id, payload.upload_id)
     if upload.client_session_id != payload.client_session_id:

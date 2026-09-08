@@ -1,26 +1,31 @@
-"""Repository dell'evidenza core di un Trip (GpsPoint, StateTransition).
-
-Unico punto del progetto in cui compaiono `GpsPoint.objects` e
-`StateTransition.objects`. Prima della sua introduzione, il conteggio e
-l'inserimento bulk di questi due model erano duplicati fra
-`mobility.upload.materialization` e `mobility.services.reload`.
-"""
+"""Repository di materializzazione dell'evidenza core di un Trip."""
 
 from __future__ import annotations
+
+from dataclasses import dataclass
 
 from ..models import GpsPoint, StateTransition, Trip
 
 
-def gps_point_count(trip: Trip) -> int:
-    return GpsPoint.objects.filter(trip=trip).count()
+@dataclass(frozen=True)
+class TripEvidenceCounts:
+    gps_points: int
+    state_transitions: int
 
 
-def state_transition_count(trip: Trip) -> int:
-    return StateTransition.objects.filter(trip=trip).count()
+def evidence_counts(trip: Trip) -> TripEvidenceCounts:
+    return TripEvidenceCounts(
+        gps_points=GpsPoint.objects.filter(trip=trip).count(),
+        state_transitions=StateTransition.objects.filter(trip=trip).count(),
+    )
 
 
-def gps_points_ordered(trip: Trip):
-    return GpsPoint.objects.filter(trip=trip).order_by("timestamp", "id")
+def ordered_gps_coordinates(trip: Trip):
+    return (
+        GpsPoint.objects.filter(trip=trip)
+        .order_by("timestamp", "id")
+        .values_list("point", flat=True)
+    )
 
 
 def bulk_create_gps_points(rows: list[GpsPoint]) -> None:

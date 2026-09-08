@@ -5,7 +5,6 @@ from bisect import bisect_left
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
-from time import perf_counter
 from typing import Any
 
 from django.contrib.gis.geos import LineString
@@ -329,22 +328,16 @@ def run_pipeline(
     *,
     sensor_windows: list[PipelineSensorWindow] | None = None,
 ) -> dict:
-    timings_ms: dict[str, float] = {}
-
-    load_context_started = perf_counter()
     windows = sorted(sensor_windows or [], key=lambda window: window.start_timestamp)
     gps = list(trip.gps_points.order_by("timestamp"))
     gps_timestamps = [g.timestamp for g in gps]
     transitions = list(trip.state_transitions.order_by("timestamp"))
-    timings_ms["load_pipeline_context"] = _elapsed_ms(load_context_started)
 
     all_windows_have_matrix = all(w.matrix is not None for w in windows)
 
-    classification_started = perf_counter()
     classification = classify_windows(
         raw_windows=windows if all_windows_have_matrix else None,
     )
-    timings_ms["har_classification"] = _elapsed_ms(classification_started)
 
     labels = classification.labels
 
@@ -352,9 +345,8 @@ def run_pipeline(
         **classification.summary,
         "final_label_distribution": dict(Counter(labels)),
     }
-    
+
     #diario
-    materialization_started = perf_counter()
     with transaction.atomic():
         trip.segments.all().delete()
         trip.virtual_stop_intervals.all().delete()
@@ -367,12 +359,9 @@ def run_pipeline(
 
         trip.status = Trip.Status.PROCESSED
         trip.save(update_fields=["status", "updated_at"])
-    timings_ms["diary_materialization"] = _elapsed_ms(materialization_started)
 
-    count_started = perf_counter()
     segment_count = trip.segments.count()
     virtual_stop_count = trip.virtual_stop_intervals.count()
-    timings_ms["result_counts"] = _elapsed_ms(count_started)
 
     result = {
         "windows": len(windows),
@@ -380,11 +369,6 @@ def run_pipeline(
         "transitions": len(transitions),
         "segments": segment_count,
         "virtual_stop_intervals": virtual_stop_count,
-        "pipeline_timings_ms": timings_ms,
         **classifier_summary,
     }
     return result
-
-
-def _elapsed_ms(started_at: float) -> float:
-    return (perf_counter() - started_at) * 1000

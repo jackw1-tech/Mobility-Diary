@@ -1,5 +1,6 @@
 from django.contrib.auth import authenticate
 from ninja import Router
+from ninja.responses import Status
 
 from .. import repositories as accounts_repositories
 from ..common import user_payload
@@ -32,9 +33,9 @@ def web_login(request, payload: WebLoginIn):
     username = _username_for_login(payload.email)
     user = authenticate(request, username=username, password=payload.password)
     if user is None:
-        return 401, {"detail": "Credenziali non valide"}
+        return Status(401, {"detail": "Credenziali non valide"})
     if not is_web_staff_user(user):
-        return 403, {"detail": "Accesso staff richiesto"}
+        return Status(403, {"detail": "Accesso staff richiesto"})
     return services.issue_web_tokens(user)
 
 
@@ -47,7 +48,7 @@ def web_refresh(request, payload: WebRefreshTokenIn):
     try:
         return services.rotate_web_refresh_token(payload.refresh_token)
     except WebAuthError:
-        return 401, {"detail": "Refresh token web non valido"}
+        return Status(401, {"detail": "Refresh token web non valido"})
 
 
 @router.post(
@@ -59,7 +60,7 @@ def web_logout(request, payload: WebRefreshTokenIn):
     try:
         services.revoke_web_refresh_token(payload.refresh_token)
     except WebAuthError:
-        return 401, {"detail": "Refresh token web non valido"}
+        return Status(401, {"detail": "Refresh token web non valido"})
     return {"detail": "Logout effettuato"}
 
 

@@ -8,8 +8,6 @@ import 'package:diary/ui/widgets/surface_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-/// Intestazione del bottom sheet della home: stato dei sensori e pulsante
-/// start/stop del viaggio.
 class TrackingHeader extends StatefulWidget {
   final AcquisitionCubitState state;
 

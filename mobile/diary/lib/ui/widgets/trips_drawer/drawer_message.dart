@@ -1,7 +1,6 @@
 import 'package:diary/theme/dimensions.dart';
 import 'package:flutter/material.dart';
 
-/// Messaggio a tutta area usato dal drawer per gli stati vuoti e di errore.
 class DrawerMessage extends StatelessWidget {
   final IconData icon;
   final String text;

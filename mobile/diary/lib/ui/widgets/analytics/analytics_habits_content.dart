@@ -3,7 +3,6 @@ import 'package:diary/ui/pages/analytics_presenter.dart';
 import 'package:diary/ui/widgets/analytics/analytics_atoms.dart';
 import 'package:flutter/material.dart';
 
-/// Sezione "Abitudini di sempre": modalita' prevalente e tratte ricorrenti.
 class AnalyticsHabitsContent extends StatelessWidget {
   final AnalyticsHabits habits;
 

@@ -1,6 +1,4 @@
-import logging
 from datetime import timedelta
-from time import perf_counter
 
 from celery import shared_task
 from celery.signals import worker_process_init
@@ -8,18 +6,16 @@ from django.db import transaction
 from django.utils import timezone
 
 from .upload import selectors as upload_repository
-from .upload.raw_sensor_loader import load_raw_sensor_windows_with_metrics
+from .upload.raw_sensor_loader import load_raw_sensor_windows
 from .models import (
     HarJob,
     PlaceMiningStatus,
     Trip,
     TripUpload,
 )
-from .ml.har_adapter import HarModelUnavailable, warm_har_model
+from .ml.har_adapter import warm_har_model
 from .ml.pipeline import run_pipeline
-from .private_diary_cache import cache_diary, get_places_version
 from .selectors import har_jobs as har_jobs_repository
-from .services.diary_view import build_private_diary
 from .selectors import place_mining_status as place_mining_status_repository
 from .selectors.sensor_readings import (
     replace_raw_sensor_readings,
@@ -27,9 +23,7 @@ from .selectors.sensor_readings import (
 )
 from .significant_places import mine_user_significant_places
 
-logger = logging.getLogger(__name__)
-
-""" 
+"""
 Aggiorna i campi di TripUpload per indiciare che sta cominciando il caricamento della parte raw del viaggio ricaricato
 """
 @shared_task(bind=True, max_retries=3, retry_backoff=True, default_retry_delay=30)
@@ -39,7 +33,6 @@ def prepare_reloaded_trip_raw(
     source_trip_id: int,
     shift_microseconds: int,
 ) -> dict:
-    task_started = perf_counter()
     try:
         with transaction.atomic():
             upload = upload_repository.locked_trip_upload_by_id(upload_id)
@@ -71,7 +64,6 @@ def prepare_reloaded_trip_raw(
                 ]
             )
 
-          
             from .replay_raw import regenerate_raw_and_queue_har
 
             regenerate_raw_and_queue_har(
@@ -81,15 +73,6 @@ def prepare_reloaded_trip_raw(
                 now=upload.ended_at or timezone.now(),
             )
 
-        logger.info(
-            "[RELOAD-RAW-PREPARE-TIMING] %s",
-            {
-                "status": "completed",
-                "upload_id": upload_id,
-                "trip_id": upload.trip_id,
-                "total_ms": round(_elapsed_ms(task_started), 2),
-            },
-        )
         return {
             "upload_id": upload.id,
             "raw_status": upload.raw_status,
@@ -114,15 +97,6 @@ def prepare_reloaded_trip_raw(
                     "updated_at",
                 ]
             )
-        logger.exception(
-            "[RELOAD-RAW-PREPARE-TIMING] %s",
-            {
-                "status": "retrying" if will_retry else "failed_final",
-                "upload_id": upload_id,
-                "total_ms": round(_elapsed_ms(task_started), 2),
-                "error_type": type(exc).__name__,
-            },
-        )
         if will_retry:
             raise self.retry(exc=exc)
         raise
@@ -140,16 +114,7 @@ _PLACE_MINING_PENDING_FIELDS = [
 
 @worker_process_init.connect #eseguita ogni volta che nasce un processo worker
 def warm_har_model_on_worker_start(**_kwargs) -> None:
-    started = perf_counter()
-    try:
-        warm_har_model()
-    except HarModelUnavailable:
-        logger.exception("Warmup modello HAR non riuscito")
-        return
-    logger.info(
-        "Warmup modello HAR completato in %.2f ms",
-        _elapsed_ms(started),
-    )
+    warm_har_model()
 
 # Ottieni il lock sul place mining status di quell'utente
 def _place_mining_status_for_update(user_id: int) -> PlaceMiningStatus:
@@ -278,53 +243,28 @@ def persist_trip_raw_sensor_readings(
     upload_id: int,
     raw_clone_shift_microseconds: int | None = None,
 ) -> dict:
-    task_started = perf_counter()
-    phase_timings_ms: dict[str, float] = {}
-    raw_load_timings_ms: dict[str, float] = {}
-    raw_part_count = 0
-    sensor_windows_count = 0
-    compressed_bytes = 0
-    decompressed_bytes = 0
     trip_id = None
 
     try:
-        lookup_started = perf_counter()
         upload = upload_repository.upload_with_trip(upload_id)
-        job = har_jobs_repository.har_job_with_trip(job_id)
+        job = har_jobs_repository.har_job_for_raw_persistence(job_id)
         trip = upload.trip or job.trip
         if trip is None:
             raise ValueError("trip non disponibile per la persistenza raw sensor")
         trip_id = trip.id
-        phase_timings_ms["lookup_context"] = _elapsed_ms(lookup_started)
 
         cloned = _clone_derived_raw_sensor_readings(
             trip,
             raw_clone_shift_microseconds,
-            phase_timings_ms,
         )
         if cloned is not None:
-            phase_timings_ms["task_total"] = _elapsed_ms(task_started)
             _merge_har_job_result(
                 job_id,
                 {
                     "raw_readings_persisted": cloned,
                     "raw_readings_persistence_status": "COMPLETED",
                     "raw_readings_persistence_mode": "cloned_from_source",
-                    "raw_readings_persistence_timings_ms": _rounded(phase_timings_ms),
                 },
-            )
-            _log_raw_sensor_persistence_timing(
-                "completed",
-                upload_id=upload_id,
-                trip_id=trip_id,
-                job_id=job_id,
-                phase_timings_ms=phase_timings_ms,
-                raw_load_timings_ms=raw_load_timings_ms,
-                raw_part_count=raw_part_count,
-                sensor_windows_count=sensor_windows_count,
-                persisted_readings=cloned,
-                compressed_bytes=compressed_bytes,
-                decompressed_bytes=decompressed_bytes,
             )
             return {
                 "trip_id": trip_id,
@@ -332,43 +272,16 @@ def persist_trip_raw_sensor_readings(
                 "raw_readings_persistence_status": "COMPLETED",
             }
 
-        raw_load_started = perf_counter()
-        raw_load = load_raw_sensor_windows_with_metrics(upload)
-        sensor_windows = raw_load.windows
-        phase_timings_ms["raw_load_total"] = _elapsed_ms(raw_load_started)
-        raw_load_timings_ms = raw_load.timings_ms
-        raw_part_count = raw_load.part_count
-        sensor_windows_count = len(sensor_windows)
-        compressed_bytes = raw_load.compressed_bytes
-        decompressed_bytes = raw_load.decompressed_bytes
+        sensor_windows = load_raw_sensor_windows(upload)
 
-        persist_started = perf_counter()
         persisted_readings = replace_raw_sensor_readings(trip, sensor_windows)
-        phase_timings_ms["raw_sensor_reading_replace"] = _elapsed_ms(
-            persist_started
-        )
-        phase_timings_ms["task_total"] = _elapsed_ms(task_started)
 
         _merge_har_job_result(
             job_id,
             {
                 "raw_readings_persisted": persisted_readings,
                 "raw_readings_persistence_status": "COMPLETED",
-                "raw_readings_persistence_timings_ms": _rounded(phase_timings_ms),
             },
-        )
-        _log_raw_sensor_persistence_timing(
-            "completed",
-            upload_id=upload_id,
-            trip_id=trip_id,
-            job_id=job_id,
-            phase_timings_ms=phase_timings_ms,
-            raw_load_timings_ms=raw_load_timings_ms,
-            raw_part_count=raw_part_count,
-            sensor_windows_count=sensor_windows_count,
-            persisted_readings=persisted_readings,
-            compressed_bytes=compressed_bytes,
-            decompressed_bytes=decompressed_bytes,
         )
         return {
             "trip_id": trip_id,
@@ -377,21 +290,6 @@ def persist_trip_raw_sensor_readings(
         }
     except Exception as exc:
         will_retry = self.request.retries < self.max_retries
-        phase_timings_ms["task_total_until_error"] = _elapsed_ms(task_started)
-        _log_raw_sensor_persistence_timing(
-            "failed_retryable" if will_retry else "failed_final",
-            upload_id=upload_id,
-            trip_id=trip_id,
-            job_id=job_id,
-            phase_timings_ms=phase_timings_ms,
-            raw_load_timings_ms=raw_load_timings_ms,
-            raw_part_count=raw_part_count,
-            sensor_windows_count=sensor_windows_count,
-            persisted_readings=None,
-            compressed_bytes=compressed_bytes,
-            decompressed_bytes=decompressed_bytes,
-            error=str(exc),
-        )
         if will_retry:
             raise self.retry(exc=exc)
         _merge_har_job_result(
@@ -412,25 +310,11 @@ def process_trip_har_final(
     upload_id: int,
     raw_clone_shift_microseconds: int | None = None,
 ) -> dict:
-    task_started = perf_counter()
-    phase_timings_ms: dict[str, float] = {}
-    raw_load_timings_ms: dict[str, float] = {}
-    pipeline_timings_ms: dict[str, float] = {}
-    sensor_windows_count = 0
-    raw_part_count = 0
-    compressed_bytes = 0
-    decompressed_bytes = 0
-    persisted_readings = None
-    trip_id = None
-
-
 #Sezione di preparazione (cambio di stato d TripUpload e HarJob)
-    status_started = perf_counter()
     with transaction.atomic():
         upload = upload_repository.locked_trip_upload_by_id(upload_id)
-        job = har_jobs_repository.locked_har_job_with_trip(job_id)
+        job = har_jobs_repository.locked_har_job_for_processing(job_id)
         trip = upload.trip or job.trip
-        trip_id = trip.id
 
         now = timezone.now()
         upload.raw_status = TripUpload.PhaseStatus.PROCESSING
@@ -447,32 +331,19 @@ def process_trip_har_final(
         job.status = HarJob.Status.STARTED
         job.error = ""
         job.save(update_fields=["status", "error", "updated_at"])
-    phase_timings_ms["mark_processing"] = _elapsed_ms(status_started)
 
 # Sezione centrale, scarico tutti i dati dall'objet e interrogo l AI
     try:
-        raw_load_started = perf_counter()
-        raw_load = load_raw_sensor_windows_with_metrics(upload)
-        sensor_windows = raw_load.windows
-        phase_timings_ms["raw_load_total"] = _elapsed_ms(raw_load_started)
-        raw_load_timings_ms = raw_load.timings_ms
-        sensor_windows_count = len(sensor_windows)
-        raw_part_count = raw_load.part_count
-        compressed_bytes = raw_load.compressed_bytes
-        decompressed_bytes = raw_load.decompressed_bytes
+        sensor_windows = load_raw_sensor_windows(upload)
 
         with transaction.atomic():
-            pipeline_started = perf_counter()
             result = run_pipeline(
                 trip,
                 sensor_windows=sensor_windows,
             )
-            phase_timings_ms["pipeline_total"] = _elapsed_ms(pipeline_started)
-            pipeline_timings_ms = result.get("pipeline_timings_ms", {})
             result["raw_readings_persisted"] = None
             result["raw_readings_persistence_status"] = "QUEUED"
 
-            finalize_started = perf_counter()
             upload.raw_status = TripUpload.PhaseStatus.COMPLETED
             upload.error_message = ""
             upload.completed_at = timezone.now()
@@ -490,16 +361,7 @@ def process_trip_har_final(
             job.result = result
             job.error = ""
             job.save(update_fields=["status", "result", "error", "updated_at"]) #Per il front end l'intero processo finisce qui
-        phase_timings_ms["mark_completed"] = _elapsed_ms(finalize_started)
-        
-        # Finito l'har, metto in cache i dati
-        try:
-            places_version = get_places_version(trip.user_id)
-            cache_diary(trip.id, places_version, build_private_diary(trip))
-        except Exception:
-            logger.exception(
-                "Prewarm diario privato fallito per trip_id=%s", trip.id
-            )
+
     except Exception as exc:
         will_retry = self.request.retries < self.max_retries
         upload.raw_status = (
@@ -515,28 +377,10 @@ def process_trip_har_final(
         job.status = HarJob.Status.FAILURE
         job.error = str(exc)
         job.save(update_fields=["status", "error", "updated_at"])
-        phase_timings_ms["task_total_until_error"] = _elapsed_ms(task_started)
-        _log_har_phase2_timing(
-            "failed",
-            upload_id=upload_id,
-            trip_id=trip_id,
-            job_id=job_id,
-            phase_timings_ms=phase_timings_ms,
-            raw_load_timings_ms=raw_load_timings_ms,
-            pipeline_timings_ms=pipeline_timings_ms,
-            raw_part_count=raw_part_count,
-            sensor_windows_count=sensor_windows_count,
-            persisted_readings=persisted_readings,
-            compressed_bytes=compressed_bytes,
-            decompressed_bytes=decompressed_bytes,
-            error=str(exc),
-        )
         if will_retry:
             raise self.retry(exc=exc)
         raise
 
-    raw_persist_enqueue_started = perf_counter()
-    
     # Mette in coda il task di inserimento batch
     try:
         persist_trip_raw_sensor_readings.delay(
@@ -551,42 +395,17 @@ def process_trip_har_final(
                 "raw_readings_persistence_error": str(exc),
             },
         )
-        logger.exception(
-            "Impossibile accodare la persistenza raw sensor "
-            "per upload_id=%s job_id=%s",
-            upload_id,
-            job_id,
-        )
-    phase_timings_ms["raw_sensor_reading_enqueue"] = _elapsed_ms(
-        raw_persist_enqueue_started
-    )
 
     # Mette in coda il task di mining dei punti gps
     if _request_place_mining(trip.user_id):
         _schedule_place_mining(trip.user_id)
 
-    phase_timings_ms["task_total"] = _elapsed_ms(task_started)
-    _log_har_phase2_timing(
-        "completed",
-        upload_id=upload_id,
-        trip_id=trip_id,
-        job_id=job_id,
-        phase_timings_ms=phase_timings_ms,
-        raw_load_timings_ms=raw_load_timings_ms,
-        pipeline_timings_ms=pipeline_timings_ms,
-        raw_part_count=raw_part_count,
-        sensor_windows_count=sensor_windows_count,
-        persisted_readings=persisted_readings,
-        compressed_bytes=compressed_bytes,
-        decompressed_bytes=decompressed_bytes,
-    )
     return result
 
 
 def _clone_derived_raw_sensor_readings(
     trip: Trip,
     shift_microseconds: int | None,
-    phase_timings_ms: dict,
 ) -> int | None:
     """Copia la proiezione Timescale dal sorgente, se il derivato lo consente.
 
@@ -600,141 +419,13 @@ def _clone_derived_raw_sensor_readings(
     if source is None:
         return None
 
-    clone_started = perf_counter()
     cloned = replace_raw_sensor_readings_from_source(
         trip,
         source,
         shift=timedelta(microseconds=shift_microseconds),
     )
-    phase_timings_ms["raw_sensor_reading_clone"] = _elapsed_ms(clone_started)
     if cloned:
         return cloned
     # Sorgente senza righe (viaggio vecchio, retention): si ricade sul
     # percorso normale invece di lasciare il derivato senza proiezione.
     return None
-
-
-def _elapsed_ms(started_at: float) -> float:
-    return (perf_counter() - started_at) * 1000
-
-
-def _log_har_phase2_timing(
-    status: str,
-    *,
-    upload_id: int,
-    trip_id: int | None,
-    job_id: int,
-    phase_timings_ms: dict[str, float],
-    raw_load_timings_ms: dict[str, float],
-    pipeline_timings_ms: dict[str, float],
-    raw_part_count: int,
-    sensor_windows_count: int,
-    persisted_readings: int | None,
-    compressed_bytes: int,
-    decompressed_bytes: int,
-    error: str | None = None,
-) -> None:
-    task_total_ms = phase_timings_ms.get("task_total")
-    if task_total_ms is None:
-        task_total_ms = phase_timings_ms.get("task_total_until_error")
-    total_ms = task_total_ms or sum(
-        value
-        for key, value in phase_timings_ms.items()
-        if not key.startswith("task_total")
-    )
-
-    phase_percentages = _percentages(phase_timings_ms, total_ms)
-    raw_load_percentages = _percentages(raw_load_timings_ms, total_ms)
-    pipeline_percentages = _percentages(pipeline_timings_ms, total_ms)
-    measured_ms = sum(
-        value
-        for key, value in phase_timings_ms.items()
-        if not key.startswith("task_total")
-    )
-    overhead_ms = max(total_ms - measured_ms, 0.0)
-    overhead_pct = _percentage(overhead_ms, total_ms)
-
-    log_payload = {
-        "status": status,
-        "upload_id": upload_id,
-        "trip_id": trip_id,
-        "job_id": job_id,
-        "total_ms": round(total_ms, 2),
-        "phases_ms": _rounded(phase_timings_ms),
-        "phases_pct": phase_percentages,
-        "raw_load_ms": _rounded(raw_load_timings_ms),
-        "raw_load_pct_of_total": raw_load_percentages,
-        "pipeline_ms": _rounded(pipeline_timings_ms),
-        "pipeline_pct_of_total": pipeline_percentages,
-        "unmeasured_overhead_ms": round(overhead_ms, 2),
-        "unmeasured_overhead_pct": overhead_pct,
-        "raw_parts": raw_part_count,
-        "sensor_windows": sensor_windows_count,
-        "raw_readings_persisted": persisted_readings,
-        "compressed_bytes": compressed_bytes,
-        "decompressed_bytes": decompressed_bytes,
-    }
-    if error:
-        log_payload["error"] = error
-
-    logger.info("[HAR-PHASE2-TIMING] %s", log_payload)
-
-
-def _log_raw_sensor_persistence_timing(
-    status: str,
-    *,
-    upload_id: int,
-    trip_id: int | None,
-    job_id: int,
-    phase_timings_ms: dict[str, float],
-    raw_load_timings_ms: dict[str, float],
-    raw_part_count: int,
-    sensor_windows_count: int,
-    persisted_readings: int | None,
-    compressed_bytes: int,
-    decompressed_bytes: int,
-    error: str | None = None,
-) -> None:
-    task_total_ms = phase_timings_ms.get("task_total")
-    if task_total_ms is None:
-        task_total_ms = phase_timings_ms.get("task_total_until_error")
-    total_ms = task_total_ms or sum(
-        value
-        for key, value in phase_timings_ms.items()
-        if not key.startswith("task_total")
-    )
-
-    log_payload = {
-        "status": status,
-        "upload_id": upload_id,
-        "trip_id": trip_id,
-        "job_id": job_id,
-        "total_ms": round(total_ms, 2),
-        "phases_ms": _rounded(phase_timings_ms),
-        "phases_pct": _percentages(phase_timings_ms, total_ms),
-        "raw_load_ms": _rounded(raw_load_timings_ms),
-        "raw_load_pct_of_total": _percentages(raw_load_timings_ms, total_ms),
-        "raw_parts": raw_part_count,
-        "sensor_windows": sensor_windows_count,
-        "raw_readings_persisted": persisted_readings,
-        "compressed_bytes": compressed_bytes,
-        "decompressed_bytes": decompressed_bytes,
-    }
-    if error:
-        log_payload["error"] = error
-
-    logger.info("[RAW-SENSOR-PERSIST-TIMING] %s", log_payload)
-
-
-def _rounded(values: dict[str, float]) -> dict[str, float]:
-    return {key: round(value, 2) for key, value in values.items()}
-
-
-def _percentages(values: dict[str, float], total_ms: float) -> dict[str, float]:
-    return {key: _percentage(value, total_ms) for key, value in values.items()}
-
-
-def _percentage(value: float, total_ms: float) -> float:
-    if total_ms <= 0:
-        return 0.0
-    return round((value / total_ms) * 100, 2)

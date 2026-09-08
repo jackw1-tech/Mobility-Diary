@@ -1,7 +1,6 @@
 import 'package:diary/theme/dimensions.dart';
 import 'package:flutter/material.dart';
 
-/// Stato "il viaggio non ha una traiettoria da mostrare".
 class EmptyTrack extends StatelessWidget {
   const EmptyTrack({super.key});
 
@@ -16,7 +15,6 @@ class EmptyTrack extends StatelessWidget {
   }
 }
 
-/// Stato di errore del caricamento traccia, con possibilita' di riprovare.
 class TrackError extends StatelessWidget {
   final String message;
   final VoidCallback onRetry;
