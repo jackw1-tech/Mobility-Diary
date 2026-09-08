@@ -205,11 +205,6 @@ def _place_blocked_status(exc: PlaceMutationBlockedError):
 
 @router.get("/places", response=list[PlaceReviewOut], auth=mobile_bearer_auth)
 def list_places(request):
-    """Luoghi user-scoped per la review mobile, con evidenza di mappa.
-
-    Restituisce tutti i luoghi dell'utente (il client raggruppa per stato); ogni
-    luogo porta il contesto (visite, giorni distinti) e le visite di supporto.
-    """
     places = place_review_queryset_for_user(request.user.user_id)
     return [_place_review_out(place) for place in places]
 
