@@ -11,7 +11,7 @@ from .models import ActivityLabel, MobilitySegment, VirtualStopInterval
 # comunque fusi: copre il caso di un virtual stop e uno STOP persistito che
 # coprono la stessa sosta fisica ma con un piccolo scarto tra i timestamp
 # (es. per come la pipeline ML li ha generati indipendentemente).
-STOP_GAP_TOLERANCE = timedelta(minutes=1)
+STOP_GAP_TOLERANCE = timedelta(minutes=5)
 
 
 @dataclass(frozen=True)

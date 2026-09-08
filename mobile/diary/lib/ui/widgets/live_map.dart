@@ -1,5 +1,8 @@
 import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubit_state.dart';
 import 'package:diary/state_management/cubits/current_location_cubit/current_location_cubit.dart';
+import 'package:diary/state_management/cubits/places_cubit/places_cubit.dart';
+import 'package:diary/state_management/cubits/places_cubit/places_cubit_state.dart';
+import 'package:diary/repositories/places_repository.dart';
 
 import 'package:diary/ui/widgets/live_map_camera_controller.dart';
 import 'package:diary/ui/widgets/live_map_layers.dart';
@@ -31,6 +34,7 @@ class _LiveMapState extends State<LiveMap> {
   Point? _initialCenter;
   String? _error;
   RouteAssistantCubit? _routeAssistantCubit;
+  PlacesCubit? _placesCubit;
 
   /// Se true la camera insegue automaticamente la posizione corrente.
   bool _followUser = true;
@@ -48,11 +52,13 @@ class _LiveMapState extends State<LiveMap> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _routeAssistantCubit = context.read<RouteAssistantCubit>();
+    _placesCubit ??= PlacesCubit(context.read<PlacesRepository>())..load();
   }
 
   @override
   void dispose() {
     _routeAssistantCubit?.setPassiveModeDetectionEnabled(false);
+    _placesCubit?.close();
     super.dispose();
   }
 
@@ -106,6 +112,25 @@ class _LiveMapState extends State<LiveMap> {
       latest: cubit.state.latestPosition,
     );
     await layers.updateAssistantRoute(assistant.state.routePoints);
+    await _syncHabitualPlaces(isTracking: cubit.state.isTracking);
+  }
+
+  // Mostra i luoghi abituali confermati solo quando non c'e' nessun tracking
+  // in corso (niente registrazione, niente replay).
+  Future<void> _syncHabitualPlaces({required bool isTracking}) async {
+    if (isTracking) {
+      await _layers?.updateHabitualPlaces(const []);
+      return;
+    }
+    final confirmed = _placesCubit?.state.confirmed ?? const [];
+    await _layers?.updateHabitualPlaces([
+      for (final place in confirmed)
+        LabeledPoint(
+          position: place.center,
+          label: place.label,
+          category: place.category,
+        ),
+    ]);
   }
 
   Future<void> _followTo(ll.LatLng target) async {
@@ -127,6 +152,7 @@ class _LiveMapState extends State<LiveMap> {
       isReplay: state.isReplay,
       latest: state.latestPosition,
     );
+    _syncHabitualPlaces(isTracking: state.isTracking);
     _syncPassiveModeDetection();
     final latest = state.latestPosition;
     if (latest != null && state.isTracking) {
@@ -154,91 +180,101 @@ class _LiveMapState extends State<LiveMap> {
       return const Center(child: CircularProgressIndicator());
     }
 
-    return MultiBlocListener(
-      listeners: [
-        BlocListener<AcquisitionCubit, AcquisitionCubitState>(
-          listenWhen: (previous, current) =>
-              previous.routePoints != current.routePoints ||
-              previous.latestPosition != current.latestPosition ||
-              previous.isTracking != current.isTracking ||
-              previous.isReplay != current.isReplay,
-          listener: (context, state) => _onStateChanged(state),
-        ),
-        BlocListener<RouteAssistantCubit, RouteAssistantState>(
-          listenWhen: (previous, current) =>
-              previous.routePoints != current.routePoints,
-          listener: (context, state) {
-            _layers?.updateAssistantRoute(state.routePoints);
-            _syncPassiveModeDetection();
-          },
-        ),
-      ],
-      child: Stack(
-        children: [
-          MapWidget(
-            key: const ValueKey('live-map'),
-            styleUri: Theme.of(context).brightness == Brightness.dark
-                ? MapboxStyles.DARK
-                : MapboxStyles.MAPBOX_STREETS,
-            // ignore: deprecated_member_use
-            cameraOptions: CameraOptions(
-              center: _initialCenter,
-              zoom: LiveMapCameraController.followZoom,
-            ),
-            onMapCreated: _onMapCreated,
-            onStyleLoadedListener: _onStyleLoaded,
-            onScrollListener: _pauseFollowForGesture,
-            onZoomListener: _pauseFollowForGesture,
+    return BlocProvider<PlacesCubit>.value(
+      value: _placesCubit!,
+      child: MultiBlocListener(
+        listeners: [
+          BlocListener<AcquisitionCubit, AcquisitionCubitState>(
+            listenWhen: (previous, current) =>
+                previous.routePoints != current.routePoints ||
+                previous.latestPosition != current.latestPosition ||
+                previous.isTracking != current.isTracking ||
+                previous.isReplay != current.isReplay,
+            listener: (context, state) => _onStateChanged(state),
           ),
-          BlocBuilder<AcquisitionCubit, AcquisitionCubitState>(
-            buildWhen: (previous, current) =>
-                previous.isTracking != current.isTracking,
-            builder: (context, acquisitionState) =>
-                BlocBuilder<RouteAssistantCubit, RouteAssistantState>(
-              buildWhen: (previous, current) =>
-                  previous.isActive != current.isActive ||
-                  previous.detectedMode != current.detectedMode ||
-                  previous.hasDetectedModeResult !=
-                      current.hasDetectedModeResult,
-              builder: (context, assistantState) {
-                if (!acquisitionState.isTracking || assistantState.isActive) {
-                  return const SizedBox.shrink();
-                }
-                return RouteDetectedModeIndicator(
-                  mode: assistantState.detectedMode,
-                  hasResult: assistantState.hasDetectedModeResult,
-                );
-              },
-            ),
+          BlocListener<RouteAssistantCubit, RouteAssistantState>(
+            listenWhen: (previous, current) =>
+                previous.routePoints != current.routePoints,
+            listener: (context, state) {
+              _layers?.updateAssistantRoute(state.routePoints);
+              _syncPassiveModeDetection();
+            },
           ),
-          BlocBuilder<AcquisitionCubit, AcquisitionCubitState>(
-            buildWhen: (previous, current) =>
-                previous.isTracking != current.isTracking,
-            builder: (context, state) =>
-                RouteAssistantControls(liveEnabled: state.isTracking),
-          ),
-          Positioned(
-            right: 0,
-            top: 2,
-            child: _RecenterButton(
-              active: _followUser,
-              onPressed: () async {
-                setState(() => _followUser = true);
-                final latest =
-                    context.read<AcquisitionCubit>().state.latestPosition;
-                if (latest != null) {
-                  await _followTo(latest);
-                } else {
-                  final location =
-                      await context.read<CurrentLocationCubit>().resolve();
-                  if (location != null) {
-                    await _followTo(location);
-                  }
-                }
-              },
+          BlocListener<PlacesCubit, PlacesCubitState>(
+            listenWhen: (previous, current) =>
+                previous.places != current.places,
+            listener: (context, state) => _syncHabitualPlaces(
+              isTracking: context.read<AcquisitionCubit>().state.isTracking,
             ),
           ),
         ],
+        child: Stack(
+          children: [
+            MapWidget(
+              key: const ValueKey('live-map'),
+              styleUri: Theme.of(context).brightness == Brightness.dark
+                  ? MapboxStyles.DARK
+                  : MapboxStyles.MAPBOX_STREETS,
+              // ignore: deprecated_member_use
+              cameraOptions: CameraOptions(
+                center: _initialCenter,
+                zoom: LiveMapCameraController.followZoom,
+              ),
+              onMapCreated: _onMapCreated,
+              onStyleLoadedListener: _onStyleLoaded,
+              onScrollListener: _pauseFollowForGesture,
+              onZoomListener: _pauseFollowForGesture,
+            ),
+            BlocBuilder<AcquisitionCubit, AcquisitionCubitState>(
+              buildWhen: (previous, current) =>
+                  previous.isTracking != current.isTracking,
+              builder: (context, acquisitionState) =>
+                  BlocBuilder<RouteAssistantCubit, RouteAssistantState>(
+                buildWhen: (previous, current) =>
+                    previous.isActive != current.isActive ||
+                    previous.detectedMode != current.detectedMode ||
+                    previous.hasDetectedModeResult !=
+                        current.hasDetectedModeResult,
+                builder: (context, assistantState) {
+                  if (!acquisitionState.isTracking || assistantState.isActive) {
+                    return const SizedBox.shrink();
+                  }
+                  return RouteDetectedModeIndicator(
+                    mode: assistantState.detectedMode,
+                    hasResult: assistantState.hasDetectedModeResult,
+                  );
+                },
+              ),
+            ),
+            BlocBuilder<AcquisitionCubit, AcquisitionCubitState>(
+              buildWhen: (previous, current) =>
+                  previous.isTracking != current.isTracking,
+              builder: (context, state) =>
+                  RouteAssistantControls(liveEnabled: state.isTracking),
+            ),
+            Positioned(
+              right: 0,
+              top: 2,
+              child: _RecenterButton(
+                active: _followUser,
+                onPressed: () async {
+                  setState(() => _followUser = true);
+                  final latest =
+                      context.read<AcquisitionCubit>().state.latestPosition;
+                  if (latest != null) {
+                    await _followTo(latest);
+                  } else {
+                    final location =
+                        await context.read<CurrentLocationCubit>().resolve();
+                    if (location != null) {
+                      await _followTo(location);
+                    }
+                  }
+                },
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

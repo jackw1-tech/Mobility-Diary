@@ -306,11 +306,20 @@ class _TripTrackMapState extends State<TripTrackMap> {
       final stops = placedStopSegments(widget.state.diarySegments);
       for (final stop in stops) {
         final place = stop.place!;
+        final stopGeometry = Point(
+          coordinates: Position(place.longitude, place.latitude),
+        );
         await circleManager.create(
           CircleAnnotationOptions(
-            geometry: Point(
-              coordinates: Position(place.longitude, place.latitude),
-            ),
+            geometry: stopGeometry,
+            circleColor: colorScheme.primary.toARGB32(),
+            circleRadius: 30,
+            circleOpacity: 0.18,
+          ),
+        );
+        await circleManager.create(
+          CircleAnnotationOptions(
+            geometry: stopGeometry,
             circleColor: colorScheme.primary.toARGB32(),
             circleRadius: 6,
             circleStrokeColor:

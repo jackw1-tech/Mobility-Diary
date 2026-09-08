@@ -1,9 +1,24 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:diary/ui/widgets/category_marker_icons.dart';
 import 'package:diary/ui/widgets/route_assistant_controls.dart';
 import 'package:latlong2/latlong.dart' as ll;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
+
+/// Un punto con etichetta testuale e categoria da mostrare sulla mappa (es.
+/// un luogo abituale confermato).
+class LabeledPoint {
+  final ll.LatLng position;
+  final String label;
+  final String category;
+
+  const LabeledPoint({
+    required this.position,
+    required this.label,
+    required this.category,
+  });
+}
 
 class LiveMapLayers {
   static const String _liveRouteSourceId = 'live-route-source';
@@ -14,6 +29,10 @@ class LiveMapLayers {
   static const String _replayMarkerDotLayerId = 'live-replay-position-dot';
   static const String _assistantRouteSourceId = 'route-assistant-source';
   static const String _assistantRouteLayerId = 'route-assistant-line';
+  static const String _habitualPlacesSourceId = 'live-habitual-places-source';
+  static const String _habitualPlacesLabelLayerId =
+      'live-habitual-places-label';
+  static const int _categoryIconRenderSize = 96;
 
   final MapboxMap _map;
   final int _primaryColor;
@@ -39,6 +58,7 @@ class LiveMapLayers {
     await layers._installLiveRouteLayer();
     await layers._installReplayMarkerLayer();
     await layers._installAssistantRouteLayer();
+    await layers._installHabitualPlacesLayer();
     return layers;
   }
 
@@ -80,6 +100,43 @@ class LiveMapLayers {
     ));
   }
 
+  Future<void> _installHabitualPlacesLayer() async {
+    for (final marker in categoryMarkers) {
+      final rgba = await renderCategoryIconRgba(marker);
+      await _map.style.addStyleImage(
+        iconIdForCategory(marker.category),
+        3.0,
+        MbxImage(
+          width: _categoryIconRenderSize,
+          height: _categoryIconRenderSize,
+          data: rgba,
+        ),
+        false,
+        [],
+        [],
+        null,
+      );
+    }
+    await _map.style.addSource(GeoJsonSource(
+      id: _habitualPlacesSourceId,
+      data: _labeledPointsGeoJson(const []),
+    ));
+    await _map.style.addLayer(SymbolLayer(
+      id: _habitualPlacesLabelLayerId,
+      sourceId: _habitualPlacesSourceId,
+      iconImageExpression: ['get', 'iconId'],
+      iconAllowOverlap: true,
+      textFieldExpression: ['get', 'label'],
+      textSize: 12,
+      textColor: _primaryColor,
+      textHaloColor: _surfaceColor,
+      textHaloWidth: 1.5,
+      textAnchor: TextAnchor.TOP,
+      textOffset: [0, 1.1],
+      textAllowOverlap: true,
+    ));
+  }
+
   Future<void> _installReplayMarkerLayer() async {
     await _map.style.addSource(GeoJsonSource(
       id: _replayMarkerSourceId,
@@ -110,6 +167,15 @@ class LiveMapLayers {
         _assistantRouteSourceId,
         'data',
         _lineGeoJson(points),
+      );
+
+  /// Mostra i luoghi abituali confermati (pallino + etichetta) sulla mappa
+  /// live, tipicamente solo quando non c'e' un tracking in corso.
+  Future<void> updateHabitualPlaces(List<LabeledPoint> places) =>
+      _map.style.setStyleSourceProperty(
+        _habitualPlacesSourceId,
+        'data',
+        _labeledPointsGeoJson(places),
       );
 
   Future<void> updateReplayMarker({
@@ -154,6 +220,29 @@ class LiveMapLayers {
               'coordinates': [p.longitude, p.latitude],
             },
             'properties': const {},
+          },
+      ],
+    });
+  }
+
+  static String _labeledPointsGeoJson(List<LabeledPoint> places) {
+    return jsonEncode({
+      'type': 'FeatureCollection',
+      'features': [
+        for (final place in places)
+          {
+            'type': 'Feature',
+            'geometry': {
+              'type': 'Point',
+              'coordinates': [
+                place.position.longitude,
+                place.position.latitude,
+              ],
+            },
+            'properties': {
+              'label': place.label,
+              'iconId': iconIdForCategory(place.category),
+            },
           },
       ],
     });
