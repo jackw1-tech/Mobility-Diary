@@ -276,6 +276,13 @@ def process_inline_core_upload(
                 raise UploadStorageUnavailable(exc.message) from exc
             except ReplayRawError as exc:
                 raise UploadServiceError(exc.message) from exc
+        elif not expected_raw_parts:
+            # Nessuna raw part attesa (es. viaggio interamente stazionario,
+            # nessuna finestra HAR prodotta dal telefono): la pipeline va
+            # comunque fatta girare, altrimenti trip.status non arriva mai a
+            # PROCESSED e il diario resta bloccato su "in corso" per sempre,
+            # anche se non c'e' nessun dato raw da elaborare.
+            queue_final_har(upload, now=now)
 
         return upload
 

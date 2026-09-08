@@ -4,10 +4,8 @@ import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubi
 import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_error_presenter.dart';
 import 'package:diary/theme/dimensions.dart';
 import 'package:diary/theme/semantic_colors.dart';
-import 'package:diary/ui/widgets/home/fsm_diagnostics_report_sheet.dart';
 import 'package:diary/ui/widgets/surface_card.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 /// Intestazione del bottom sheet della home: stato dei sensori e pulsante
@@ -108,7 +106,7 @@ class _TrackingHeaderState extends State<TrackingHeader> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Chiusura viaggio in corso...')),
         );
-        final diagnosticsReport = await cubit.stopTracking();
+        await cubit.stopTracking();
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -116,15 +114,6 @@ class _TrackingHeaderState extends State<TrackingHeader> {
                 'Viaggio salvato. Sincronizzazione in background.',
               ),
               backgroundColor: semantic.info,
-              action: kDebugMode && diagnosticsReport != null
-                  ? SnackBarAction(
-                      label: 'Log',
-                      onPressed: () => showFsmDiagnosticsReportSheet(
-                        context,
-                        diagnosticsReport,
-                      ),
-                    )
-                  : null,
             ),
           );
         }

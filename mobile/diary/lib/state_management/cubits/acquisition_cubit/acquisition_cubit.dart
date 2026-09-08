@@ -103,19 +103,19 @@ class AcquisitionCubit extends Cubit<AcquisitionCubitState> {
     }
   }
 
-  Future<AcquisitionDiagnosticsReport?> stopTracking() async {
-    if (state.isTransitioning) return null;
+  Future<void> stopTracking() async {
+    if (state.isTransitioning) return;
     emit(state.copyWith(isTransitioning: true, clearErrorMessage: true));
     if (state.isReplay) {
       try {
         await stopReplay();
-        return null;
+        return;
       } finally {
         if (!isClosed) emit(state.copyWith(isTransitioning: false));
       }
     }
     try {
-      return await _trackingRepository.stopTracking();
+      await _trackingRepository.stopTracking();
     } catch (error) {
       if (!isClosed) emit(state.copyWith(errorMessage: error.toString()));
       rethrow;

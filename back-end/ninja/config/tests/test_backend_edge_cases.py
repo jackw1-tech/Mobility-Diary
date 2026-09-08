@@ -271,6 +271,9 @@ def test_note_rejects_more_than_five_hundred_characters(
     headers = mobile_session["headers"]
     upload_id = start_recording(api_client, headers).json()["upload_id"]
     trip_id = complete_core(api_client, headers, upload_id).json()["trip_id"]
+    TripUpload.objects.filter(trip_id=trip_id).update(
+        raw_status=TripUpload.PhaseStatus.COMPLETED
+    )
 
     response = api_client.patch(
         f"/api/mobility/trips/{trip_id}/note",

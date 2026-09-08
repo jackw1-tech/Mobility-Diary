@@ -140,10 +140,8 @@ class LiveMapLayers {
         textAllowOverlap: true,
       ));
       _habitualPlacesReady = true;
-    } catch (error, stackTrace) {
-      debugPrint(
-          'live_map_layers: habitual places layer install failed: $error');
-      debugPrintStack(stackTrace: stackTrace);
+    } catch (_) {
+      // Ignorato: il layer dei luoghi abituali e' opzionale.
     }
   }
 

@@ -64,7 +64,7 @@ abstract class AcquisitionTrackingRepository {
 
   Future<ReplayStopResult> stopReplay();
 
-  Future<AcquisitionDiagnosticsReport?> stopTracking();
+  Future<void> stopTracking();
 
   Future<void> ingestEvent(TrackingEvent event);
 

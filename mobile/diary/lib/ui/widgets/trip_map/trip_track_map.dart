@@ -5,7 +5,6 @@ import 'package:diary/ui/pages/trip_diary_presenter.dart';
 import 'package:diary/ui/pages/trip_map_presenter.dart';
 import 'package:diary/ui/widgets/trip_map/segment_details_sheet.dart';
 import 'package:diary/ui/widgets/trip_map/trip_map_overlays.dart';
-import 'package:diary/utils/trip_detail_diagnostics.dart';
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
@@ -39,14 +38,6 @@ class _TripTrackMapState extends State<TripTrackMap> {
   void initState() {
     super.initState();
     _showSegments = widget.state.isSegmented;
-    _log(
-      'map_widget_init_state',
-      fields: {
-        'point_count': widget.state.points.length,
-        'segment_count': widget.state.segments.length,
-        'diary_segment_count': widget.state.diarySegments.length,
-      },
-    );
   }
 
   @override
@@ -54,17 +45,6 @@ class _TripTrackMapState extends State<TripTrackMap> {
     super.didUpdateWidget(oldWidget);
     final justSegmented =
         !oldWidget.state.isSegmented && widget.state.isSegmented;
-    _log(
-      'map_widget_updated',
-      fields: {
-        'points_changed': oldWidget.state.points != widget.state.points,
-        'segments_changed': oldWidget.state.segments != widget.state.segments,
-        'diary_changed':
-            oldWidget.state.diarySegments != widget.state.diarySegments,
-        'point_count': widget.state.points.length,
-        'segment_count': widget.state.segments.length,
-      },
-    );
     // Quando cambia il widget perchè il diary ha finito il caricamento -> riemetto ripTrackStatus.loaded ma lo era già quindi viene eseguita didUpdateWidget
     if (justSegmented) {
       _showSegments = true;
@@ -78,21 +58,9 @@ class _TripTrackMapState extends State<TripTrackMap> {
   }
 
   Future<void> _onMapCreated(MapboxMap map) async {
-    final stopwatch = Stopwatch()..start();
-    _log('mapbox_map_created');
     _map = map;
     await map.scaleBar.updateSettings(ScaleBarSettings(enabled: false));
-    _log(
-      'mapbox_scale_bar_configured',
-      fields: {'duration_ms': stopwatch.elapsedMilliseconds},
-    );
-    stopwatch.reset();
     await map.compass.updateSettings(CompassSettings(enabled: false));
-    _log(
-      'mapbox_compass_configured',
-      fields: {'duration_ms': stopwatch.elapsedMilliseconds},
-    );
-    stopwatch.reset();
     // Dentro una TabBarView vogliamo che i drag restino alla mappa e non
     // vengano interpretati come tentativi di cambio tab o gesture mancanti.
     await map.gestures.updateSettings(
@@ -106,62 +74,30 @@ class _TripTrackMapState extends State<TripTrackMap> {
         rotateEnabled: true,
       ),
     );
-    _log(
-      'mapbox_gestures_configured',
-      fields: {'duration_ms': stopwatch.elapsedMilliseconds},
-    );
   }
 
   Future<void> _onStyleLoaded(StyleLoadedEventData _) async {
-    _log('mapbox_style_loaded');
     _styleReady = true;
     await _drawTrack();
   }
 
-  bool _isStale(int drawId, String stage) {
+  bool _isStale(int drawId) {
     if (drawId == _drawSequence && mounted) return false;
-    _log(
-      'map_draw_abandoned',
-      fields: {'draw_id': drawId, 'stage': stage, 'latest': _drawSequence},
-    );
     return true;
   }
 
   Future<void> _drawTrack() async {
     final drawId = ++_drawSequence;
-    final totalWatch = Stopwatch()..start();
     final map = _map;
     if (map == null || !_styleReady) {
-      _log(
-        'map_draw_skipped_not_ready',
-        fields: {
-          'draw_id': drawId,
-          'has_map': map != null,
-          'style_ready': _styleReady,
-        },
-      );
       return;
     }
     final points = widget.state.points;
     if (points.isEmpty) {
-      _log('map_draw_skipped_empty', fields: {'draw_id': drawId});
       return;
     }
 
-    _log(
-      'map_draw_start',
-      fields: {
-        'draw_id': drawId,
-        'point_count': points.length,
-        'segment_count': widget.state.segments.length,
-        'diary_segment_count': widget.state.diarySegments.length,
-        'show_segments': _showSegments,
-      },
-    );
-
-    try {
-      var stageWatch = Stopwatch()..start();
-      final oldLineManager = _lineManager;
+    final oldLineManager = _lineManager;
       final oldCircleManager = _circleManager;
       _lineManager = null;
       _circleManager = null;
@@ -173,32 +109,15 @@ class _TripTrackMapState extends State<TripTrackMap> {
       if (oldCircleManager != null) {
         await map.annotations.removeAnnotationManager(oldCircleManager);
       }
-      if (_isStale(drawId, 'old_annotations_removed')) return;
-      _log(
-        'map_old_annotations_removed',
-        fields: {
-          'draw_id': drawId,
-          'duration_ms': stageWatch.elapsedMilliseconds,
-          'had_line_manager': oldLineManager != null,
-          'had_circle_manager': oldCircleManager != null,
-        },
-      );
+      if (_isStale(drawId)) return;
 
-      stageWatch = Stopwatch()..start();
       final lineManager =
           await map.annotations.createPolylineAnnotationManager();
-      if (_isStale(drawId, 'line_manager_created')) {
+      if (_isStale(drawId)) {
         await map.annotations.removeAnnotationManager(lineManager);
         return;
       }
       _lineManager = lineManager;
-      _log(
-        'map_line_manager_created',
-        fields: {
-          'draw_id': drawId,
-          'duration_ms': stageWatch.elapsedMilliseconds,
-        },
-      );
       if (!mounted) return;
       final theme = Theme.of(context);
       final isDark = theme.brightness == Brightness.dark;
@@ -208,74 +127,33 @@ class _TripTrackMapState extends State<TripTrackMap> {
 
       if (_showSegments && widget.state.segments.isNotEmpty) {
         final segments = widget.state.segments;
-        final segmentWatch = Stopwatch()..start();
-        var longestSegmentMs = 0;
         for (var index = 0; index < segments.length; index += 1) {
           final segment = segments[index];
-          final singleWatch = Stopwatch()..start();
           final annotation = await _drawLine(
             lineManager,
             segment.points,
             activityColor(segment.activityLabel, colorScheme: colorScheme),
             isSelected: false,
           );
-          if (_isStale(drawId, 'segment_draw')) return;
-          final segmentMs = singleWatch.elapsedMilliseconds;
-          if (segmentMs > longestSegmentMs) longestSegmentMs = segmentMs;
+          if (_isStale(drawId)) return;
           if (annotation != null) {
             _segmentByAnnotationId[annotation.id] = segment;
           }
-          final completed = index + 1;
-          if (completed == 1 ||
-              completed == segments.length ||
-              completed % 25 == 0 ||
-              segmentMs >= 100) {
-            _log(
-              'map_segment_draw_progress',
-              fields: {
-                'draw_id': drawId,
-                'completed': completed,
-                'total': segments.length,
-                'segment_points': segment.points.length,
-                'segment_ms': segmentMs,
-                'cumulative_ms': segmentWatch.elapsedMilliseconds,
-              },
-            );
-          }
         }
         lineManager.tapEvents(onTap: _onSegmentTapped);
-        _log(
-          'map_segments_draw_complete',
-          fields: {
-            'draw_id': drawId,
-            'segment_count': segments.length,
-            'duration_ms': segmentWatch.elapsedMilliseconds,
-            'longest_segment_ms': longestSegmentMs,
-          },
-        );
       } else {
-        stageWatch = Stopwatch()..start();
         await _drawLine(
           lineManager,
           points,
           colorScheme.primary,
           isSelected: false,
         );
-        if (_isStale(drawId, 'raw_line_draw')) return;
-        _log(
-          'map_raw_line_draw_complete',
-          fields: {
-            'draw_id': drawId,
-            'point_count': points.length,
-            'duration_ms': stageWatch.elapsedMilliseconds,
-          },
-        );
+        if (_isStale(drawId)) return;
       }
 
-      stageWatch = Stopwatch()..start();
       final circleManager =
           await map.annotations.createCircleAnnotationManager();
-      if (_isStale(drawId, 'circle_manager_created')) {
+      if (_isStale(drawId)) {
         await map.annotations.removeAnnotationManager(circleManager);
         return;
       }
@@ -328,18 +206,9 @@ class _TripTrackMapState extends State<TripTrackMap> {
           ),
         );
       }
-      _log(
-        'map_markers_draw_complete',
-        fields: {
-          'draw_id': drawId,
-          'stop_marker_count': stops.length,
-          'duration_ms': stageWatch.elapsedMilliseconds,
-        },
-      );
 
-      stageWatch = Stopwatch()..start();
       final currentCamera = await map.getCameraState();
-      if (_isStale(drawId, 'camera_state')) return;
+      if (_isStale(drawId)) return;
       final bounds = await map.cameraForCoordinatesPadding(
         [
           for (final p in points)
@@ -353,43 +222,9 @@ class _TripTrackMapState extends State<TripTrackMap> {
         null,
         null,
       );
-      _log(
-        'map_camera_bounds_complete',
-        fields: {
-          'draw_id': drawId,
-          'point_count': points.length,
-          'duration_ms': stageWatch.elapsedMilliseconds,
-        },
-      );
 
-      if (_isStale(drawId, 'camera_bounds')) return;
-      stageWatch = Stopwatch()..start();
-      await map.flyTo(bounds, MapAnimationOptions(duration: 600));
-      _log(
-        'map_camera_fly_complete',
-        fields: {
-          'draw_id': drawId,
-          'duration_ms': stageWatch.elapsedMilliseconds,
-        },
-      );
-      _log(
-        'map_draw_complete',
-        fields: {
-          'draw_id': drawId,
-          'total_duration_ms': totalWatch.elapsedMilliseconds,
-        },
-      );
-    } catch (error) {
-      _log(
-        'map_draw_error',
-        fields: {
-          'draw_id': drawId,
-          'total_duration_ms': totalWatch.elapsedMilliseconds,
-          'error_type': error.runtimeType,
-        },
-      );
-      rethrow;
-    }
+    if (_isStale(drawId)) return;
+    await map.flyTo(bounds, MapAnimationOptions(duration: 600));
   }
 
   Future<PolylineAnnotation?> _drawLine(
@@ -471,23 +306,6 @@ class _TripTrackMapState extends State<TripTrackMap> {
     if (_showSegments == showSegments) return;
     setState(() => _showSegments = showSegments);
     _drawTrack();
-  }
-
-  void _log(
-    String stage, {
-    Map<String, Object?> fields = const {},
-  }) {
-    TripDetailDiagnostics.event(
-      widget.state.diagnosticsTraceId,
-      stage,
-      fields: fields,
-    );
-  }
-
-  @override
-  void dispose() {
-    _log('map_widget_disposed');
-    super.dispose();
   }
 
   @override

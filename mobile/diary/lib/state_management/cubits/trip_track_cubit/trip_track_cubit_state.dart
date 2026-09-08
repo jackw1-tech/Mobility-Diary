@@ -17,7 +17,6 @@ enum DiaryLoadStatus { initial, loading, pending, loaded, failed }
 
 class TripTrackCubitState {
   final int? tripId;
-  final String? diagnosticsTraceId;
   final TripTrackStatus status;
   final TrackLoadStatus trackStatus;
   final DiaryLoadStatus diaryStatus;
@@ -42,7 +41,6 @@ class TripTrackCubitState {
     this.trackStatus = TrackLoadStatus.initial,
     this.diaryStatus = DiaryLoadStatus.initial,
     this.tripId,
-    this.diagnosticsTraceId,
     this.points = const [],
     this.segments = const [],
     this.diarySegments = const [],
@@ -58,7 +56,6 @@ class TripTrackCubitState {
 
   const TripTrackCubitState.initial()
       : tripId = null,
-        diagnosticsTraceId = null,
         status = TripTrackStatus.initial,
         trackStatus = TrackLoadStatus.initial,
         diaryStatus = DiaryLoadStatus.initial,
@@ -95,7 +92,6 @@ class TripTrackCubitState {
   }) {
     return TripTrackCubitState(
       tripId: tripId,
-      diagnosticsTraceId: diagnosticsTraceId,
       status: status ?? this.status,
       trackStatus: trackStatus ?? this.trackStatus,
       diaryStatus: diaryStatus ?? this.diaryStatus,

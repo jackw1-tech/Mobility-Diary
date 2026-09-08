@@ -6,7 +6,6 @@ from .models import (
     HabitualPlace,
     HarJob,
     MobilitySegment,
-    SensorWindow,
     StateTransition,
     Trip,
     TripUpload,
@@ -42,12 +41,6 @@ class GpsPointAdmin(admin.ModelAdmin):
 class StateTransitionAdmin(admin.ModelAdmin):
     list_display = ("id", "trip", "from_state", "to_state", "timestamp")
     list_filter = ("to_state", "timestamp")
-
-
-@admin.register(SensorWindow)
-class SensorWindowAdmin(admin.ModelAdmin):
-    list_display = ("id", "trip", "start_timestamp", "end_timestamp", "sample_count", "frequency_hz", "is_synced")
-    list_filter = ("start_timestamp", "frequency_hz", "is_synced")
 
 
 @admin.register(HabitualPlace)

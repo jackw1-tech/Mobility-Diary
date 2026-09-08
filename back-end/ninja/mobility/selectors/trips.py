@@ -17,7 +17,7 @@ from django.db.models import (
 )
 
 from ..upload import selectors as upload_selectors
-from ..models import GpsPoint, SensorWindow, Trip, TripUpload, TripUploadPart
+from ..models import GpsPoint, Trip, TripUpload, TripUploadPart
 
 
 @dataclass(frozen=True)
@@ -82,16 +82,11 @@ def trip_has_completed_upload(trip: Trip) -> bool:
 
 
 def trip_object_keys(trip: Trip) -> list[str]:
-    """Object key S3 delle telemetrie del viaggio (SensorWindow + parti raw)."""
-    sensor_keys = (
-        SensorWindow.objects.filter(trip=trip)
-        .exclude(object_key="")
-        .values_list("object_key", flat=True)
-    )
+    """Object key S3 delle parti raw del viaggio."""
     upload_keys = TripUploadPart.objects.filter(
         upload__trip=trip
     ).values_list("object_key", flat=True)
-    return sorted({key for key in [*sensor_keys, *upload_keys] if key})
+    return sorted({key for key in upload_keys if key})
 
 
 def delete_trip_uploads(trip: Trip) -> None:

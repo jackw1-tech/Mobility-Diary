@@ -21,13 +21,7 @@ class InvalidRawSensorPayload(ValueError):
 
 
 """
-Mapper da payload JSON decompresso a oggetti PipelineSensorWindow.
-
-Formato atteso (prodotto da TripPackageBuilder lato mobile):
-
-    {"windows": [{"window_start": "...Z", "window_end": "...Z",
-                  "sample_rate_hz": 100, "sample_count": 500,
-                  "channel_count": 6, "samples": [[6 float] x 500]}]}
+Json decodificato -> Lista di PipelineSensorWindow
 """
 def decode_sensor_windows_payload(raw: bytes) -> list[PipelineSensorWindow]:
     try:
@@ -43,7 +37,9 @@ def decode_sensor_windows_payload(raw: bytes) -> list[PipelineSensorWindow]:
 
     return [_decode_window(window) for window in windows]
 
-
+""" 
+Singola window -> Singola PipelineSensorWindow
+"""
 def _decode_window(window: object) -> PipelineSensorWindow:
     if not isinstance(window, dict):
         raise InvalidRawSensorPayload("sensor window non valida")
@@ -59,28 +55,19 @@ def _decode_window(window: object) -> PipelineSensorWindow:
     if sample_rate <= 0:
         raise InvalidRawSensorPayload("sensor window con sample_rate_hz non valido")
 
-    sample_count = _int_field(window, "sample_count")
-    if sample_count != EXPECTED_SAMPLE_COUNT:
-        raise InvalidRawSensorPayload(
-            f"sensor window con sample_count diverso da {EXPECTED_SAMPLE_COUNT}"
-        )
-
-    channel_count = _int_field(window, "channel_count")
-    if channel_count != EXPECTED_CHANNEL_COUNT:
-        raise InvalidRawSensorPayload(
-            f"sensor window con channel_count diverso da {EXPECTED_CHANNEL_COUNT}"
-        )
-
     return PipelineSensorWindow(
         start_timestamp=start,
         end_timestamp=end,
-        sample_count=sample_count,
+        sample_count=EXPECTED_SAMPLE_COUNT,
         frequency_hz=sample_rate,
-        matrix=_decode_matrix(window.get("samples"), sample_count, channel_count),
+        matrix=_decode_matrix(window.get("samples")),
     )
 
 
-def _decode_matrix(samples: object, sample_count: int, channel_count: int):
+# sample_count e channel_count non arrivano piu' sul payload: il client li
+# dichiarava solo per farseli validare contro queste stesse costanti, quindi
+# si valida direttamente la forma della matrice decodificata.
+def _decode_matrix(samples: object):
     if not isinstance(samples, list):
         raise InvalidRawSensorPayload("sensor window senza matrice samples")
     try:
@@ -88,10 +75,10 @@ def _decode_matrix(samples: object, sample_count: int, channel_count: int):
     except (TypeError, ValueError) as exc:
         raise InvalidRawSensorPayload("matrice samples non numerica") from exc
 
-    if matrix.shape != (sample_count, channel_count):
+    if matrix.shape != (EXPECTED_SAMPLE_COUNT, EXPECTED_CHANNEL_COUNT):
         raise InvalidRawSensorPayload(
             "matrice samples con forma diversa da "
-            f"({sample_count}, {channel_count})"
+            f"({EXPECTED_SAMPLE_COUNT}, {EXPECTED_CHANNEL_COUNT})"
         )
     if not np.isfinite(matrix).all():
         raise InvalidRawSensorPayload("matrice samples con valori non finiti")

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:developer' as developer;
 
 import 'package:diary/network/service/impl/acquisition_local_database.dart';
 import 'package:diary/model/entities/acquisition/acquisition_domain.dart';
@@ -12,7 +11,6 @@ import 'package:diary/network/service/trip_upload_service.dart';
 import 'package:diary/mappers/upload_mapper.dart';
 import 'package:diary/mappers/acquisition_mapper.dart';
 import 'package:diary/repositories/impl/acquisition/har_window_recorder.dart';
-import 'package:diary/repositories/impl/acquisition/fsm_diagnostics_recorder.dart';
 import 'package:diary/repositories/impl/acquisition/upload_heartbeat.dart';
 
 import 'package:flutter/widgets.dart';
@@ -38,7 +36,6 @@ class LiveAcquisitionStrategy implements AcquisitionStrategy {
   final void Function(AcquisitionSnapshot snapshot) onSnapshot;
   late final UploadHeartbeat _heartbeat;
   late final HarWindowRecorder _harWindows;
-  final FsmDiagnosticsRecorder _diagnosticsRecorder;
   final Duration _staleSessionThreshold;
   final DateTime Function() _now;
 
@@ -86,7 +83,6 @@ class LiveAcquisitionStrategy implements AcquisitionStrategy {
     Duration staleSessionThreshold = const Duration(minutes: 30),
     DateTime Function()? now,
     HeartbeatTimerFactory? heartbeatTimerFactory,
-    FsmDiagnosticsRecorder? diagnosticsRecorder,
   })  : _config = config,
         _database = database ?? AcquisitionLocalDatabase(),
         _uuid = uuid ?? const Uuid(),
@@ -97,7 +93,6 @@ class LiveAcquisitionStrategy implements AcquisitionStrategy {
         _acquisitionMapper = acquisitionMapper ?? AcquisitionMapper(),
         _staleSessionThreshold = staleSessionThreshold,
         _now = now ?? DateTime.now,
-        _diagnosticsRecorder = diagnosticsRecorder ?? FsmDiagnosticsRecorder(),
         _ownsRuntime = enableRuntime && runtime == null,
         _runtime =
             enableRuntime ? runtime ?? AcquisitionSensorRuntime() : null {
@@ -134,25 +129,12 @@ class LiveAcquisitionStrategy implements AcquisitionStrategy {
   }
 
   Future<void> startTracking() async {
-    developer.log('startTracking() chiamata', name: 'mobility.permission');
     if (currentSnapshot.isTracking) {
-      developer.log(
-        'startTracking() esce subito: currentSnapshot.isTracking gia\' true',
-        name: 'mobility.permission',
-      );
       return;
     }
     final runtime = _runtime;
-    developer.log(
-      'runtime == null? ${runtime == null}',
-      name: 'mobility.permission',
-    );
     if (runtime != null) {
       final hasPermission = await runtime.hasAcquisitionLocationPermission();
-      developer.log(
-        'hasAcquisitionLocationPermission() -> $hasPermission',
-        name: 'mobility.permission',
-      );
       if (!hasPermission) {
         throw const AcquisitionPermissionException();
       }
@@ -204,10 +186,6 @@ class LiveAcquisitionStrategy implements AcquisitionStrategy {
     _currentSessionId = sessionId;
     _currentRemoteUploadId = remoteStart?.uploadId;
     _currentDeviceId = deviceId;
-    await _diagnosticsRecorder.start(
-      sessionId: sessionId,
-      startedAt: now,
-    );
     _heartbeat.restart();
     emitSnapshot(
       AcquisitionSnapshot(
@@ -244,9 +222,6 @@ class LiveAcquisitionStrategy implements AcquisitionStrategy {
         endedAt: endedAt,
       );
     }
-    final diagnosticsReport = sessionId == null
-        ? null
-        : await _diagnosticsRecorder.finish(endedAt: endedAt);
 
     _currentSessionId = null;
     _currentRemoteUploadId = null;
@@ -256,10 +231,7 @@ class LiveAcquisitionStrategy implements AcquisitionStrategy {
     _fsm = AcquisitionFsm(config: _config);
     emitSnapshot(AcquisitionSnapshot.idle());
 
-    return AcquisitionStopResult.syncSession(
-      sessionId!,
-      diagnosticsReport: diagnosticsReport,
-    );
+    return AcquisitionStopResult.syncSession(sessionId!);
   }
 
   //Intercetto i nuovi dati dai sensori / gps, richiamo la FSM e salvo i dati nel db
@@ -276,11 +248,6 @@ class LiveAcquisitionStrategy implements AcquisitionStrategy {
     final decision = _fsm.apply(
       event,
       evidenceMode: _evidenceModeFor(event.timestamp),
-    );
-    _diagnosticsRecorder.record(
-      event: event,
-      decision: decision,
-      config: _config,
     );
     final transition = decision.transition;
     final sessionId = _currentSessionId;
@@ -384,7 +351,6 @@ class LiveAcquisitionStrategy implements AcquisitionStrategy {
   void dispose() {
     closeSnapshotEmission();
     _heartbeat.cancel();
-    _diagnosticsRecorder.dispose();
     if (_ownsRuntime) {
       _runtime?.dispose();
     }
@@ -576,11 +542,6 @@ class LiveAcquisitionStrategy implements AcquisitionStrategy {
     _latestLatitude = latestGpsPoint?.latitude;
     _latestLongitude = latestGpsPoint?.longitude;
     _latestAccuracyMeters = latestGpsPoint?.accuracyMeters;
-    await _diagnosticsRecorder.start(
-      sessionId: session.id,
-      startedAt: session.startedAt,
-      append: true,
-    );
 
     emitSnapshot(
       AcquisitionSnapshot(

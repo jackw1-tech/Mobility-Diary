@@ -42,7 +42,7 @@ def prepare_reloaded_trip_raw(
     task_started = perf_counter()
     try:
         with transaction.atomic():
-            upload = upload_repository.locked_upload_by_id(upload_id)
+            upload = upload_repository.locked_trip_upload_by_id(upload_id)
             # protezione per non farlo avvenire due volte
             if upload.raw_status in {
                 TripUpload.PhaseStatus.QUEUED,
@@ -98,7 +98,7 @@ def prepare_reloaded_trip_raw(
     except Exception as exc:
         will_retry = self.request.retries < self.max_retries
         with transaction.atomic():
-            upload = upload_repository.locked_upload_by_id(upload_id)
+            upload = upload_repository.locked_trip_upload_by_id(upload_id)
             upload.raw_status = (
                 TripUpload.PhaseStatus.FAILED_RETRYABLE
                 if will_retry
@@ -138,7 +138,7 @@ _PLACE_MINING_PENDING_FIELDS = [
 ]
 
 
-@worker_process_init.connect
+@worker_process_init.connect #eseguita ogni volta che nasce un processo worker
 def warm_har_model_on_worker_start(**_kwargs) -> None:
     started = perf_counter()
     try:
@@ -151,7 +151,7 @@ def warm_har_model_on_worker_start(**_kwargs) -> None:
         _elapsed_ms(started),
     )
 
-
+# Ottieni il lock sul place mining status di quell'utente
 def _place_mining_status_for_update(user_id: int) -> PlaceMiningStatus:
     return place_mining_status_repository.locked_status_for_user(
         user_id,
@@ -159,7 +159,7 @@ def _place_mining_status_for_update(user_id: int) -> PlaceMiningStatus:
         requested_at=timezone.now(),
     )
 
-
+# Imposta il place mining status a pending
 def _set_place_mining_pending(
     status: PlaceMiningStatus,
     *,
@@ -175,7 +175,7 @@ def _set_place_mining_pending(
     status.rerun_requested = rerun_requested
     status.save(update_fields=[*_PLACE_MINING_PENDING_FIELDS, "updated_at"])
 
-
+# Controlla che per quell'utente non c'è già stato un altro viaggio ravvicinato che ha richiesto il mining
 def _request_place_mining(user_id: int) -> bool:
     with transaction.atomic():
         status = _place_mining_status_for_update(user_id)
@@ -262,7 +262,7 @@ def mine_significant_places(self, user_id: int) -> dict:
         _schedule_place_mining(user_id)
     return result
 
-
+#Metti in coda il task di mining dei punti gps
 def _schedule_place_mining(user_id: int) -> None:
     transaction.on_commit(lambda: mine_significant_places.delay(user_id))
 
@@ -404,7 +404,7 @@ def persist_trip_raw_sensor_readings(
         )
         raise
 
-
+"""Funzione principale di analisi dei dati raw"""
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
 def process_trip_har_final(
     self,
@@ -423,9 +423,11 @@ def process_trip_har_final(
     persisted_readings = None
     trip_id = None
 
+
+#Sezione di preparazione (cambio di stato d TripUpload e HarJob)
     status_started = perf_counter()
     with transaction.atomic():
-        upload = upload_repository.locked_upload_by_id(upload_id)
+        upload = upload_repository.locked_trip_upload_by_id(upload_id)
         job = har_jobs_repository.locked_har_job_with_trip(job_id)
         trip = upload.trip or job.trip
         trip_id = trip.id
@@ -447,6 +449,7 @@ def process_trip_har_final(
         job.save(update_fields=["status", "error", "updated_at"])
     phase_timings_ms["mark_processing"] = _elapsed_ms(status_started)
 
+# Sezione centrale, scarico tutti i dati dall'objet e interrogo l AI
     try:
         raw_load_started = perf_counter()
         raw_load = load_raw_sensor_windows_with_metrics(upload)
@@ -486,8 +489,10 @@ def process_trip_har_final(
             job.status = HarJob.Status.SUCCESS
             job.result = result
             job.error = ""
-            job.save(update_fields=["status", "result", "error", "updated_at"])
+            job.save(update_fields=["status", "result", "error", "updated_at"]) #Per il front end l'intero processo finisce qui
         phase_timings_ms["mark_completed"] = _elapsed_ms(finalize_started)
+        
+        # Finito l'har, metto in cache i dati
         try:
             places_version = get_places_version(trip.user_id)
             cache_diary(trip.id, places_version, build_private_diary(trip))
@@ -531,6 +536,8 @@ def process_trip_har_final(
         raise
 
     raw_persist_enqueue_started = perf_counter()
+    
+    # Mette in coda il task di inserimento batch
     try:
         persist_trip_raw_sensor_readings.delay(
             job_id, upload_id, raw_clone_shift_microseconds
@@ -554,6 +561,7 @@ def process_trip_har_final(
         raw_persist_enqueue_started
     )
 
+    # Mette in coda il task di mining dei punti gps
     if _request_place_mining(trip.user_id):
         _schedule_place_mining(trip.user_id)
 

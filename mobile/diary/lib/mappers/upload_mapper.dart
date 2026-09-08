@@ -100,7 +100,6 @@ class UploadMapper {
           cutoffSourceTimestamp,
         ),
       'device_id': deviceId,
-      'device_platform': '',
       'ended_at': DateTimeUtils.toUtcIsoOrNull(endedAt),
       'expected_raw_parts': expectedRawParts,
       'gps_points': [

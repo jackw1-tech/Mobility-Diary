@@ -4,7 +4,6 @@ import 'package:diary/routers/app_router.dart';
 import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubit.dart';
 import 'package:diary/state_management/cubits/trips_list_cubit/trips_list_cubit.dart';
 import 'package:diary/ui/widgets/trip_reload_sheets.dart';
-import 'package:diary/utils/trip_detail_diagnostics.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -16,19 +15,8 @@ enum TripAction { note, toggleReloadable, delete }
 /// resta leggibile e queste restano testabili una per una.
 
 void openTripDetail(BuildContext context, TripListItem trip) {
-  final traceId = TripDetailDiagnostics.start(
-    trip.id,
-    source: 'drawer_detail_button',
-  );
-  TripDetailDiagnostics.event(
-    traceId,
-    'detail_tap',
-    fields: {'has_track': trip.hasTrack},
-  );
   Scaffold.of(context).closeDrawer();
-  TripDetailDiagnostics.event(traceId, 'drawer_close_dispatched');
   context.router.push(TripDetailRoute(tripId: trip.id));
-  TripDetailDiagnostics.event(traceId, 'route_push_dispatched');
 }
 
 String reloadableUnavailableReason(TripListItem trip) {
@@ -115,9 +103,6 @@ Future<void> startTripReload(BuildContext context, TripListItem trip) async {
     return;
   }
   Scaffold.of(context).closeDrawer();
-  // Il dettaglio mantiene una propria traccia tecnica legata al viaggio
-  // derivato, senza propagare diagnostica attraverso repository e HTTP.
-  TripDetailDiagnostics.start(tripId, source: 'direct_reload');
   context.router.push(TripDetailRoute(tripId: tripId));
 }
 

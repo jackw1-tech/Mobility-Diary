@@ -27,8 +27,6 @@ def mobile_part(*starts_and_ends) -> bytes:
             "window_start": start,
             "window_end": end,
             "sample_rate_hz": 100,
-            "sample_count": EXPECTED_SAMPLE_COUNT,
-            "channel_count": EXPECTED_CHANNEL_COUNT,
             "samples": [
                 [0.1, -9.81, 0.5, 0.01, -0.02, 0.03]
                 for _ in range(EXPECTED_SAMPLE_COUNT)

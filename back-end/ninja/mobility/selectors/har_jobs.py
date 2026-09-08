@@ -27,7 +27,6 @@ def har_job_with_trip(job_id: int) -> HarJob:
 
 
 def merge_har_job_result(job_id: int, updates: dict) -> dict:
-    """Legge, fonde e salva atomicamente il campo `result` (JSON) del job."""
     with transaction.atomic():
         job = locked_har_job(job_id)
         result = job.result if isinstance(job.result, dict) else {}

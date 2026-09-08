@@ -27,20 +27,19 @@ class RawSensorLoadResult:
 
 
 """
-Dato il trip, ne estrae tutte le trip upload completate (receivet at not null)
-Mette tutte insieme le sensor window
+Dato il trip, mette tutte insieme le sensor window
 """
 def load_raw_sensor_windows_with_metrics(
     upload: TripUpload,
 ) -> RawSensorLoadResult:
     cache_started = perf_counter()
-    cached = get_cached_raw_sensor_windows(upload.id)
-    if cached is not None:
+    cached_windows = get_cached_raw_sensor_windows(upload.id)
+    if cached_windows is not None:
         return RawSensorLoadResult(
-            windows=cached.windows,
-            part_count=cached.part_count,
-            compressed_bytes=cached.compressed_bytes,
-            decompressed_bytes=cached.decompressed_bytes,
+            windows=cached_windows,
+            part_count=0,
+            compressed_bytes=0,
+            decompressed_bytes=0,
             timings_ms={"cache_hit": _elapsed_ms(cache_started)},
         )
 
@@ -78,10 +77,12 @@ def load_raw_sensor_windows_with_metrics(
         decompressed_bytes=decompressed_bytes,
         timings_ms=timings_ms,
     )
-    cache_raw_sensor_windows(upload.id, result)
+    cache_raw_sensor_windows(upload.id, windows)
     return result
 
-
+""" 
+Scarica dall'object storage l'oggetto
+"""
 def _load_raw_sensor_part_windows_with_metrics(
     object_key: str,
 ) -> RawSensorLoadResult:

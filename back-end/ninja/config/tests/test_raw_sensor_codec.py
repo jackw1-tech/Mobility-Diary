@@ -22,8 +22,6 @@ def build_window(**overrides):
         "window_start": "2026-09-02T10:15:00.000Z",
         "window_end": "2026-09-02T10:15:05.000Z",
         "sample_rate_hz": 100,
-        "sample_count": EXPECTED_SAMPLE_COUNT,
-        "channel_count": EXPECTED_CHANNEL_COUNT,
         "samples": [
             [0.1, -9.81, 0.5, 0.01, -0.02, 0.03]
             for _ in range(EXPECTED_SAMPLE_COUNT)
@@ -72,12 +70,16 @@ def test_accepts_an_empty_window_list():
 @pytest.mark.parametrize(
     "overrides, message",
     [
-        ({"sample_count": 499}, "sample_count"),
-        ({"channel_count": 3}, "channel_count"),
         ({"sample_rate_hz": 0}, "sample_rate_hz"),
         ({"window_end": "2026-09-02T10:15:00.000Z"}, "intervallo temporale"),
         ({"window_start": "non-una-data"}, "timestamp raw non valido"),
+        # meno righe di EXPECTED_SAMPLE_COUNT
         ({"samples": [[0.0] * 6]}, "forma diversa"),
+        # righe piu' corte di EXPECTED_CHANNEL_COUNT
+        (
+            {"samples": [[0.0] * 3 for _ in range(EXPECTED_SAMPLE_COUNT)]},
+            "forma diversa",
+        ),
         ({"samples": "non-una-matrice"}, "senza matrice samples"),
     ],
 )

@@ -106,7 +106,6 @@ class TripUploadDioService implements TripUploadService {
     required String clientSessionId,
     required DateTime startedAt,
     required String deviceId,
-    String devicePlatform = '',
     int? sourceTripId,
   }) =>
       _send(
@@ -117,7 +116,6 @@ class TripUploadDioService implements TripUploadService {
             'schema_version': 1,
             'started_at': startedAt.toUtc().toIso8601String(),
             'device_id': deviceId,
-            'device_platform': devicePlatform,
             if (sourceTripId != null)
               'source_trip_id': sourceTripId, // Nel caso replay
           },

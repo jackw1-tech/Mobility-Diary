@@ -90,34 +90,6 @@ void main() {
     expect(cubit.state.routePoints.single.longitude, 9.19);
   });
 
-  test('returns the finalized diagnostics report when live tracking stops',
-      () async {
-    final trackingRepository = _FakeTrackingRepository();
-    final syncRepository = _FakeSyncRepository();
-    final timestamp = DateTime.utc(2026, 9, 4, 10);
-    final report = AcquisitionDiagnosticsReport(
-      sessionId: 'session-id',
-      filePath: '/tmp/fsm.jsonl',
-      fileName: 'fsm.jsonl',
-      content: '{}\n',
-      sizeBytes: 3,
-      decisionCount: 1,
-      startedAt: timestamp,
-      endedAt: timestamp.add(const Duration(minutes: 1)),
-    );
-    trackingRepository.stopReport = report;
-    final cubit = AcquisitionCubit(
-      trackingRepository: trackingRepository,
-      syncRepository: syncRepository,
-    );
-    addTearDown(() async {
-      await cubit.close();
-      await trackingRepository.close();
-    });
-
-    expect(await cubit.stopTracking(), same(report));
-  });
-
   test('coalesces concurrent live tracking starts', () async {
     final startCompleter = Completer<void>();
     final trackingRepository = _FakeTrackingRepository(
@@ -144,7 +116,7 @@ void main() {
   });
 
   test('coalesces concurrent live tracking stops', () async {
-    final stopCompleter = Completer<AcquisitionDiagnosticsReport?>();
+    final stopCompleter = Completer<void>();
     final trackingRepository = _FakeTrackingRepository(
       initialSnapshot: _trackingSnapshot(),
       stopCompleter: stopCompleter,
@@ -165,7 +137,7 @@ void main() {
 
     expect(trackingRepository.stopCalls, 1);
 
-    stopCompleter.complete(null);
+    stopCompleter.complete();
     await Future.wait([first, second]);
   });
 }
@@ -175,8 +147,7 @@ class _FakeTrackingRepository implements AcquisitionTrackingRepository {
       StreamController<AcquisitionSnapshot>.broadcast(sync: true);
   late AcquisitionSnapshot _currentSnapshot;
   final Completer<void>? startCompleter;
-  final Completer<AcquisitionDiagnosticsReport?>? stopCompleter;
-  AcquisitionDiagnosticsReport? stopReport;
+  final Completer<void>? stopCompleter;
   int startCalls = 0;
   int stopCalls = 0;
 
@@ -219,9 +190,9 @@ class _FakeTrackingRepository implements AcquisitionTrackingRepository {
   }) async {}
 
   @override
-  Future<AcquisitionDiagnosticsReport?> stopTracking() {
+  Future<void> stopTracking() {
     stopCalls += 1;
-    return stopCompleter?.future ?? Future.value(stopReport);
+    return stopCompleter?.future ?? Future.value();
   }
 
   @override

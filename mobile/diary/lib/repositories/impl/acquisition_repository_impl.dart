@@ -171,13 +171,12 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
   }
 
   @override
-  Future<AcquisitionDiagnosticsReport?> stopTracking() async {
+  Future<void> stopTracking() async {
     final strategy = _activeAcquisitionStrategy;
 
     final result = await strategy!.stop();
     await _handleStopResult(result);
     await _disposeActiveStrategy();
-    return result.diagnosticsReport;
   }
 
   @override

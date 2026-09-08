@@ -2,8 +2,16 @@ import json
 
 import pytest
 
-from mobility.models import GpsPoint
+from mobility.models import GpsPoint, TripUpload
 from mobility.ml.pipeline import run_pipeline
+
+
+def _mark_raw_processing_completed(trip_id: int) -> None:
+    """Simula il worker Celery che ha finito la pipeline HAR/diario per
+    l'upload di questo trip (i test non hanno un broker/worker reale)."""
+    TripUpload.objects.filter(trip_id=trip_id).update(
+        raw_status=TripUpload.PhaseStatus.COMPLETED
+    )
 
 
 pytestmark = pytest.mark.django_db
@@ -187,7 +195,10 @@ def test_core_upload_makes_the_trip_visible_with_a_track(
 
     assert core.status_code == 200
     assert core.json()["core_status"] == "COMPLETED"
-    assert core.json()["raw_status"] == "COMPLETED"
+    # Anche con 0 raw part attese, la pipeline HAR/diario viene comunque
+    # accodata (altrimenti trip.status non arriverebbe mai a PROCESSED) --
+    # quindi raw_status e' QUEUED subito dopo /core, non gia' COMPLETED.
+    assert core.json()["raw_status"] == "QUEUED"
     assert core.json()["map_available"] is True
     assert trips.status_code == 200
     assert len(trips.json()) == 1
@@ -344,6 +355,7 @@ def test_completed_upload_allows_note_update_and_trip_deletion(
     headers = mobile_session["headers"]
     upload_id = start_recording(api_client, headers).json()["upload_id"]
     trip_id = complete_core(api_client, headers, upload_id).json()["trip_id"]
+    _mark_raw_processing_completed(trip_id)
 
     note = api_client.patch(
         f"/api/mobility/trips/{trip_id}/note",

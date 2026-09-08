@@ -111,7 +111,7 @@ def upload_with_trip(upload_id: int) -> TripUpload:
     return TripUpload.objects.select_related("trip").get(id=upload_id)
 
 # Blocca la riga
-def locked_upload_by_id(upload_id: int) -> TripUpload:
+def locked_trip_upload_by_id(upload_id: int) -> TripUpload:
     return TripUpload.objects.select_for_update().get(id=upload_id)
 
 

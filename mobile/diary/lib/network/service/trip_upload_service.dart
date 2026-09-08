@@ -38,7 +38,6 @@ abstract class TripUploadService {
     required String clientSessionId,
     required DateTime startedAt,
     required String deviceId,
-    String devicePlatform,
     int? sourceTripId,
   });
 

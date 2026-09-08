@@ -129,28 +129,6 @@ class StateTransition(models.Model):
         ]
 
 
-class SensorWindow(models.Model):
-    trip = models.ForeignKey(Trip, related_name="sensor_windows", on_delete=models.CASCADE)
-    start_timestamp = models.DateTimeField()
-    end_timestamp = models.DateTimeField()
-    sample_count = models.PositiveIntegerField()
-    frequency_hz = models.PositiveIntegerField()
-    matrix = models.JSONField(null=True, blank=True)
-    object_key = models.CharField(max_length=512, blank=True)
-    is_synced = models.BooleanField(default=False)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        indexes = [
-            models.Index(fields=["trip", "start_timestamp"]),
-        ]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["trip", "start_timestamp", "end_timestamp"],
-                name="unique_sensor_window_per_trip_time_range",
-            )
-        ]
-
 
 class HabitualPlace(models.Model):
     """Luogo Significativo Abituale: luogo user-scoped scoperto dalle visite ricorrenti.

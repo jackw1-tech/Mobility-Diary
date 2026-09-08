@@ -5,7 +5,6 @@ import 'package:diary/repositories/trip_track_repository.dart';
 import 'package:diary/state_management/cubits/trip_track_cubit/trip_diary_load_policy.dart';
 import 'package:diary/state_management/cubits/trip_track_cubit/trip_track_cubit_state.dart';
 import 'package:diary/utils/app_result.dart';
-import 'package:diary/utils/trip_detail_diagnostics.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 class TripTrackCubit extends Cubit<TripTrackCubitState> {
@@ -14,7 +13,6 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
   final Map<int, TripTrack> _trackCache = {};
   Timer? _diaryPollingTimer;
   int? _tripId;
-  String? _diagnosticsTraceId;
   int _loadGeneration = 0;
   int _diaryFailureStreak = 0;
 
@@ -25,9 +23,8 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
         super(const TripTrackCubitState.initial());
 
   // Funzione richiamata dal cubit che chiede i dati del singolo viaggio in Trip Detail Page
-  Future<void> load(int tripId, {String? diagnosticsTraceId}) {
+  Future<void> load(int tripId) {
     _tripId = tripId;
-    _diagnosticsTraceId = diagnosticsTraceId;
     return _startLoad(tripId);
   }
 
@@ -44,7 +41,6 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
     if (tripId == null) return;
     _stopDiaryPolling();
     _diaryFailureStreak = 0;
-    TripDetailDiagnostics.event(_diagnosticsTraceId, 'diary_manual_retry');
     await _loadDiary(tripId, _loadGeneration, pollPendingDiary: true);
   }
 
@@ -52,24 +48,16 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
   Future<void> _startLoad(int tripId) async {
     final generation =
         ++_loadGeneration; // Protezione race condition quando cambio velocemente da un viaggio allìaltro
-    final traceId = _diagnosticsTraceId;
     _stopDiaryPolling();
     _diaryFailureStreak = 0;
     emit(
       TripTrackCubitState(
         tripId: tripId,
-        diagnosticsTraceId: traceId,
         status: TripTrackStatus.loading,
         trackStatus: TrackLoadStatus.loading,
         diaryStatus: DiaryLoadStatus.loading,
       ),
     );
-    TripDetailDiagnostics.event(
-      traceId,
-      'track_cubit_load_start',
-      fields: {'generation': generation},
-    );
-    TripDetailDiagnostics.event(traceId, 'parallel_requests_started');
 
     await Future.wait([
       _loadTrack(tripId, generation),
@@ -82,16 +70,9 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
     final cached = _trackCache[tripId];
     final AppResult<TripTrack> result;
     if (cached != null) {
-      TripDetailDiagnostics.event(
-        _diagnosticsTraceId,
-        'track_page_cache_hit',
-        fields: {'trip_id': tripId},
-      );
       result = AppResult.success(cached);
     } else {
       result = await _safeTimedFetch(
-        _diagnosticsTraceId,
-        'track_repository_future',
         () => _repository.fetchTrack(tripId),
       );
     }
@@ -123,11 +104,6 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
           diaryProvidesDistance ? state.distanceMeters : track.distanceMeters,
       trackError: null,
     );
-    TripDetailDiagnostics.event(
-      _diagnosticsTraceId,
-      'track_result_applied',
-      fields: {'generation': generation, 'point_count': points.length},
-    );
     _emitResolved(next);
   }
 
@@ -138,8 +114,6 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
     required bool pollPendingDiary,
   }) async {
     final result = await _safeTimedFetch(
-      _diagnosticsTraceId,
-      'diary_repository_future',
       () => _repository.fetchDiary(tripId),
       timeout: _diaryLoadPolicy.requestTimeout,
     );
@@ -151,17 +125,6 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
       final retryDelay = _diaryLoadPolicy.retryDelay(_diaryFailureStreak);
       final keepsPreviousDiary = state.diaryStatus == DiaryLoadStatus.loaded ||
           state.diaryStatus == DiaryLoadStatus.pending;
-      TripDetailDiagnostics.event(
-        _diagnosticsTraceId,
-        'diary_fetch_failure',
-        fields: {
-          'generation': generation,
-          'failure_type': failure.runtimeType,
-          'failure_streak': _diaryFailureStreak,
-          'retry_in_ms': pollPendingDiary ? retryDelay.inMilliseconds : null,
-          'keeps_previous_diary': keepsPreviousDiary,
-        },
-      );
       _emitResolved(
         state.copyWith(
           diaryStatus:
@@ -182,16 +145,6 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
     _diaryFailureStreak = 0;
 
     final diary = result.requireValue;
-    TripDetailDiagnostics.event(
-      _diagnosticsTraceId,
-      'diary_result_available',
-      fields: {
-        'processing_completed': diary.processed,
-        'segment_count': diary.segments.length,
-        'place_count': diary.places.length,
-        'generation': generation,
-      },
-    );
     final processingFailed = !diary.processed && diary.processingFailed;
     final processingPending = !diary.processed && !processingFailed;
     // Il backEnd manda solo  "segments": []
@@ -257,12 +210,9 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
   }
 
   Future<AppResult<T>> _safeTimedFetch<T>(
-    String? traceId,
-    String stage,
     Future<AppResult<T>> Function() fetch, {
     Duration? timeout,
   }) async {
-    final stopwatch = Stopwatch()..start();
     try {
       final future = fetch();
       final result = timeout == null
@@ -275,24 +225,8 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
                 ),
               ),
             );
-      TripDetailDiagnostics.event(
-        traceId,
-        '${stage}_complete',
-        fields: {
-          'duration_ms': stopwatch.elapsedMilliseconds,
-          'success': result.failure == null,
-        },
-      );
       return result;
     } catch (error) {
-      TripDetailDiagnostics.event(
-        traceId,
-        '${stage}_exception',
-        fields: {
-          'duration_ms': stopwatch.elapsedMilliseconds,
-          'error_type': error.runtimeType,
-        },
-      );
       return AppResult.failure(toAppFailure(error));
     }
   }
@@ -356,15 +290,9 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
   }) {
     _diaryPollingTimer?.cancel();
     if (isClosed) return;
-    TripDetailDiagnostics.event(
-      _diagnosticsTraceId,
-      'diary_poll_scheduled',
-      fields: {'delay_ms': delay.inMilliseconds},
-    );
     _diaryPollingTimer = Timer(delay, () {
       _diaryPollingTimer = null;
       if (!_isCurrent(tripId, generation)) return;
-      TripDetailDiagnostics.event(_diagnosticsTraceId, 'diary_poll_tick');
       unawaited(_loadDiary(tripId, generation, pollPendingDiary: true));
     });
   }
@@ -378,9 +306,6 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
   }
 
   void _stopDiaryPolling() {
-    if (_diaryPollingTimer != null) {
-      TripDetailDiagnostics.event(_diagnosticsTraceId, 'diary_polling_stopped');
-    }
     _diaryPollingTimer?.cancel();
     _diaryPollingTimer = null;
   }
@@ -388,7 +313,6 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
   @override
   Future<void> close() async {
     _loadGeneration += 1;
-    TripDetailDiagnostics.event(_diagnosticsTraceId, 'track_cubit_closed');
     _stopDiaryPolling();
     return super.close();
   }

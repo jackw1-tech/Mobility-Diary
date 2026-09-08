@@ -26,30 +26,6 @@ class HttpJsonResponse {
   bool get isError => statusCode < 200 || statusCode >= 300;
 }
 
-class HttpJsonDiagnosticEvent {
-  final String stage;
-  final Duration stageDuration;
-  final Duration totalDuration;
-  final int? statusCode;
-  final int? declaredContentLength;
-  final int? bodyCharacters;
-  final String? errorType;
-
-  const HttpJsonDiagnosticEvent({
-    required this.stage,
-    required this.stageDuration,
-    required this.totalDuration,
-    this.statusCode,
-    this.declaredContentLength,
-    this.bodyCharacters,
-    this.errorType,
-  });
-}
-
-typedef HttpJsonDiagnosticCallback = void Function(
-  HttpJsonDiagnosticEvent event,
-);
-
 /// Apre una richiesta autenticata (bearer token) verso l'API REST interna,
 /// scrive il body JSON se presente e legge la risposta come stringa.
 /// Fattorizza il preambolo HTTP identico ripetuto in ogni `*HttpService`;
@@ -61,53 +37,13 @@ Future<HttpJsonResponse> sendAuthenticatedJson(
   String path, {
   Map<String, dynamic>? body,
   Duration timeout = const Duration(seconds: 30),
-  HttpJsonDiagnosticCallback? onDiagnostic,
 }) async {
-  final totalWatch = Stopwatch()..start();
-  var stageWatch = Stopwatch()..start();
-
-  void report(
-    String stage, {
-    int? statusCode,
-    int? declaredContentLength,
-    int? bodyCharacters,
-    Object? error,
-  }) {
-    onDiagnostic?.call(
-      HttpJsonDiagnosticEvent(
-        stage: stage,
-        stageDuration: stageWatch.elapsed,
-        totalDuration: totalWatch.elapsed,
-        statusCode: statusCode,
-        declaredContentLength: declaredContentLength,
-        bodyCharacters: bodyCharacters,
-        errorType: error?.runtimeType.toString(),
-      ),
-    );
-    stageWatch = Stopwatch()..start();
-  }
-
-  String? token;
-  try {
-    token = await tokenProvider();
-    report('token_ready');
-  } catch (error) {
-    report('token_error', error: error);
-    rethrow;
-  }
+  final token = await tokenProvider();
   if (token == null || token.isEmpty) {
-    report('token_missing');
     throw const UploadApiException('Sessione non disponibile');
   }
 
-  HttpClientRequest request;
-  try {
-    request = await client.openUrl(method, resolveApiUri(path));
-    report('connection_opened');
-  } catch (error) {
-    report('connection_error', error: error);
-    rethrow;
-  }
+  final request = await client.openUrl(method, resolveApiUri(path));
   request.headers.contentType = ContentType.json;
   request.headers.set(HttpHeaders.acceptHeader, 'application/json');
   request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
@@ -119,44 +55,8 @@ Future<HttpJsonResponse> sendAuthenticatedJson(
     request.contentLength = 0;
   }
 
-  report('request_configured');
-  report('waiting_response_headers');
-  HttpClientResponse response;
-  try {
-    response = await request.close().timeout(timeout);
-    report(
-      'response_headers_received',
-      statusCode: response.statusCode,
-      declaredContentLength: response.contentLength,
-    );
-  } catch (error) {
-    report('response_headers_error', error: error);
-    rethrow;
-  }
-
-  report(
-    'reading_response_body',
-    statusCode: response.statusCode,
-    declaredContentLength: response.contentLength,
-  );
-  String responseBody;
-  try {
-    responseBody = await response.transform(utf8.decoder).join();
-    report(
-      'response_body_complete',
-      statusCode: response.statusCode,
-      declaredContentLength: response.contentLength,
-      bodyCharacters: responseBody.length,
-    );
-  } catch (error) {
-    report(
-      'response_body_error',
-      statusCode: response.statusCode,
-      declaredContentLength: response.contentLength,
-      error: error,
-    );
-    rethrow;
-  }
+  final response = await request.close().timeout(timeout);
+  final responseBody = await response.transform(utf8.decoder).join();
   return HttpJsonResponse(response.statusCode, responseBody);
 }
 

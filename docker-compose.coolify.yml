@@ -60,6 +60,7 @@ services:
   worker:
     build:
       context: ./back-end/ninja
+    scale: 2
     restart: unless-stopped
     command: >
       sh -c "celery -A config worker -l info

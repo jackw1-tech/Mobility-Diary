@@ -11,9 +11,9 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('stopping a trip does not automatically open technical logs',
+  testWidgets('stopping a trip shows the sync confirmation snackbar',
       (tester) async {
-    final repository = _TrackingRepositoryWithDiagnostics();
+    final repository = _StubTrackingRepository();
     final cubit = AcquisitionCubit(
       trackingRepository: repository,
       syncRepository: _NoopSyncRepository(),
@@ -34,16 +34,16 @@ void main() {
 
     await tester.tap(find.text('Stop'));
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 500));
-
-    final diagnosticsOpened =
-        find.text('Log diagnostici registrazione').evaluate().isNotEmpty;
-    if (diagnosticsOpened) {
-      await tester.tap(find.byTooltip('Chiudi'));
-      await tester.pumpAndSettle();
+    // La prima SnackBar ("Chiusura...") resta visibile per la sua durata
+    // predefinita (4s) prima che la coda mostri quella successiva.
+    for (var i = 0; i < 50; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
     }
 
-    expect(diagnosticsOpened, isFalse);
+    expect(
+      find.text('Viaggio salvato. Sincronizzazione in background.'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('disables the start button while acquisition is transitioning',
@@ -66,8 +66,7 @@ void main() {
   });
 }
 
-class _TrackingRepositoryWithDiagnostics
-    implements AcquisitionTrackingRepository {
+class _StubTrackingRepository implements AcquisitionTrackingRepository {
   final _snapshots =
       StreamController<AcquisitionSnapshot>.broadcast(sync: true);
   final _snapshot = AcquisitionSnapshot(
@@ -86,20 +85,7 @@ class _TrackingRepositoryWithDiagnostics
   Stream<AcquisitionSnapshot> get snapshots => _snapshots.stream;
 
   @override
-  Future<AcquisitionDiagnosticsReport?> stopTracking() async {
-    const content = '{}\n';
-    final timestamp = DateTime.utc(2026, 9, 4, 10);
-    return AcquisitionDiagnosticsReport(
-      sessionId: 'session-id',
-      filePath: '/tmp/fsm.jsonl',
-      fileName: 'fsm.jsonl',
-      content: content,
-      sizeBytes: content.length,
-      decisionCount: 1,
-      startedAt: timestamp,
-      endedAt: timestamp.add(const Duration(minutes: 1)),
-    );
-  }
+  Future<void> stopTracking() async {}
 
   @override
   Future<List<AcquisitionRoutePoint>> currentSessionRoute() async => const [];

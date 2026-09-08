@@ -7,7 +7,6 @@ import 'package:crypto/crypto.dart' as crypto;
 import 'package:diary/mappers/acquisition_mapper.dart';
 import 'package:diary/mappers/upload_mapper.dart';
 import 'package:diary/network/service/impl/acquisition_local_database.dart';
-import 'package:diary/model/entities/acquisition/sensor_matrix_json.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -223,7 +222,6 @@ class TripPackageBuilder {
           startTimestamp: window.startTimestamp,
           endTimestamp: window.endTimestamp,
           frequencyHz: window.frequencyHz,
-          sampleCount: window.sampleCount,
           matrixJson: window.matrixJson,
         ),
     ];
@@ -247,14 +245,12 @@ class _PartSensorWindow {
   final DateTime startTimestamp;
   final DateTime endTimestamp;
   final int frequencyHz;
-  final int sampleCount;
   final String matrixJson;
 
   const _PartSensorWindow({
     required this.startTimestamp,
     required this.endTimestamp,
     required this.frequencyHz,
-    required this.sampleCount,
     required this.matrixJson,
   });
 }
@@ -281,8 +277,6 @@ String _streamCompressedPart(
           '{"window_start":"${window.startTimestamp.toUtc().toIso8601String()}"'
           ',"window_end":"${window.endTimestamp.toUtc().toIso8601String()}"'
           ',"sample_rate_hz":${window.frequencyHz}'
-          ',"sample_count":${window.sampleCount}'
-          ',"channel_count":$sensorMatrixChannelCount'
           ',"samples":',
         ),
       );

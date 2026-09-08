@@ -332,11 +332,7 @@ def run_pipeline(
     timings_ms: dict[str, float] = {}
 
     load_context_started = perf_counter()
-    windows = (
-        list(trip.sensor_windows.order_by("start_timestamp"))
-        if sensor_windows is None
-        else sorted(sensor_windows, key=lambda window: window.start_timestamp)
-    )
+    windows = sorted(sensor_windows or [], key=lambda window: window.start_timestamp)
     gps = list(trip.gps_points.order_by("timestamp"))
     gps_timestamps = [g.timestamp for g in gps]
     transitions = list(trip.state_transitions.order_by("timestamp"))

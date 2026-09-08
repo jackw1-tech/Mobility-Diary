@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:diary/model/entities/acquisition/acquisition_domain.dart';
@@ -162,16 +161,8 @@ class AcquisitionSensorRuntime {
     }
 
     var permission = await Geolocator.checkPermission();
-    developer.log(
-      'checkPermission -> $permission',
-      name: 'mobility.permission',
-    );
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
-      developer.log(
-        'requestPermission (denied -> ?) -> $permission',
-        name: 'mobility.permission',
-      );
     }
 
     if (permission == LocationPermission.whileInUse) {
@@ -188,29 +179,11 @@ class AcquisitionSensorRuntime {
       // all'app il tempo di tornare active prima della seconda richiesta.
       await Future<void>.delayed(const Duration(milliseconds: 750));
       try {
-        final phStatus = await ph.Permission.locationAlways.status;
-        developer.log(
-          'permission_handler status prima della richiesta -> $phStatus',
-          name: 'mobility.permission',
-        );
-        final phResult = await ph.Permission.locationAlways.request();
-        developer.log(
-          'permission_handler locationAlways.request() -> $phResult',
-          name: 'mobility.permission',
-        );
-      } catch (error, stackTrace) {
-        developer.log(
-          'permission_handler locationAlways.request() ha lanciato',
-          name: 'mobility.permission',
-          error: error,
-          stackTrace: stackTrace,
-        );
+        await ph.Permission.locationAlways.request();
+      } catch (_) {
+        // Ignorato: si ricade sul permesso gia' rilevato da Geolocator.
       }
       permission = await Geolocator.checkPermission();
-      developer.log(
-        'checkPermission dopo il tentativo di upgrade -> $permission',
-        name: 'mobility.permission',
-      );
     }
 
     return canStartAcquisitionLocationStream(permission);
