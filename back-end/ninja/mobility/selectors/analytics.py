@@ -1,9 +1,4 @@
 """Repository delle Analitiche Personali.
-
-Unico punto in cui compaiono `MobilitySegment.objects` e `Trip.objects` per
-questa esigenza. La business logic (bucketing, nearest-place, aggregazioni)
-vive in `mobility.services.analytics`, che e' l'unico chiamante di questo
-modulo.
 """
 
 from __future__ import annotations

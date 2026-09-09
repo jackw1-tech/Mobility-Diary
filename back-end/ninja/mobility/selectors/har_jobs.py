@@ -9,19 +9,19 @@ from django.db import transaction
 
 from ..models import HarJob
 
-
+# Crea l' Har Job
 def create_har_job(trip_id: int) -> HarJob:
     return HarJob.objects.create(trip_id=trip_id)
 
-
+# Ottiene il lock sul har 
 def locked_har_job_for_processing(job_id: int) -> HarJob:
     return HarJob.objects.select_for_update().select_related("trip").get(id=job_id)
 
-
+# Semplice get sull'har
 def har_job_for_raw_persistence(job_id: int) -> HarJob:
     return HarJob.objects.select_related("trip").get(id=job_id)
 
-
+#Aggiorna il campo har job
 def merge_har_job_result(job_id: int, updates: dict) -> dict:
     with transaction.atomic():
         job = HarJob.objects.select_for_update().get(id=job_id)

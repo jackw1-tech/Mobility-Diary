@@ -1,5 +1,3 @@
-"""Piccole utility geografiche condivise (distanze su WGS84)."""
-
 from __future__ import annotations
 
 import math

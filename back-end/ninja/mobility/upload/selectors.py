@@ -100,7 +100,7 @@ def create_upload(
     )
 
 
-def upload_with_trip(upload_id: int) -> TripUpload:
+def trip_upload_with_trip(upload_id: int) -> TripUpload:
     return TripUpload.objects.select_related("trip").get(id=upload_id)
 
 # Blocca la riga

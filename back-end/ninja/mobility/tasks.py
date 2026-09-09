@@ -162,7 +162,7 @@ def _request_place_mining(user_id: int) -> bool:
         )
         return True
 
-
+#Aggiorna lo status del place mining in running e controlla se non ne è già in corso uno
 def _begin_place_mining_run(user_id: int) -> bool:
     with transaction.atomic():
         status = _place_mining_status_for_update(user_id)
@@ -215,6 +215,7 @@ def _finish_place_mining_run(
         return False
 
 
+#Task asincrono per l'analisi dei luoghi significativi
 @shared_task(bind=True, max_retries=3, retry_backoff=True)
 def mine_significant_places(self, user_id: int) -> dict:
     if not _begin_place_mining_run(user_id):
@@ -231,11 +232,12 @@ def mine_significant_places(self, user_id: int) -> dict:
 def _schedule_place_mining(user_id: int) -> None:
     transaction.on_commit(lambda: mine_significant_places.delay(user_id))
 
-
+#Wrapper della funzione che aggiorna Har Job
 def _merge_har_job_result(job_id: int, updates: dict) -> dict:
     return har_jobs_repository.merge_har_job_result(job_id, updates)
 
 
+"Inserimento Batch dei dati raw"
 @shared_task(bind=True, max_retries=3, retry_backoff=True, default_retry_delay=30)
 def persist_trip_raw_sensor_readings(
     self,
@@ -244,9 +246,8 @@ def persist_trip_raw_sensor_readings(
     raw_clone_shift_microseconds: int | None = None,
 ) -> dict:
     trip_id = None
-
     try:
-        upload = upload_repository.upload_with_trip(upload_id)
+        upload = upload_repository.trip_upload_with_trip(upload_id)
         job = har_jobs_repository.har_job_for_raw_persistence(job_id)
         trip = upload.trip or job.trip
         if trip is None:
@@ -272,6 +273,7 @@ def persist_trip_raw_sensor_readings(
                 "raw_readings_persistence_status": "COMPLETED",
             }
 
+        #Voglio inserire dati har di un viaggio che non è un clone -> funzione veloce grazie alla cache
         sensor_windows = load_raw_sensor_windows(upload)
 
         persisted_readings = replace_raw_sensor_readings(trip, sensor_windows)
@@ -403,16 +405,11 @@ def process_trip_har_final(
     return result
 
 
+# Decide se i dati raw possono essere clonati da un altro trip (caso replay) e prova a farlo
 def _clone_derived_raw_sensor_readings(
     trip: Trip,
     shift_microseconds: int | None,
 ) -> int | None:
-    """Copia la proiezione Timescale dal sorgente, se il derivato lo consente.
-
-    Ritorna il numero di righe clonate, oppure None quando la copia non e'
-    applicabile (viaggio non derivato, shift sconosciuto, sorgente senza
-    proiezione): in quel caso resta la ricostruzione dagli oggetti raw.
-    """
     if shift_microseconds is None or trip.reloaded_from_trip_id is None:
         return None
     source = Trip.objects.filter(id=trip.reloaded_from_trip_id).first()
@@ -426,6 +423,4 @@ def _clone_derived_raw_sensor_readings(
     )
     if cloned:
         return cloned
-    # Sorgente senza righe (viaggio vecchio, retention): si ricade sul
-    # percorso normale invece di lasciare il derivato senza proiezione.
     return None
