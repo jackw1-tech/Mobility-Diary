@@ -61,8 +61,8 @@ def test_login_rejects_invalid_credentials(api_client, register_mobile_user):
 def test_logout_invalidates_the_mobile_token(api_client, mobile_session):
     headers = mobile_session["headers"]
 
-    logout = api_client.post("/api/auth/logout", **headers)
-    after_logout = api_client.get("/api/auth/me", **headers)
+    logout = api_client.post("/api/auth/logout", HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"])
+    after_logout = api_client.get("/api/auth/me", HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"])
 
     assert logout.status_code == 200
     assert logout.json() == {"detail": "Logout effettuato"}
@@ -74,14 +74,14 @@ def test_privacy_preference_starts_precise_and_can_be_changed(
 ):
     headers = mobile_session["headers"]
 
-    initial = api_client.get("/api/privacy/settings", **headers)
+    initial = api_client.get("/api/privacy/settings", HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"])
     updated = api_client.put(
         "/api/privacy/settings",
         data=json.dumps({"privacy_level": "aggregated"}),
         content_type="application/json",
-        **headers,
+        HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
     )
-    persisted = api_client.get("/api/privacy/settings", **headers)
+    persisted = api_client.get("/api/privacy/settings", HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"])
 
     assert initial.status_code == 200
     assert initial.json() == {

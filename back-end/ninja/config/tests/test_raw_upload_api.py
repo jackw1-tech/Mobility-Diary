@@ -35,7 +35,7 @@ def test_raw_upload_reports_missing_parts_then_queues_enrichment(
     )
 
     before_upload = api_client.get(
-        f"/api/upload/trips/{upload_id}", **headers
+        f"/api/upload/trips/{upload_id}", HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"]
     )
     raw_bytes = b"deterministic raw sensor fixture"
     checksum = hashlib.sha256(raw_bytes).hexdigest()

@@ -25,7 +25,7 @@ def post_json(client, path, payload, headers):
         path,
         data=json.dumps(payload),
         content_type="application/json",
-        **headers,
+        HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
     )
 
 
@@ -99,7 +99,7 @@ def complete_core(
 
 def test_user_has_no_active_recording_before_start(api_client, mobile_session):
     response = api_client.get(
-        "/api/upload/trips/active", **mobile_session["headers"]
+        "/api/upload/trips/active", HTTP_AUTHORIZATION=mobile_session["headers"]["HTTP_AUTHORIZATION"]
     )
 
     assert response.status_code == 404
@@ -188,9 +188,9 @@ def test_core_upload_makes_the_trip_visible_with_a_track(
     upload_id = start_recording(api_client, headers).json()["upload_id"]
 
     core = complete_core(api_client, headers, upload_id)
-    trips = api_client.get("/api/mobility/trips", **headers)
+    trips = api_client.get("/api/mobility/trips", HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"])
     track = api_client.get(
-        f"/api/mobility/trips/{core.json()['trip_id']}/track", **headers
+        f"/api/mobility/trips/{core.json()['trip_id']}/track", HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"]
     )
 
     assert core.status_code == 200
@@ -283,7 +283,7 @@ def test_pipeline_classifies_move_without_sensor_windows_using_gps_fallback(
     assert segment.kind == "MOVE"
     assert segment.activity_label == "MOVING_VEHICLE"
 
-    diary = api_client.get(f"/api/mobility/trips/{trip_id}/diary", **headers)
+    diary = api_client.get(f"/api/mobility/trips/{trip_id}/diary", HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"])
     assert diary.status_code == 200
     assert len(diary.json()["segments"]) == 1
     assert diary.json()["segments"][0]["kind"] == "MOVE"
@@ -297,7 +297,7 @@ def test_core_retry_does_not_duplicate_trip_evidence(api_client, mobile_session)
     first = complete_core(api_client, headers, upload_id)
     retry = complete_core(api_client, headers, upload_id)
     track = api_client.get(
-        f"/api/mobility/trips/{first.json()['trip_id']}/track", **headers
+        f"/api/mobility/trips/{first.json()['trip_id']}/track", HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"]
     )
 
     assert retry.status_code == 200
@@ -339,14 +339,14 @@ def test_upload_and_trip_are_isolated_between_users(
     }
 
     assert (
-        api_client.get(f"/api/upload/trips/{upload_id}", **other_headers).status_code
+        api_client.get(f"/api/upload/trips/{upload_id}", HTTP_AUTHORIZATION=other_headers["HTTP_AUTHORIZATION"]).status_code
         == 404
     )
     assert (
-        api_client.get(f"/api/mobility/trips/{trip_id}/track", **other_headers).status_code
+        api_client.get(f"/api/mobility/trips/{trip_id}/track", HTTP_AUTHORIZATION=other_headers["HTTP_AUTHORIZATION"]).status_code
         == 404
     )
-    assert api_client.get("/api/mobility/trips", **other_headers).json() == []
+    assert api_client.get("/api/mobility/trips", HTTP_AUTHORIZATION=other_headers["HTTP_AUTHORIZATION"]).json() == []
 
 
 def test_completed_upload_allows_note_update_and_trip_deletion(
@@ -361,14 +361,14 @@ def test_completed_upload_allows_note_update_and_trip_deletion(
         f"/api/mobility/trips/{trip_id}/note",
         data=json.dumps({"note": "  Passeggiata verso il centro  "}),
         content_type="application/json",
-        **headers,
+        HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
     )
-    deleted = api_client.delete(f"/api/mobility/trips/{trip_id}", **headers)
+    deleted = api_client.delete(f"/api/mobility/trips/{trip_id}", HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"])
 
     assert note.status_code == 200
     assert note.json()["note"] == "Passeggiata verso il centro"
     assert deleted.status_code == 204
-    assert api_client.get("/api/mobility/trips", **headers).json() == []
+    assert api_client.get("/api/mobility/trips", HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"]).json() == []
 
 
 def test_privacy_export_reflects_the_current_user_preference(
@@ -379,16 +379,16 @@ def test_privacy_export_reflects_the_current_user_preference(
     trip_id = complete_core(api_client, headers, upload_id).json()["trip_id"]
 
     precise = api_client.get(
-        f"/api/mobility/trips/{trip_id}/privacy-export", **headers
+        f"/api/mobility/trips/{trip_id}/privacy-export", HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"]
     )
     api_client.put(
         "/api/privacy/settings",
         data=json.dumps({"privacy_level": "aggregated"}),
         content_type="application/json",
-        **headers,
+        HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
     )
     aggregated = api_client.get(
-        f"/api/mobility/trips/{trip_id}/privacy-export", **headers
+        f"/api/mobility/trips/{trip_id}/privacy-export", HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"]
     )
 
     assert precise.status_code == 200
@@ -405,7 +405,7 @@ def test_analytics_returns_a_stable_empty_state_before_enrichment(
 ):
     response = api_client.get(
         "/api/mobility/analytics?granularity=day&tz=Europe/Rome",
-        **mobile_session["headers"],
+        HTTP_AUTHORIZATION=mobile_session["headers"]["HTTP_AUTHORIZATION"],
     )
 
     assert response.status_code == 200

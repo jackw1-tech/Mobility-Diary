@@ -20,6 +20,16 @@ class PlacesCubit extends Cubit<PlacesCubitState> {
       );
       return;
     }
+    final placeStatus = statusResult.requireValue;
+    if (placeStatus.isInProgress) {
+      emit(
+        PlacesCubitState(
+          status: PlacesStatus.miningInProgress,
+          placeStatus: placeStatus,
+        ),
+      );
+      return;
+    }
     final placesResult = await _repository.fetchPlaces();
     final placesFailure = placesResult.failure;
     if (placesFailure != null) {
@@ -31,7 +41,6 @@ class PlacesCubit extends Cubit<PlacesCubitState> {
       );
       return;
     }
-    final placeStatus = statusResult.requireValue;
     final places = placesResult.requireValue;
     emit(
       PlacesCubitState(

@@ -15,13 +15,8 @@ from django.db.models import Q
 
 from ..models import CandidateVisit, GpsPoint, HabitualPlace
 
-
+"""Restituisce ogni punto gps ordinato e scartando quelli con accuracy troppo alta"""
 def points_for_stay_detection(user_id: int, *, max_accuracy_meters: float):
-    """GPS grezzi dell'utente, ordinati, filtrati per accuratezza minima.
-
-    La soglia e' una regola di dominio della stay-detection: la passa
-    `mobility.significant_places`, che la possiede (MAX_ACCURACY_METERS).
-    """
     return (
         GpsPoint.objects.filter(trip__user_id=user_id)
         .filter(
@@ -33,23 +28,24 @@ def points_for_stay_detection(user_id: int, *, max_accuracy_meters: float):
         .iterator(chunk_size=2000)
     )
 
-
+#Restituisce gli abutal place che io utente ho etichettato
 def manually_reviewed_places_for_user(user_id: int) -> list[HabitualPlace]:
     return list(
         HabitualPlace.objects.filter(user_id=user_id, manually_reviewed=True)
     )
 
 
+#Pulizia di tutti i candidate visit prima di reinserire quelle nuove
 def delete_candidate_visits_for_user(user_id: int) -> None:
     CandidateVisit.objects.filter(user_id=user_id).delete()
 
-
+#Pulizia di tutti gli habitual place non confermait prima di reinserire quelle nuove
 def delete_unreviewed_places_for_user(user_id: int) -> None:
     HabitualPlace.objects.filter(
         user_id=user_id, manually_reviewed=False
     ).delete()
 
-
+#Inserimento bulk di tutte le candidate visiti
 def bulk_create_candidate_visits(visits: list[CandidateVisit]) -> list[CandidateVisit]:
     return CandidateVisit.objects.bulk_create(visits)
 
@@ -59,6 +55,7 @@ def bulk_update_visit_places(visits: list[CandidateVisit]) -> None:
         CandidateVisit.objects.bulk_update(visits, ["place"])
 
 
+"""Aggiorna i dati dell'habitual place quando un nuovo habitual place appena calcolato corrisponde ad uno esistente"""
 def refresh_place_evidence(
     place: HabitualPlace,
     *,
@@ -89,19 +86,15 @@ def create_habitual_place(
         distinct_days=distinct_days,
     )
 
-
-def cluster_visit_ids(
+"""DB SCAN"""
+"""Restituice la lista delle candidate visit non isolate e il suo cluster id"""
+def real_db_scan(
     visit_ids: list[int],
     *,
     projection_srid: int,
     eps_meters: float,
     min_visits: int,
 ) -> list[tuple[int, int]]:
-    """DBSCAN spaziale via PostGIS sulle CandidateVisit indicate.
-
-    Ritorna coppie (visit_id, cluster_id) per i punti che sono finiti in un
-    cluster (cluster_id IS NOT NULL), ordinate per cluster.
-    """
     table = CandidateVisit._meta.db_table
     sql = f"""
         WITH clustered AS (

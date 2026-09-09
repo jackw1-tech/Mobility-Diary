@@ -23,6 +23,7 @@ class PlaceMiningStatus {
   bool get isPending => miningState == PlaceMiningState.pending;
   bool get isRunning => miningState == PlaceMiningState.running;
   bool get isFailed => miningState == PlaceMiningState.failed;
+  bool get isInProgress => isPending || isRunning;
 }
 
 class PlaceReviewBlockedException implements Exception {

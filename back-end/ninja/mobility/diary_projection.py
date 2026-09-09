@@ -7,10 +7,7 @@ from django.contrib.gis.geos import LineString
 
 from .models import ActivityLabel, MobilitySegment, VirtualStopInterval
 
-# Due intervalli stop-like separati da un gap fino a questa soglia vengono
-# comunque fusi: copre il caso di un virtual stop e uno STOP persistito che
-# coprono la stessa sosta fisica ma con un piccolo scarto tra i timestamp
-# (es. per come la pipeline ML li ha generati indipendentemente).
+# Due intervalli stop-like separati da vengono fusi
 STOP_GAP_TOLERANCE = timedelta(minutes=3)
 
 

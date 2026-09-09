@@ -140,7 +140,8 @@ def _set_place_mining_pending(
     status.rerun_requested = rerun_requested
     status.save(update_fields=[*_PLACE_MINING_PENDING_FIELDS, "updated_at"])
 
-# Controlla che per quell'utente non c'è già stato un altro viaggio ravvicinato che ha richiesto il mining
+# Controlla che per quell'utente non c'è già stato un altro viaggio ravvicinato che ha richiesto il mining, se si, imposto rerun_requested a true in questo modo quando 
+# l'altro finirà, rischedulerà lui un altro task uguale
 def _request_place_mining(user_id: int) -> bool:
     with transaction.atomic():
         status = _place_mining_status_for_update(user_id)
@@ -183,7 +184,7 @@ def _begin_place_mining_run(user_id: int) -> bool:
         )
         return True
 
-
+"""Controllo se nel mentre che questa esecuzione del mining è arrivata un altra richiesta"""
 def _finish_place_mining_run(
     user_id: int,
     *,
@@ -225,7 +226,7 @@ def mine_significant_places(self, user_id: int) -> dict:
         user_id,
         status_value=PlaceMiningStatus.Status.SUCCEEDED,
     ):
-        _schedule_place_mining(user_id)
+        _schedule_place_mining(user_id) ## Se qualcun'altro nel mentre ha impostato rerun_requested = true, rischedula un altro task
     return result
 
 #Metti in coda il task di mining dei punti gps

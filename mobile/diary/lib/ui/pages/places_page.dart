@@ -52,6 +52,10 @@ class _PlacesBody extends StatelessWidget {
               text: state.error ?? 'Errore nel caricamento',
               onRetry: () => context.read<PlacesCubit>().load(),
             );
+          case PlacesStatus.miningInProgress:
+            return _MiningInProgressMessage(
+              onRefresh: () => context.read<PlacesCubit>().load(),
+            );
           case PlacesStatus.loaded:
             return RefreshIndicator(
               onRefresh: () => context.read<PlacesCubit>().load(),
@@ -76,6 +80,44 @@ class _PlacesBody extends StatelessWidget {
   }
 }
 
+/// PENDING/RUNNING:
+class _MiningInProgressMessage extends StatelessWidget {
+  final VoidCallback onRefresh;
+
+  const _MiningInProgressMessage({required this.onRefresh});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(Dimensions.paddingLarge),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+              width: 40,
+              height: 40,
+              child: CircularProgressIndicator(strokeWidth: 3),
+            ),
+            const SizedBox(height: Dimensions.paddingMedium),
+            Text(
+              'Analisi in corso, torna più tardi',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: Dimensions.paddingMedium),
+            OutlinedButton.icon(
+              onPressed: onRefresh,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Aggiorna stato'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _PlaceMiningBanner extends StatelessWidget {
   final String statusText;
   final String message;
@@ -91,7 +133,10 @@ class _PlaceMiningBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       margin: const EdgeInsets.only(bottom: Dimensions.paddingMedium),
-      color: Theme.of(context).extension<SemanticColors>()!.warning.withValues(alpha: 0.14),
+      color: Theme.of(context)
+          .extension<SemanticColors>()!
+          .warning
+          .withValues(alpha: 0.14),
       child: Padding(
         padding: const EdgeInsets.all(Dimensions.paddingMedium),
         child: Column(
@@ -157,7 +202,9 @@ class _PlaceCard extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.only(bottom: Dimensions.paddingSmall),
       child: ListTile(
-        leading: Icon(placeStateIcon(place), color: placeStateColor(place, sem: Theme.of(context).extension<SemanticColors>()!)),
+        leading: Icon(placeStateIcon(place),
+            color: placeStateColor(place,
+                sem: Theme.of(context).extension<SemanticColors>()!)),
         title: Text(
           place.label,
           style: const TextStyle(fontWeight: FontWeight.w700),

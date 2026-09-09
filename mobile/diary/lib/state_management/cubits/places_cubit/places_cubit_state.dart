@@ -7,6 +7,7 @@ enum PlacesStatus {
   loaded,
   empty,
   error,
+  miningInProgress,
 }
 
 class PlacesCubitState {

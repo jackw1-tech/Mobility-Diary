@@ -18,6 +18,7 @@ def confirmed_places_for_user(
     return list(queryset)
 
 
+#Restituisce la lista degli habitual place -> i miei luoghi nel front nd
 def place_review_queryset_for_user(user_id: int):
     return (
         HabitualPlace.objects.filter(user_id=user_id)

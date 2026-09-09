@@ -8,9 +8,8 @@ from datetime import datetime
 from typing import Any
 
 from django.contrib.gis.geos import LineString
-from django.db import transaction
+from django.db import connection, transaction
 
-from ..geo import haversine_meters
 from ..models import ActivityLabel, MobilitySegment, Trip
 from ..selectors import segments as segments_repository
 from .classifier import classify_windows, _label_from_speed
@@ -48,13 +47,15 @@ def _gps_in(gps, gps_timestamps, start: datetime, end: datetime):
 
 
 """
-Calcola la distanza del percorso sommando le distanze tra GPS consecutivi.
+Calcola la distanza reale (in metri) della LineString del segmento, delegando
+il calcolo geodetico a PostGIS (ST_Length su geography).
 """
-def _path_distance(points) -> float:
-    total = 0.0
-    for a, b in zip(points, points[1:]):
-        total += haversine_meters(a.point.y, a.point.x, b.point.y, b.point.x)
-    return total
+def _path_distance(path: LineString | None) -> float:
+    if path is None:
+        return 0.0
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT ST_Length(%s::geography)", [path.ewkt])
+        return cursor.fetchone()[0]
 
 
 """
@@ -274,13 +275,14 @@ Salva nel DB un segmento MOVE con label, path e distanza.
 """
 def _build_move_segment(trip, start, end, label, gps, gps_timestamps) -> None:
     points = _gps_in(gps, gps_timestamps, start, end)
+    path = _segment_path(points)
     segments_repository.create_move_segment(
         trip,
         start=start,
         end=end,
         label=label,
-        path=_segment_path(points),
-        distance_meters=_path_distance(points),
+        path=path,
+        distance_meters=_path_distance(path),
     )
 
 

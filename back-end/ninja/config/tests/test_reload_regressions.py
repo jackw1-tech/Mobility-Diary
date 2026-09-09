@@ -201,7 +201,7 @@ def test_pending_diary_does_not_poison_the_processed_diary_cache(
 
     pending = api_client.get(
         f"/api/mobility/trips/{trip.id}/diary",
-        **mobile_session["headers"],
+        HTTP_AUTHORIZATION=mobile_session["headers"]["HTTP_AUTHORIZATION"],
     )
     assert pending.json()["processed"] is False
     assert cached == {}
@@ -220,7 +220,7 @@ def test_pending_diary_does_not_poison_the_processed_diary_cache(
 
     processed = api_client.get(
         f"/api/mobility/trips/{trip.id}/diary",
-        **mobile_session["headers"],
+        HTTP_AUTHORIZATION=mobile_session["headers"]["HTTP_AUTHORIZATION"],
     )
     assert processed.json()["processed"] is True
     assert len(processed.json()["segments"]) == 1

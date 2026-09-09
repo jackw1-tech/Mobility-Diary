@@ -21,29 +21,21 @@ from .geo import haversine_meters
 from .models import CandidateVisit, HabitualPlace, MobilitySegment
 from .selectors import place_mining as place_mining_repository
 
-# Soglie della stay-detection (motivazioni in relazione / PRD).
+
 STAY_RADIUS_METERS = 75.0      # raggio della permanenza
 MIN_STAY_SECONDS = 5 * 60      # permanenza minima
 MIN_STAY_POINTS = 3            # punti validi minimi
-# Gap di campionamento tollerato dentro una permanenza: pari alla permanenza
-# minima, cosi' una sosta minima (3 punti su 5 min) non viene mai spezzata, ma
-# un'interruzione piu' lunga della soglia apre un episodio distinto.
-MAX_GAP_SECONDS = MIN_STAY_SECONDS
-MAX_ACCURACY_METERS = 100.0    # i punti piu' imprecisi di cosi' vengono ignorati
+MAX_GAP_SECONDS = 90 * 60      # buco massimo tra due punti GPS nella stessa sosta
+MAX_ACCURACY_METERS = 60.0
 
-# Clustering DBSCAN delle visite -> Luoghi Candidati (ADR 0022).
 CLUSTER_EPS_METERS = 100.0                # soglia spaziale fra centroidi di visite
 CLUSTER_MIN_VISITS = 3                    # cluster spaziale minimo per un luogo
 MIN_CANDIDATE_DISTINCT_DAYS = 2           # un candidato richiede ritorno in piu' giorni
-AUTO_CONFIRM_DISTINCT_DAYS = 3            # auto-conferma con evidenza su >= 3 giorni
-# Proiezione metrica usata solo in query per il clustering spaziale lato PostGIS.
-# ETRS89 / LAEA Europe mantiene un errore contenuto su scala europea senza
-# cambiare il contratto WGS84/geography del dominio applicativo.
-CLUSTER_PROJECTION_SRID = 3035
+AUTO_CONFIRM_DISTINCT_DAYS = 4           # auto-conferma con evidenza su >= 3 giorni
+CLUSTER_SRID = 3035
 
-# Overlay read-time sul diario (ADR 0024): una sosta prende il Luogo Confermato
-# piu' vicino entro questa soglia.
-OVERLAY_MATCH_METERS = STAY_RADIUS_METERS
+
+MIN_MATCH_RADIUS_METERS = STAY_RADIUS_METERS  # pavimento minimo, indipendente dal radius_meters del luogo
 NEUTRAL_PLACE_LABEL = "luogo abituale"
 
 @dataclass(frozen=True)
@@ -90,19 +82,19 @@ def detect_visits(points: list[tuple[datetime, Point]]) -> list[DetectedVisit]:
 
     for timestamp, point in points:
         lat, lon = point.y, point.x
-        if point_count:
+        if point_count: # c'è già un cluster in costruzione
             gap = (timestamp - cluster_ended_at).total_seconds()
             far = (
                 haversine_meters(sum_lat / point_count, sum_lon / point_count, lat, lon)
                 > STAY_RADIUS_METERS
             )
-            if gap > MAX_GAP_SECONDS or far:
+            if gap > MAX_GAP_SECONDS or far: #se è passato troppo tempo oppure i punti sono troppo lontani
                 flush()
                 cluster_started_at = None
                 cluster_ended_at = None
                 point_count = 0
                 sum_lat = sum_lon = 0.0
-        if cluster_started_at is None:
+        if cluster_started_at is None: # Ricomincia un nuovo cluster
             cluster_started_at = timestamp
         cluster_ended_at = timestamp
         point_count += 1
@@ -145,16 +137,19 @@ def mine_user_significant_places(user_id: int) -> dict:
     return {"visits": len(visits), "places": places}
 
 
+"""
+Chiama Db Scan e inserisce nel db tutti gli habitual place
+"""
 def _cluster_into_places(user_id: int, visits: list, manual_places: list) -> int:
     if not visits:
         return 0
     visit_by_id = {visit.pk: visit for visit in visits}
-    clusters = _postgis_visit_clusters(visits)
+    clusters = _dbscan_wrapper(list(visit_by_id))
     visits_to_update = []
     place_count = 0
     for cluster_visit_ids in clusters:
         cluster_visits = [visit_by_id[visit_id] for visit_id in cluster_visit_ids]
-        place = _place_for_cluster(user_id, cluster_visits, manual_places)
+        place = create_habitual_place_for_cluster(user_id, cluster_visits, manual_places)
         if place is None:
             continue
         place_count += 1
@@ -165,13 +160,12 @@ def _cluster_into_places(user_id: int, visits: list, manual_places: list) -> int
     return place_count
 
 """
-DB SCAN
+Funzione che chiama DB SCAN
 """
-def _postgis_visit_clusters(visits: list) -> list[list[int]]:
-    visit_ids = [visit.pk for visit in visits]
-    rows = place_mining_repository.cluster_visit_ids(
+def _dbscan_wrapper(visit_ids: list[int]) -> list[list[int]]:
+    rows = place_mining_repository.real_db_scan(
         visit_ids,
-        projection_srid=CLUSTER_PROJECTION_SRID,
+        projection_srid=CLUSTER_SRID,
         eps_meters=CLUSTER_EPS_METERS,
         min_visits=CLUSTER_MIN_VISITS,
     )
@@ -191,16 +185,16 @@ def _postgis_visit_clusters(visits: list) -> list[list[int]]:
     return clusters
 
 
-def _place_for_cluster(user_id: int, visits: list, manual_places: list) -> HabitualPlace | None:
+#Crea una nuova habitual place partendo da una lista di candidate visit di un cluster
+def create_habitual_place_for_cluster(user_id: int, visits: list, manual_places: list) -> HabitualPlace | None:
     lats = [v.center.y for v in visits]
     lons = [v.center.x for v in visits]
     center_lat = sum(lats) / len(lats)
     center_lon = sum(lons) / len(lons)
-    distinct_days = len({v.started_at.date() for v in visits})
+    distinct_days = len({v.started_at.date() for v in visits}) #giorni diversi
 
     existing = _take_nearby_manual_place(center_lat, center_lon, manual_places)
     if existing is not None:
-        # Reattach: rinfresca l'evidenza, conserva stato/etichetta/centro manuali.
         place_mining_repository.refresh_place_evidence(
             existing,
             visit_count=len(visits),
@@ -209,13 +203,13 @@ def _place_for_cluster(user_id: int, visits: list, manual_places: list) -> Habit
         return existing
 
     if distinct_days < MIN_CANDIDATE_DISTINCT_DAYS:
-        return None
+        return None #Per essere davvero un luogo abituale, mi ci devo fermare alemno 2 giorni diversi
 
     radius = max(
         haversine_meters(center_lat, center_lon, lat, lon)
         for lat, lon in zip(lats, lons)
     )
-    confirmed = distinct_days >= AUTO_CONFIRM_DISTINCT_DAYS
+    confirmed = distinct_days >= AUTO_CONFIRM_DISTINCT_DAYS # Autoconferma dopo 4 giorni
     return place_mining_repository.create_habitual_place(
         user_id=user_id,
         center_lat=center_lat,
@@ -230,9 +224,8 @@ def _place_for_cluster(user_id: int, visits: list, manual_places: list) -> Habit
         distinct_days=distinct_days,
     )
 
-
+"""Cerca di associare l'habitual place appena calcolato ad un luogo già confermato dall'utente"""
 def _take_nearby_manual_place(lat: float, lon: float, manual_places: list):
-    """Estrae (consumandolo) il luogo manuale entro la soglia di cluster, o None."""
     for place in manual_places:
         if haversine_meters(lat, lon, place.center.y, place.center.x) <= CLUSTER_EPS_METERS:
             manual_places.remove(place)
@@ -252,7 +245,11 @@ def match_confirmed_place(lat: float, lon: float, places) -> HabitualPlace | Non
         (haversine_meters(lat, lon, place.center.y, place.center.x), place)
         for place in places
     ]
-    within = [(d, place) for d, place in within if d <= OVERLAY_MATCH_METERS]
+    within = [
+        (d, place)
+        for d, place in within
+        if d <= max(place.radius_meters, MIN_MATCH_RADIUS_METERS) #DB Scan può creare cluster "a catena", quindi può capitare che il radius sia > soglia minima di una vista candidata
+    ]
     if not within:
         return None
     return min(within, key=lambda item: item[0])[1]

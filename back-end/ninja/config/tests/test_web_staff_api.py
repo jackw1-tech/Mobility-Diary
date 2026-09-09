@@ -91,11 +91,11 @@ def test_staff_can_browse_owners_trips_and_privacy_dashboard(
     auth = web_login(api_client).json()
     headers = web_headers(auth)
 
-    users = api_client.get("/api/web/users", **headers)
-    trips = api_client.get(f"/api/web/users/{owner_id}/trips", **headers)
+    users = api_client.get("/api/web/users", HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"])
+    trips = api_client.get(f"/api/web/users/{owner_id}/trips", HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"])
     dashboard = api_client.get(
         f"/api/web/users/{owner_id}/trips/{trip_id}?level=aggregated",
-        **headers,
+        HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
     )
 
     assert users.status_code == 200
@@ -116,7 +116,7 @@ def test_web_trip_filters_are_validated(api_client, staff_user, mobile_session):
 
     response = api_client.get(
         f"/api/web/users/{owner_id}/trips?processed=maybe",
-        **headers,
+        HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
     )
 
     assert response.status_code == 422

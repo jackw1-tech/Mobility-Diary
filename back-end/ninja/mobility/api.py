@@ -200,7 +200,14 @@ def _place_review_out(place) -> PlaceReviewOut:
 
 
 def _place_blocked_status(exc: PlaceMutationBlockedError):
-    return Status(409, PlaceMutationBlockedOut(**exc.block.__dict__))
+    return Status(
+        409,
+        PlaceMutationBlockedOut(
+            detail=exc.block.detail,
+            code=exc.block.code,
+            status=exc.block.status,
+        ),
+    )
 
 
 @router.get("/places", response=list[PlaceReviewOut], auth=mobile_bearer_auth)
@@ -211,8 +218,14 @@ def list_places(request):
 
 @router.get("/places/status", response=PlaceMiningStatusOut, auth=mobile_bearer_auth)
 def get_places_status(request):
+    data = place_mining_status_row_for_user(request.user.user_id)
     return PlaceMiningStatusOut(
-        **place_mining_status_row_for_user(request.user.user_id)
+        status=data["status"],
+        requested_at=data["requested_at"],
+        started_at=data["started_at"],
+        finished_at=data["finished_at"],
+        error_message=data["error_message"],
+        rerun_requested=data["rerun_requested"],
     )
 
 
@@ -467,7 +480,12 @@ def get_trip_track(request, trip_id: int):
     track = trip_track_for_user(trip_id, request.user.user_id)
     if track is None:
         raise HttpError(404, "Trip non trovato")
-    return TrackOut(**track)
+    return TrackOut(
+        trip_id=track["trip_id"],
+        point_count=track["point_count"],
+        distance_meters=track["distance_meters"],
+        geojson=track["geojson"],
+    )
 
 
 @router.get("/analytics", response=AnalyticsOut, auth=mobile_bearer_auth)

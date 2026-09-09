@@ -39,7 +39,7 @@ def test_track_endpoint_stays_fast_for_a_long_trip(api_client, mobile_session):
     started = perf_counter()
     response = api_client.get(
         f"/api/mobility/trips/{trip.id}/track",
-        **mobile_session["headers"],
+        HTTP_AUTHORIZATION=mobile_session["headers"]["HTTP_AUTHORIZATION"],
     )
     elapsed_seconds = perf_counter() - started
 

@@ -122,7 +122,12 @@ def resolve_privacy_level(trip: Trip, requested: str | None) -> str:
 
 def track_view(trip: Trip) -> TrackView:
     track = trips_repository.trip_track_for_user(trip.id, trip.user_id)
-    return TrackView(**track)
+    return TrackView(
+        trip_id=track["trip_id"],
+        point_count=track["point_count"],
+        distance_meters=track["distance_meters"],
+        geojson=track["geojson"],
+    )
 
 
 def privacy_track_view(trip: Trip, *, level: str) -> TrackView:

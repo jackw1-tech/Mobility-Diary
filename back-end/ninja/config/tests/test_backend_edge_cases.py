@@ -20,11 +20,12 @@ pytestmark = pytest.mark.django_db
 
 
 def post_json(client, path, payload, headers=None):
+    authorization = None if headers is None else headers["HTTP_AUTHORIZATION"]
     return client.post(
         path,
         data=json.dumps(payload),
         content_type="application/json",
-        **(headers or {}),
+        HTTP_AUTHORIZATION=authorization,
     )
 
 
@@ -51,9 +52,9 @@ def test_invalid_privacy_level_does_not_change_the_saved_preference(
         "/api/privacy/settings",
         data=json.dumps({"privacy_level": "secret-future-level"}),
         content_type="application/json",
-        **headers,
+        HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
     )
-    current = api_client.get("/api/privacy/settings", **headers)
+    current = api_client.get("/api/privacy/settings", HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"])
 
     assert rejected.status_code == 400
     assert rejected.json() == {"detail": "Livello privacy non valido"}
@@ -131,7 +132,7 @@ def test_abandoned_recording_cannot_materialize_a_trip(
     response = complete_core(api_client, headers, upload_id)
 
     assert response.status_code == 410
-    assert api_client.get("/api/mobility/trips", **headers).json() == []
+    assert api_client.get("/api/mobility/trips", HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"]).json() == []
 
 
 def test_stale_recording_is_not_reported_as_resumable(
@@ -143,7 +144,7 @@ def test_stale_recording_is_not_reported_as_resumable(
         last_seen_at=timezone.now() - timezone.timedelta(hours=25)
     )
 
-    response = api_client.get("/api/upload/trips/active", **headers)
+    response = api_client.get("/api/upload/trips/active", HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"])
 
     assert response.status_code == 404
     assert response.json() == {"detail": "nessun viaggio in corso"}
@@ -279,7 +280,7 @@ def test_note_rejects_more_than_five_hundred_characters(
         f"/api/mobility/trips/{trip_id}/note",
         data=json.dumps({"note": "x" * 501}),
         content_type="application/json",
-        **headers,
+        HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
     )
 
     assert response.status_code == 422
@@ -302,7 +303,7 @@ def test_note_is_blocked_until_raw_upload_is_complete(
         f"/api/mobility/trips/{trip_id}/note",
         data=json.dumps({"note": "non ancora"}),
         content_type="application/json",
-        **headers,
+        HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
     )
 
     assert response.status_code == 409
@@ -326,16 +327,16 @@ def test_other_user_cannot_edit_or_delete_a_trip(
         f"/api/mobility/trips/{trip_id}/note",
         data=json.dumps({"note": "changed by another user"}),
         content_type="application/json",
-        **other_headers,
+        HTTP_AUTHORIZATION=other_headers["HTTP_AUTHORIZATION"],
     )
     deletion = api_client.delete(
-        f"/api/mobility/trips/{trip_id}", **other_headers
+        f"/api/mobility/trips/{trip_id}", HTTP_AUTHORIZATION=other_headers["HTTP_AUTHORIZATION"]
     )
 
     assert note.status_code == 404
     assert deletion.status_code == 404
     assert api_client.get(
-        f"/api/mobility/trips/{trip_id}/track", **owner_headers
+        f"/api/mobility/trips/{trip_id}/track", HTTP_AUTHORIZATION=owner_headers["HTTP_AUTHORIZATION"]
     ).status_code == 200
 
 
@@ -364,7 +365,7 @@ def test_completed_trip_without_raw_telemetry_cannot_be_reloadable(
         f"/api/mobility/trips/{trip_id}/reloadable",
         data=json.dumps({"is_reloadable": True}),
         content_type="application/json",
-        **headers,
+        HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
     )
 
     assert response.status_code == 409
@@ -417,7 +418,7 @@ def test_invalid_analytics_options_have_stable_safe_fallbacks(
 ):
     response = api_client.get(
         "/api/mobility/analytics?granularity=quarter&tz=Not/AZone",
-        **mobile_session["headers"],
+        HTTP_AUTHORIZATION=mobile_session["headers"]["HTTP_AUTHORIZATION"],
     )
 
     assert response.status_code == 200
@@ -507,7 +508,7 @@ def test_core_discards_a_cached_gps_fix_from_before_recording_start(
 
     assert core.status_code == 200
     track = api_client.get(
-        f"/api/mobility/trips/{core.json()['trip_id']}/track", **headers
+        f"/api/mobility/trips/{core.json()['trip_id']}/track", HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"]
     )
     assert track.json()["point_count"] == 2
 
@@ -519,7 +520,7 @@ def test_mobile_token_stops_working_immediately_when_user_is_disabled(
         is_active=False
     )
 
-    response = api_client.get("/api/auth/me", **mobile_session["headers"])
+    response = api_client.get("/api/auth/me", HTTP_AUTHORIZATION=mobile_session["headers"]["HTTP_AUTHORIZATION"])
 
     assert response.status_code == 401
 
@@ -531,7 +532,7 @@ def test_mobile_token_cache_observes_database_expiration(
         token_hash=AccessToken.hash_raw_token(mobile_session["token"])
     ).update(expires_at=timezone.now() - timezone.timedelta(seconds=1))
 
-    response = api_client.get("/api/auth/me", **mobile_session["headers"])
+    response = api_client.get("/api/auth/me", HTTP_AUTHORIZATION=mobile_session["headers"]["HTTP_AUTHORIZATION"])
 
     assert response.status_code == 401
 
@@ -574,7 +575,7 @@ def test_web_trip_filters_reject_an_inverted_time_range(
         "/api/web/users/"
         f"{mobile_session['user']['id']}/trips"
         "?from=2026-08-31T12:00:00Z&to=2026-08-30T12:00:00Z",
-        **web_headers(web_login(api_client).json()),
+        HTTP_AUTHORIZATION=web_headers(web_login(api_client).json())["HTTP_AUTHORIZATION"],
     )
 
     assert response.status_code == 422

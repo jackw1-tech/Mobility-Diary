@@ -43,7 +43,7 @@ def test_place_review_exposes_evidence_but_blocks_changes_until_mining_succeeds(
     headers = mobile_session["headers"]
     place = create_candidate_place(mobile_session["user"]["id"])
 
-    listed = api_client.get("/api/mobility/places", **headers)
+    listed = api_client.get("/api/mobility/places", HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"])
     blocked = post_json(
         api_client,
         f"/api/mobility/places/{place.id}/confirm",
@@ -125,7 +125,7 @@ def test_place_review_is_isolated_between_owners(
         other_headers,
     )
 
-    assert api_client.get("/api/mobility/places", **other_headers).json() == []
+    assert api_client.get("/api/mobility/places", HTTP_AUTHORIZATION=other_headers["HTTP_AUTHORIZATION"]).json() == []
     assert response.status_code == 404
 
 
@@ -151,9 +151,9 @@ def test_diary_and_analytics_expose_enriched_segments_through_public_apis(
         ),
     )
 
-    diary = api_client.get(f"/api/mobility/trips/{trip_id}/diary", **headers)
+    diary = api_client.get(f"/api/mobility/trips/{trip_id}/diary", HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"])
     analytics = api_client.get(
-        "/api/mobility/analytics?granularity=day&tz=UTC", **headers
+        "/api/mobility/analytics?granularity=day&tz=UTC", HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"]
     )
 
     assert diary.status_code == 200
