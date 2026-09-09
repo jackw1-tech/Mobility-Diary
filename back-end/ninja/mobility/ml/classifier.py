@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 from .har_adapter import predict_activity_windows
 
-# Bande di velocita (m/s). Soglie da motivare in relazione.
+# Bande di velocita (m/s).
 WALK_MAX = 2.2          # ~8 km/h
 RUN_MAX = 3.6           # ~13 km/h
 BIKE_MAX = 7.0          # ~25 km/h
@@ -19,13 +19,11 @@ BIKE_MAX = 7.0          # ~25 km/h
 
 @dataclass(frozen=True)
 class ClassifierResult:
-    labels: list[str]
+    labels: list[str] #Lista di Labels,una a finestra 
     summary: dict
 
 
-def _label_from_speed(speed: float | None) -> str:
-    if speed is None or speed < 0.5:
-        return "IDLE"
+def _label_from_speed(speed: float) -> str:
     if speed < WALK_MAX:
         return "WALKING"
     if speed < RUN_MAX:

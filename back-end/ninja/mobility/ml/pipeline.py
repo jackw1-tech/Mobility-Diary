@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import statistics
-from bisect import bisect_left
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
@@ -12,11 +11,11 @@ from django.db import connection, transaction
 
 from ..models import ActivityLabel, MobilitySegment, Trip
 from ..selectors import segments as segments_repository
-from .classifier import classify_windows, _label_from_speed
+from .classifier import WALK_MAX, classify_windows, _label_from_speed
 
 STOP_STATE = "STATIONARY"
 MIN_ISOLATED_LABEL_SECONDS = 60
-MIN_VIRTUAL_STOP_SECONDS = 120
+MIN_VIRTUAL_STOP_SECONDS = 110 #Valore leggermente meno dei 120 di stationaryEvidenceRequired
 
 
 @dataclass(frozen=True)
@@ -36,14 +35,10 @@ class LabelTimeRun:
 
 
 """
-Filtra i punti GPS dentro l'intervallo [start, end). `gps_timestamps` e' la lista
-dei timestamp di `gps` (stesso ordine, gia' ordinata): permette di ritagliare la
-fetta con una ricerca binaria invece di riscansionare tutta la lista ad ogni chiamata.
+Filtra i punti GPS dentro l'intervallo [start, end) della macro
 """
-def _gps_in(gps, gps_timestamps, start: datetime, end: datetime):
-    lo = bisect_left(gps_timestamps, start)
-    hi = bisect_left(gps_timestamps, end)
-    return gps[lo:hi]
+def _gps_in(gps, start: datetime, end: datetime):
+    return [p for p in gps if start <= p.timestamp < end]
 
 
 """
@@ -75,7 +70,8 @@ def _segment_path(points):
 Costruisce i macro-intervalli STOP/MOVE usando transizioni, GPS e finestre HAR.
 """
 def _macro_spans(trip, transitions, gps, windows):
-    starts = [t.timestamp for t in transitions[:1]]
+    #Calcolo estremo iniziale e finale di ogni viaggio
+    starts = [transitions[0].timestamp] if transitions else []
     starts += [gps[0].timestamp] if gps else []
     starts += [windows[0].start_timestamp] if windows else []
     ends = [transitions[-1].timestamp] if transitions else []
@@ -91,24 +87,22 @@ def _macro_spans(trip, transitions, gps, windows):
     end_bound = max(ends)
     state = transitions[0].from_state if transitions else STOP_STATE
 
+    # associo ad ogni transition / taglio un inizio e una fine
+    # un singlo taglio è la fine di un segmento e l'inizio di un altro 
     raw = []
     cursor = start_bound
-    for ev in transitions:
-        if ev.timestamp > cursor:
-            raw.append((cursor, ev.timestamp, state))
-        state = ev.to_state
-        cursor = ev.timestamp
+    for event in transitions:
+        if event.timestamp > cursor:
+            raw.append((cursor, event.timestamp, state)) #inizio, fine, stato
+        state = event.to_state
+        cursor = event.timestamp
     if end_bound > cursor:
         raw.append((cursor, end_bound, state))
 
-    merged: list[list] = []
-    for s, e, st in raw:
-        kind = MobilitySegment.Kind.STOP if st == STOP_STATE else MobilitySegment.Kind.MOVE
-        if merged and merged[-1][2] == kind:
-            merged[-1][1] = e
-        else:
-            merged.append([s, e, kind])
-    return merged
+    return [
+        [s, e, MobilitySegment.Kind.STOP if st == STOP_STATE else MobilitySegment.Kind.MOVE]
+        for s, e, st in raw
+    ]
 
 
 """
@@ -120,18 +114,19 @@ def _build_stop(trip, start, end) -> None:
 
 """
 Raggruppa elementi consecutivi che hanno la stessa label.
+-> lista di liste di label consecutive
 """
-def _label_runs(inside):
-    runs = []
+def _label_group_by(inside):
+    group = []
     current = []
     for item in inside:
         if current and item[1] != current[-1][1]:
-            runs.append(current)
+            group.append(current)
             current = []
         current.append(item)
     if current:
-        runs.append(current)
-    return runs
+        group.append(current)
+    return group
 
 
 """
@@ -146,23 +141,24 @@ def _run_duration_seconds(run) -> float:
 """
 Corregge cambi di label brevi e isolati tra due blocchi uguali.
 """
-def _smooth_isolated_label_changes(inside):
-    runs = _label_runs(inside)
-    if len(runs) < 3:
+def _isolated_label_changes(inside):
+    groups_by_label = _label_group_by(inside)
+    #Se ci sono solo due grippi di label consecutive -> non c'è nulla da correggere
+    if len(groups_by_label) < 3:
         return inside
 
     smoothed = list(inside)
     cursor = 0
-    for idx, run in enumerate(runs):
-        run_length = len(run)
-        if 0 < idx < len(runs) - 1:
-            previous_label = runs[idx - 1][0][1]
-            current_label = run[0][1]
-            next_label = runs[idx + 1][0][1]
+    for idx, groups in enumerate(groups_by_label):
+        run_length = len(groups)
+        if 0 < idx < len(groups_by_label) - 1:
+            previous_label = groups_by_label[idx - 1][0][1]
+            current_label = groups[0][1]
+            next_label = groups_by_label[idx + 1][0][1]
             if (
                 previous_label == next_label
                 and current_label != previous_label
-                and _run_duration_seconds(run) < MIN_ISOLATED_LABEL_SECONDS
+                and _run_duration_seconds(groups) < MIN_ISOLATED_LABEL_SECONDS
             ):
                 for offset in range(run_length):
                     window, _label = smoothed[cursor + offset]
@@ -181,7 +177,7 @@ def _time_runs(inside) -> list[LabelTimeRun]:
             end_timestamp=run[-1][0].end_timestamp,
             label=run[0][1],
         )
-        for run in _label_runs(inside)
+        for run in _label_group_by(inside)
     ]
 
 
@@ -235,7 +231,8 @@ def _split_move_and_virtual_runs(
         if run.label != ActivityLabel.IDLE:
             move_runs.append(run)
             continue
-
+        
+        #Cerco di evitare previsioni da rumore
         if _run_duration_seconds(run) >= MIN_VIRTUAL_STOP_SECONDS:
             virtual_stop_runs.append(run)
             continue
@@ -266,15 +263,33 @@ Stima una label di movimento di ripiego usando la velocita GPS.
 """
 def _fallback_move_label(points) -> str:
     speeds = [p.speed_mps for p in points if p.speed_mps is not None]
-    label = _label_from_speed(statistics.median(speeds) if speeds else None)
-    return label if label != ActivityLabel.IDLE else ActivityLabel.WALKING
+    if not speeds:
+        return ActivityLabel.WALKING
+    return _label_from_speed(statistics.median(speeds))
+
+
+"""
+Corregge un'etichetta MOVING_VEHICLE del classificatore se la velocita GPS del
+segmento e' incompatibile
+"""
+def _sanity_check_vehicle_label(label: str, points) -> str:
+    if label != ActivityLabel.MOVING_VEHICLE:
+        return label
+    speeds = [p.speed_mps for p in points if p.speed_mps is not None]
+    if not speeds:
+        return label
+    median_speed = statistics.median(speeds)
+    if median_speed >= WALK_MAX:
+        return label
+    return _label_from_speed(median_speed)
 
 
 """
 Salva nel DB un segmento MOVE con label, path e distanza.
 """
-def _build_move_segment(trip, start, end, label, gps, gps_timestamps) -> None:
-    points = _gps_in(gps, gps_timestamps, start, end)
+def _build_move_segment(trip, start, end, label, gps) -> None:
+    points = _gps_in(gps, start, end)
+    label = _sanity_check_vehicle_label(label, points)
     path = _segment_path(points)
     segments_repository.create_move_segment(
         trip,
@@ -289,26 +304,31 @@ def _build_move_segment(trip, start, end, label, gps, gps_timestamps) -> None:
 """
 Spezza un macro MOVE in segmenti HAR e virtual stop.
 """
-def _build_move(trip, start, end, windows, labels, gps, gps_timestamps) -> None:
+def _build_move(trip, start, end, windows, labels, gps) -> None:
+    #Filtro etichette e label che riguardano questa specifica macro
     inside = [
         (w, lbl)
         for w, lbl in zip(windows, labels)
         if start <= w.start_timestamp < end
     ]
+    #Nel caso non ci fossero dati har per questa macro (quando il telefono va in background ma la fsm era movement) 
+    #Uso la mediana delle velocità fornite dal gps come fall back
     if not inside:
-        points = _gps_in(gps, gps_timestamps, start, end)
-        _build_move_segment(trip, start, end, _fallback_move_label(points), gps, gps_timestamps)
+        points = _gps_in(gps, start, end)
+        _build_move_segment(trip, start, end, _fallback_move_label(points), gps)
         return
 
-    inside = _smooth_isolated_label_changes(inside)
+    inside = _isolated_label_changes(inside)
     move_runs, virtual_stop_runs = _split_move_and_virtual_runs(_time_runs(inside))
 
     for run in virtual_stop_runs:
         _build_virtual_stop(trip, run.start_timestamp, run.end_timestamp)
 
+    # I dati dei sensori ci sono ma _isolated_label_changes ha reso l'intero macro tutta idle 
+    # ma dura meno di MIN_VIRTUAL_STOP_SECONDS -> virtual e move vuoti -> fall back come se i dati har non ci fossero 
     if not move_runs and not virtual_stop_runs:
-        points = _gps_in(gps, gps_timestamps, start, end)
-        _build_move_segment(trip, start, end, _fallback_move_label(points), gps, gps_timestamps)
+        points = _gps_in(gps, start, end)
+        _build_move_segment(trip, start, end, _fallback_move_label(points), gps)
         return
 
     for run in move_runs:
@@ -318,7 +338,6 @@ def _build_move(trip, start, end, windows, labels, gps, gps_timestamps) -> None:
             run.end_timestamp,
             run.label,
             gps,
-            gps_timestamps,
         )
 
 
@@ -332,7 +351,6 @@ def run_pipeline(
 ) -> dict:
     windows = sorted(sensor_windows or [], key=lambda window: window.start_timestamp)
     gps = list(trip.gps_points.order_by("timestamp"))
-    gps_timestamps = [g.timestamp for g in gps]
     transitions = list(trip.state_transitions.order_by("timestamp"))
 
     all_windows_have_matrix = all(w.matrix is not None for w in windows)
@@ -350,6 +368,7 @@ def run_pipeline(
 
     #diario
     with transaction.atomic():
+        # stesso pattern del gps mining, in caso di retry, prima elimino quello già fatto e poi reinserisco tuttod
         trip.segments.all().delete()
         trip.virtual_stop_intervals.all().delete()
         spans = _macro_spans(trip, transitions, gps, windows)
@@ -357,7 +376,7 @@ def run_pipeline(
             if kind == MobilitySegment.Kind.STOP:
                 _build_stop(trip, start, end)
             else:
-                _build_move(trip, start, end, windows, labels, gps, gps_timestamps)
+                _build_move(trip, start, end, windows, labels, gps)
 
         trip.status = Trip.Status.PROCESSED
         trip.save(update_fields=["status", "updated_at"])

@@ -256,6 +256,8 @@ class AcquisitionFsm {
           : _gpsOnlyEvidence(gpsSpeed);
     }
 
+    // Sono in movimento, se mi fermo è probabilmente in posto al chiuso -> gps meno precisi e più rari
+    // Do priorità all'accellerometro
     if (_state == TrackingState.movement) {
       final sigma = _freshSigma(timestamp);
       if (sigma == null) {
