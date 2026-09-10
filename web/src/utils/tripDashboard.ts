@@ -49,18 +49,12 @@ export type SegmentFilters = {
   activities?: string[];
   from?: string;
   to?: string;
-  place?: string;
 };
 
 export type ActivityFilterOption = {
   value: string;
   label: string;
   color: string;
-};
-
-export type PlaceFilterOption = {
-  value: string;
-  label: string;
 };
 
 export function isStopSegment(segment: DashboardSegment): boolean {
@@ -92,6 +86,7 @@ export function activityFilterOptions(
 ): ActivityFilterOption[] {
   const options = new Map<string, ActivityFilterOption>();
   for (const segment of orderedSegments(segments)) {
+    if (segment.kind !== 'MOVE') continue;
     options.set(segment.activity_label, {
       value: segment.activity_label,
       label: activityLabel(segment.activity_label),
@@ -101,24 +96,11 @@ export function activityFilterOptions(
   return [...options.values()];
 }
 
-export function placeFilterOptions(
-  segments: DashboardSegment[],
-): PlaceFilterOption[] {
-  const options = new Map<string, PlaceFilterOption>();
-  for (const segment of orderedSegments(segments)) {
-    const label = segment.place?.label;
-    if (!label) continue;
-    options.set(label, { value: label, label });
-  }
-  return [...options.values()];
-}
-
 export function filterSegments(
   segments: DashboardSegment[],
   filters: SegmentFilters,
 ): DashboardSegment[] {
   const activities = new Set(filters.activities ?? []);
-  const place = filters.place ?? '';
   const from = filterTimestamp(filters.from);
   const to = filterTimestamp(filters.to);
   if (from != null && to != null && from > to) return [];
@@ -127,7 +109,6 @@ export function filterSegments(
     const startsAt = Date.parse(segment.start_timestamp);
     const endsAt = Date.parse(segment.end_timestamp);
     if (activities.size > 0 && !activities.has(segment.activity_label)) return [];
-    if (place && segment.place?.label !== place) return [];
     if (from != null && endsAt <= from) return [];
     if (to != null && startsAt >= to) return [];
 

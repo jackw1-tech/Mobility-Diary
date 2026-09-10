@@ -29,7 +29,6 @@ import {
   activityLabel,
   type DashboardSegment,
   filterSegments,
-  placeFilterOptions,
   segmentSeconds,
   stopLabel,
   calculateTripStats,
@@ -48,7 +47,6 @@ const mapElement = ref<HTMLElement | null>(null);
 const selectedTripIds = ref<number[]>([]);
 const filters = reactive({
   activities: [] as string[],
-  place: '',
   from: '',
   to: '',
 });
@@ -61,12 +59,11 @@ const visibleDashboards = computed(() => (
   dashboards.value.filter((dashboard) => selectedTripIds.value.includes(dashboard.trip.id))
 ));
 const hasActivityFilters = computed(() => filters.activities.length > 0);
-const hasPlaceFilter = computed(() => Boolean(filters.place));
 const hasTimeWindowFilter = computed(() => (
   filters.from !== dayStartInput.value || filters.to !== dayEndInput.value
 ));
 const hasLocalFilters = computed(() => (
-  hasActivityFilters.value || hasPlaceFilter.value || hasTimeWindowFilter.value
+  hasActivityFilters.value || hasTimeWindowFilter.value
 ));
 const showFullTripGhost = computed(() => (
   hasActivityFilters.value && !hasTimeWindowFilter.value
@@ -85,7 +82,6 @@ const stopSegments = computed(() => (
   visibleSegments.value.filter((segment) => segment.kind === 'STOP')
 ));
 const activityOptions = computed(() => activityFilterOptions(timeWindowSegments.value));
-const placeOptions = computed(() => placeFilterOptions(timeWindowSegments.value));
 const stats = computed(() => (
   calculateTripStats(
     { started_at: `${day.value}T00:00:00.000Z`, ended_at: `${day.value}T23:59:59.000Z` },
@@ -253,7 +249,6 @@ function destroyMap() {
 
 function resetFilters() {
   filters.activities = [];
-  filters.place = '';
   filters.from = dayStartInput.value;
   filters.to = dayEndInput.value;
 }
@@ -305,11 +300,6 @@ watch(activityOptions, (options) => {
   const selected = filters.activities.filter((activity) => available.has(activity));
   if (selected.length !== filters.activities.length) {
     filters.activities = selected;
-  }
-});
-watch(placeOptions, (options) => {
-  if (filters.place && !options.some((option) => option.value === filters.place)) {
-    filters.place = '';
   }
 });
 watch(dashboards, (list) => {
@@ -430,20 +420,6 @@ onBeforeUnmount(destroyMap);
             Nessuna attività disponibile.
           </span>
         </fieldset>
-
-        <label>
-          Luogo significativo
-          <select v-model="filters.place" :disabled="placeOptions.length === 0">
-            <option value="">Tutti</option>
-            <option
-              v-for="place in placeOptions"
-              :key="place.value"
-              :value="place.value"
-            >
-              {{ place.label }}
-            </option>
-          </select>
-        </label>
 
         <div class="filters-actions">
           <button

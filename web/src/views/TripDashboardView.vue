@@ -33,7 +33,6 @@ import {
   activityLabel,
   type DashboardSegment,
   filterSegments,
-  placeFilterOptions,
   stopLabel,
   segmentSeconds,
   calculateTripStats,
@@ -57,7 +56,6 @@ const visibleMapLayer = ref<'private' | 'privacy-aware' | 'both'>('both');
 const showPrivacyCells = ref(false);
 const filters = reactive({
   activities: [] as string[],
-  place: '',
   from: '',
   to: '',
 });
@@ -79,17 +77,13 @@ const stopSegments = computed(() => (
 const activityOptions = computed(() => (
   activityFilterOptions(timeWindowSegments.value)
 ));
-const placeOptions = computed(() => (
-  placeFilterOptions(timeWindowSegments.value)
-));
 const hasActivityFilters = computed(() => filters.activities.length > 0);
-const hasPlaceFilter = computed(() => Boolean(filters.place));
 const hasTimeWindowFilter = computed(() => (
   filters.from !== tripStartInput.value ||
   filters.to !== tripEndInput.value
 ));
 const hasLocalFilters = computed(() => (
-  hasActivityFilters.value || hasPlaceFilter.value || hasTimeWindowFilter.value
+  hasActivityFilters.value || hasTimeWindowFilter.value
 ));
 const showFullTripGhost = computed(() => (
   hasActivityFilters.value && !hasTimeWindowFilter.value
@@ -258,7 +252,7 @@ function renderMap() {
     for (const segment of visiblePrivacyMoves.value) {
       drawLine(
         segment.path_geojson ?? null,
-        '#0f766e',
+        activityColor(segment.activity_label),
         5,
         0.75,
         visiblePoints,
@@ -394,7 +388,6 @@ function destroyMap() {
 
 function clearLocalFilters() {
   filters.activities = [];
-  filters.place = '';
   resetTimeFilters();
 }
 
@@ -429,7 +422,6 @@ function clampDateTimeValue(value: string, min: string, max: string): string {
 watch([userId, tripId], loadDashboard, { immediate: true });
 watch(dashboard, () => {
   filters.activities = [];
-  filters.place = '';
   resetTimeFilters();
 });
 watch(activityOptions, (options) => {
@@ -437,11 +429,6 @@ watch(activityOptions, (options) => {
   const selected = filters.activities.filter((activity) => available.has(activity));
   if (selected.length !== filters.activities.length) {
     filters.activities = selected;
-  }
-});
-watch(placeOptions, (options) => {
-  if (filters.place && !options.some((option) => option.value === filters.place)) {
-    filters.place = '';
   }
 });
 watch(
@@ -550,20 +537,6 @@ onBeforeUnmount(destroyMap);
             Nessuna attività disponibile.
           </span>
         </fieldset>
-
-        <label>
-          Luogo significativo
-          <select v-model="filters.place" :disabled="placeOptions.length === 0">
-            <option value="">Tutti</option>
-            <option
-              v-for="place in placeOptions"
-              :key="place.value"
-              :value="place.value"
-            >
-              {{ place.label }}
-            </option>
-          </select>
-        </label>
 
         <div class="filters-actions">
           <button
