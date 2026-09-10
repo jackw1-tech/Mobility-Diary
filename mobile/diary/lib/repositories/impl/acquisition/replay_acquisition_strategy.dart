@@ -8,11 +8,6 @@ import 'package:diary/repositories/impl/acquisition/trip_package_builder.dart';
 import 'package:diary/network/service/trip_upload_service.dart';
 import 'package:uuid/uuid.dart';
 
-typedef ReplayTimerFactory = Timer Function(
-  Duration duration,
-  void Function(Timer timer) callback,
-);
-
 class ReplayAcquisitionStrategy implements AcquisitionStrategy {
   final TripUploadService? _uploadService;
   final UploadMapper _mapper;
@@ -22,9 +17,7 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
   final int _sourceTripId;
   final DateTime? _scheduledStartAt;
   final double _requestedReplaySpeedMultiplier;
-  final ReplayTimerFactory _timerFactory;
 
-  /// Callback per notificare il Repository (e di riflesso la UI) a ogni cambio di stato.
   final void Function(AcquisitionSnapshot snapshot) onSnapshot;
 
   AcquisitionSnapshot _currentSnapshot = AcquisitionSnapshot.idle();
@@ -32,8 +25,6 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
 
   AcquisitionSnapshot get currentSnapshot => _currentSnapshot;
 
-  /// Aggiorna lo stato locale e notifica la UI tramite [onSnapshot].
-  /// Se la strategia è in fase di chiusura (_acceptSnapshots == false), scarta l'evento.
   void emitSnapshot(AcquisitionSnapshot snapshot) {
     if (!_acceptSnapshots) {
       return;
@@ -66,7 +57,6 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
     Uuid? uuid,
     String deviceId = 'local_device',
     Future<String> Function()? deviceIdProvider,
-    ReplayTimerFactory? timerFactory,
   })  : _sourceTripId = sourceTripId,
         _scheduledStartAt = scheduledStartAt?.toUtc(),
         _requestedReplaySpeedMultiplier = replaySpeedMultiplier,
@@ -74,9 +64,7 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
         _mapper = mapper ?? UploadMapper(),
         _uuid = uuid ?? const Uuid(),
         _deviceId = deviceId,
-        _deviceIdProvider = deviceIdProvider,
-        _timerFactory = timerFactory ??
-            ((duration, callback) => Timer.periodic(duration, callback));
+        _deviceIdProvider = deviceIdProvider;
 
   @override
   Future<void> start() async {
@@ -114,18 +102,6 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
     _latestLatitude = null;
     _latestLongitude = null;
     _latestAccuracyMeters = null;
-
-    emitSnapshot(
-      AcquisitionSnapshot(
-        isTracking: true,
-        trackingState: TrackingState.stationary,
-        latestSigma: 0,
-        latestSpeedMetersPerSecond: 0,
-        lastTransition: null,
-        updatedAt: now,
-        isReplay: true,
-      ),
-    );
 
     _startReplayTimer(
       replaySource,
@@ -172,6 +148,8 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
     return value == 2 || value == 5 ? value : 1;
   }
 
+  // Funzione che simula il viaggio sulla mappa
+  // Qui suo i tempi di gps e state transistion del viaggio originale
   void _startReplayTimer(
     ReplaySource source, {
     required double speedMultiplier,
@@ -196,6 +174,7 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
     final startTime = _earlier(firstPoint, firstTransition);
     final endTime = _later(lastPoint, lastTransition);
 
+    // Controllo di sicurezza
     if (startTime == null || endTime == null) {
       emitSnapshot(AcquisitionSnapshot.idle());
       return;
@@ -227,19 +206,19 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
     double latestSpeedMps = 0;
 
     _replayTimer?.cancel();
-    _replayTimer = _timerFactory(const Duration(seconds: 1), (timer) {
+    _replayTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       final elapsed = DateTime.now().difference(startReplayAt);
       final acceleratedReplayTime = startTime.add(
         Duration(
           microseconds: (elapsed.inMicroseconds * speedMultiplier).round(),
         ),
-      );
-      final currentReplayTime = acceleratedReplayTime.isAfter(endTime)
-          ? endTime
-          : acceleratedReplayTime;
+      ); // calcolo tempo virtuale del replay
+      //Orologio virtuale = start viaggio oroginale + (secondi passati × velocità)
+      final currentReplayTime = _earlier(acceleratedReplayTime, endTime)!;
 
       bool updated = false;
 
+      //Salva l'ultima transizione fino al t attuale di replay time
       while (nextTransitionIdx < transitions.length &&
           !transitions[nextTransitionIdx]
               .timestamp
@@ -256,6 +235,7 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
         updated = true;
       }
 
+      //Salva l'ultimo punto gps fino al t attuale di replay time
       while (nextPointIdx < points.length &&
           !points[nextPointIdx].timestamp.isAfter(currentReplayTime)) {
         final p = points[nextPointIdx];
@@ -297,6 +277,7 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
     });
   }
 
+  // Shifta tutti i punti e le state transizione del replay
   Future<ReplayStopResult> _stopReplay() async {
     final cutoffTimestamp = currentSnapshot.updatedAt;
     _replayTimer?.cancel();
@@ -305,6 +286,7 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
       throw const UploadApiException('Invalid state for stopReplay');
     }
 
+    //Filtra tutti i punti gps e le state transistion dall'inizio fino al momento in cui il viaggio si è interrototo
     final filteredPoints = (_replayPoints ?? const <CoreGpsPoint>[])
         .where((p) => !p.timestamp.isAfter(cutoffTimestamp))
         .toList();
@@ -321,6 +303,8 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
       if (earliest == null || timestamp.isBefore(earliest)) return timestamp;
       return earliest;
     });
+
+    //Shitf tutte le transizioni e i punti e le transizioni
     final scheduledStartAt = _scheduledStartAt;
     final shift = scheduledStartAt != null && firstSourceTimestamp != null
         ? scheduledStartAt.difference(firstSourceTimestamp)
@@ -389,12 +373,14 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
     return (sourceSeconds / speedMultiplier).ceil();
   }
 
+  // Ritorna il più antico tra le due date
   DateTime? _earlier(DateTime? first, DateTime? second) {
     if (first == null) return second;
     if (second == null) return first;
     return first.isBefore(second) ? first : second;
   }
 
+  // Ritprna il più lontano tra le date
   DateTime? _later(DateTime? first, DateTime? second) {
     if (first == null) return second;
     if (second == null) return first;

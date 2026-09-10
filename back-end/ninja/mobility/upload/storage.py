@@ -38,8 +38,7 @@ def raw_part_object_key(base_path: str, sequence: int) -> str:
     return f"{base_path}sensor_windows_part_{sequence:04d}.json.gz"
 
 
-# S3 vuole il checksum in base64, noi lo teniamo sempre in hex (e' quello che
-# produce hashlib/crypto.sha256): unico punto di conversione tra i due mondi.
+
 def checksum_header_value(sha256_hex: str) -> str:
     return base64.b64encode(bytes.fromhex(sha256_hex)).decode("ascii")
 
@@ -56,16 +55,12 @@ def presigned_put_url(
             "Bucket": bucket_name(),
             "Key": object_key,
             "ContentType": content_type,
-            # S3/MinIO verifica DAVVERO questo valore contro i byte ricevuti
-            # e rifiuta l'upload se non corrisponde (a differenza del vecchio
-            # Metadata, che era solo un'etichetta passiva mai controllata).
             "ChecksumSHA256": checksum_header_value(sha256),
         },
         ExpiresIn=settings.S3_PRESIGN_EXPIRES_SECONDS,
     )
 
-# Chiamata HEAD; ci dice se l'oggetto esiste e dà i metadati (incluso il
-# checksum, richiesto esplicitamente con ChecksumMode="ENABLED")
+# Chiamata HEAD; ci dice se l'oggetto esiste e dà i metadati
 def head_object(object_key: str) -> dict | None:
     client = _internal_client()
     try:

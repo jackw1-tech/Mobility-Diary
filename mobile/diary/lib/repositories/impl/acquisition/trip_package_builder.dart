@@ -10,8 +10,6 @@ import 'package:diary/network/service/impl/acquisition_local_database.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
-/// Una parte fisica del pacchetto viaggio: un file gzip su disco con il suo
-/// checksum e dimensione, pronto per l'upload presigned.
 class TripPackagePart {
   final int sequence;
   final File file;

@@ -1,4 +1,6 @@
 from django.contrib import admin
+from django.db import connection
+from django.utils.html import format_html, format_html_join
 
 from .models import (
     CandidateVisit,
@@ -6,6 +8,7 @@ from .models import (
     HabitualPlace,
     HarJob,
     MobilitySegment,
+    RawSensorReading,
     StateTransition,
     Trip,
     TripUpload,
@@ -13,6 +16,23 @@ from .models import (
     VirtualStopInterval,
     PlaceMiningStatus,
 )
+
+
+_SENSOR_GAP_THRESHOLD_MS = 10
+
+_SENSOR_GAP_QUERY = """
+    WITH ordered AS (
+        SELECT
+            timestamp,
+            LAG(timestamp) OVER (ORDER BY timestamp) AS prev_timestamp
+        FROM {table}
+        WHERE trip_id = %s
+    )
+    SELECT prev_timestamp, timestamp, timestamp - prev_timestamp AS gap
+    FROM ordered
+    WHERE timestamp - prev_timestamp > (%s * INTERVAL '1 millisecond')
+    ORDER BY prev_timestamp
+"""
 
 
 @admin.register(Trip)
@@ -29,6 +49,31 @@ class TripAdmin(admin.ModelAdmin):
     )
     list_filter = ("status", "is_reloadable", "created_at")
     search_fields = ("id", "device_id", "client_session_id", "note")
+    readonly_fields = ("sensor_gaps",)
+
+    @admin.display(
+        description=f"Buchi registrazione sensori (>{_SENSOR_GAP_THRESHOLD_MS}ms)"
+    )
+    def sensor_gaps(self, obj):
+        if obj.pk is None:
+            return "-"
+        table = connection.ops.quote_name(RawSensorReading._meta.db_table)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                _SENSOR_GAP_QUERY.format(table=table),
+                [obj.pk, _SENSOR_GAP_THRESHOLD_MS],
+            )
+            rows = cursor.fetchall()
+        if not rows:
+            return "Nessun buco rilevato"
+        return format_html(
+            "<ul>{}</ul>",
+            format_html_join(
+                "",
+                "<li>{} → {} (buco di {})</li>",
+                rows,
+            ),
+        )
 
 
 @admin.register(GpsPoint)

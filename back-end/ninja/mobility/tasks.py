@@ -24,6 +24,7 @@ from .selectors.sensor_readings import (
 from .significant_places import mine_user_significant_places
 
 """
+Chiamata da reload / caricamnto diretto
 Aggiorna i campi di TripUpload per indiciare che sta cominciando il caricamento della parte raw del viaggio ricaricato
 """
 @shared_task(bind=True, max_retries=3, retry_backoff=True, default_retry_delay=30)

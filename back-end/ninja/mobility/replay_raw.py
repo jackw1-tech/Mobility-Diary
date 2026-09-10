@@ -94,6 +94,7 @@ def _shifted_part_body(object_key: str, shift, cutoff) -> bytes | None:
     for window in windows:
         if not isinstance(window, dict):
             raise ValueError("sensor window non valida")
+        # Scarta le window di quel file il cui lo start timestamp va oltre l'orario di fine del replay normalizzarto al viaggio originale
         if cutoff is not None and _window_field(window, _START_FIELD) > cutoff:
             continue
         _shift_field(window, _START_FIELD, shift)
@@ -142,6 +143,8 @@ def source_sensor_window_at(
     return None
 
 
+# Funzione chiamata da replay e caricamento diretto
+# Porta avanti la fase raw di upload ma prendendo i dati raw direttamente dell object
 def regenerate_raw_and_queue_har(
     upload: TripUpload,
     source: Trip,
@@ -154,6 +157,7 @@ def regenerate_raw_and_queue_har(
     if not parts.exists():
         raise ReplayRawError("telemetrie sorgente non disponibili")
     try:
+        # Scarico i file raw, e shifto i timestamp
         shifted_parts = [
             shifted
             for part in parts
@@ -168,6 +172,7 @@ def regenerate_raw_and_queue_har(
 
     written: list[str] = [] #Lista con cui traccio le scritture sullo storage
     try:
+        # inserisco gli oggetti con nuovo nome e con timestamps shifati nel object
         for sequence, body in enumerate(shifted_parts, start=1):
             object_key = storage.raw_part_object_key(
                 upload.raw_base_path, sequence

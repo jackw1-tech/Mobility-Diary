@@ -82,6 +82,7 @@ def reload_slots_for_trip(
     }
 
 
+# Funzione che gestisce caricamento row e har di un trip clone
 def reload_trip_from_source(
     *,
     user_id: int,
@@ -330,7 +331,7 @@ def _reload_slot_candidates(
     return list(reversed(slots[-limit:]))
 
 
-# Per il nuovo trip, inserisce tutti i punti gps e i cambiamenti di stato del vecchio viaggio con i timestamp shiftati
+# Per il nuovo trip clone, inserisce tutti i punti gps e i cambiamenti di stato del vecchio viaggio con i timestamp shiftati
 def _copy_core_evidence(
     timeline: ReloadTimeline,
     trip: Trip,

@@ -6,14 +6,6 @@ import 'package:diary/repositories/impl/acquisition/trip_package_builder.dart';
 import 'package:diary/network/service/trips_service.dart';
 import 'package:drift/drift.dart' show Value;
 
-/// Processore opportunistico dei SyncJob: per ogni job pronto esegue
-/// packaging -> POST core inline -> raw presigned, con retry/backoff. Tutta la
-/// sequenza e' idempotente lato backend, quindi un job interrotto puo'
-/// riprendere senza duplicare.
-///
-/// Un fallimento definitivo (core o raw) non resta mai in attesa di un'azione
-/// dell'utente: viene scartato in automatico (Trip lato backend eliminato se
-/// gia' esistente, dati locali cancellati) — vedi [_discardJob].
 class TripSyncQueueImpl {
   final AcquisitionDao _dao;
   final TripPackageBuilder _builder;
@@ -77,6 +69,7 @@ class TripSyncQueueImpl {
     }
   }
 
+  //Processa per intero un singolo sync job ( core + raw )
   Future<void> _processJob(SyncJob job) async {
     try {
       if (job.coreStatus == syncJobFailedFinal) return;

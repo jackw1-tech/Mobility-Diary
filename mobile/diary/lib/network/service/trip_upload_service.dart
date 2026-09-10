@@ -21,10 +21,6 @@ class UploadApiException implements Exception {
   String toString() => message;
 }
 
-/// Estrae l'upload attiva dal corpo di un 409 sollevato da
-/// [TripUploadService.startUpload]. Sta qui e non nei repository perche'
-/// il parsing del JSON di rete e' responsabilita' del layer network: i
-/// repository ricevono il DTO e lo convertono in entity con UploadMapper.
 ActiveUploadDto? activeUploadFromConflict(UploadApiException error) {
   final active = error.body['active_upload'];
   if (active is! Map) return null;
@@ -52,6 +48,7 @@ abstract class TripUploadService {
     required String deviceId,
   });
 
+  // Invio dati core al back-end
   Future<InlineCoreResultDto> postCoreInline({
     required Map<String, dynamic> body,
   });

@@ -4,8 +4,7 @@ import 'package:diary/network/dto/mapbox_route_dto.dart';
 import 'package:latlong2/latlong.dart' as ll;
 
 class RouteAssistantMapper {
-  /// Converte le feature di geocoding grezze in luoghi di dominio, scartando
-  /// le entry senza coordinate valide.
+  /// Converte le feature di geocoding grezze in luoghi di dominio
   List<GeocodingPlace> mapPlaces(List<GeocodingFeatureDto> dtos) {
     return dtos
         .map(_mapPlace)
@@ -19,9 +18,6 @@ class RouteAssistantMapper {
     return GeocodingPlace(label: dto.placeName ?? '', location: location);
   }
 
-  /// Converte il primo percorso Mapbox valido in dominio. Lancia
-  /// [RouteAssistantException] se non c'e' un percorso valido: e' una
-  /// condizione di dominio ("nessun percorso trovato"), non un errore HTTP.
   RouteAssistantRoute mapRoute(MapboxRouteDto? dto) {
     if (dto == null) {
       throw const RouteAssistantException('Nessun percorso trovato');
@@ -49,8 +45,6 @@ class RouteAssistantMapper {
     );
   }
 
-  /// Converte l'etichetta grezza restituita dal classificatore live in
-  /// [RouteMode]. Null per "idle" (fermo) o etichetta inattesa.
   RouteMode? mapClassificationLabel(String? label) {
     switch (label) {
       case 'walking':

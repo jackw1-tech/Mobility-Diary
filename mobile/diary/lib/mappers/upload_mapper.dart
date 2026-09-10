@@ -91,7 +91,7 @@ class UploadMapper {
       if (cutoffSourceTimestamp != null)
         'cutoff_source_timestamp': DateTimeUtils.toUtcIso(
           cutoffSourceTimestamp,
-        ),
+        ), // Di al back-end di scartare tutte le finestre har oltre quella data e orario
       'device_id': deviceId,
       'ended_at': DateTimeUtils.toUtcIsoOrNull(endedAt),
       'expected_raw_parts': expectedRawParts,

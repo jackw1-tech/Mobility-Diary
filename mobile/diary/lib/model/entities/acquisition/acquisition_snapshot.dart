@@ -10,14 +10,8 @@ class AcquisitionSnapshot {
   final double latestSpeedMetersPerSecond;
   final DateTime? latestSigmaAt;
   final DateTime? latestSpeedAt;
-  // Diagnostica: ogni singola callback grezza dell'accelerometro, non solo
-  // quelle che completano una finestra. Serve a distinguere "l'OS ha smesso
-  // di consegnare eventi" (es. app in background) da "gli eventi arrivano ma
-  // la finestra non si completa".
   final int rawAccelerometerEventCount;
   final DateTime? latestRawAccelerometerEventAt;
-  // Stessa idea: totali assoluti dal runtime, non "quante volte la UI si e'
-  // ridisegnata" — cosi' non si perdono conteggi se la UI salta dei frame.
   final int completedSigmaWindowCount;
   final int gpsFixCount;
   final FsmTransition? lastTransition;

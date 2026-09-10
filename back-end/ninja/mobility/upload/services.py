@@ -266,7 +266,7 @@ def process_inline_core_upload(
                 regenerate_raw_and_queue_har(
                     upload,
                     upload.source_trip,
-                    shift=ended_at - payload.cutoff_source_timestamp,
+                    shift=ended_at - payload.cutoff_source_timestamp,  # fine viaggio replay - fine viaggio replay ma normalizzato sull originale
                     now=now,
                     cutoff=payload.cutoff_source_timestamp,
                 )
@@ -275,11 +275,6 @@ def process_inline_core_upload(
             except ReplayRawError as exc:
                 raise UploadServiceError(exc.message) from exc
         elif not expected_raw_parts:
-            # Nessuna raw part attesa (es. viaggio interamente stazionario,
-            # nessuna finestra HAR prodotta dal telefono): la pipeline va
-            # comunque fatta girare, altrimenti trip.status non arriva mai a
-            # PROCESSED e il diario resta bloccato su "in corso" per sempre,
-            # anche se non c'e' nessun dato raw da elaborare.
             queue_final_har(upload, now=now)
 
         return upload

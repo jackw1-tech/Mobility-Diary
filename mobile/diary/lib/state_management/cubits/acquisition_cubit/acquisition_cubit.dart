@@ -17,7 +17,6 @@ class AcquisitionCubit extends Cubit<AcquisitionCubitState> {
 
   // Flag per indicare che il prossimo snapshot deve resettare i punti disegnati sulla mappa
   bool _resetRouteOnNextSnapshot = false;
-  // Flag per indicare che  ...
   bool _clearCompletedReplayOnNextSnapshot = false;
 
   AcquisitionCubit({
@@ -197,6 +196,7 @@ class AcquisitionCubit extends Cubit<AcquisitionCubitState> {
     );
   }
 
+  //Ogni volta che viene invocata _emitSnapshot controllo nel caso replay replaySecondsRemaining -> stop automatico
   void _stopReplayIfCompleted(AcquisitionSnapshot snapshot) {
     if (snapshot.isTracking &&
         snapshot.replaySecondsRemaining == 0 &&

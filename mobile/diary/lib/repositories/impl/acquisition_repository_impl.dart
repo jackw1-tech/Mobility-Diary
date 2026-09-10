@@ -179,6 +179,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     await _disposeActiveStrategy();
   }
 
+  // Quando clicco stop io o il sistema in automatico quando il viaggio è finito
   @override
   Future<ReplayStopResult> stopReplay() async {
     final strategy = _activeAcquisitionStrategy;
@@ -186,7 +187,8 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
       throw const UploadApiException('Invalid state for stopReplay');
     }
 
-    final result = await strategy.stop();
+    final result = await strategy
+        .stop(); // Da cui parte la catena gps e transisiton shiftati -> back-end
     await _handleStopResult(result);
     await _disposeActiveStrategy();
 
@@ -300,6 +302,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
     _activeAcquisitionStrategy = null;
   }
 
+  // Controlla se non c'è un synch job in corso
   Future<void> _ensureNoUnclosedCoreSyncJob() async {
     if (await _dao.latestUnclosedCoreSyncJob() != null) {
       throw const UploadApiException('Richiesta upload fallita');
@@ -310,6 +313,7 @@ class AcquisitionRepositoryImpl extends WidgetsBindingObserver
   Future<void> _handleStopResult(AcquisitionStopResult result) async {
     final syncSessionId = result.syncSessionId;
     if (syncSessionId == null) {
+      // nel caso replay
       return;
     }
     await _dao.createSyncJobIfAbsent(syncSessionId);
