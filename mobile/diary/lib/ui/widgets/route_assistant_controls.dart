@@ -4,15 +4,11 @@ import 'package:diary/state_management/cubits/route_assistant_cubit/route_assist
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-/// Colori funzionali dell'assistente (fuori dal brand monocromatico).
 const Color routeAssistantRouteColor = Color(0xFF7C4DFF); // viola percorso
 const Color _selectedManualColor = Color(0xFF4FC3F7); // azzurrino manuale
 const Color _detectedColor = Color(0xFFFFD54F); // giallo modalita' rilevata
 const IconData _stationaryModeIcon = Icons.pause;
 
-/// Stack verticale di selettori in alto a sinistra, visibile solo con un
-/// percorso attivo. `liveEnabled` gate del pulsante Live (calcolato dal parent
-/// in base al Viaggio in Corso), cosi' il widget resta disaccoppiato e testabile.
 class RouteAssistantControls extends StatelessWidget {
   final bool liveEnabled;
 
@@ -41,18 +37,31 @@ class RouteAssistantControls extends StatelessWidget {
                   tooltip: state.isLive
                       ? 'Spegni Live'
                       : liveEnabled
-                          ? 'Live'
-                          : 'Live (serve un viaggio in corso)',
+                      ? 'Live'
+                      : 'Live (serve un viaggio in corso)',
                   background: state.isLive ? _selectedManualColor : null,
-                  onPressed:
-                      state.isLive || liveEnabled ? cubit.toggleLive : null,
+                  onPressed: state.isLive || liveEnabled
+                      ? cubit.toggleLive
+                      : null,
                 ),
                 _modeButton(
-                    cubit, state, RouteMode.walking, Icons.directions_walk),
+                  cubit,
+                  state,
+                  RouteMode.walking,
+                  Icons.directions_walk,
+                ),
                 _modeButton(
-                    cubit, state, RouteMode.cycling, Icons.directions_bike),
+                  cubit,
+                  state,
+                  RouteMode.cycling,
+                  Icons.directions_bike,
+                ),
                 _modeButton(
-                    cubit, state, RouteMode.driving, Icons.directions_car),
+                  cubit,
+                  state,
+                  RouteMode.driving,
+                  Icons.directions_car,
+                ),
               ],
             ),
           ),
@@ -67,10 +76,9 @@ class RouteAssistantControls extends StatelessWidget {
     RouteMode mode,
     IconData icon,
   ) {
-    // In Live i chip sono disabilitati e la modalita' rilevata e' gialla;
-    // altrimenti il chip manuale selezionato e' azzurrino.
-    final highlighted =
-        state.isLive ? state.detectedMode == mode : state.mode == mode;
+    final highlighted = state.isLive
+        ? state.detectedMode == mode
+        : state.mode == mode;
     final background = highlighted
         ? (state.isLive ? _detectedColor : _selectedManualColor)
         : null;
@@ -128,8 +136,6 @@ class RouteDetectedModeIndicator extends StatelessWidget {
       case RouteMode.driving:
         return Icons.directions_car;
       case null:
-        // Il classifier restituisce null per idle: nel pallino passivo lo
-        // mostriamo come modalita' "fermo", distinta dall'attesa iniziale.
         return _stationaryModeIcon;
     }
   }
@@ -172,8 +178,8 @@ class _ControlButton extends StatelessWidget {
     final iconColor = hasCustomBg
         ? Colors.black87
         : (onPressed == null
-            ? onSurfaceColor.withValues(alpha: 0.38)
-            : onSurfaceColor);
+              ? onSurfaceColor.withValues(alpha: 0.38)
+              : onSurfaceColor);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),

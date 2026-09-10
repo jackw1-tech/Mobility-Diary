@@ -1,6 +1,6 @@
 import { sendJson } from './apiClient';
 
-export type WebUserSummary = {
+export type WebUserOverview = {
   id: number;
   email: string;
   first_name: string;
@@ -35,7 +35,7 @@ export type WebTripFilters = {
 };
 
 export type WebUserTripsResponse = {
-  owner: WebUserSummary;
+  owner: WebUserOverview;
   trips: WebTripListItem[];
 };
 
@@ -117,7 +117,7 @@ export type WebSensorGap = {
 };
 
 export type WebTripDashboard = {
-  owner: WebUserSummary;
+  owner: WebUserOverview;
   trip: WebTripDetail;
   track: WebTrack;
   diary: WebDiary;
@@ -141,8 +141,8 @@ export type WebMotionStats = {
   gyro_z: WebAxisStats;
 };
 
-export function fetchUsers(): Promise<WebUserSummary[]> {
-  return sendJson<WebUserSummary[]>('/web/users');
+export function fetchUsers(): Promise<WebUserOverview[]> {
+  return sendJson<WebUserOverview[]>('/web/users');
 }
 
 export function fetchUserTrips(

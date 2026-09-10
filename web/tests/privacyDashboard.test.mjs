@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   isProtectedLevel,
+  occupiedPrivacyCellCenters,
+  privacyCellSizeMeters,
   privacyLevelLabel,
   privacyLevelOptions,
   privacyMetricCards,
@@ -34,7 +36,25 @@ test('isProtectedLevel marks only precise as unprotected', () => {
   assert.equal(isProtectedLevel('aggregated'), true);
 });
 
-test('privacyMetricCards summarizes perturbation and quality loss', () => {
+test('privacy cells expose their size and remove repeated occupied centers', () => {
+  assert.equal(privacyCellSizeMeters('precise'), null);
+  assert.equal(privacyCellSizeMeters('approximate'), 150);
+  assert.equal(privacyCellSizeMeters('aggregated'), 400);
+  assert.deepEqual(
+    occupiedPrivacyCellCenters([
+      [9.1, 45.1],
+      [9.1, 45.1],
+      [9.2, 45.2],
+      [9.1, 45.1],
+    ]),
+    [
+      [9.1, 45.1],
+      [9.2, 45.2],
+    ],
+  );
+});
+
+test('privacyMetricCards formats perturbation and quality loss', () => {
   const cards = privacyMetricCards(metrics, 'approximate');
   assert.deepEqual(cards.map((card) => card.key), [
     'perturbation-mean',

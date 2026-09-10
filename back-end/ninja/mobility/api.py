@@ -114,12 +114,12 @@ def _place_out(place) -> PlaceOut:
     )
 
 
-def _visible_stop_place_out(summary) -> PlaceOut:
-    place = summary.matched_place
+def _visible_stop_place_out(stop_details) -> PlaceOut:
+    place = stop_details.matched_place
     return PlaceOut(
         id=0 if place is None else place.id,
-        lat=summary.lat,
-        lon=summary.lon,
+        lat=stop_details.lat,
+        lon=stop_details.lon,
         label=NEUTRAL_VISIBLE_STOP_TITLE if place is None else place_label(place),
         category="" if place is None else place.category,
     )
@@ -313,12 +313,6 @@ def _privacy_export_segment_out(segment) -> PrivacyExportSegmentOut:
     auth=mobile_bearer_auth,
 )
 def get_trip_privacy_export(request, trip_id: int):
-    """Vista Privacy-Aware testuale per l'export mobile.
-
-    Usa la Preferenza Privacy salvata dall'utente; il diario mobile normale
-    resta privato e preciso. Per i livelli non-precise la geometria e' cloaked
-    e le soste usano una dicitura generica.
-    """
     trip = get_object_or_404(Trip, id=trip_id, user_id=request.user.user_id)
     settings = accounts_repositories.get_or_create_privacy_settings(request.user.user_id)
     level = settings.level

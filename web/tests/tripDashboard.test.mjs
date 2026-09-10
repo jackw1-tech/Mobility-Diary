@@ -6,7 +6,7 @@ import {
   orderedSegments,
   placeFilterOptions,
   stopLabel,
-  summarizeTrip,
+  calculateTripStats,
 } from '../.tmp-tests/src/utils/tripDashboard.js';
 
 const trip = {
@@ -103,7 +103,7 @@ test('filterSegments clips segments to the selected active time window', () => {
   ]);
   assert.equal(visible[0].distance_meters, 250);
 
-  const stats = summarizeTrip(trip, visible, { durationMode: 'segments' });
+  const stats = calculateTripStats(trip, visible, { durationMode: 'segments' });
   assert.equal(stats.totalDurationSeconds, 900);
   assert.equal(stats.movementSeconds, 300);
   assert.equal(stats.stoppedSeconds, 600);
@@ -136,9 +136,9 @@ test('filterSegments clips move paths with the selected time window', () => {
   ]);
 });
 
-test('summarizeTrip can summarize the currently visible subset', () => {
+test('calculateTripStats handles the currently visible subset', () => {
   const visible = filterSegments(segments, { activities: ['BIKING'] });
-  const stats = summarizeTrip(trip, visible, { durationMode: 'segments' });
+  const stats = calculateTripStats(trip, visible, { durationMode: 'segments' });
 
   assert.equal(stats.totalDurationSeconds, 1800);
   assert.equal(stats.movementSeconds, 1800);
@@ -160,8 +160,8 @@ test('orderedSegments keeps backend-projected stop rows unchanged', () => {
   assert.equal(projected[1].start_timestamp, '2026-06-24T08:12:00.000Z');
 });
 
-test('summarizeTrip trusts backend stop counts without local merging', () => {
-  const stats = summarizeTrip(trip, [
+test('calculateTripStats trusts backend stop counts without local merging', () => {
+  const stats = calculateTripStats(trip, [
     segment('MOVE', 'WALKING', '2026-06-24T08:00:00.000Z', '2026-06-24T08:10:00.000Z', 500),
     segment('STOP', 'IDLE', '2026-06-24T08:10:00.000Z', '2026-06-24T08:12:00.000Z', 0),
     segment('STOP', 'IDLE', '2026-06-24T08:13:00.000Z', '2026-06-24T08:20:00.000Z', 0),
@@ -176,8 +176,8 @@ test('summarizeTrip trusts backend stop counts without local merging', () => {
   assert.deepEqual(stats.activitySplit.map((item) => item.label), ['Bici', 'Camminata']);
 });
 
-test('summarizeTrip matches one merged backend stop between two moves', () => {
-  const stats = summarizeTrip(
+test('calculateTripStats matches one merged backend stop between two moves', () => {
+  const stats = calculateTripStats(
     {
       ...trip,
       ended_at: '2026-06-24T08:20:00.000Z',

@@ -1,3 +1,4 @@
+// GENERATED CODE - DO NOT MODIFY BY HAND
 
 part of 'acquisition_dao.dart';
 
@@ -18,10 +19,14 @@ class AcquisitionDaoManager {
   AcquisitionDaoManager(this._db);
   $$AcquisitionSessionsTableTableManager get acquisitionSessions =>
       $$AcquisitionSessionsTableTableManager(
-          _db.attachedDatabase, _db.acquisitionSessions);
+        _db.attachedDatabase,
+        _db.acquisitionSessions,
+      );
   $$StateTransitionsTableTableManager get stateTransitions =>
       $$StateTransitionsTableTableManager(
-          _db.attachedDatabase, _db.stateTransitions);
+        _db.attachedDatabase,
+        _db.stateTransitions,
+      );
   $$GpsPointsTableTableManager get gpsPoints =>
       $$GpsPointsTableTableManager(_db.attachedDatabase, _db.gpsPoints);
   $$SensorWindowsTableTableManager get sensorWindows =>

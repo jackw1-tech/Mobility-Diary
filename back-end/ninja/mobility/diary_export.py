@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -10,12 +9,12 @@ from .diary_projection import ProjectedDiarySegment
 from .models import HabitualPlace, MobilitySegment, Trip
 from .privacy import (
     PRIVACY_AWARE_STOP_LABEL,
-    cloak_linestring,
+    approximate_linestring,
     line_geojson,
     privacy_cell_size_meters,
 )
 from .selectors.places import confirmed_places_for_user
-from .significant_places import VisibleStopSummary, place_label, project_diary_with_places
+from .significant_places import VisibleStopDetails, place_label, project_diary_with_places
 
 NEUTRAL_VISIBLE_STOP_TITLE = "Sosta rilevata"
 APPROXIMATE_TIME_GRANULARITY = timedelta(minutes=5)
@@ -69,13 +68,8 @@ class DiaryPrivacyExport:
     text: str
     segments: list[DiaryExportSegment]
 
-
+# costruzione diario con livello di privacy impostato
 def build_trip_privacy_export(trip: Trip, *, level: str) -> DiaryPrivacyExport:
-    """Build the exportable mobility diary from one private diary projection.
-
-    The private projection fixes the timeline (moves, stops, HAR labels). The
-    privacy level only decides how much of that timeline can be published.
-    """
     cell_size_meters = privacy_cell_size_meters(level)
     protected = level != UserPrivacySettings.Level.PRECISE
     persisted_segments = list(trip.segments.all())
@@ -83,8 +77,8 @@ def build_trip_privacy_export(trip: Trip, *, level: str) -> DiaryPrivacyExport:
     gps = list(trip.gps_points.order_by("timestamp"))
     confirmed = confirmed_places_for_user(trip.user_id)
     segments = [
-        _export_segment(segment, summary, level=level, protected=protected)
-        for segment, summary in project_diary_with_places(
+        _export_segment(segment, stop_details, level=level, protected=protected)
+        for segment, stop_details in project_diary_with_places(
             persisted_segments, virtual_stop_intervals, gps, confirmed
         )
     ]
@@ -111,7 +105,7 @@ def build_trip_privacy_export(trip: Trip, *, level: str) -> DiaryPrivacyExport:
         segments=segments,
     )
 
-
+# Funzione che costruisce il diario aggregato
 def _aggregated_export(
     *,
     trip: Trip,
@@ -128,7 +122,6 @@ def _aggregated_export(
         cell_size_meters=cell_size_meters,
         text=_aggregated_text(
             trip_id=trip.id,
-            level=level,
             cell_size_meters=cell_size_meters,
             segments=segments,
             aggregated_segments=aggregated_segments,
@@ -136,10 +129,13 @@ def _aggregated_export(
         segments=aggregated_segments,
     )
 
-
+#Prende il singolo segmento e lo trasforma approssimandolo
+   # Due possibili elmenti
+    # Segmento Movimento , none
+    # Segmento Fermo, nome | abitual pplace
 def _export_segment(
     segment: ProjectedDiarySegment,
-    summary: VisibleStopSummary | None,
+    stop_details: VisibleStopDetails | None,
     *,
     level: str,
     protected: bool,
@@ -157,22 +153,24 @@ def _export_segment(
         start_label=published_start.strftime("%H:%M"),
         end_label=published_end.strftime("%H:%M"),
         activity_label=segment.activity_label,
-        title=_segment_title(segment, summary, protected=protected),
+        title=_segment_title(segment, stop_details, protected=protected),
         point_count=len(coordinates),
         coordinates=coordinates,
         duration=published_end - published_start,
         distance_meters=distance_meters,
     )
 
-
+#Per ogni segmento, ricalcola la nuova line string approssimata e quindi la nuova lunghezza del segmento
 def _move_coordinates_and_distance(
     segment: ProjectedDiarySegment,
     *,
     level: str,
 ) -> tuple[list[list[float]], float]:
+    #Le soste non hanno linee da mostrare
     if segment.kind != MobilitySegment.Kind.MOVE or segment.path is None:
         return [], 0.0
 
+    #Livello precise -> restituisco le origniali
     if privacy_cell_size_meters(level) is None:
         return (
             [
@@ -182,14 +180,14 @@ def _move_coordinates_and_distance(
             segment.distance_meters,
         )
 
-    cloaked = cloak_linestring(segment.path, level=level)
-    geojson = line_geojson(cloaked)
+    approximated = approximate_linestring(segment.path, level=level)
+    geojson = line_geojson(approximated)
     return (
         [] if geojson is None else geojson["coordinates"],
-        0.0 if cloaked is None else cloaked.distance_meters,
+        0.0 if approximated is None else approximated.distance_meters,
     )
 
-
+#Raggruppa i singoli segmenti in fascia oraria
 def _aggregate_segments_by_period(
     segments: list[DiaryExportSegment],
 ) -> list[DiaryExportSegment]:
@@ -225,14 +223,17 @@ def _aggregate_segments_by_period(
         )
         distance = sum(segment.distance_meters for segment in move_segments)
         activity = _prevalent_activity(move_segments)
+        period_start = _period_timestamp(base_day, start_hour)
+        period_end = _period_timestamp(base_day, end_hour)
         if move_segments:
+            move_end = min(period_start + move_duration, period_end)
             period_rows.append(
                 DiaryExportSegment(
                     kind=MobilitySegment.Kind.MOVE,
-                    start_timestamp=_period_timestamp(base_day, start_hour),
-                    end_timestamp=_period_timestamp(base_day, end_hour),
+                    start_timestamp=period_start,
+                    end_timestamp=move_end,
                     start_label=f"{start_hour:02d}:00",
-                    end_label=f"{end_hour:02d}:00",
+                    end_label=move_end.strftime("%H:%M"),
                     activity_label=activity,
                     title=f"{period_name}: movimento aggregato",
                     point_count=0,
@@ -242,13 +243,14 @@ def _aggregate_segments_by_period(
                 )
             )
         if stop_segments:
+            stop_end = min(period_start + stop_duration, period_end)
             period_rows.append(
                 DiaryExportSegment(
                     kind=MobilitySegment.Kind.STOP,
-                    start_timestamp=_period_timestamp(base_day, start_hour),
-                    end_timestamp=_period_timestamp(base_day, end_hour),
+                    start_timestamp=period_start,
+                    end_timestamp=stop_end,
                     start_label=f"{start_hour:02d}:00",
-                    end_label=f"{end_hour:02d}:00",
+                    end_label=stop_end.strftime("%H:%M"),
                     activity_label="IDLE",
                     title=f"{period_name}: permanenza aggregata",
                     point_count=0,
@@ -262,14 +264,14 @@ def _aggregate_segments_by_period(
 
 def _segment_title(
     segment: ProjectedDiarySegment,
-    summary: VisibleStopSummary | None,
+    stop_details: VisibleStopDetails | None,
     *,
     protected: bool,
 ) -> str:
     if segment.kind == MobilitySegment.Kind.MOVE:
         return _activity_label_it(segment.activity_label)
 
-    place = None if summary is None else summary.matched_place
+    place = None if stop_details is None else stop_details.matched_place
     if not protected:
         return NEUTRAL_VISIBLE_STOP_TITLE if place is None else place_label(place)
     if place is None:
@@ -294,7 +296,7 @@ def _export_text(
         f"Privacy level: {level}",
     ]
     if cell_size_meters is not None:
-        lines.append(f"Cloaking spaziale: celle da {cell_size_meters} m")
+        lines.append(f"Approssimazione spaziale: celle da {cell_size_meters} m")
         lines.append("Coordinate approssimate: non sono letture GPS originali.")
     else:
         lines.append("Coordinate precise: export non protetto.")
@@ -303,23 +305,26 @@ def _export_text(
         lines.append(_segment_sentence(segments, index))
     return "\n".join(lines)
 
-
+#Costruisce il testo del diario aggregato
 def _aggregated_text(
     *,
     trip_id: int,
-    level: str,
     cell_size_meters: int | None,
     segments: list[DiaryExportSegment],
     aggregated_segments: list[DiaryExportSegment],
 ) -> str:
     lines = [
-        f"Diario viaggio #{trip_id}",
-        "Vista: aggregata",
-        f"Privacy level: {level}",
+        "DIARIO AGGREGATO",
+        f"Viaggio #{trip_id}",
+        "",
+        "PRIVACY",
     ]
     if cell_size_meters is not None:
-        lines.append(f"Cloaking spaziale: celle da {cell_size_meters} m")
-    lines.append("Percorsi e luoghi puntuali non sono inclusi.")
+        lines.append(
+            "Le informazioni geografiche sono rappresentate "
+            f"in aree da {cell_size_meters} m."
+        )
+    lines.append("Percorsi precisi e luoghi esatti non sono inclusi.")
     lines.append("")
 
     total_move_duration = timedelta()
@@ -329,28 +334,62 @@ def _aggregated_text(
         if segment.kind == MobilitySegment.Kind.MOVE:
             total_move_duration += segment.duration
             total_distance += segment.distance_meters
-            lines.append(
-                f"{segment.title}: {_format_duration(segment.duration)}, "
-                f"modalita' prevalente: {_activity_label_it(segment.activity_label)}, "
-                f"distanza: {_format_distance_bucket(segment.distance_meters)}"
-            )
         else:
             total_stop_duration += segment.duration
-            lines.append(
-                f"{segment.title}: {_format_duration(segment.duration)}"
+
+    for period_name, start_hour, end_hour in _DAY_PERIODS:
+        period_segments = [
+            segment
+            for segment in aggregated_segments
+            if _period_for_start_label(segment.start_label) == period_name
+        ]
+        if not period_segments:
+            continue
+        move = next(
+            (
+                segment
+                for segment in period_segments
+                if segment.kind == MobilitySegment.Kind.MOVE
+            ),
+            None,
+        )
+        stop = next(
+            (
+                segment
+                for segment in period_segments
+                if segment.kind == MobilitySegment.Kind.STOP
+            ),
+            None,
+        )
+        lines.extend(
+            [
+                f"{period_name.upper()} · {start_hour:02d}:00–{end_hour:02d}:00",
+                "",
+            ]
+        )
+        if move is not None:
+            lines.extend(
+                [
+                    f"- Movimento: {_format_duration(move.duration)}",
+                    f"- Modalità: {_activity_label_it(move.activity_label).capitalize()}",
+                    f"- Distanza: {_format_distance_bucket(move.distance_meters)}",
+                ]
             )
+        if stop is not None:
+            lines.append(f"- Tempo in sosta: {_format_duration(stop.duration)}")
+        lines.append("")
 
     visited_area_count = sum(
         1 for segment in segments if segment.kind == MobilitySegment.Kind.STOP
     )
     lines.extend(
         [
+            "TOTALE DELLA GIORNATA",
             "",
-            "Totale giornata",
-            f"- tempo in movimento: {_format_duration(total_move_duration)}",
-            f"- tempo in sosta: {_format_duration(total_stop_duration)}",
-            f"- distanza approssimata: {_format_distance_bucket(total_distance)}",
-            f"- aree significative visitate: {visited_area_count}",
+            f"- Movimento: {_format_duration(total_move_duration)}",
+            f"- Tempo in sosta: {_format_duration(total_stop_duration)}",
+            f"- Distanza: {_format_distance_bucket(total_distance)}",
+            f"- Aree visitate: {visited_area_count}",
         ]
     )
     return "\n".join(lines)
@@ -426,41 +465,40 @@ def _period_timestamp(base_day: datetime, hour: int) -> datetime:
     return base_day.replace(hour=hour, minute=0, second=0, microsecond=0)
 
 
+# Se protetto, approssimo la data di inzio di quel segmento
 def _published_start(value: datetime, *, protected: bool) -> datetime:
     if not protected:
         return value
     return _floor_time(value, APPROXIMATE_TIME_GRANULARITY)
 
-
+# Se protetto, approssimo la data di fine di quel segmento
 def _published_end(value: datetime, *, protected: bool) -> datetime:
     if not protected:
         return value
     return _ceil_time(value, APPROXIMATE_TIME_GRANULARITY)
 
 
+
 def _floor_time(value: datetime, step: timedelta) -> datetime:
-    seconds = int(step.total_seconds())
-    timestamp = int(value.timestamp())
-    return datetime.fromtimestamp(timestamp - timestamp % seconds, tz=value.tzinfo)
+    seconds = step.total_seconds()
+    timestamp = value.timestamp()
+    floored = timestamp - timestamp % seconds
+    return datetime.fromtimestamp(floored, tz=value.tzinfo)
 
 
 def _ceil_time(value: datetime, step: timedelta) -> datetime:
-    seconds = int(step.total_seconds())
-    timestamp = int(value.timestamp())
-    return datetime.fromtimestamp(
-        math.ceil(timestamp / seconds) * seconds,
-        tz=value.tzinfo,
-    )
+    floored = _floor_time(value, step)
+    return floored if value == floored else floored + step
 
 
 def _format_duration(duration: timedelta) -> str:
     total_minutes = max(0, int(round(duration.total_seconds() / 60)))
     hours, minutes = divmod(total_minutes, 60)
     if hours and minutes:
-        return f"{hours}h {minutes}m"
+        return f"{hours} h {minutes} min"
     if hours:
-        return f"{hours}h"
-    return f"{minutes}m"
+        return f"{hours} h"
+    return f"{minutes} min"
 
 
 def _format_distance(distance_meters: float) -> str:
@@ -474,11 +512,11 @@ def _format_distance_bucket(distance_meters: float) -> str:
         return "0 km"
     km = distance_meters / 1000
     if km < 1:
-        return "<1 km"
+        return "Meno di 1 km"
     if km < 3:
-        return "1-3 km"
+        return "1–3 km"
     if km < 5:
-        return "3-5 km"
+        return "3–5 km"
     if km < 10:
-        return "5-10 km"
-    return ">10 km"
+        return "5–10 km"
+    return "Oltre 10 km"

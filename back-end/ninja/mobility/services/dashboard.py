@@ -2,7 +2,7 @@
 vista privacy-aware di un Trip.
 
 Prima dell'introduzione di questo modulo, l'intera costruzione della vista
-(query GPS/Luoghi Confermati, overlay delle soste, cloaking privacy) era
+(query GPS/Luoghi Confermati, overlay delle soste, approssimazione spaziale) era
 duplicata dentro `accounts.auth_web.users_api`, che reimplementava a mano una
 buona parte di cio' che questo context espone gia' altrove
 (`mobility.diary_export`, `mobility.diary_projection`,
@@ -29,8 +29,8 @@ from ..models import MobilitySegment, Trip
 from ..privacy import (
     PRIVACY_AWARE_STOP_LABEL,
     PrivacyMetrics,
-    cloak_linestring,
-    cloak_point,
+    approximate_linestring,
+    approximate_point,
     line_geojson,
     point_geojson,
     privacy_metrics as compute_privacy_metrics,
@@ -41,7 +41,7 @@ from ..selectors.sensor_readings import (
     find_motion_stats_by_activity,
     find_sensor_gaps,
 )
-from ..significant_places import VisibleStopSummary, place_label
+from ..significant_places import VisibleStopDetails, place_label
 from .diary_view import build_private_diary
 
 SENSOR_GAP_THRESHOLD_MS = 10
@@ -126,27 +126,6 @@ class PrivacyAwareView:
     significant_places: list[SignificantPlaceView]
     metrics: PrivacyMetrics
 
-
-def saved_privacy_level(trip: Trip) -> str:
-    settings = accounts_repositories.get_or_create_privacy_settings(trip.user_id)
-    return settings.level
-
-
-def resolve_privacy_level(trip: Trip, requested: str | None) -> str:
-    """Sceglie il livello per una vista privacy-aware senza toccare quello salvato.
-
-    Nessuna query param significa "usa la Preferenza Privacy salvata
-    dall'utente"; un livello esplicito e' accettato solo dopo validazione,
-    cosi' un Operatore Web puo' confrontare i livelli senza mutare la
-    preferenza dell'utente.
-    """
-    if requested is None:
-        return saved_privacy_level(trip)
-    if requested not in UserPrivacySettings.Level.values:
-        raise InvalidPrivacyLevel("Livello privacy non valido")
-    return requested
-
-
 def track_view(trip: Trip) -> TrackView:
     track = trips_repository.trip_track_for_user(trip.id, trip.user_id)
     return TrackView(
@@ -186,19 +165,25 @@ def motion_stats_by_activity(user_id: int) -> list[MotionStatsView]:
         for row in rows
     ]
 
-
+# Costruisce la traccia in base al livello privacy selezionato.
 def privacy_track_view(trip: Trip, *, level: str) -> TrackView:
-    cloaked_line = cloak_linestring(trip.path, level=level)
+    approximated_line = approximate_linestring(trip.path, level=level)
     return TrackView(
         trip_id=trip.id,
-        point_count=cloaked_line.point_count if cloaked_line is not None else 0,
-        distance_meters=cloaked_line.distance_meters if cloaked_line is not None else 0,
-        geojson=line_geojson(cloaked_line),
+        point_count=(
+            approximated_line.geometry.num_coords
+            if approximated_line is not None
+            else 0
+        ),
+        distance_meters=(
+            approximated_line.distance_meters if approximated_line is not None else 0
+        ),
+        geojson=line_geojson(approximated_line),
     )
 
 
 def _segment_place_view(
-    segment_place: VisibleStopSummary | None,
+    segment_place: VisibleStopDetails | None,
     *,
     level: str | None,
 ) -> DiarySegmentPlaceView | None:
@@ -207,7 +192,7 @@ def _segment_place_view(
     masked = level not in (None, UserPrivacySettings.Level.PRECISE)
     place = segment_place.matched_place
     if masked:
-        coordinate = cloak_point(
+        coordinate = approximate_point(
             Point(segment_place.lon, segment_place.lat, srid=4326),
             level=level,
         )
@@ -261,6 +246,7 @@ def _export_segment_place_view(segment, *, level: str) -> DiarySegmentPlaceView 
     return DiarySegmentPlaceView(center_geojson=None, label=segment.title, radius_meters=0)
 
 
+# export diario con livello di privacy impostato
 def _privacy_diary_view_from_export(trip: Trip, *, level: str) -> DiaryView:
     export = build_trip_privacy_export(trip, level=level)
     return DiaryView(
@@ -282,6 +268,7 @@ def _privacy_diary_view_from_export(trip: Trip, *, level: str) -> DiaryView:
     )
 
 
+#Controlla il livello di privacy e costruisce il diario
 def diary_view(trip: Trip, *, level: str | None = None) -> DiaryView:
     if level is not None:
         return _privacy_diary_view_from_export(trip, level=level)
@@ -289,12 +276,6 @@ def diary_view(trip: Trip, *, level: str | None = None) -> DiaryView:
 
 
 def significant_places_view(trip: Trip, *, level: str) -> list[SignificantPlaceView]:
-    """Luoghi Confermati toccati dal viaggio, con il tempo di sosta cumulato.
-
-    Riusa `build_private_diary`, che ha gia' calcolato il match sosta -> Luogo
-    Confermato: prima questa funzione ripeteva da capo la stessa query
-    (GPS, Luoghi Confermati, intervalli sosta) gia' fatta per il diario.
-    """
     masked = level != UserPrivacySettings.Level.PRECISE
     aggregated: dict[int, dict[str, Any]] = {}
     for segment in build_private_diary(trip):
@@ -308,7 +289,7 @@ def significant_places_view(trip: Trip, *, level: str) -> list[SignificantPlaceV
     return [
         SignificantPlaceView(
             center_geojson=point_geojson(
-                cloak_point(item["place"].center, level=level)
+                approximate_point(item["place"].center, level=level)
             ),
             label=PRIVACY_AWARE_STOP_LABEL if masked else place_label(item["place"]),
             radius_meters=item["place"].radius_meters,
@@ -323,14 +304,22 @@ def privacy_metrics_view(trip: Trip, *, level: str) -> PrivacyMetrics:
 
 
 def privacy_aware_view(trip: Trip, *, requested_level: str | None) -> PrivacyAwareView:
-    default_level = saved_privacy_level(trip)
-    level = resolve_privacy_level(trip, requested_level)
-    precise = level == UserPrivacySettings.Level.PRECISE
+    default_level = accounts_repositories.get_or_create_privacy_settings(
+        trip.user_id
+    ).level
+    # Il parametro permette l'anteprima senza modificare la preferenza dell'utente.
+    level = default_level if requested_level is None else requested_level
+    if level not in UserPrivacySettings.Level.values:
+        raise InvalidPrivacyLevel("Livello privacy non valido")
+
+    protected = level != UserPrivacySettings.Level.PRECISE
     return PrivacyAwareView(
         level=level,
         default_level=default_level,
-        track=track_view(trip) if precise else privacy_track_view(trip, level=level),
-        diary=diary_view(trip, level=None if precise else level),
+        track=(
+            privacy_track_view(trip, level=level) if protected else track_view(trip)
+        ),
+        diary=diary_view(trip, level=level if protected else None),
         significant_places=significant_places_view(trip, level=level),
         metrics=privacy_metrics_view(trip, level=level),
     )

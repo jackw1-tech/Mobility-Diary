@@ -53,11 +53,14 @@ class TripStats {
       }
     }
 
-    final activities = activitySeconds.entries
-        .map((entry) =>
-            (label: entry.key, duration: Duration(seconds: entry.value)))
-        .toList()
-      ..sort((a, b) => b.duration.compareTo(a.duration));
+    final activities =
+        activitySeconds.entries
+            .map(
+              (entry) =>
+                  (label: entry.key, duration: Duration(seconds: entry.value)),
+            )
+            .toList()
+          ..sort((a, b) => b.duration.compareTo(a.duration));
 
     return TripStats(
       ordered.last.endTimestamp.difference(ordered.first.startTimestamp),
@@ -84,9 +87,7 @@ String activityLabelText(String label) => _activityLabels[label] ?? label;
 
 bool isStopSegment(TripDiarySegment segment) => segment.kind == 'STOP';
 
-List<TripDiarySegment> placedStopSegments(
-  List<TripDiarySegment> segments,
-) {
+List<TripDiarySegment> placedStopSegments(List<TripDiarySegment> segments) {
   return [
     for (final segment in segments)
       if (isStopSegment(segment) && segment.place != null) segment,
@@ -131,7 +132,7 @@ String _clock(DateTime time) {
       '${local.minute.toString().padLeft(2, '0')}';
 }
 
-String stopSummaryText(TripStats stats) {
+String stopStatsText(TripStats stats) {
   final noun = stats.stopCount == 1 ? 'sosta' : 'soste';
   return '${stats.stopCount} $noun · ${formatDuration(stats.stopped)}';
 }

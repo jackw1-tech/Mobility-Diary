@@ -21,7 +21,7 @@ export type PrivacyLevelOption = {
 };
 
 export const privacyLevelOptions: PrivacyLevelOption[] = [
-  { value: 'precise', label: 'Precisa', cellLabel: 'Nessun cloaking', protectedLevel: false },
+  { value: 'precise', label: 'Precisa', cellLabel: 'Coordinate originali', protectedLevel: false },
   { value: 'approximate', label: 'Approssimata', cellLabel: 'Celle 150 m', protectedLevel: true },
   { value: 'aggregated', label: 'Aggregata', cellLabel: 'Celle 400 m', protectedLevel: true },
 ];
@@ -36,6 +36,20 @@ export function privacyLevelCellLabel(level: PrivacyLevel): string {
 
 export function isProtectedLevel(level: PrivacyLevel): boolean {
   return level !== 'precise';
+}
+
+export function privacyCellSizeMeters(level: PrivacyLevel): number | null {
+  if (level === 'approximate') return 150;
+  if (level === 'aggregated') return 400;
+  return null;
+}
+
+export function occupiedPrivacyCellCenters(
+  coordinates: readonly [number, number][],
+): [number, number][] {
+  return [...new Map(
+    coordinates.map((coordinate) => [`${coordinate[0]},${coordinate[1]}`, coordinate]),
+  ).values()];
 }
 
 export function formatMeters(meters: number): string {

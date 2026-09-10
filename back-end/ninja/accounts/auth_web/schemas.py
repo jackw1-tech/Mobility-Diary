@@ -24,7 +24,7 @@ class WebAuthOut(Schema):
     refresh_expires_at: datetime
 
 
-class WebUserSummaryOut(Schema):
+class WebUserOverviewOut(Schema):
     id: int
     email: str
     first_name: str
@@ -50,7 +50,7 @@ class WebTripListItemOut(WebTripDetailOut):
 
 
 class WebUserTripsOut(Schema):
-    owner: WebUserSummaryOut
+    owner: WebUserOverviewOut
     trips: list[WebTripListItemOut]
 
 
@@ -140,7 +140,7 @@ class WebMotionStatsOut(Schema):
 
 
 class WebTripDashboardOut(Schema):
-    owner: WebUserSummaryOut
+    owner: WebUserOverviewOut
     trip: WebTripDetailOut
     track: WebTrackOut
     diary: WebDiaryOut

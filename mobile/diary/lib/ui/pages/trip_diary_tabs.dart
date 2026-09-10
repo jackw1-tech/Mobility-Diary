@@ -14,8 +14,11 @@ class TripDiaryTab extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocBuilder<TripTrackCubit, TripTrackCubitState>(
       builder: (context, state) {
-        final message =
-            _stateMessage(context, state, pending: 'Diario in analisi');
+        final message = _stateMessage(
+          context,
+          state,
+          pending: 'Diario in analisi',
+        );
         if (message != null) return message;
         final segments = state.diarySegments;
         if (segments.isEmpty) {
@@ -23,7 +26,8 @@ class TripDiaryTab extends StatelessWidget {
         }
         return ListView.separated(
           padding: const EdgeInsets.all(Dimensions.paddingMedium),
-          itemBuilder: (context, index) => _segmentTile(context, segments[index]),
+          itemBuilder: (context, index) =>
+              _segmentTile(context, segments[index]),
           separatorBuilder: (_, __) =>
               const SizedBox(height: Dimensions.paddingSmall),
           itemCount: segments.length,
@@ -40,8 +44,11 @@ class TripStatsTab extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocBuilder<TripTrackCubit, TripTrackCubitState>(
       builder: (context, state) {
-        final message =
-            _stateMessage(context, state, pending: 'Statistiche in analisi');
+        final message = _stateMessage(
+          context,
+          state,
+          pending: 'Statistiche in analisi',
+        );
         if (message != null) return message;
         final stats = TripStats.fromSegments(state.diarySegments);
         if (stats.isEmpty) {
@@ -58,17 +65,29 @@ class TripStatsTab extends StatelessWidget {
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               children: [
-                _metricCard(context, Icons.timer, 'Durata',
-                    formatDuration(stats.duration)),
-                _metricCard(context, Icons.route, 'Distanza',
-                    formatDistance(stats.distanceMeters)),
-                _metricCard(context, Icons.directions_walk, 'Movimento',
-                    formatDuration(stats.moving)),
+                _metricCard(
+                  context,
+                  Icons.timer,
+                  'Durata',
+                  formatDuration(stats.duration),
+                ),
+                _metricCard(
+                  context,
+                  Icons.route,
+                  'Distanza',
+                  formatDistance(stats.distanceMeters),
+                ),
+                _metricCard(
+                  context,
+                  Icons.directions_walk,
+                  'Movimento',
+                  formatDuration(stats.moving),
+                ),
                 _metricCard(
                   context,
                   Icons.place,
                   'Soste',
-                  stopSummaryText(stats),
+                  stopStatsText(stats),
                 ),
               ],
             ),
@@ -157,10 +176,9 @@ Widget _metricCard(
           Text(label, style: Theme.of(context).textTheme.bodySmall),
           Text(
             value,
-            style: Theme.of(context)
-                .textTheme
-                .titleMedium
-                ?.copyWith(fontWeight: FontWeight.w700),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
           ),
         ],
       ),
@@ -169,9 +187,12 @@ Widget _metricCard(
 }
 
 Widget _activityBar(
-    ({String label, Duration duration}) activity, Duration max) {
-  final value =
-      max.inSeconds == 0 ? 0.0 : activity.duration.inSeconds / max.inSeconds;
+  ({String label, Duration duration}) activity,
+  Duration max,
+) {
+  final value = max.inSeconds == 0
+      ? 0.0
+      : activity.duration.inSeconds / max.inSeconds;
   return Padding(
     padding: const EdgeInsets.only(bottom: Dimensions.paddingSmall),
     child: Column(

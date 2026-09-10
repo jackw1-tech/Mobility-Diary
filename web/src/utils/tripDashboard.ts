@@ -135,7 +135,7 @@ export function filterSegments(
   });
 }
 
-export function summarizeTrip(
+export function calculateTripStats(
   trip: DashboardTrip,
   segments: DashboardSegment[],
   options: { durationMode?: 'trip' | 'segments' } = {},

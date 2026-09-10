@@ -47,14 +47,16 @@ class _AnalyticsTrendSectionState extends State<AnalyticsTrendSection> {
     final maxWindowStart = analyticsWindowMaxStart(allBars.length);
     final safeWindowStart = _windowStart.clamp(0, maxWindowStart);
     final visibleBars = analyticsWindow(allBars, safeWindowStart);
-    final visibleBuckets =
-        analyticsWindow(widget.data.buckets, safeWindowStart);
+    final visibleBuckets = analyticsWindow(
+      widget.data.buckets,
+      safeWindowStart,
+    );
     final visibleEnd = safeWindowStart + visibleBars.length;
     final safeSelected = _selected.clamp(0, allBars.length - 1);
     final selected =
         safeSelected < safeWindowStart || safeSelected >= visibleEnd
-            ? visibleEnd - 1
-            : safeSelected;
+        ? visibleEnd - 1
+        : safeSelected;
     final bucket = widget.data.buckets[selected];
     final isCurrent = selected == allBars.length - 1;
     final showWindowSlider = analyticsNeedsWindowSlider(allBars.length);
@@ -94,9 +96,12 @@ class _AnalyticsTrendSectionState extends State<AnalyticsTrendSection> {
           const AnalyticsCategoryLegend(),
           const Divider(height: Dimensions.paddingLarge),
           AnalyticsBucketDetail(
-            title:
-                _detailTitle(widget.data.granularity, bucket.label, isCurrent),
-            summary: summarizeBuckets([bucket]),
+            title: _detailTitle(
+              widget.data.granularity,
+              bucket.label,
+              isCurrent,
+            ),
+            totals: calculateAnalyticsTotals([bucket]),
           ),
         ],
       ),
@@ -111,8 +116,9 @@ class _AnalyticsTrendSectionState extends State<AnalyticsTrendSection> {
   }
 
   void _resetWindow() {
-    _selected =
-        widget.data.buckets.isEmpty ? 0 : widget.data.buckets.length - 1;
+    _selected = widget.data.buckets.isEmpty
+        ? 0
+        : widget.data.buckets.length - 1;
     _windowStart = analyticsDefaultWindowStart(widget.data.buckets.length);
   }
 }
@@ -136,10 +142,12 @@ class _BucketWindowSlider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final periodLabel =
-        granularity == 'week' ? 'Settimane visibili' : 'Giorni visibili';
-    final rangeLabel =
-        firstLabel == lastLabel ? firstLabel : '$firstLabel - $lastLabel';
+    final periodLabel = granularity == 'week'
+        ? 'Settimane visibili'
+        : 'Giorni visibili';
+    final rangeLabel = firstLabel == lastLabel
+        ? firstLabel
+        : '$firstLabel - $lastLabel';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -159,8 +167,8 @@ class _BucketWindowSlider extends StatelessWidget {
                 textAlign: TextAlign.end,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
             ),
           ],

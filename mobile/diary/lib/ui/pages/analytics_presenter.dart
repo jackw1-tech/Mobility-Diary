@@ -35,12 +35,12 @@ class AnalyticsCategoryTotal {
 /// Statistiche di un insieme di bucket (la finestra intera o un singolo
 /// giorno/settimana selezionato): tempo "In movimento", distanza e dettaglio
 /// per Categoria di Mobilita.
-class AnalyticsSummary {
+class AnalyticsTotals {
   final Duration movementTime;
   final double totalDistanceMeters;
   final List<AnalyticsCategoryTotal> categoryTotals;
 
-  const AnalyticsSummary({
+  const AnalyticsTotals({
     required this.movementTime,
     required this.totalDistanceMeters,
     required this.categoryTotals,
@@ -102,13 +102,13 @@ AnalyticsHeatmap buildHeatmapFromPoints(List<AnalyticsHeatPoint> points) {
 }
 
 List<AnalyticsWeeklyHeatmapViewModel> buildWeeklyHeatmaps(Analytics data) => [
-      for (final week in data.weeklyHeatmaps)
-        AnalyticsWeeklyHeatmapViewModel(
-          label: week.label,
-          tripIds: week.tripIds,
-          heatmap: buildHeatmapFromPoints(week.habitualPlaces),
-        ),
-    ];
+  for (final week in data.weeklyHeatmaps)
+    AnalyticsWeeklyHeatmapViewModel(
+      label: week.label,
+      tripIds: week.tripIds,
+      heatmap: buildHeatmapFromPoints(week.habitualPlaces),
+    ),
+];
 
 /// Una barra per bucket: secondi per categoria, allineati a kMobilityCategories.
 List<AnalyticsBar> analyticsBars(Analytics data) {
@@ -124,8 +124,7 @@ List<AnalyticsBar> analyticsBars(Analytics data) {
 bool analyticsNeedsWindowSlider(
   int bucketCount, {
   int windowSize = kAnalyticsWindowSize,
-}) =>
-    bucketCount > windowSize;
+}) => bucketCount > windowSize;
 
 int analyticsWindowMaxStart(
   int bucketCount, {
@@ -138,8 +137,7 @@ int analyticsWindowMaxStart(
 int analyticsDefaultWindowStart(
   int bucketCount, {
   int windowSize = kAnalyticsWindowSize,
-}) =>
-    analyticsWindowMaxStart(bucketCount, windowSize: windowSize);
+}) => analyticsWindowMaxStart(bucketCount, windowSize: windowSize);
 
 List<T> analyticsWindow<T>(
   List<T> items,
@@ -147,8 +145,10 @@ List<T> analyticsWindow<T>(
   int windowSize = kAnalyticsWindowSize,
 }) {
   if (items.isEmpty) return const [];
-  final maxStart =
-      analyticsWindowMaxStart(items.length, windowSize: windowSize);
+  final maxStart = analyticsWindowMaxStart(
+    items.length,
+    windowSize: windowSize,
+  );
   final safeStart = start.clamp(0, maxStart).toInt();
   final end = (safeStart + windowSize).clamp(0, items.length).toInt();
   return items.sublist(safeStart, end);
@@ -163,7 +163,7 @@ double _sliceSeconds(AnalyticsBucket bucket, String key) {
 
 /// Aggrega uno o piu' bucket (l'intera finestra, o il singolo giorno/settimana
 /// selezionato) in tempo per categoria, tempo "In movimento" e distanza totale.
-AnalyticsSummary summarizeBuckets(Iterable<AnalyticsBucket> buckets) {
+AnalyticsTotals calculateAnalyticsTotals(Iterable<AnalyticsBucket> buckets) {
   final seconds = {for (final c in kMobilityCategories) c.key: 0.0};
   final meters = {for (final c in kMobilityCategories) c.key: 0.0};
 
@@ -187,7 +187,7 @@ AnalyticsSummary summarizeBuckets(Iterable<AnalyticsBucket> buckets) {
       .where((total) => total.category.key != 'fermo')
       .fold(Duration.zero, (sum, total) => sum + total.time);
 
-  return AnalyticsSummary(
+  return AnalyticsTotals(
     movementTime: movementTime,
     totalDistanceMeters: meters.values.fold(0.0, (a, b) => a + b),
     categoryTotals: categoryTotals,

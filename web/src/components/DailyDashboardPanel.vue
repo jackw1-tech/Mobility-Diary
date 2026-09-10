@@ -32,7 +32,7 @@ import {
   placeFilterOptions,
   segmentSeconds,
   stopLabel,
-  summarizeTrip,
+  calculateTripStats,
 } from '../utils/tripDashboard';
 
 const props = defineProps<{
@@ -87,7 +87,7 @@ const stopSegments = computed(() => (
 const activityOptions = computed(() => activityFilterOptions(timeWindowSegments.value));
 const placeOptions = computed(() => placeFilterOptions(timeWindowSegments.value));
 const stats = computed(() => (
-  summarizeTrip(
+  calculateTripStats(
     { started_at: `${day.value}T00:00:00.000Z`, ended_at: `${day.value}T23:59:59.000Z` },
     visibleSegments.value,
     { durationMode: 'segments' },

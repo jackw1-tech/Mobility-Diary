@@ -21,7 +21,7 @@ class HomeMapOverlays extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         if (route != null)
-          _RouteSummaryPanel(
+          _RouteStatsPanel(
             route: route!,
             routeUpdatedAt: routeUpdatedAt ?? DateTime.now(),
           ),
@@ -34,14 +34,11 @@ class HomeMapOverlays extends StatelessWidget {
   }
 }
 
-class _RouteSummaryPanel extends StatelessWidget {
+class _RouteStatsPanel extends StatelessWidget {
   final RouteAssistantRoute route;
   final DateTime routeUpdatedAt;
 
-  const _RouteSummaryPanel({
-    required this.route,
-    required this.routeUpdatedAt,
-  });
+  const _RouteStatsPanel({required this.route, required this.routeUpdatedAt});
 
   @override
   Widget build(BuildContext context) {
@@ -73,7 +70,7 @@ class _RouteSummaryPanel extends StatelessWidget {
             child: Row(
               children: [
                 Expanded(
-                  child: _RouteSummaryItem(
+                  child: _RouteStatsItem(
                     icon: Icons.flag_outlined,
                     label: 'Arrivo',
                     value: _arrivalTimeLabel(
@@ -85,7 +82,7 @@ class _RouteSummaryPanel extends StatelessWidget {
                 ),
                 const SizedBox(width: Dimensions.paddingSmall),
                 Expanded(
-                  child: _RouteSummaryItem(
+                  child: _RouteStatsItem(
                     icon: Icons.straighten,
                     label: 'Mancano',
                     value: _distanceLabel(route.distanceMeters),
@@ -94,7 +91,7 @@ class _RouteSummaryPanel extends StatelessWidget {
                 ),
                 const SizedBox(width: Dimensions.paddingSmall),
                 Expanded(
-                  child: _RouteSummaryItem(
+                  child: _RouteStatsItem(
                     icon: Icons.schedule,
                     label: 'Tempo',
                     value: _durationLabel(route.durationSeconds),
@@ -110,13 +107,13 @@ class _RouteSummaryPanel extends StatelessWidget {
   }
 }
 
-class _RouteSummaryItem extends StatelessWidget {
+class _RouteStatsItem extends StatelessWidget {
   final IconData icon;
   final String label;
   final String value;
   final Color color;
 
-  const _RouteSummaryItem({
+  const _RouteStatsItem({
     required this.icon,
     required this.label,
     required this.value,
@@ -139,17 +136,17 @@ class _RouteSummaryItem extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
               const SizedBox(height: 2),
               Text(
                 value,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
               ),
             ],
           ),
@@ -191,18 +188,14 @@ class _ReplayCountdownPill extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                Icons.timer_outlined,
-                color: semantic.warning,
-                size: 18,
-              ),
+              Icon(Icons.timer_outlined, color: semantic.warning, size: 18),
               const SizedBox(width: Dimensions.paddingSmall),
               Text(
                 'Fine tra ${seconds}s',
                 style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: semantic.warning,
-                      fontWeight: FontWeight.w700,
-                    ),
+                  color: semantic.warning,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ],
           ),

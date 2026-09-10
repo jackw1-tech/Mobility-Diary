@@ -188,7 +188,7 @@ class PrivacyExportSegmentOut(Schema):
     # e' `precise`, altrimenti una dicitura generica per le soste.
     title: str
     point_count: int
-    # Coordinate privacy-aware (cloaked) per i MOVE; vuota per le soste.
+    # Coordinate privacy-aware approssimate per i MOVE; vuota per le soste.
     coordinates: list[list[float]]
 
 
@@ -197,7 +197,7 @@ class PrivacyExportOut(Schema):
     level: str
     # False solo per `precise`: l'export non protegge la geometria.
     protected: bool
-    # True quando le coordinate sono celle cloaked e non letture GPS reali.
+    # True quando le coordinate rappresentano celle e non letture GPS reali.
     approximated_coordinates: bool
     cell_size_meters: int | None
     text: str

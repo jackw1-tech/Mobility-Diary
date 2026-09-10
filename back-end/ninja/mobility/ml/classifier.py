@@ -20,7 +20,7 @@ BIKE_MAX = 7.0          # ~25 km/h
 @dataclass(frozen=True)
 class ClassifierResult:
     labels: list[str] #Lista di Labels,una a finestra 
-    summary: dict
+    diagnostics: dict
 
 
 def _label_from_speed(speed: float) -> str:
@@ -41,4 +41,4 @@ def classify_windows(
     raw_windows=None,
 ) -> ClassifierResult:
     prediction = predict_activity_windows(raw_windows)
-    return ClassifierResult(prediction.labels, prediction.summary)
+    return ClassifierResult(prediction.labels, prediction.diagnostics)

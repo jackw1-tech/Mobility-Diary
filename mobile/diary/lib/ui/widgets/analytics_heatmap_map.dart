@@ -68,52 +68,60 @@ class _AnalyticsHeatmapMapState extends State<AnalyticsHeatmapMap> {
     final primaryColor = Theme.of(context).colorScheme.primary.toARGB32();
     final surfaceColor = Theme.of(context).colorScheme.surface.toARGB32();
 
-    await map.style.addSource(GeoJsonSource(
-      id: _sourceId,
-      data: jsonEncode({'type': 'FeatureCollection', 'features': features}),
-    ));
+    await map.style.addSource(
+      GeoJsonSource(
+        id: _sourceId,
+        data: jsonEncode({'type': 'FeatureCollection', 'features': features}),
+      ),
+    );
     if (points.length <= 3) {
-      await map.style.addLayer(CircleLayer(
-        id: _markerLayerId,
-        sourceId: _sourceId,
-        circleColor: primaryColor,
-        circleOpacity: 0.82,
-        circleRadiusExpression: [
-          'interpolate',
-          ['linear'],
-          ['get', 'weight'],
-          0,
-          8.0,
-          max(widget.heatmap.maxWeight, 1.0),
-          18.0,
-        ],
-        circleStrokeColor: surfaceColor,
-        circleStrokeWidth: 3,
-      ));
+      await map.style.addLayer(
+        CircleLayer(
+          id: _markerLayerId,
+          sourceId: _sourceId,
+          circleColor: primaryColor,
+          circleOpacity: 0.82,
+          circleRadiusExpression: [
+            'interpolate',
+            ['linear'],
+            ['get', 'weight'],
+            0,
+            8.0,
+            max(widget.heatmap.maxWeight, 1.0),
+            18.0,
+          ],
+          circleStrokeColor: surfaceColor,
+          circleStrokeWidth: 3,
+        ),
+      );
     } else {
-      await map.style.addLayer(HeatmapLayer(
-        id: _layerId,
-        sourceId: _sourceId,
-        heatmapRadius: 30,
-        heatmapOpacity: 0.82,
-        heatmapWeightExpression: [
-          'interpolate',
-          ['linear'],
-          ['get', 'weight'],
-          0,
-          0.0,
-          max(widget.heatmap.maxWeight, 1.0),
-          1.0,
-        ],
-      ));
+      await map.style.addLayer(
+        HeatmapLayer(
+          id: _layerId,
+          sourceId: _sourceId,
+          heatmapRadius: 30,
+          heatmapOpacity: 0.82,
+          heatmapWeightExpression: [
+            'interpolate',
+            ['linear'],
+            ['get', 'weight'],
+            0,
+            0.0,
+            max(widget.heatmap.maxWeight, 1.0),
+            1.0,
+          ],
+        ),
+      );
     }
 
     if (points.length == 1) {
       final point = points.single;
-      await map.setCamera(CameraOptions(
-        center: Point(coordinates: Position(point.lon, point.lat)),
-        zoom: 15,
-      ));
+      await map.setCamera(
+        CameraOptions(
+          center: Point(coordinates: Position(point.lon, point.lat)),
+          zoom: 15,
+        ),
+      );
     } else {
       final camera = await map.cameraForCoordinatesPadding(
         [for (final p in points) Point(coordinates: Position(p.lon, p.lat))],
@@ -147,7 +155,7 @@ class _AnalyticsHeatmapMapState extends State<AnalyticsHeatmapMap> {
         Positioned(
           top: 12,
           left: 12,
-          child: _HeatmapSummary(heatmap: widget.heatmap),
+          child: _HeatmapStats(heatmap: widget.heatmap),
         ),
         if (widget.onTap != null)
           Positioned.fill(
@@ -177,19 +185,16 @@ class AnalyticsHeatmapMapPage extends StatelessWidget {
       appBar: AppBar(centerTitle: true, title: Text(title)),
       body: SafeArea(
         top: false,
-        child: AnalyticsHeatmapMap(
-          heatmap: heatmap,
-          interactive: true,
-        ),
+        child: AnalyticsHeatmapMap(heatmap: heatmap, interactive: true),
       ),
     );
   }
 }
 
-class _HeatmapSummary extends StatelessWidget {
+class _HeatmapStats extends StatelessWidget {
   final AnalyticsHeatmap heatmap;
 
-  const _HeatmapSummary({required this.heatmap});
+  const _HeatmapStats({required this.heatmap});
 
   @override
   Widget build(BuildContext context) {
@@ -199,8 +204,9 @@ class _HeatmapSummary extends StatelessWidget {
       (sum, point) => sum + point.weight,
     );
     final placeLabel = places == 1 ? '1 luogo' : '$places luoghi';
-    final visitLabel =
-        visits.round() == 1 ? '1 visita' : '${visits.round()} visite';
+    final visitLabel = visits.round() == 1
+        ? '1 visita'
+        : '${visits.round()} visite';
 
     final sem = Theme.of(context).extension<SemanticColors>()!;
     return DecoratedBox(
@@ -214,9 +220,9 @@ class _HeatmapSummary extends StatelessWidget {
         child: Text(
           '$placeLabel · $visitLabel',
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSurface,
-                fontWeight: FontWeight.w700,
-              ),
+            color: Theme.of(context).colorScheme.onSurface,
+            fontWeight: FontWeight.w700,
+          ),
         ),
       ),
     );

@@ -73,7 +73,7 @@ def update_or_create_privacy_settings(
     return settings
 
 
-def web_user_summaries_queryset() -> QuerySet:
+def web_user_overviews_queryset() -> QuerySet:
     """Utenti non staff, annotati con le statistiche Viaggio per la dashboard web."""
     return (
         user_model()
@@ -95,7 +95,7 @@ def web_user_summaries_queryset() -> QuerySet:
     )
 
 
-def web_user_summary_values(queryset: QuerySet) -> QuerySet:
+def web_user_overview_values(queryset: QuerySet) -> QuerySet:
     return queryset.values(
         "id",
         "email",

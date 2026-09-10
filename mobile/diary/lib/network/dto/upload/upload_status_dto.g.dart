@@ -7,24 +7,22 @@ part of 'upload_status_dto.dart';
 // **************************************************************************
 
 UploadMissingPartDto _$UploadMissingPartDtoFromJson(
-        Map<String, dynamic> json) =>
-    UploadMissingPartDto(
-      sequence: (json['sequence'] as num).toInt(),
-    );
+  Map<String, dynamic> json,
+) => UploadMissingPartDto(sequence: (json['sequence'] as num).toInt());
 
 Map<String, dynamic> _$UploadMissingPartDtoToJson(
-        UploadMissingPartDto instance) =>
-    <String, dynamic>{
-      'sequence': instance.sequence,
-    };
+  UploadMissingPartDto instance,
+) => <String, dynamic>{'sequence': instance.sequence};
 
 UploadStatusDto _$UploadStatusDtoFromJson(Map<String, dynamic> json) =>
     UploadStatusDto(
       coreStatus: json['core_status'] as String,
       rawStatus: json['raw_status'] as String,
-      missingRawParts: (json['missing_raw_parts'] as List<dynamic>?)
-              ?.map((e) =>
-                  UploadMissingPartDto.fromJson(e as Map<String, dynamic>))
+      missingRawParts:
+          (json['missing_raw_parts'] as List<dynamic>?)
+              ?.map(
+                (e) => UploadMissingPartDto.fromJson(e as Map<String, dynamic>),
+              )
               .toList() ??
           [],
       tripId: (json['trip_id'] as num?)?.toInt(),

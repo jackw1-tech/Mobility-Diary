@@ -48,7 +48,7 @@ class DetectedVisit:
 
 
 @dataclass(frozen=True)
-class VisibleStopSummary:
+class VisibleStopDetails:
     lat: float
     lon: float
     matched_place: HabitualPlace | None
@@ -271,16 +271,16 @@ def stop_centroid(stop_like_interval, gps_points) -> tuple[float, float] | None:
 """Associa ad un segmento di stop un place confermato, usando il centroide
 GPS dell'intero periodo di sosta (non dei singoli pezzi grezzi che lo compongono).
 """
-def visible_stop_summary(
+def visible_stop_details(
     visible_stop,
     gps_points,
     confirmed_places,
-) -> VisibleStopSummary | None:
+) -> VisibleStopDetails | None:
     centroid = stop_centroid(visible_stop, gps_points)
     if centroid is None:
         return None
     lat, lon = centroid
-    return VisibleStopSummary(
+    return VisibleStopDetails(
         lat=lat,
         lon=lon,
         matched_place=match_confirmed_place(lat, lon, confirmed_places),
@@ -292,11 +292,11 @@ def project_diary_with_places(
     virtual_stop_intervals,
     gps_points,
     confirmed_places,
-) -> list[tuple[ProjectedDiarySegment, VisibleStopSummary | None]]:
+) -> list[tuple[ProjectedDiarySegment, VisibleStopDetails | None]]:
     return [
         (
             segment,
-            visible_stop_summary(segment, gps_points, confirmed_places)
+            visible_stop_details(segment, gps_points, confirmed_places)
             if segment.kind == MobilitySegment.Kind.STOP
             else None,
         )

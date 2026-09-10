@@ -149,7 +149,7 @@ Before creating a new place from a cluster, mining checks whether a manually rev
 
 This subsection realizes the \textit{Location privacy} row of Table~\ref{tab:specmap}. Privacy is implemented as a single projection pipeline rather than as separate diary-generation code paths. The detailed private diary is built once from canonical domain entities, mobility segments, virtual stop intervals, GPS points, confirmed habitual places, and HAR labels, and every privacy level is a transformation applied to that same representation.
 
-Three levels are supported. The precise level returns the diary unchanged, for the owner's own inspection. The approximate level keeps the narrative sequence of stops and movements but rounds timestamps to five-minute boundaries, spatially cloaks the movement path, replaces real place names with category-level labels, and recomputes distance on the cloaked path instead of the real one. The aggregated level drops the event-level sequence entirely and instead groups activity into broad time bands (night, morning, afternoon, evening), publishing only activity patterns, distance buckets, and total durations; no coordinates and no place identities survive at this level. Because the mobile export endpoint and the web dashboard both call the same builder, a change to the privacy policy is implemented and tested in exactly one place instead of being duplicated across clients.
+Three levels are supported. The precise level returns the diary unchanged, for the owner's own inspection. The approximate level keeps the narrative sequence of stops and movements but rounds timestamps to five-minute boundaries, spatially approximates the movement path, replaces real place names with category-level labels, and recomputes distance on the approximated path instead of the real one. The aggregated level drops the event-level sequence entirely and instead groups activity into broad time bands (night, morning, afternoon, evening), publishing only activity patterns, distance buckets, and total durations; no coordinates and no place identities survive at this level. Because the mobile export endpoint and the web dashboard both call the same builder, a change to the privacy policy is implemented and tested in exactly one place instead of being duplicated across clients.
 
 \subsection{Personal Analytics}
 
@@ -269,7 +269,7 @@ This subsection provides implementation-level detail supporting Section II-H by 
 QoS_{loss} = \frac{|d_{private} - d_{published}|}{d_{private}}.
 \end{equation}
 
-For the approximate level, the spatial cloaking grid uses 150-meter cells. For the aggregated level, the grid uses 400-meter cells and the diary removes event-level paths and precise places. The web dashboard exposes these metrics as comparison cards and allows previewing a different privacy level without changing the user's saved default preference.
+For the approximate level, the spatial approximation grid uses 150-meter cells. For the aggregated level, the grid uses 400-meter cells and the diary removes event-level paths and precise places. The web dashboard exposes these metrics as comparison cards and allows previewing a different privacy level without changing the user's saved default preference.
 
 \subsection{Personal Analytics Implementation}
 
@@ -309,7 +309,7 @@ Table~\ref{tab:extensions} summarizes the coverage of the optional components de
 Advanced HAR & CNN+GRU inference pipeline over inertial windows; integration tests and diary use.\\
 Route assistant & Destination search, route mode selection, live HAR-based mode adaptation.\\
 Advanced significant places & Stay detection, PostGIS DBSCAN clustering, manual labels, diary overlay.\\
-Location privacy & Precise, approximate, and aggregated views with cloaking and QoS metrics.\\
+Location privacy & Precise, approximate, and aggregated views with spatial approximation and QoS metrics.\\
 Personal analytics & Time by activity, heatmaps, prevalent mode, frequent routes.\\
 Docker Compose & Backend, database, Redis, worker, gateway, and deployment compose files.\\
 \bottomrule

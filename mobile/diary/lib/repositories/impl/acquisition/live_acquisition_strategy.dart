@@ -377,7 +377,7 @@ class LiveAcquisitionStrategy implements AcquisitionStrategy {
       return false;
     }
     if (active.deviceId != deviceId) {
-      throw const UploadApiException('Richiesta upload fallita');
+      throw const ActiveTripOnAnotherDeviceException();
     }
 
     final localSession = await _dao.findOpenSession(active.clientSessionId);

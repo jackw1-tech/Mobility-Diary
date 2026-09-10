@@ -133,10 +133,9 @@ class _PlaceMiningBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       margin: const EdgeInsets.only(bottom: Dimensions.paddingMedium),
-      color: Theme.of(context)
-          .extension<SemanticColors>()!
-          .warning
-          .withValues(alpha: 0.14),
+      color: Theme.of(
+        context,
+      ).extension<SemanticColors>()!.warning.withValues(alpha: 0.14),
       child: Padding(
         padding: const EdgeInsets.all(Dimensions.paddingMedium),
         child: Column(
@@ -144,9 +143,9 @@ class _PlaceMiningBanner extends StatelessWidget {
           children: [
             Text(
               statusText,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: Dimensions.paddingSmall),
             Text(message),
@@ -176,13 +175,14 @@ class _PlaceSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding:
-              const EdgeInsets.symmetric(vertical: Dimensions.paddingSmall),
+          padding: const EdgeInsets.symmetric(
+            vertical: Dimensions.paddingSmall,
+          ),
           child: Text(
             '$title (${places.length})',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
           ),
         ),
         for (final place in places) _PlaceCard(place: place),
@@ -202,14 +202,18 @@ class _PlaceCard extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.only(bottom: Dimensions.paddingSmall),
       child: ListTile(
-        leading: Icon(placeStateIcon(place),
-            color: placeStateColor(place,
-                sem: Theme.of(context).extension<SemanticColors>()!)),
+        leading: Icon(
+          placeStateIcon(place),
+          color: placeStateColor(
+            place,
+            sem: Theme.of(context).extension<SemanticColors>()!,
+          ),
+        ),
         title: Text(
           place.label,
           style: const TextStyle(fontWeight: FontWeight.w700),
         ),
-        subtitle: Text(placeEvidenceSummary(place)),
+        subtitle: Text(placeEvidenceText(place)),
         trailing: const Icon(Icons.chevron_right),
         onTap: () async {
           await context.router.push(PlaceDetailRoute(place: place));

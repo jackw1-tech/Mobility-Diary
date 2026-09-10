@@ -2,7 +2,7 @@ import 'package:diary/model/entities/privacy/privacy_level.dart';
 
 /// Vista Privacy-Aware testuale del diario, pronta per l'export mobile.
 ///
-/// Le coordinate dei MOVE sono gia' cloaked dal backend per i livelli non
+/// Le coordinate dei MOVE sono gia' approssimate dal backend per i livelli non
 /// precisi, quindi il preview puo' mostrarle come "approssimate" senza mai
 /// esporre la geometria GPS reale.
 class TripPrivacyExportDto {

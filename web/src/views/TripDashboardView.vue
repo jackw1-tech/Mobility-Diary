@@ -36,10 +36,12 @@ import {
   placeFilterOptions,
   stopLabel,
   segmentSeconds,
-  summarizeTrip,
+  calculateTripStats,
 } from '../utils/tripDashboard';
 import {
   isProtectedLevel,
+  occupiedPrivacyCellCenters,
+  privacyCellSizeMeters,
   privacyLevelLabel,
   privacyLevelOptions,
   privacyMetricCards,
@@ -52,6 +54,7 @@ const privacyLoading = ref(false);
 const error = ref('');
 const mapElement = ref<HTMLElement | null>(null);
 const visibleMapLayer = ref<'private' | 'privacy-aware' | 'both'>('both');
+const showPrivacyCells = ref(false);
 const filters = reactive({
   activities: [] as string[],
   place: '',
@@ -135,7 +138,7 @@ const activeTimelineLabel = computed(() => (
 ));
 const stats = computed(() => (
   dashboard.value
-    ? summarizeTrip(dashboard.value.trip, activeTimelineSegments.value, {
+    ? calculateTripStats(dashboard.value.trip, activeTimelineSegments.value, {
       durationMode: hasLocalFilters.value ? 'segments' : 'trip',
     })
     : null
@@ -154,6 +157,9 @@ const statCards = computed(() => {
   ];
 });
 const privacyAware = computed(() => dashboard.value?.privacy_aware ?? null);
+const privacyGridCellSize = computed(() => (
+  privacyAware.value ? privacyCellSizeMeters(privacyAware.value.level) : null
+));
 const privacyPlaces = computed(() => privacyAware.value?.significant_places ?? []);
 const visiblePrivacyPlaces = computed(() => (
   hasLocalFilters.value ? [] : privacyPlaces.value
@@ -226,6 +232,12 @@ function renderMap() {
   }
 
   if (hasPrivacyAwareLayer.value) {
+    if (showPrivacyCells.value && privacyGridCellSize.value !== null) {
+      drawPrivacyCells(
+        dashboard.value.privacy_aware.track.geojson,
+        privacyGridCellSize.value,
+      );
+    }
     if (!hasLocalFilters.value) {
       drawLine(
         dashboard.value.privacy_aware.track.geojson,
@@ -264,6 +276,37 @@ function renderMap() {
     map.fitBounds(L.polyline(visiblePoints).getBounds(), { padding: [28, 28] });
   } else {
     map.setView([45.4642, 9.19], 12);
+  }
+}
+
+function drawPrivacyCells(
+  geojson: LineStringGeoJson | null,
+  cellSizeMeters: number,
+) {
+  if (!geojson || !leafletMap) return;
+  const centers = occupiedPrivacyCellCenters(geojson.coordinates);
+  const halfCell = cellSizeMeters / 2;
+
+  for (const [lon, lat] of centers) {
+    const projectedCenter = L.CRS.EPSG3857.project(L.latLng(lat, lon));
+    const southWest = L.CRS.EPSG3857.unproject(L.point(
+      projectedCenter.x - halfCell,
+      projectedCenter.y - halfCell,
+    ));
+    const northEast = L.CRS.EPSG3857.unproject(L.point(
+      projectedCenter.x + halfCell,
+      projectedCenter.y + halfCell,
+    ));
+
+    L.rectangle(L.latLngBounds(southWest, northEast), {
+      color: '#0f766e',
+      fillColor: '#14b8a6',
+      fillOpacity: 0.12,
+      opacity: 0.75,
+      weight: 1,
+    })
+      .bindTooltip(`Cella ${cellSizeMeters} m`)
+      .addTo(leafletMap);
   }
 }
 
@@ -413,6 +456,7 @@ watch(
     visiblePrivacyStops,
     visiblePrivacyPlaces,
     visibleMapLayer,
+    showPrivacyCells,
   ],
   () => nextTick(renderMap),
   { flush: 'post' },
@@ -560,6 +604,17 @@ onBeforeUnmount(destroyMap);
           >
             Entrambe
           </button>
+          <label
+            v-if="privacyGridCellSize !== null"
+            class="map-cell-toggle"
+          >
+            <input
+              v-model="showPrivacyCells"
+              type="checkbox"
+              :disabled="!hasPrivacyAwareLayer"
+            />
+            <span>Mostra celle {{ privacyGridCellSize }} m</span>
+          </label>
         </div>
         <div class="map-legend">
           <span><i class="legend-line private-line"></i>Privata</span>

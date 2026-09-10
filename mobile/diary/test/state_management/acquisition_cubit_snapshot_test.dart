@@ -2,9 +2,12 @@ import 'dart:async';
 
 import 'package:diary/model/entities/acquisition/acquisition_domain.dart';
 import 'package:diary/network/service/impl/acquisition_local_database.dart';
+import 'package:diary/network/dto/upload/upload_start_result_dto.dart';
+import 'package:diary/network/service/trip_upload_service.dart';
 import 'package:diary/repositories/acquisition_repository.dart';
 import 'package:diary/repositories/impl/acquisition_repository_impl.dart';
 import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_cubit.dart';
+import 'package:diary/state_management/cubits/acquisition_cubit/acquisition_error_presenter.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -140,6 +143,55 @@ void main() {
     stopCompleter.complete();
     await Future.wait([first, second]);
   });
+
+  test('reports an active trip owned by another device', () async {
+    final database = AcquisitionLocalDatabase(NativeDatabase.memory());
+    final repository = AcquisitionRepositoryImpl(
+      database: database,
+      deviceId: 'this-device',
+      enableRuntime: false,
+      uploadService: _OtherDeviceConflictUploadService(),
+    );
+    addTearDown(repository.dispose);
+
+    await expectLater(
+      repository.startTracking(),
+      throwsA(
+        isA<ActiveTripOnAnotherDeviceException>().having(
+          trackingErrorMessage,
+          'visible message',
+          "Hai gia' un viaggio in corso su un altro dispositivo",
+        ),
+      ),
+    );
+  });
+}
+
+class _OtherDeviceConflictUploadService implements TripUploadService {
+  @override
+  Future<UploadStartResultDto> startUpload({
+    required String clientSessionId,
+    required DateTime startedAt,
+    required String deviceId,
+    int? sourceTripId,
+  }) {
+    throw const UploadApiException(
+      "viaggio in corso gia' presente",
+      statusCode: 409,
+      body: {
+        'active_upload': {
+          'upload_id': 42,
+          'client_session_id': 'other-session',
+          'device_id': 'other-device',
+          'recording_started_at': '2026-09-10T10:00:00Z',
+          'last_seen_at': '2026-09-10T10:01:00Z',
+        },
+      },
+    );
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _FakeTrackingRepository implements AcquisitionTrackingRepository {

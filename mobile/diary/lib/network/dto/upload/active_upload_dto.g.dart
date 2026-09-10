@@ -11,8 +11,9 @@ ActiveUploadDto _$ActiveUploadDtoFromJson(Map<String, dynamic> json) =>
       uploadId: (json['upload_id'] as num).toInt(),
       clientSessionId: json['client_session_id'] as String,
       deviceId: json['device_id'] as String,
-      recordingStartedAt:
-          DateTime.parse(json['recording_started_at'] as String),
+      recordingStartedAt: DateTime.parse(
+        json['recording_started_at'] as String,
+      ),
       lastSeenAt: json['last_seen_at'] == null
           ? null
           : DateTime.parse(json['last_seen_at'] as String),

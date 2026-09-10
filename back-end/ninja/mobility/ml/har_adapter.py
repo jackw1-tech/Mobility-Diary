@@ -22,7 +22,7 @@ class HarModelUnavailable(RuntimeError):
 class HarPredictionResult:
     labels: list[str]
     confidences: list[float]
-    summary: dict
+    diagnostics: dict
 
 
 @dataclass(frozen=True)
@@ -107,7 +107,7 @@ def _prepare_har_window_matrix(matrix) -> np.ndarray:
     return arr[:, :6]
 
 
-def _confidence_summary(confidences: list[float]) -> dict:
+def _confidence_metrics(confidences: list[float]) -> dict:
     if not confidences:
         return {"mean": None, "min": None, "max": None}
     return {
@@ -166,11 +166,11 @@ def predict_activity_windows(windows) -> HarPredictionResult:
         return HarPredictionResult(
             labels=[],
             confidences=[],
-            summary={
+            diagnostics={
                 "classifier": "keras_fused_cnn_gru",
                 "window_count": 0,
                 "label_distribution": {},
-                "confidence": _confidence_summary([]),
+                "confidence": _confidence_metrics([]),
             },
         )
 
@@ -182,13 +182,13 @@ def predict_activity_windows(windows) -> HarPredictionResult:
     return HarPredictionResult(
         labels=labels,
         confidences=confidences,
-        summary={
+        diagnostics={
             "classifier": "keras_fused_cnn_gru",
             "model_classes": classes,
             "fused_model": Path(model_bundle.model_path).name,
             "sequence_length": model_bundle.sequence_length,
             "window_count": len(windows),
             "label_distribution": dict(Counter(labels)),
-            "confidence": _confidence_summary(confidences),
+            "confidence": _confidence_metrics(confidences),
         },
     )

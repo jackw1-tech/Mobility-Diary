@@ -16,11 +16,11 @@ InlineCoreResultDto _$InlineCoreResultDtoFromJson(Map<String, dynamic> json) =>
     );
 
 Map<String, dynamic> _$InlineCoreResultDtoToJson(
-        InlineCoreResultDto instance) =>
-    <String, dynamic>{
-      'upload_id': instance.uploadId,
-      'trip_id': instance.tripId,
-      'core_status': instance.coreStatus,
-      'raw_status': instance.rawStatus,
-      'map_available': instance.mapAvailable,
-    };
+  InlineCoreResultDto instance,
+) => <String, dynamic>{
+  'upload_id': instance.uploadId,
+  'trip_id': instance.tripId,
+  'core_status': instance.coreStatus,
+  'raw_status': instance.rawStatus,
+  'map_available': instance.mapAvailable,
+};

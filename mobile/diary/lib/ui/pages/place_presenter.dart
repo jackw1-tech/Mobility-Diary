@@ -39,20 +39,22 @@ String placeStateLabel(String state) {
 }
 
 /// "3 visite · 2 giorni": il contesto che spiega l'evidenza del luogo.
-String placeEvidenceSummary(PlaceReview place) {
-  final visits =
-      place.visitCount == 1 ? '1 visita' : '${place.visitCount} visite';
-  final days =
-      place.distinctDays == 1 ? '1 giorno' : '${place.distinctDays} giorni';
+String placeEvidenceText(PlaceReview place) {
+  final visits = place.visitCount == 1
+      ? '1 visita'
+      : '${place.visitCount} visite';
+  final days = place.distinctDays == 1
+      ? '1 giorno'
+      : '${place.distinctDays} giorni';
   return '$visits · $days';
 }
 
 /// Frase che spiega perche' un luogo e' stato proposto o confermato.
 String placeWhyProposed(PlaceReview place) {
-  final summary = placeEvidenceSummary(place);
+  final evidenceText = placeEvidenceText(place);
   return place.isConfirmed
-      ? 'Confermato come luogo abituale ($summary).'
-      : 'Proposto come possibile luogo abituale ($summary).';
+      ? 'Confermato come luogo abituale ($evidenceText).'
+      : 'Proposto come possibile luogo abituale ($evidenceText).';
 }
 
 /// Categorie chiuse per l'etichetta manuale (allineate al backend).

@@ -3,10 +3,10 @@ import { onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 import { ChevronRight, RefreshCw, Users } from 'lucide-vue-next';
 import { ApiError } from '../services/apiClient';
-import { fetchUsers, type WebUserSummary } from '../services/usersApi';
+import { fetchUsers, type WebUserOverview } from '../services/usersApi';
 import { displayName, formatDateTime, formatDistance } from '../utils/formatters';
 
-const users = ref<WebUserSummary[]>([]);
+const users = ref<WebUserOverview[]>([]);
 const loading = ref(false);
 const error = ref('');
 

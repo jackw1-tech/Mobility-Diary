@@ -45,5 +45,5 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS("HAR model smoke test OK"))
         self.stdout.write(f"windows: {len(result.labels)}")
-        self.stdout.write(f"labels: {result.summary['label_distribution']}")
-        self.stdout.write(f"confidence: {result.summary['confidence']}")
+        self.stdout.write(f"labels: {result.diagnostics['label_distribution']}")
+        self.stdout.write(f"confidence: {result.diagnostics['confidence']}")

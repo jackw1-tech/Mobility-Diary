@@ -477,6 +477,7 @@ select:focus {
 .map-toolbar {
   top: var(--space-lg);
   right: var(--space-lg);
+  flex-wrap: wrap;
   padding: var(--space-xs);
   border-radius: var(--radius-pill);
 }
@@ -494,6 +495,28 @@ select:focus {
 .map-toolbar button.active {
   color: var(--color-on-primary);
   background: var(--color-primary);
+}
+
+.map-cell-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin: 0 var(--space-sm);
+  color: var(--color-ink);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.map-cell-toggle:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.map-cell-toggle input {
+  accent-color: #0f766e;
+  margin: 0;
 }
 
 .map-legend {

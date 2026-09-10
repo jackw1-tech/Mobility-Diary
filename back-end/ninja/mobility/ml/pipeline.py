@@ -361,8 +361,8 @@ def run_pipeline(
 
     labels = classification.labels
 
-    classifier_summary = {
-        **classification.summary,
+    classifier_diagnostics = {
+        **classification.diagnostics,
         "final_label_distribution": dict(Counter(labels)),
     }
 
@@ -390,6 +390,6 @@ def run_pipeline(
         "transitions": len(transitions),
         "segments": segment_count,
         "virtual_stop_intervals": virtual_stop_count,
-        **classifier_summary,
+        **classifier_diagnostics,
     }
     return result

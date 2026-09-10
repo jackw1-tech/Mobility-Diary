@@ -10,7 +10,8 @@ PresignResultDto _$PresignResultDtoFromJson(Map<String, dynamic> json) =>
     PresignResultDto(
       objectKey: json['object_key'] as String,
       uploadUrl: json['upload_url'] as String,
-      uploadHeaders: (json['upload_headers'] as Map<String, dynamic>?)?.map(
+      uploadHeaders:
+          (json['upload_headers'] as Map<String, dynamic>?)?.map(
             (k, e) => MapEntry(k, e as String),
           ) ??
           {},

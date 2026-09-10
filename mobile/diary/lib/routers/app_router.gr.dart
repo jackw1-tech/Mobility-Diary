@@ -14,7 +14,7 @@ part of 'app_router.dart';
 /// [AnalyticsPage]
 class AnalyticsRoute extends PageRouteInfo<void> {
   const AnalyticsRoute({List<PageRouteInfo>? children})
-      : super(AnalyticsRoute.name, initialChildren: children);
+    : super(AnalyticsRoute.name, initialChildren: children);
 
   static const String name = 'AnalyticsRoute';
 
@@ -30,7 +30,7 @@ class AnalyticsRoute extends PageRouteInfo<void> {
 /// [HomePage]
 class HomeRoute extends PageRouteInfo<void> {
   const HomeRoute({List<PageRouteInfo>? children})
-      : super(HomeRoute.name, initialChildren: children);
+    : super(HomeRoute.name, initialChildren: children);
 
   static const String name = 'HomeRoute';
 
@@ -50,10 +50,10 @@ class PlaceDetailRoute extends PageRouteInfo<PlaceDetailRouteArgs> {
     Key? key,
     List<PageRouteInfo>? children,
   }) : super(
-          PlaceDetailRoute.name,
-          args: PlaceDetailRouteArgs(place: place, key: key),
-          initialChildren: children,
-        );
+         PlaceDetailRoute.name,
+         args: PlaceDetailRouteArgs(place: place, key: key),
+         initialChildren: children,
+       );
 
   static const String name = 'PlaceDetailRoute';
 
@@ -93,7 +93,7 @@ class PlaceDetailRouteArgs {
 /// [PlacesPage]
 class PlacesRoute extends PageRouteInfo<void> {
   const PlacesRoute({List<PageRouteInfo>? children})
-      : super(PlacesRoute.name, initialChildren: children);
+    : super(PlacesRoute.name, initialChildren: children);
 
   static const String name = 'PlacesRoute';
 
@@ -109,7 +109,7 @@ class PlacesRoute extends PageRouteInfo<void> {
 /// [ProfilePage]
 class ProfileRoute extends PageRouteInfo<void> {
   const ProfileRoute({List<PageRouteInfo>? children})
-      : super(ProfileRoute.name, initialChildren: children);
+    : super(ProfileRoute.name, initialChildren: children);
 
   static const String name = 'ProfileRoute';
 
@@ -129,11 +129,11 @@ class TripDetailRoute extends PageRouteInfo<TripDetailRouteArgs> {
     Key? key,
     List<PageRouteInfo>? children,
   }) : super(
-          TripDetailRoute.name,
-          args: TripDetailRouteArgs(tripId: tripId, key: key),
-          rawPathParams: {'id': tripId},
-          initialChildren: children,
-        );
+         TripDetailRoute.name,
+         args: TripDetailRouteArgs(tripId: tripId, key: key),
+         rawPathParams: {'id': tripId},
+         initialChildren: children,
+       );
 
   static const String name = 'TripDetailRoute';
 

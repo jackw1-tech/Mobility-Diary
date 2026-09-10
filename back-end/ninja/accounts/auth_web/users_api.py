@@ -33,7 +33,7 @@ from .schemas import (
     WebTrackOut,
     WebTripDashboardOut,
     WebTripDetailOut,
-    WebUserSummaryOut,
+    WebUserOverviewOut,
     WebUserTripsOut,
 )
 
@@ -142,27 +142,27 @@ def _privacy_aware_out(
     )
 
 
-def _owner_summary_or_404(user_id: int) -> dict:
-    owner = accounts_repositories.web_user_summary_values(
-        accounts_repositories.web_user_summaries_queryset().filter(id=user_id)
+def _owner_overview_or_404(user_id: int) -> dict:
+    owner = accounts_repositories.web_user_overview_values(
+        accounts_repositories.web_user_overviews_queryset().filter(id=user_id)
     ).first()
     if owner is None:
         raise HttpError(404, "Proprietario del Viaggio non trovato")
     return owner
 
 
-@router.get("/users", response=list[WebUserSummaryOut], auth=web_dashboard_auth)
+@router.get("/users", response=list[WebUserOverviewOut], auth=web_dashboard_auth)
 def list_web_users(request):
     return list(
-        accounts_repositories.web_user_summary_values(
-            accounts_repositories.web_user_summaries_queryset().order_by("email")
+        accounts_repositories.web_user_overview_values(
+            accounts_repositories.web_user_overviews_queryset().order_by("email")
         )
     )
 
 
 @router.get("/users/{user_id}/trips", response=WebUserTripsOut, auth=web_dashboard_auth)
 def list_web_user_trips(request, user_id: int):
-    owner = _owner_summary_or_404(user_id)
+    owner = _owner_overview_or_404(user_id)
 
     try:
         filters = parse_trip_filters(
@@ -193,7 +193,7 @@ def list_web_user_trips(request, user_id: int):
     auth=web_dashboard_auth,
 )
 def get_web_user_motion_stats(request, user_id: int):
-    _owner_summary_or_404(user_id)
+    _owner_overview_or_404(user_id)
     return [
         _motion_stats_out(stats)
         for stats in dashboard_service.motion_stats_by_activity(user_id)
@@ -211,7 +211,7 @@ def get_web_trip_dashboard(
     trip_id: int,
     level: str | None = None,
 ):
-    owner = _owner_summary_or_404(user_id)
+    owner = _owner_overview_or_404(user_id)
     trip = trips_repository.trip_by_id_for_user(trip_id, user_id)
     if trip is None:
         raise HttpError(404, "Viaggio non trovato")

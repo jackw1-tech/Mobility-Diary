@@ -10,7 +10,7 @@ from django.contrib.gis.geos import LineString
 
 from ..models import Trip
 from ..selectors.places import confirmed_places_for_user
-from ..significant_places import VisibleStopSummary, project_diary_with_places
+from ..significant_places import VisibleStopDetails, project_diary_with_places
 
 
 @dataclass(frozen=True)
@@ -21,7 +21,7 @@ class DiarySegmentView:
     activity_label: str
     distance_meters: float
     path: LineString | None #In redis conservo direttamente l''oggetto Geo
-    place: VisibleStopSummary | None
+    place: VisibleStopDetails | None
 
 
 # Costruzione del diario privato / preciso
@@ -35,7 +35,7 @@ def build_private_diary(trip: Trip) -> list[DiarySegmentView]:
     # Due possibili elmenti
     # Segmento Movimento , none
     # Segmento Fermo, nome | abitual pplace
-    for segment, summary in project_diary_with_places(
+    for segment, stop_details in project_diary_with_places(
         persisted_segments, virtual_stop_intervals, gps, confirmed
     ):
         views.append(
@@ -46,7 +46,7 @@ def build_private_diary(trip: Trip) -> list[DiarySegmentView]:
                 activity_label=segment.activity_label,
                 distance_meters=segment.distance_meters,
                 path=segment.path,
-                place=summary,
+                place=stop_details,
             )
         )
     return views

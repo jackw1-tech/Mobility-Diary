@@ -60,7 +60,7 @@ void main() {
     expect(stats.stopped, const Duration(minutes: 5));
     expect(stats.distanceMeters, 800);
     expect(stats.stopCount, 1);
-    expect(stopSummaryText(stats), '1 sosta · 5 min');
+    expect(stopStatsText(stats), '1 sosta · 5 min');
   });
 
   test('negative segment durations never reduce diary totals', () {
@@ -78,18 +78,20 @@ void main() {
     expect(stats.activities.single.duration, Duration.zero);
   });
 
-  test('groups only drawable trips by local day and orders recent days first',
-      () {
-    final groups = groupTrackTripsByLocalDay([
-      trip(1, DateTime(2026, 8, 29, 8)),
-      trip(2, DateTime(2026, 8, 30, 9)),
-      trip(3, DateTime(2026, 8, 30, 10), hasTrack: false),
-    ]);
+  test(
+    'groups only drawable trips by local day and orders recent days first',
+    () {
+      final groups = groupTrackTripsByLocalDay([
+        trip(1, DateTime(2026, 8, 29, 8)),
+        trip(2, DateTime(2026, 8, 30, 9)),
+        trip(3, DateTime(2026, 8, 30, 10), hasTrack: false),
+      ]);
 
-    expect(groups.length, 2);
-    expect(groups.first.trips.map((item) => item.id), [2]);
-    expect(groups.last.trips.map((item) => item.id), [1]);
-  });
+      expect(groups.length, 2);
+      expect(groups.first.trips.map((item) => item.id), [2]);
+      expect(groups.last.trips.map((item) => item.id), [1]);
+    },
+  );
 
   test('same-day comparison returns drawable trips in chronological order', () {
     final trips = [
@@ -122,8 +124,8 @@ void main() {
     ]);
   });
 
-  test('analytics summary excludes stopped time from movement total', () {
-    final summary = summarizeBuckets([
+  test('analytics totals exclude stopped time from movement total', () {
+    final totals = calculateAnalyticsTotals([
       const AnalyticsBucket(
         label: '2026-08-30',
         categories: [
@@ -146,7 +148,7 @@ void main() {
       ),
     ]);
 
-    expect(summary.movementTime, const Duration(minutes: 12));
-    expect(summary.totalDistanceMeters, 1300);
+    expect(totals.movementTime, const Duration(minutes: 12));
+    expect(totals.totalDistanceMeters, 1300);
   });
 }
