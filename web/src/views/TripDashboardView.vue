@@ -24,6 +24,7 @@ import {
   formatDateTimeInput,
   formatDistance,
   formatDuration,
+  formatDurationPrecise,
   formatTripStatus,
 } from '../utils/formatters';
 import {
@@ -99,6 +100,7 @@ const timeWindowSegments = computed(() => (
 const visibleSegments = computed(() => (
   filterSegments(dashboard.value?.diary.segments ?? [], filters)
 ));
+const sensorGaps = computed(() => dashboard.value?.sensor_gaps ?? []);
 const tripStartInput = computed(() => formatDateTimeInput(dashboard.value?.trip.started_at));
 const tripEndInput = computed(() => formatDateTimeInput(dashboard.value?.trip.ended_at));
 const hasVisibleMapGeometry = computed(() => Boolean(
@@ -752,6 +754,38 @@ onBeforeUnmount(destroyMap);
             <span>{{ activityLabel(segment.activity_label) }}</span>
             <span>{{ segment.place ? stopLabel(segment) : '-' }}</span>
             <span>{{ segment.kind === 'MOVE' ? formatDistance(segment.distance_meters) : '-' }}</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="diary-table-panel" aria-labelledby="sensor-gaps-title">
+        <div class="section-heading compact-heading">
+          <div>
+            <p class="eyebrow">Qualità dati</p>
+            <h2 id="sensor-gaps-title">Buchi registrazione sensori</h2>
+            <p>Intervalli oltre 10ms senza letture accelerometro/giroscopio durante i tratti in movimento.</p>
+          </div>
+          <span class="muted-text">{{ sensorGaps.length }} buchi</span>
+        </div>
+
+        <div v-if="sensorGaps.length === 0" class="message-panel state-panel">
+          Nessun buco rilevato.
+        </div>
+        <div v-else class="data-table sensor-gaps-table" role="table" aria-label="Buchi registrazione sensori">
+          <div class="table-row sensor-gap-row table-header" role="row">
+            <span>Inizio</span>
+            <span>Fine</span>
+            <span>Durata</span>
+          </div>
+          <div
+            v-for="gap in sensorGaps"
+            :key="`${gap.start_timestamp}-${gap.end_timestamp}`"
+            class="table-row sensor-gap-row"
+            role="row"
+          >
+            <span>{{ formatDateTime(gap.start_timestamp) }}</span>
+            <span>{{ formatDateTime(gap.end_timestamp) }}</span>
+            <span>{{ formatDurationPrecise(gap.gap_seconds) }}</span>
           </div>
         </div>
       </section>

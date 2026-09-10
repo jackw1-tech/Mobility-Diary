@@ -117,9 +117,32 @@ class WebPrivacyAwareOut(Schema):
     metrics: WebPrivacyMetricsOut
 
 
+class WebSensorGapOut(Schema):
+    start_timestamp: datetime
+    end_timestamp: datetime
+    gap_seconds: float
+
+
+class WebAxisStatsOut(Schema):
+    mean: float
+    std: float
+
+
+class WebMotionStatsOut(Schema):
+    activity_label: str
+    sample_count: int
+    accel_x: WebAxisStatsOut
+    accel_y: WebAxisStatsOut
+    accel_z: WebAxisStatsOut
+    gyro_x: WebAxisStatsOut
+    gyro_y: WebAxisStatsOut
+    gyro_z: WebAxisStatsOut
+
+
 class WebTripDashboardOut(Schema):
     owner: WebUserSummaryOut
     trip: WebTripDetailOut
     track: WebTrackOut
     diary: WebDiaryOut
     privacy_aware: WebPrivacyAwareOut
+    sensor_gaps: list[WebSensorGapOut]

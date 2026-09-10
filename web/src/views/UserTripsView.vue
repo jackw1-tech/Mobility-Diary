@@ -5,7 +5,9 @@ import { ArrowLeft, RefreshCw, Route as RouteIcon, Search, X } from 'lucide-vue-
 import DailyDashboardPanel from '../components/DailyDashboardPanel.vue';
 import { ApiError } from '../services/apiClient';
 import {
+  fetchUserMotionStats,
   fetchUserTrips,
+  type WebMotionStats,
   type WebTripFilters,
   type WebUserTripsResponse,
 } from '../services/usersApi';
@@ -15,11 +17,27 @@ import {
   formatDistance,
   formatTripStatus,
 } from '../utils/formatters';
+import { activityLabel } from '../utils/tripDashboard';
 
 const route = useRoute();
 const result = ref<WebUserTripsResponse | null>(null);
 const loading = ref(false);
 const error = ref('');
+const motionStats = ref<WebMotionStats[]>([]);
+const motionStatsLoading = ref(false);
+const motionStatsError = ref('');
+const motionAxes = [
+  { key: 'accel_x', label: 'Accel X' },
+  { key: 'accel_y', label: 'Accel Y' },
+  { key: 'accel_z', label: 'Accel Z' },
+  { key: 'gyro_x', label: 'Gyro X' },
+  { key: 'gyro_y', label: 'Gyro Y' },
+  { key: 'gyro_z', label: 'Gyro Z' },
+] as const;
+
+function formatAxisStats(stats: { mean: number; std: number }): string {
+  return `${stats.mean.toFixed(2)} ± ${stats.std.toFixed(2)}`;
+}
 const emptyFilters: Required<WebTripFilters> = {
   from: '',
   to: '',
@@ -68,9 +86,26 @@ function clearFilters() {
   void loadTrips();
 }
 
+async function loadMotionStats() {
+  if (!userId.value) return;
+  motionStatsLoading.value = true;
+  motionStatsError.value = '';
+  try {
+    motionStats.value = await fetchUserMotionStats(userId.value);
+  } catch (unknownError) {
+    motionStatsError.value = unknownError instanceof ApiError
+      ? unknownError.message
+      : 'Statistiche motorie non disponibili';
+  } finally {
+    motionStatsLoading.value = false;
+  }
+}
+
 watch(userId, () => {
   result.value = null;
+  motionStats.value = [];
   void loadTrips();
+  void loadMotionStats();
 }, { immediate: true });
 </script>
 
@@ -187,6 +222,45 @@ watch(userId, () => {
       <RouteIcon :size="18" />
       <span>{{ owner.trip_count }} viaggi totali per questo Proprietario del Viaggio.</span>
     </div>
+
+    <section class="diary-table-panel" aria-labelledby="motion-stats-title">
+      <div class="section-heading compact-heading">
+        <div>
+          <p class="eyebrow">Qualità dati · HAR</p>
+          <h2 id="motion-stats-title">Accelerometro e giroscopio per modalità</h2>
+          <p>Media ± deviazione standard su tutti i segmenti di movimento di questo utente.</p>
+        </div>
+      </div>
+
+      <div v-if="motionStatsLoading" class="message-panel state-panel">
+        Calcolo statistiche in corso...
+      </div>
+      <div v-else-if="motionStatsError" class="message-panel error-panel">
+        {{ motionStatsError }}
+      </div>
+      <div v-else-if="motionStats.length === 0" class="message-panel state-panel">
+        Nessun segmento di movimento con dati sensore per questo utente.
+      </div>
+      <div v-else class="data-table motion-stats-table" role="table" aria-label="Statistiche motorie per modalità">
+        <div class="table-row motion-stats-row table-header" role="row">
+          <span>Modalità</span>
+          <span>Campioni</span>
+          <span v-for="axis in motionAxes" :key="axis.key">{{ axis.label }}</span>
+        </div>
+        <div
+          v-for="stats in motionStats"
+          :key="stats.activity_label"
+          class="table-row motion-stats-row"
+          role="row"
+        >
+          <span>{{ activityLabel(stats.activity_label) }}</span>
+          <span>{{ stats.sample_count }}</span>
+          <span v-for="axis in motionAxes" :key="axis.key">
+            {{ formatAxisStats(stats[axis.key]) }}
+          </span>
+        </div>
+      </div>
+    </section>
 
     <DailyDashboardPanel :user-id="userId" />
   </section>

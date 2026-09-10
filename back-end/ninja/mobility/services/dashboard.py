@@ -36,8 +36,15 @@ from ..privacy import (
     privacy_metrics as compute_privacy_metrics,
 )
 from ..selectors import trips as trips_repository
+from ..selectors.sensor_readings import (
+    MOTION_AXES,
+    find_motion_stats_by_activity,
+    find_sensor_gaps,
+)
 from ..significant_places import VisibleStopSummary, place_label
 from .diary_view import build_private_diary
+
+SENSOR_GAP_THRESHOLD_MS = 10
 
 
 class DashboardServiceError(ServiceError):
@@ -91,6 +98,26 @@ class SignificantPlaceView:
 
 
 @dataclass(frozen=True)
+class SensorGapView:
+    start_timestamp: datetime
+    end_timestamp: datetime
+    gap_seconds: float
+
+
+@dataclass(frozen=True)
+class AxisStatsView:
+    mean: float
+    std: float
+
+
+@dataclass(frozen=True)
+class MotionStatsView:
+    activity_label: str
+    sample_count: int
+    axes: dict[str, AxisStatsView]
+
+
+@dataclass(frozen=True)
 class PrivacyAwareView:
     level: str
     default_level: str
@@ -128,6 +155,36 @@ def track_view(trip: Trip) -> TrackView:
         distance_meters=track["distance_meters"],
         geojson=track["geojson"],
     )
+
+
+def sensor_gaps_view(trip: Trip) -> list[SensorGapView]:
+    rows = find_sensor_gaps(trip.id, threshold_ms=SENSOR_GAP_THRESHOLD_MS)
+    return [
+        SensorGapView(
+            start_timestamp=start,
+            end_timestamp=end,
+            gap_seconds=gap.total_seconds(),
+        )
+        for start, end, gap in rows
+    ]
+
+
+def motion_stats_by_activity(user_id: int) -> list[MotionStatsView]:
+    rows = find_motion_stats_by_activity(user_id)
+    return [
+        MotionStatsView(
+            activity_label=row["activity_label"],
+            sample_count=row["sample_count"],
+            axes={
+                axis: AxisStatsView(
+                    mean=row[f"{axis}_mean"] or 0.0,
+                    std=row[f"{axis}_std"] or 0.0,
+                )
+                for axis in MOTION_AXES
+            },
+        )
+        for row in rows
+    ]
 
 
 def privacy_track_view(trip: Trip, *, level: str) -> TrackView:

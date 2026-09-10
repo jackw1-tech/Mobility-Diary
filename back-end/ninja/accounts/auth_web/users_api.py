@@ -19,13 +19,16 @@ from mobility.services.trips import RawTripFilterParams, TripValidationError, pa
 
 from .auth import web_dashboard_auth
 from .schemas import (
+    WebAxisStatsOut,
     WebDiaryOut,
     WebDiaryPlaceOut,
     WebDiarySegmentOut,
+    WebMotionStatsOut,
     WebPrivacyAwareOut,
     WebPrivacyMetricsOut,
     WebPrivacyPerturbationOut,
     WebQualityOfServiceOut,
+    WebSensorGapOut,
     WebSignificantPlaceOut,
     WebTrackOut,
     WebTripDashboardOut,
@@ -105,6 +108,25 @@ def _privacy_metrics_out(metrics) -> WebPrivacyMetricsOut:
     )
 
 
+def _sensor_gap_out(gap: dashboard_service.SensorGapView) -> WebSensorGapOut:
+    return WebSensorGapOut(
+        start_timestamp=gap.start_timestamp,
+        end_timestamp=gap.end_timestamp,
+        gap_seconds=gap.gap_seconds,
+    )
+
+
+def _motion_stats_out(stats: dashboard_service.MotionStatsView) -> WebMotionStatsOut:
+    return WebMotionStatsOut(
+        activity_label=stats.activity_label,
+        sample_count=stats.sample_count,
+        **{
+            axis: WebAxisStatsOut(mean=axis_stats.mean, std=axis_stats.std)
+            for axis, axis_stats in stats.axes.items()
+        },
+    )
+
+
 def _privacy_aware_out(
     view: dashboard_service.PrivacyAwareView,
 ) -> WebPrivacyAwareOut:
@@ -166,6 +188,19 @@ def list_web_user_trips(request, user_id: int):
 
 
 @router.get(
+    "/users/{user_id}/motion-stats",
+    response=list[WebMotionStatsOut],
+    auth=web_dashboard_auth,
+)
+def get_web_user_motion_stats(request, user_id: int):
+    _owner_summary_or_404(user_id)
+    return [
+        _motion_stats_out(stats)
+        for stats in dashboard_service.motion_stats_by_activity(user_id)
+    ]
+
+
+@router.get(
     "/users/{user_id}/trips/{trip_id}",
     response=WebTripDashboardOut,
     auth=web_dashboard_auth,
@@ -201,4 +236,7 @@ def get_web_trip_dashboard(
         "track": _track_out(dashboard_service.track_view(trip)),
         "diary": _diary_out(dashboard_service.diary_view(trip)),
         "privacy_aware": _privacy_aware_out(privacy_aware),
+        "sensor_gaps": [
+            _sensor_gap_out(gap) for gap in dashboard_service.sensor_gaps_view(trip)
+        ],
     }

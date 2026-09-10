@@ -110,12 +110,35 @@ export type WebPrivacyAware = {
   metrics: WebPrivacyMetrics;
 };
 
+export type WebSensorGap = {
+  start_timestamp: string;
+  end_timestamp: string;
+  gap_seconds: number;
+};
+
 export type WebTripDashboard = {
   owner: WebUserSummary;
   trip: WebTripDetail;
   track: WebTrack;
   diary: WebDiary;
   privacy_aware: WebPrivacyAware;
+  sensor_gaps: WebSensorGap[];
+};
+
+export type WebAxisStats = {
+  mean: number;
+  std: number;
+};
+
+export type WebMotionStats = {
+  activity_label: string;
+  sample_count: number;
+  accel_x: WebAxisStats;
+  accel_y: WebAxisStats;
+  accel_z: WebAxisStats;
+  gyro_x: WebAxisStats;
+  gyro_y: WebAxisStats;
+  gyro_z: WebAxisStats;
 };
 
 export function fetchUsers(): Promise<WebUserSummary[]> {
@@ -132,6 +155,12 @@ export function fetchUserTrips(
   });
   const suffix = query.size > 0 ? `?${query.toString()}` : '';
   return sendJson<WebUserTripsResponse>(`/web/users/${userId}/trips${suffix}`);
+}
+
+export function fetchUserMotionStats(
+  userId: string | number,
+): Promise<WebMotionStats[]> {
+  return sendJson<WebMotionStats[]>(`/web/users/${userId}/motion-stats`);
 }
 
 export function fetchTripDashboard(

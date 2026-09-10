@@ -37,6 +37,20 @@ export function formatDuration(totalSeconds: number): string {
     : `${hours} h ${remainingMinutes} min`;
 }
 
+export function formatDurationPrecise(totalSeconds: number): string {
+  if (totalSeconds < 60) {
+    return `${totalSeconds.toFixed(totalSeconds < 10 ? 2 : 1)} s`;
+  }
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  const seconds = Math.round(totalSeconds % 60);
+  if (hours === 0) {
+    return seconds === 0 ? `${minutes} min` : `${minutes} min ${seconds} s`;
+  }
+  return minutes === 0 ? `${hours} h` : `${hours} h ${minutes} min`;
+}
+
 export function formatTripStatus(status: string): string {
   const labels: Record<string, string> = {
     OPEN: 'Aperto',

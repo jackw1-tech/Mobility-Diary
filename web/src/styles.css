@@ -655,6 +655,20 @@ select:focus {
     minmax(100px, 0.7fr);
 }
 
+.sensor-gap-row {
+  grid-template-columns:
+    minmax(150px, 1.1fr)
+    minmax(150px, 1.1fr)
+    minmax(90px, 0.7fr);
+}
+
+.motion-stats-row {
+  grid-template-columns:
+    minmax(120px, 0.9fr)
+    minmax(90px, 0.6fr)
+    repeat(6, minmax(110px, 0.9fr));
+}
+
 .day-jump-control {
   min-width: 220px;
 }
