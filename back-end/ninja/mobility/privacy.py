@@ -145,7 +145,7 @@ def privacy_metrics(
         else 0.0,
     )
 
-
+#Approssima il singolo punto gps
 def _approximate_coordinate(
     lon: float,
     lat: float,
@@ -154,7 +154,6 @@ def _approximate_coordinate(
 ) -> tuple[float, float]:
     projected = Point(lon, lat, srid=4326)
     projected.transform(3857) # Web Mercator
-
     approximated = Point(
         math.floor(projected.x / cell_size_meters) * cell_size_meters
         + cell_size_meters / 2,

@@ -15,6 +15,7 @@ from .. import repositories as accounts_repositories
 from mobility.models import Trip
 from mobility.selectors import trips as trips_repository
 from mobility.services import dashboard as dashboard_service
+from mobility.services.diary_view import build_private_diary
 from mobility.services.trips import RawTripFilterParams, TripValidationError, parse_trip_filters
 
 from .auth import web_dashboard_auth
@@ -216,9 +217,12 @@ def get_web_trip_dashboard(
     if trip is None:
         raise HttpError(404, "Viaggio non trovato")
 
+ 
+    precise_segments = build_private_diary(trip)
+
     try:
         privacy_aware = dashboard_service.privacy_aware_view(
-            trip, requested_level=level
+            trip, requested_level=level, precise_segments=precise_segments
         )
     except dashboard_service.DashboardServiceError as exc:
         raise HttpError(exc.status_code, exc.message) from exc
@@ -234,7 +238,9 @@ def get_web_trip_dashboard(
             processed=trip.status == Trip.Status.PROCESSED,
         ),
         "track": _track_out(dashboard_service.track_view(trip)),
-        "diary": _diary_out(dashboard_service.diary_view(trip)),
+        "diary": _diary_out(
+            dashboard_service.diary_view(trip, precise_segments=precise_segments)
+        ),
         "privacy_aware": _privacy_aware_out(privacy_aware),
         "sensor_gaps": [
             _sensor_gap_out(gap) for gap in dashboard_service.sensor_gaps_view(trip)

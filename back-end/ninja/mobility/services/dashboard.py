@@ -209,7 +209,12 @@ def _segment_place_view(
     )
 
 
-def _private_diary_view(trip: Trip) -> DiaryView:
+def _private_diary_view(
+    trip: Trip, precise_segments: list | None = None
+) -> DiaryView:
+    diary_segments = (
+        build_private_diary(trip) if precise_segments is None else precise_segments
+    )
     segments = [
         DiarySegmentRowView(
             kind=segment.kind,
@@ -222,7 +227,7 @@ def _private_diary_view(trip: Trip) -> DiaryView:
             ),
             place=_segment_place_view(segment.place, level=None),
         )
-        for segment in build_private_diary(trip)
+        for segment in diary_segments
     ]
     return DiaryView(
         trip_id=trip.id,
@@ -269,16 +274,26 @@ def _privacy_diary_view_from_export(trip: Trip, *, level: str) -> DiaryView:
 
 
 #Controlla il livello di privacy e costruisce il diario
-def diary_view(trip: Trip, *, level: str | None = None) -> DiaryView:
+def diary_view(
+    trip: Trip, *, level: str | None = None, precise_segments: list | None = None
+) -> DiaryView:
     if level is not None:
         return _privacy_diary_view_from_export(trip, level=level)
-    return _private_diary_view(trip)
+    return _private_diary_view(trip, precise_segments)
 
 
-def significant_places_view(trip: Trip, *, level: str) -> list[SignificantPlaceView]:
-    masked = level != UserPrivacySettings.Level.PRECISE
+def significant_places_view(
+    trip: Trip, *, level: str, precise_segments: list | None = None
+) -> list[SignificantPlaceView]:
+    # Solo aggregated maschera anche il nome del luogo (coerente con
+    # _segment_title in diary_export.py): approximate lo mostra reale, la
+    # privacy sulla posizione la fa gia' il cloaking spaziale delle coordinate.
+    masked = level == UserPrivacySettings.Level.AGGREGATED
+    diary_segments = (
+        build_private_diary(trip) if precise_segments is None else precise_segments
+    )
     aggregated: dict[int, dict[str, Any]] = {}
-    for segment in build_private_diary(trip):
+    for segment in diary_segments:
         if segment.place is None or segment.place.matched_place is None:
             continue
         place = segment.place.matched_place
@@ -302,13 +317,17 @@ def significant_places_view(trip: Trip, *, level: str) -> list[SignificantPlaceV
 
 
 #Funzione che fa partire la costruzione del diario per dashboard admin
-def privacy_aware_view(trip: Trip, *, requested_level: str | None) -> PrivacyAwareView:
+def privacy_aware_view(
+    trip: Trip, *, requested_level: str | None, precise_segments: list | None = None
+) -> PrivacyAwareView:
     default_level = accounts_repositories.get_or_create_privacy_settings(
         trip.user_id
     ).level
     level = default_level if requested_level is None else requested_level
     if level not in UserPrivacySettings.Level.values:
         raise InvalidPrivacyLevel("Livello privacy non valido")
+    if precise_segments is None:
+        precise_segments = build_private_diary(trip)
 
     protected = level != UserPrivacySettings.Level.PRECISE
     return PrivacyAwareView(
@@ -317,7 +336,13 @@ def privacy_aware_view(trip: Trip, *, requested_level: str | None) -> PrivacyAwa
         track=(
             privacy_track_view(trip, level=level) if protected else track_view(trip)
         ),
-        diary=diary_view(trip, level=level if protected else None),
-        significant_places=significant_places_view(trip, level=level),
+        diary=diary_view(
+            trip,
+            level=level if protected else None,
+            precise_segments=precise_segments,
+        ),
+        significant_places=significant_places_view(
+            trip, level=level, precise_segments=precise_segments
+        ),
         metrics=compute_privacy_metrics(trip.path, level=level),
     )
