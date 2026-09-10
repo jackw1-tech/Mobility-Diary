@@ -299,11 +299,9 @@ def significant_places_view(trip: Trip, *, level: str) -> list[SignificantPlaceV
     ]
 
 
-def privacy_metrics_view(trip: Trip, *, level: str) -> PrivacyMetrics:
-    return compute_privacy_metrics(trip.path, level=level)
 
 
-#Funzione che fa partitre 
+#Funzione che fa partire la costruzione del diario per dashboard admin
 def privacy_aware_view(trip: Trip, *, requested_level: str | None) -> PrivacyAwareView:
     default_level = accounts_repositories.get_or_create_privacy_settings(
         trip.user_id
@@ -321,5 +319,5 @@ def privacy_aware_view(trip: Trip, *, requested_level: str | None) -> PrivacyAwa
         ),
         diary=diary_view(trip, level=level if protected else None),
         significant_places=significant_places_view(trip, level=level),
-        metrics=privacy_metrics_view(trip, level=level),
+        metrics=compute_privacy_metrics(trip.path, level=level),
     )

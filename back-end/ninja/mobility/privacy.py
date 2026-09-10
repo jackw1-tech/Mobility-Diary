@@ -103,6 +103,7 @@ def point_geojson(coordinate: tuple[float, float] | None) -> dict | None:
     return {"type": "Point", "coordinates": [round(lon, 7), round(lat, 7)]}
 
 
+#metriche per confrontare le viste
 def privacy_metrics(
     geometry: LineString | None,
     *,

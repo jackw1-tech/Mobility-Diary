@@ -160,10 +160,7 @@ const privacyAware = computed(() => dashboard.value?.privacy_aware ?? null);
 const privacyGridCellSize = computed(() => (
   privacyAware.value ? privacyCellSizeMeters(privacyAware.value.level) : null
 ));
-const privacyPlaces = computed(() => privacyAware.value?.significant_places ?? []);
-const visiblePrivacyPlaces = computed(() => (
-  hasLocalFilters.value ? [] : privacyPlaces.value
-));
+const visiblePrivacyPlaces = computed(() => privacyAware.value?.significant_places ?? []);
 const privacyMetricList = computed(() => (
   privacyAware.value
     ? privacyMetricCards(privacyAware.value.metrics, privacyAware.value.level)
