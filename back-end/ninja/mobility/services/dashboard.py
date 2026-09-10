@@ -303,11 +303,11 @@ def privacy_metrics_view(trip: Trip, *, level: str) -> PrivacyMetrics:
     return compute_privacy_metrics(trip.path, level=level)
 
 
+#Funzione che fa partitre 
 def privacy_aware_view(trip: Trip, *, requested_level: str | None) -> PrivacyAwareView:
     default_level = accounts_repositories.get_or_create_privacy_settings(
         trip.user_id
     ).level
-    # Il parametro permette l'anteprima senza modificare la preferenza dell'utente.
     level = default_level if requested_level is None else requested_level
     if level not in UserPrivacySettings.Level.values:
         raise InvalidPrivacyLevel("Livello privacy non valido")

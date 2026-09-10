@@ -1,4 +1,5 @@
 import json
+from datetime import timedelta
 
 from django.shortcuts import get_object_or_404
 from ninja import Router
@@ -9,7 +10,7 @@ import accounts.repositories as accounts_repositories
 from accounts.schemas import MessageOut
 from accounts.auth_mobile.auth import mobile_bearer_auth
 
-from .diary_export import build_trip_privacy_export
+from .diary_export import build_day_privacy_export
 from .private_diary_cache import (
     cache_diary,
     get_cached_diary,
@@ -25,6 +26,7 @@ from .selectors.trips import (
     trip_diary_enrichment_failed,
     trip_list_items_for_user,
     trip_track_for_user,
+    trips_overlapping_window,
 )
 from .services.analytics import personal_analytics_for_user
 from .services.diary_view import build_private_diary
@@ -316,7 +318,12 @@ def get_trip_privacy_export(request, trip_id: int):
     trip = get_object_or_404(Trip, id=trip_id, user_id=request.user.user_id)
     settings = accounts_repositories.get_or_create_privacy_settings(request.user.user_id)
     level = settings.level
-    export = build_trip_privacy_export(trip, level=level)
+    day_start = trip.started_at.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end = day_start + timedelta(days=1)
+    day_trips = list(
+        trips_overlapping_window(request.user.user_id, start=day_start, end=day_end)
+    )
+    export = build_day_privacy_export(day_trips, trip_id=trip.id, level=level)
     return PrivacyExportOut(
         trip_id=export.trip_id,
         level=export.level,

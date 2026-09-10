@@ -160,6 +160,20 @@ def trip_overlaps_window(
         queryset = queryset.exclude(client_session_id=exclude_client_session_id)
     return queryset.exists()
 
+
+def trips_overlapping_window(user_id: int, *, start, end):
+    """Tutti i Trip dell'utente che si sovrappongono a (start, end).
+
+    Stessa logica di sovrapposizione di `trip_overlaps_window`, ma restituisce
+    i viaggi stessi invece di un booleano - usata per raggruppare i viaggi di
+    una giornata (es. esportazione diario mobile).
+    """
+    return (
+        Trip.objects.filter(user_id=user_id, started_at__lt=end)
+        .filter(Q(ended_at__isnull=True) | Q(ended_at__gt=start))
+        .order_by("started_at")
+    )
+
 # Prende i viaggi del passato (started_at__lt < ora)
 # e che finiscono in nei giorni in cui mi interessa trovare uno slot (ended_at > oggi - 14 giorni )
 # restituisce solo tuple di date

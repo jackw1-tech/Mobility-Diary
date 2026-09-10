@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
 from accounts.models import UserPrivacySettings
@@ -35,13 +35,6 @@ _APPROXIMATE_PLACE_LABELS = {
     HabitualPlace.Category.ALTRO: "area visitata",
 }
 
-_DAY_PERIODS = [
-    ("notte", 0, 6),
-    ("mattina", 6, 12),
-    ("pomeriggio", 12, 18),
-    ("sera", 18, 24),
-]
-
 
 @dataclass(frozen=True)
 class DiaryExportSegment:
@@ -68,35 +61,37 @@ class DiaryPrivacyExport:
     text: str
     segments: list[DiaryExportSegment]
 
-# costruzione diario con livello di privacy impostato
-def build_trip_privacy_export(trip: Trip, *, level: str) -> DiaryPrivacyExport:
-    cell_size_meters = privacy_cell_size_meters(level)
-    protected = level != UserPrivacySettings.Level.PRECISE
+def _trip_export_segments(
+    trip: Trip, *, level: str, protected: bool
+) -> list[DiaryExportSegment]:
     persisted_segments = list(trip.segments.all())
     virtual_stop_intervals = list(trip.virtual_stop_intervals.all())
     gps = list(trip.gps_points.order_by("timestamp"))
     confirmed = confirmed_places_for_user(trip.user_id)
-    segments = [
+    return [
         _export_segment(segment, stop_details, level=level, protected=protected)
         for segment, stop_details in project_diary_with_places(
             persisted_segments, virtual_stop_intervals, gps, confirmed
         )
     ]
-    if level == UserPrivacySettings.Level.AGGREGATED:
-        return _aggregated_export(
-            trip=trip,
-            level=level,
-            cell_size_meters=cell_size_meters,
-            segments=segments,
-        )
+
+
+def _build_privacy_export(
+    *,
+    trip_id: int,
+    level: str,
+    protected: bool,
+    cell_size_meters: int | None,
+    segments: list[DiaryExportSegment],
+) -> DiaryPrivacyExport:
     return DiaryPrivacyExport(
-        trip_id=trip.id,
+        trip_id=trip_id,
         level=level,
         protected=protected,
         approximated_coordinates=cell_size_meters is not None,
         cell_size_meters=cell_size_meters,
         text=_export_text(
-            trip_id=trip.id,
+            trip_id=trip_id,
             level=level,
             protected=protected,
             cell_size_meters=cell_size_meters,
@@ -105,28 +100,41 @@ def build_trip_privacy_export(trip: Trip, *, level: str) -> DiaryPrivacyExport:
         segments=segments,
     )
 
-# Funzione che costruisce il diario aggregato
-def _aggregated_export(
-    *,
-    trip: Trip,
-    level: str,
-    cell_size_meters: int | None,
-    segments: list[DiaryExportSegment],
-) -> DiaryPrivacyExport:
-    aggregated_segments = _aggregate_segments_by_period(segments)
-    return DiaryPrivacyExport(
+
+# costruzione diario con livello di privacy impostato, per un singolo viaggio
+def build_trip_privacy_export(trip: Trip, *, level: str) -> DiaryPrivacyExport:
+    cell_size_meters = privacy_cell_size_meters(level)
+    protected = level != UserPrivacySettings.Level.PRECISE
+    segments = _trip_export_segments(trip, level=level, protected=protected)
+    return _build_privacy_export(
         trip_id=trip.id,
         level=level,
-        protected=True,
-        approximated_coordinates=True,
+        protected=protected,
         cell_size_meters=cell_size_meters,
-        text=_aggregated_text(
-            trip_id=trip.id,
-            cell_size_meters=cell_size_meters,
-            segments=segments,
-            aggregated_segments=aggregated_segments,
+        segments=segments,
+    )
+
+
+# costruzione diario con livello di privacy impostato, per l'intera giornata
+def build_day_privacy_export(
+    trips: list[Trip], *, trip_id: int, level: str
+) -> DiaryPrivacyExport:
+    cell_size_meters = privacy_cell_size_meters(level)
+    protected = level != UserPrivacySettings.Level.PRECISE
+    segments = sorted(
+        (
+            segment
+            for trip in trips
+            for segment in _trip_export_segments(trip, level=level, protected=protected)
         ),
-        segments=aggregated_segments,
+        key=lambda segment: segment.start_timestamp,
+    )
+    return _build_privacy_export(
+        trip_id=trip_id,
+        level=level,
+        protected=protected,
+        cell_size_meters=cell_size_meters,
+        segments=segments,
     )
 
 #Prende il singolo segmento e lo trasforma approssimandolo
@@ -153,7 +161,7 @@ def _export_segment(
         start_label=published_start.strftime("%H:%M"),
         end_label=published_end.strftime("%H:%M"),
         activity_label=segment.activity_label,
-        title=_segment_title(segment, stop_details, protected=protected),
+        title=_segment_title(segment, stop_details, level=level),
         point_count=len(coordinates),
         coordinates=coordinates,
         duration=published_end - published_start,
@@ -187,92 +195,21 @@ def _move_coordinates_and_distance(
         0.0 if approximated is None else approximated.distance_meters,
     )
 
-#Raggruppa i singoli segmenti in fascia oraria
-def _aggregate_segments_by_period(
-    segments: list[DiaryExportSegment],
-) -> list[DiaryExportSegment]:
-    period_rows: list[DiaryExportSegment] = []
-    if not segments:
-        return period_rows
-    base_day = segments[0].start_timestamp
-    for period_name, start_hour, end_hour in _DAY_PERIODS:
-        period_segments = [
-            segment
-            for segment in segments
-            if _period_for_start_label(segment.start_label) == period_name
-        ]
-        if not period_segments:
-            continue
-        move_segments = [
-            segment
-            for segment in period_segments
-            if segment.kind == MobilitySegment.Kind.MOVE
-        ]
-        stop_segments = [
-            segment
-            for segment in period_segments
-            if segment.kind == MobilitySegment.Kind.STOP
-        ]
-        move_duration = sum(
-            (segment.duration for segment in move_segments),
-            timedelta(),
-        )
-        stop_duration = sum(
-            (segment.duration for segment in stop_segments),
-            timedelta(),
-        )
-        distance = sum(segment.distance_meters for segment in move_segments)
-        activity = _prevalent_activity(move_segments)
-        period_start = _period_timestamp(base_day, start_hour)
-        period_end = _period_timestamp(base_day, end_hour)
-        if move_segments:
-            move_end = min(period_start + move_duration, period_end)
-            period_rows.append(
-                DiaryExportSegment(
-                    kind=MobilitySegment.Kind.MOVE,
-                    start_timestamp=period_start,
-                    end_timestamp=move_end,
-                    start_label=f"{start_hour:02d}:00",
-                    end_label=move_end.strftime("%H:%M"),
-                    activity_label=activity,
-                    title=f"{period_name}: movimento aggregato",
-                    point_count=0,
-                    coordinates=[],
-                    duration=move_duration,
-                    distance_meters=distance,
-                )
-            )
-        if stop_segments:
-            stop_end = min(period_start + stop_duration, period_end)
-            period_rows.append(
-                DiaryExportSegment(
-                    kind=MobilitySegment.Kind.STOP,
-                    start_timestamp=period_start,
-                    end_timestamp=stop_end,
-                    start_label=f"{start_hour:02d}:00",
-                    end_label=stop_end.strftime("%H:%M"),
-                    activity_label="IDLE",
-                    title=f"{period_name}: permanenza aggregata",
-                    point_count=0,
-                    coordinates=[],
-                    duration=stop_duration,
-                    distance_meters=0.0,
-                )
-            )
-    return period_rows
-
-
 def _segment_title(
     segment: ProjectedDiarySegment,
     stop_details: VisibleStopDetails | None,
     *,
-    protected: bool,
+    level: str,
 ) -> str:
     if segment.kind == MobilitySegment.Kind.MOVE:
         return _activity_label_it(segment.activity_label)
 
     place = None if stop_details is None else stop_details.matched_place
-    if not protected:
+    # Il nome reale del luogo resta visibile per precise e approximate (li'
+    # la privacy sulla posizione la fa gia' il cloaking spaziale delle
+    # coordinate); solo aggregated maschera anche il nome, mostrando solo la
+    # categoria generica del luogo.
+    if level != UserPrivacySettings.Level.AGGREGATED:
         return NEUTRAL_VISIBLE_STOP_TITLE if place is None else place_label(place)
     if place is None:
         return PRIVACY_AWARE_STOP_LABEL
@@ -301,99 +238,48 @@ def _export_text(
     else:
         lines.append("Coordinate precise: export non protetto.")
     lines.append("")
-    for index, segment in enumerate(segments):
-        lines.append(_segment_sentence(segments, index))
+    readable_segments = _merge_overlapping_segments(segments)
+    for index, segment in enumerate(readable_segments):
+        lines.append(_segment_sentence(readable_segments, index))
     return "\n".join(lines)
 
-#Costruisce il testo del diario aggregato
-def _aggregated_text(
-    *,
-    trip_id: int,
-    cell_size_meters: int | None,
+
+def _segment_merge_key(segment: DiaryExportSegment) -> tuple:
+    if segment.kind == MobilitySegment.Kind.MOVE:
+        return (segment.kind, segment.activity_label)
+    return (segment.kind, segment.title)
+
+
+# Accorpa segmenti consecutivi/sovrapposti con la stessa modalita' (MOVE) o
+# lo stesso luogo (STOP): la classificazione HAR puo' "sfarfallare" su
+# intervalli brevi generando tanti micro-segmenti che si accavallano nel
+# tempo (es. veicolo/a piedi/veicolo nello stesso minuto) - qui vengono
+# fusi solo per la resa testuale, senza toccare i segmenti originali (che
+# restano quelli usati per i dati strutturati esportati/serviti dalle API).
+def _merge_overlapping_segments(
     segments: list[DiaryExportSegment],
-    aggregated_segments: list[DiaryExportSegment],
-) -> str:
-    lines = [
-        "DIARIO AGGREGATO",
-        f"Viaggio #{trip_id}",
-        "",
-        "PRIVACY",
-    ]
-    if cell_size_meters is not None:
-        lines.append(
-            "Le informazioni geografiche sono rappresentate "
-            f"in aree da {cell_size_meters} m."
-        )
-    lines.append("Percorsi precisi e luoghi esatti non sono inclusi.")
-    lines.append("")
-
-    total_move_duration = timedelta()
-    total_stop_duration = timedelta()
-    total_distance = 0.0
-    for segment in aggregated_segments:
-        if segment.kind == MobilitySegment.Kind.MOVE:
-            total_move_duration += segment.duration
-            total_distance += segment.distance_meters
-        else:
-            total_stop_duration += segment.duration
-
-    for period_name, start_hour, end_hour in _DAY_PERIODS:
-        period_segments = [
-            segment
-            for segment in aggregated_segments
-            if _period_for_start_label(segment.start_label) == period_name
-        ]
-        if not period_segments:
-            continue
-        move = next(
-            (
-                segment
-                for segment in period_segments
-                if segment.kind == MobilitySegment.Kind.MOVE
-            ),
-            None,
-        )
-        stop = next(
-            (
-                segment
-                for segment in period_segments
-                if segment.kind == MobilitySegment.Kind.STOP
-            ),
-            None,
-        )
-        lines.extend(
-            [
-                f"{period_name.upper()} · {start_hour:02d}:00–{end_hour:02d}:00",
-                "",
-            ]
-        )
-        if move is not None:
-            lines.extend(
-                [
-                    f"- Movimento: {_format_duration(move.duration)}",
-                    f"- Modalità: {_activity_label_it(move.activity_label).capitalize()}",
-                    f"- Distanza: {_format_distance_bucket(move.distance_meters)}",
-                ]
+) -> list[DiaryExportSegment]:
+    if not segments:
+        return []
+    ordered = sorted(segments, key=lambda segment: segment.start_timestamp)
+    merged: list[DiaryExportSegment] = [ordered[0]]
+    for segment in ordered[1:]:
+        last = merged[-1]
+        touches_or_overlaps = segment.start_timestamp <= last.end_timestamp
+        if touches_or_overlaps and _segment_merge_key(segment) == _segment_merge_key(last):
+            new_end = max(last.end_timestamp, segment.end_timestamp)
+            merged[-1] = replace(
+                last,
+                end_timestamp=new_end,
+                end_label=new_end.strftime("%H:%M"),
+                duration=last.duration + segment.duration,
+                distance_meters=last.distance_meters + segment.distance_meters,
+                point_count=last.point_count + segment.point_count,
+                coordinates=last.coordinates + segment.coordinates,
             )
-        if stop is not None:
-            lines.append(f"- Tempo in sosta: {_format_duration(stop.duration)}")
-        lines.append("")
-
-    visited_area_count = sum(
-        1 for segment in segments if segment.kind == MobilitySegment.Kind.STOP
-    )
-    lines.extend(
-        [
-            "TOTALE DELLA GIORNATA",
-            "",
-            f"- Movimento: {_format_duration(total_move_duration)}",
-            f"- Tempo in sosta: {_format_duration(total_stop_duration)}",
-            f"- Distanza: {_format_distance_bucket(total_distance)}",
-            f"- Aree visitate: {visited_area_count}",
-        ]
-    )
-    return "\n".join(lines)
-
+        else:
+            merged.append(segment)
+    return merged
 
 def _segment_sentence(segments: list[DiaryExportSegment], index: int) -> str:
     segment = segments[index]
@@ -437,34 +323,6 @@ def _activity_label_it(activity_label: str) -> str:
     return _ACTIVITY_LABELS_IT.get(activity_label, activity_label.lower())
 
 
-def _prevalent_activity(segments: list[DiaryExportSegment]) -> str:
-    totals: dict[str, timedelta] = {}
-    for segment in segments:
-        totals[segment.activity_label] = totals.get(
-            segment.activity_label,
-            timedelta(),
-        ) + segment.duration
-    if not totals:
-        return "IDLE"
-    return max(totals.items(), key=lambda item: item[1])[0]
-
-
-def _period_for_start_label(start_label: str) -> str:
-    hour = int(start_label.split(":", 1)[0])
-    for name, start_hour, end_hour in _DAY_PERIODS:
-        if start_hour <= hour < end_hour:
-            return name
-    return "notte"
-
-
-def _period_timestamp(base_day: datetime, hour: int) -> datetime:
-    if hour == 24:
-        return base_day.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(
-            days=1
-        )
-    return base_day.replace(hour=hour, minute=0, second=0, microsecond=0)
-
-
 # Se protetto, approssimo la data di inzio di quel segmento
 def _published_start(value: datetime, *, protected: bool) -> datetime:
     if not protected:
@@ -505,18 +363,3 @@ def _format_distance(distance_meters: float) -> str:
     if distance_meters < 1000:
         return f"{round(distance_meters)} m"
     return f"{distance_meters / 1000:.1f} km"
-
-
-def _format_distance_bucket(distance_meters: float) -> str:
-    if distance_meters <= 0:
-        return "0 km"
-    km = distance_meters / 1000
-    if km < 1:
-        return "Meno di 1 km"
-    if km < 3:
-        return "1–3 km"
-    if km < 5:
-        return "3–5 km"
-    if km < 10:
-        return "5–10 km"
-    return "Oltre 10 km"
