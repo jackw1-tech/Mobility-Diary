@@ -2,6 +2,8 @@ import 'package:diary/network/service/impl/acquisition_local_database.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+// Schema minimo di un vecchio db locale (versione 8), usato solo per
+// simulare un telefono che apre l'app dopo un bump di schemaVersion.
 const List<String> _v8Schema = [
   '''
   CREATE TABLE acquisition_sessions (
@@ -86,34 +88,58 @@ Future<Set<String>> columnsOf(AcquisitionLocalDatabase db, String table) async {
 }
 
 void main() {
-  test(
-    'v9 sostituisce matrix_blob con matrix_json su sensor_windows',
-    () async {
-      final db = openFromV8();
+  // App non ancora distribuita: l'unico contratto che conta e' che aprire un
+  // db locale fermo a una versione vecchia porti sempre allo schema
+  // corrente, ricreato da zero (vedi il commento su
+  // AcquisitionLocalDatabase.migration).
 
-      final columns = await columnsOf(db, 'sensor_windows');
+  test('un db fermo a una versione vecchia arriva allo schema corrente',
+      () async {
+    final db = openFromV8();
 
-      expect(columns, contains('matrix_json'));
-      expect(columns, isNot(contains('matrix_blob')));
-      await db.close();
-    },
-  );
+    expect(await columnsOf(db, 'sensor_windows'), contains('matrix_json'));
+    expect(
+      await columnsOf(db, 'gps_points'),
+      isNot(anyOf(contains('accepted'), contains('rejection_reason'), contains('is_synced'))),
+    );
+    expect(await columnsOf(db, 'state_transitions'), isNot(contains('reason')));
+    expect(
+      await columnsOf(db, 'acquisition_sessions'),
+      allOf(contains('remote_upload_id'), isNot(contains('remote_ingestion_id'))),
+    );
+    await db.close();
+  });
 
-  test(
-    'v9 elimina la colonna morta is_synced da entrambe le tabelle',
-    () async {
-      final db = openFromV8();
+  test('la velocita GPS e nullable sullo schema corrente', () async {
+    final db = openFromV8();
 
-      expect(
-        await columnsOf(db, 'sensor_windows'),
-        isNot(contains('is_synced')),
-      );
-      expect(await columnsOf(db, 'gps_points'), isNot(contains('is_synced')));
-      await db.close();
-    },
-  );
+    final columns = await db.customSelect("PRAGMA table_info('gps_points')").get();
+    final speedColumn = columns.singleWhere(
+      (row) => row.read<String>('name') == 'speed_mps',
+    );
 
-  test('dopo la migrazione si inseriscono e rileggono finestre JSON', () async {
+    expect(speedColumn.read<int>('notnull'), 0);
+    await db.close();
+  });
+
+  test('i dati del vecchio schema non sopravvivono (ricreazione distruttiva)',
+      () async {
+    final db = openFromV8(
+      seed: [
+        "INSERT INTO acquisition_sessions (id, device_id, started_at) "
+            "VALUES ('session-1', 'device-1', 0)",
+        "INSERT INTO gps_points (session_id, latitude, longitude, timestamp, "
+            "speed_mps) VALUES ('session-1', 45.46, 9.19, 0, 1.0)",
+      ],
+    );
+
+    expect(await db.acquisitionDao.findSession('session-1'), isNull);
+    expect(await db.acquisitionDao.countGpsPointsForSession('session-1'), 0);
+    await db.close();
+  });
+
+  test('dopo la migrazione si puo di nuovo scrivere e rileggere normalmente',
+      () async {
     final db = openFromV8();
     final dao = db.acquisitionDao;
     await dao.createSession(
@@ -121,7 +147,6 @@ void main() {
       deviceId: 'device-1',
       startedAt: DateTime.utc(2026, 9, 2, 10),
     );
-
     await dao.insertSensorWindow(
       sessionId: 'session-1',
       startTimestamp: DateTime.utc(2026, 9, 2, 10),
@@ -133,104 +158,6 @@ void main() {
 
     final windows = await dao.sensorWindowsForSession('session-1');
     expect(windows.single.matrixJson, '[[1,2,3,4,5,6]]');
-    await db.close();
-  });
-
-  test('i dati non-sensori sopravvivono alla migrazione', () async {
-    final db = openFromV8(
-      seed: [
-        "INSERT INTO acquisition_sessions (id, device_id, started_at) "
-            "VALUES ('session-1', 'device-1', 0)",
-        "INSERT INTO gps_points (session_id, latitude, longitude, timestamp, "
-            "speed_mps) VALUES ('session-1', 45.46, 9.19, 0, 1.0)",
-      ],
-    );
-
-    expect(await db.acquisitionDao.countGpsPointsForSession('session-1'), 1);
-    expect(await db.acquisitionDao.findSession('session-1'), isNot(null));
-    await db.close();
-  });
-
-  test('v10 rinomina remote_ingestion_id in remote_upload_id', () async {
-    final db = openFromV8(
-      seed: [
-        "INSERT INTO acquisition_sessions (id, device_id, remote_ingestion_id, "
-            "started_at) VALUES ('session-1', 'device-1', 42, 0)",
-      ],
-    );
-
-    for (final table in ['acquisition_sessions', 'sync_jobs']) {
-      final columns = await columnsOf(db, table);
-      expect(columns, contains('remote_upload_id'), reason: table);
-      expect(columns, isNot(contains('remote_ingestion_id')), reason: table);
-    }
-    // Il rename non deve perdere il valore gia' presente.
-    final session = await db.acquisitionDao.findSession('session-1');
-    expect(session?.remoteUploadId, 42);
-    await db.close();
-  });
-
-  test('v11 elimina la colonna morta reason da state_transitions', () async {
-    final db = openFromV8(
-      seed: [
-        "INSERT INTO acquisition_sessions (id, device_id, started_at) "
-            "VALUES ('session-1', 'device-1', 0)",
-        "INSERT INTO state_transitions (session_id, from_state, to_state, "
-            "reason, timestamp) VALUES "
-            "('session-1', 'stationary', 'movement', 'evidence_confirmed', 0)",
-      ],
-    );
-
-    expect(await columnsOf(db, 'state_transitions'), isNot(contains('reason')));
-    // La transizione gia' presente sopravvive alla migrazione.
-    expect(
-      await db.acquisitionDao.transitionsForSession('session-1'),
-      hasLength(1),
-    );
-    await db.close();
-  });
-
-  test(
-    'v12 elimina le colonne morte accepted e rejection_reason da gps_points',
-    () async {
-      final db = openFromV8(
-        seed: [
-          "INSERT INTO acquisition_sessions (id, device_id, started_at) "
-              "VALUES ('session-1', 'device-1', 0)",
-          "INSERT INTO gps_points (session_id, latitude, longitude, timestamp, "
-              "speed_mps, accepted, rejection_reason) VALUES "
-              "('session-1', 45.46, 9.19, 0, 1.0, 0, 'accuracy')",
-        ],
-      );
-
-      final columns = await columnsOf(db, 'gps_points');
-      expect(columns, isNot(contains('accepted')));
-      expect(columns, isNot(contains('rejection_reason')));
-      // Il punto gia' presente sopravvive alla migrazione.
-      expect(await db.acquisitionDao.countGpsPointsForSession('session-1'), 1);
-      await db.close();
-    },
-  );
-
-  test('v13 rende nullable la velocita GPS senza perdere i punti', () async {
-    final db = openFromV8(
-      seed: [
-        "INSERT INTO acquisition_sessions (id, device_id, started_at) "
-            "VALUES ('session-1', 'device-1', 0)",
-        "INSERT INTO gps_points (session_id, latitude, longitude, timestamp, "
-            "speed_mps) VALUES ('session-1', 45.46, 9.19, 0, 1.0)",
-      ],
-    );
-
-    final columns = await db
-        .customSelect("PRAGMA table_info('gps_points')")
-        .get();
-    final speedColumn = columns.singleWhere(
-      (row) => row.read<String>('name') == 'speed_mps',
-    );
-
-    expect(speedColumn.read<int>('notnull'), 0);
-    expect(await db.acquisitionDao.countGpsPointsForSession('session-1'), 1);
     await db.close();
   });
 }
