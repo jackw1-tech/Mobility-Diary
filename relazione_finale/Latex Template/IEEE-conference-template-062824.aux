@@ -1,0 +1,63 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\@writefile{toc}{\contentsline {section}{\numberline {I}Introduzione}{1}{section.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {II}Architettura del sistema}{1}{section.2}\protected@file@percent }
+\newlabel{sec:architecture}{{II}{1}{Architettura del sistema}{section.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-A}}Panoramica}{1}{subsection.2.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-B}}Applicazione mobile}{1}{subsection.2.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Architettura ad alto livello del sistema.}}{2}{figure.1}\protected@file@percent }
+\newlabel{fig:architecture}{{1}{2}{Architettura ad alto livello del sistema}{figure.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-C}}Livello di ingresso e servizio applicativo}{2}{subsection.2.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-D}}Pipeline di ingestione ed elaborazione}{2}{subsection.2.4}\protected@file@percent }
+\newlabel{sec:architecture-pipeline}{{\mbox  {II-D}}{2}{Pipeline di ingestione ed elaborazione}{subsection.2.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-E}}Persistenza}{3}{subsection.2.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-F}}Dashboard}{3}{subsection.2.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {III}Implementazione}{3}{section.3}\protected@file@percent }
+\newlabel{sec:implementation}{{III}{3}{Implementazione}{section.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-A}}Applicazione mobile}{3}{subsection.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-A}1}Macchina a stati finiti di rilevamento del movimento}{3}{subsubsection.3.1.1}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {I}{\ignorespaces Frequenza dei sensori e generazione degli eventi per la macchina a stati}}{3}{table.1}\protected@file@percent }
+\newlabel{tab:sensor-events}{{I}{3}{Frequenza dei sensori e generazione degli eventi per la macchina a stati}{table.1}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Macchina a stati finiti di rilevamento del movimento: stati, transizioni ed effetto di ciascun tipo di evidenza sui timer di isteresi.}}{4}{figure.2}\protected@file@percent }
+\newlabel{fig:fsm}{{2}{4}{Macchina a stati finiti di rilevamento del movimento: stati, transizioni ed effetto di ciascun tipo di evidenza sui timer di isteresi}{figure.2}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-A}2}Rapporto tra macchina a stati e sistema HAR}{4}{subsubsection.3.1.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Dati persistiti localmente in SQLite lungo un viaggio composto da tre segmenti: nelle fasi \texttt  {stationary} viene salvato solo il GPS, mentre nella fase \texttt  {movement} vengono salvati anche accelerometro e giroscopio, usati per la classificazione HAR.}}{4}{figure.3}\protected@file@percent }
+\newlabel{fig:sensor-timeline}{{3}{4}{Dati persistiti localmente in SQLite lungo un viaggio composto da tre segmenti: nelle fasi \texttt {stationary} viene salvato solo il GPS, mentre nella fase \texttt {movement} vengono salvati anche accelerometro e giroscopio, usati per la classificazione HAR}{figure.3}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-A}3}Struttura e impacchettamento dei dati sensoriali per l'HAR}{5}{subsubsection.3.1.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-A}4}Coda di sincronizzazione offline}{5}{subsubsection.3.1.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-A}5}Vincolo di un viaggio attivo alla volta}{5}{subsubsection.3.1.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-A}6}Visualizzazione progressiva dei risultati}{6}{subsubsection.3.1.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-A}7}Gestione dell'applicazione in background}{6}{subsubsection.3.1.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-B}}Classificazione dell'attività (HAR)}{6}{subsection.3.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-B}1}Dataset e preparazione}{6}{subsubsection.3.2.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-B}2}Architettura del modello}{6}{subsubsection.3.2.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Pipeline completa di caricamento ed elaborazione.}}{7}{figure.4}\protected@file@percent }
+\newlabel{fig:pipeline-timeline}{{4}{7}{Pipeline completa di caricamento ed elaborazione}{figure.4}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-B}3}Ottimizzazione per l'inferenza in produzione}{7}{subsubsection.3.2.3}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {II}{\ignorespaces Latenza dell'inferenza, pipeline originale vs ottimizzata (stesso processo, a caldo)}}{8}{table.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-C}}Inserimento nel diario e persistenza dei dati sensoriali}{8}{subsection.3.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-C}1}Rappresentazione geospaziale e query di distanza}{8}{subsubsection.3.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-C}2}Segmentazione del diario}{8}{subsubsection.3.3.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces Correzione di un cambio di etichetta isolato e breve (durata $<60$\,s): il gruppo centrale viene riassegnato all'etichetta circostante.}}{8}{figure.5}\protected@file@percent }
+\newlabel{fig:isolated-label}{{5}{8}{Correzione di un cambio di etichetta isolato e breve (durata $<60$\,s): il gruppo centrale viene riassegnato all'etichetta circostante}{figure.5}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces Una pausa virtuale rilevata dentro un macro-segmento \texttt  {movement} viene unita, nel diario finale, alla sosta \texttt  {stationary} adiacente decisa dalla FSM.}}{8}{figure.6}\protected@file@percent }
+\newlabel{fig:virtual-stop-merge}{{6}{8}{Una pausa virtuale rilevata dentro un macro-segmento \texttt {movement} viene unita, nel diario finale, alla sosta \texttt {stationary} adiacente decisa dalla FSM}{figure.6}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-C}3}Persistenza dei dati sensoriali grezzi}{8}{subsubsection.3.3.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-C}4}Utilizzo analitico dei dati sensoriali grezzi}{8}{subsubsection.3.3.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-D}}Data mining dei luoghi abituali}{9}{subsection.3.4}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {7}{\ignorespaces Pipeline di individuazione dei luoghi abituali: dai punti GPS grezzi alla stay detection, al raggruppamento DBSCAN, fino al ciclo di vita candidate/confirmed del luogo.}}{9}{figure.7}\protected@file@percent }
+\newlabel{fig:place-mining}{{7}{9}{Pipeline di individuazione dei luoghi abituali: dai punti GPS grezzi alla stay detection, al raggruppamento DBSCAN, fino al ciclo di vita candidate/confirmed del luogo}{figure.7}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-E}}Modulo di privacy}{9}{subsection.3.5}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {8}{\ignorespaces Generalizzazione spaziale a griglia: lo stesso punto reale viene pubblicato al centro della cella a cui appartiene; una cella più grande (\emph  {aggregated}) sposta il punto pubblicato più lontano da quello reale.}}{9}{figure.8}\protected@file@percent }
+\newlabel{fig:privacy-grid}{{8}{9}{Generalizzazione spaziale a griglia: lo stesso punto reale viene pubblicato al centro della cella a cui appartiene; una cella più grande (\emph {aggregated}) sposta il punto pubblicato più lontano da quello reale}{figure.8}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {9}{\ignorespaces Esempio su dati reali di un viaggio in auto: la linea continua è il percorso realmente registrato; la linea tratteggiata è la vista \emph  {approximate} (griglia da 150\,m) dello stesso percorso.}}{10}{figure.9}\protected@file@percent }
+\newlabel{fig:privacy-grid-example}{{9}{10}{Esempio su dati reali di un viaggio in auto: la linea continua è il percorso realmente registrato; la linea tratteggiata è la vista \emph {approximate} (griglia da 150\,m) dello stesso percorso}{figure.9}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-E}1}Costruzione del diario in base al livello di privacy}{10}{subsubsection.3.5.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {IV}Risultati}{10}{section.4}\protected@file@percent }
+\newlabel{sec:results}{{IV}{10}{Risultati}{section.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-A}}Compromesso privacy/utilità}{10}{subsection.4.1}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {III}{\ignorespaces Privacy Perturbation media e Quality of Service (errore relativo di distanza) per modalità, sui due livelli protetti}}{10}{table.3}\protected@file@percent }
+\newlabel{tab:privacy-results}{{III}{10}{Privacy Perturbation media e Quality of Service (errore relativo di distanza) per modalità, sui due livelli protetti}{table.3}{}}
+\gdef \@abspage@last{11}

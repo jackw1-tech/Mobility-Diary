@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 from django.shortcuts import get_object_or_404
 from ninja import Router
 from ninja.errors import HttpError
@@ -162,6 +164,7 @@ def create_core_inline(request, payload: InlineCoreIn):
     else:
         raw_status = TripUpload.PhaseStatus.COMPLETED
 
+    _benchmark_started_at = time.monotonic()
     try:
         upload = process_inline_core_upload(
             user_id=request.user.user_id,
@@ -171,6 +174,10 @@ def create_core_inline(request, payload: InlineCoreIn):
         )
     except UploadServiceError as exc:
         raise HttpError(exc.status_code, exc.message) from exc
+    print(
+        f"[BENCHMARK] upload_id={upload.id} trip_id={upload.trip_id} "
+        f"phase=core duration_s={time.monotonic() - _benchmark_started_at:.3f}"
+    )
 
     return InlineCoreOut(
         upload_id=upload.id,
