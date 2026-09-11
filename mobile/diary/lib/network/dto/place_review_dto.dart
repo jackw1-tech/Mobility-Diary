@@ -1,5 +1,3 @@
-/// Un Luogo Significativo user-scoped per la schermata di review, con le visite
-/// di supporto (evidenza di mappa) e il contesto che spiega perche' e' proposto.
 class PlaceReviewDto {
   final int id;
   final double latitude;
@@ -40,9 +38,11 @@ class PlaceReviewDto {
       visitCount: json['visit_count'] as int? ?? 0,
       distinctDays: json['distinct_days'] as int? ?? 0,
       visits: (json['visits'] as List<dynamic>? ?? const [])
-          .map((value) => PlaceVisitDto.fromJson(
-                Map<String, dynamic>.from(value as Map<dynamic, dynamic>),
-              ))
+          .map(
+            (value) => PlaceVisitDto.fromJson(
+              Map<String, dynamic>.from(value as Map<dynamic, dynamic>),
+            ),
+          )
           .toList(growable: false),
     );
   }

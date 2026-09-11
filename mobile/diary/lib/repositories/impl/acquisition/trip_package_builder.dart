@@ -40,8 +40,6 @@ class TripCorePayload {
   int get sizeBytes => utf8.encode(jsonEncode(requestBody)).length;
 }
 
-/// Il pacchetto viaggio locale: metadati + parti compresse su disco
-/// (REPORT_STRATEGIA_UPLOAD_ASINCRONA.md, "Creazione del Pacchetto Locale").
 class TripPackage {
   final String localSessionId;
   final int? remoteUploadId;
@@ -68,9 +66,6 @@ class TripPackage {
   }
 }
 
-/// Costruisce il pacchetto viaggio leggendo il DB locale e scrivendo file
-/// JSON gzippati su disco. Le sensor window vengono spezzate in piu' parti per
-/// stare sotto la soglia di dimensione (chunk con retry parziale).
 class TripPackageBuilder {
   final AcquisitionDao _dao;
   final Future<Directory> Function() _baseDirProvider;
@@ -94,13 +89,14 @@ class TripPackageBuilder {
     // La pagina e' intenzionalmente molto piu' piccola di una parte: il picco
     // di memoria dipende dal budget della parte e non dalla durata del viaggio.
     int sensorWindowsPageSize = 128,
-  })  : _dao = dao,
-        _acquisitionMapper = acquisitionMapper ?? AcquisitionMapper(),
-        _uploadMapper = uploadMapper ?? UploadMapper(),
-        _baseDirProvider = baseDirProvider ?? getTemporaryDirectory,
-        _sensorWindowsPartBudgetBytes = sensorWindowsPartBudgetBytes,
-        _sensorWindowsPageSize =
-            sensorWindowsPageSize < 1 ? 1 : sensorWindowsPageSize;
+  }) : _dao = dao,
+       _acquisitionMapper = acquisitionMapper ?? AcquisitionMapper(),
+       _uploadMapper = uploadMapper ?? UploadMapper(),
+       _baseDirProvider = baseDirProvider ?? getTemporaryDirectory,
+       _sensorWindowsPartBudgetBytes = sensorWindowsPartBudgetBytes,
+       _sensorWindowsPageSize = sensorWindowsPageSize < 1
+           ? 1
+           : sensorWindowsPageSize;
 
   Future<TripPackage> build(String localSessionId) async {
     final session = await _dao.findSession(localSessionId);
@@ -165,13 +161,7 @@ class TripPackageBuilder {
 
     Future<void> flush() async {
       if (bufferedWindows.isEmpty) return;
-      parts.add(
-        await _writeGzipPart(
-          directory,
-          sequence,
-          bufferedWindows,
-        ),
-      );
+      parts.add(await _writeGzipPart(directory, sequence, bufferedWindows));
       sequence += 1;
       bufferedWindows = <SensorWindow>[];
       bufferedBytes = 0;
@@ -231,11 +221,7 @@ class TripPackageBuilder {
       () => _streamCompressedPart(file.path, partWindows),
     );
 
-    return TripPackagePart(
-      sequence: sequence,
-      file: file,
-      sha256: sha256,
-    );
+    return TripPackagePart(sequence: sequence, file: file, sha256: sha256);
   }
 }
 
@@ -253,10 +239,7 @@ class _PartSensorWindow {
   });
 }
 
-String _streamCompressedPart(
-  String filePath,
-  List<_PartSensorWindow> windows,
-) {
+String _streamCompressedPart(String filePath, List<_PartSensorWindow> windows) {
   final output = _CompressedFileAndHashSink(
     File(filePath).openSync(mode: FileMode.write),
   );

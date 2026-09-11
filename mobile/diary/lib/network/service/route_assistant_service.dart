@@ -6,21 +6,12 @@ import 'package:diary/network/dto/geocoding_feature_dto.dart';
 import 'package:diary/network/dto/mapbox_route_dto.dart';
 import 'package:latlong2/latlong.dart' as ll;
 
-/// Assistente di percorso: geocoding e routing via API Mapbox chiamate
-/// direttamente dal client (il token Mapbox e' gia' presente nell'app).
-///
-/// Provider layer (Pine): restituisce sempre DTO grezzi. La trasformazione in
-/// model di dominio e' compito esclusivo di [RouteAssistantMapper].
 abstract class RouteAssistantService {
-  /// Cerca luoghi per testo libero. `proximity` ordina i risultati vicino a un
-  /// punto (tipicamente la posizione corrente).
   Future<List<GeocodingFeatureDto>> searchPlaces(
     String query, {
     ll.LatLng? proximity,
   });
 
-  /// Percorso da `from` a `to` col profilo della modalita' scelta. Restituisce
-  /// il primo percorso Mapbox grezzo, o null se nessuno trovato.
   Future<MapboxRouteDto?> fetchRoute({
     required ll.LatLng from,
     required ll.LatLng to,
@@ -35,8 +26,8 @@ class MapboxRouteAssistantService implements RouteAssistantService {
   MapboxRouteAssistantService({
     String token = const String.fromEnvironment('MAPBOX_ACCESS_TOKEN'),
     HttpClient? client,
-  })  : _token = token,
-        _client = client ?? HttpClient();
+  }) : _token = token,
+       _client = client ?? HttpClient();
 
   @override
   Future<List<GeocodingFeatureDto>> searchPlaces(
@@ -61,8 +52,10 @@ class MapboxRouteAssistantService implements RouteAssistantService {
     if (features is! List) return const [];
     return features
         .whereType<Map>()
-        .map((feature) =>
-            GeocodingFeatureDto.fromJson(Map<String, dynamic>.from(feature)))
+        .map(
+          (feature) =>
+              GeocodingFeatureDto.fromJson(Map<String, dynamic>.from(feature)),
+        )
         .toList(growable: false);
   }
 
@@ -77,11 +70,7 @@ class MapboxRouteAssistantService implements RouteAssistantService {
     final uri = Uri.https(
       'api.mapbox.com',
       '/directions/v5/mapbox/${mode.mapboxProfile}/$coords',
-      {
-        'access_token': _token,
-        'geometries': 'geojson',
-        'overview': 'full',
-      },
+      {'access_token': _token, 'geometries': 'geojson', 'overview': 'full'},
     );
     final data = await _getJson(uri);
     final routes = data['routes'];

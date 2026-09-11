@@ -14,11 +14,9 @@ class TripUploadDioService implements TripUploadService {
   final AccessTokenProvider _tokenProvider;
   final Dio _dio;
 
-  TripUploadDioService({
-    required AccessTokenProvider tokenProvider,
-    Dio? dio,
-  })  : _tokenProvider = tokenProvider,
-        _dio = dio ?? Dio() {
+  TripUploadDioService({required AccessTokenProvider tokenProvider, Dio? dio})
+    : _tokenProvider = tokenProvider,
+      _dio = dio ?? Dio() {
     _dio.options.baseUrl = ApiConstants.baseApiUrl;
   }
 
@@ -38,10 +36,6 @@ class TripUploadDioService implements TripUploadService {
     );
   }
 
-  /// Esegue una richiesta Dio e mappa il body con [onSuccess], convertendo
-  /// qualunque errore in [UploadApiException] via [_handleError]. Fattorizza
-  /// il try/catch identico ripetuto da quasi tutte le chiamate di questo
-  /// service.
   Future<T> _send<T>(
     Future<Response<dynamic>> Function() request,
     T Function(dynamic data) onSuccess,
@@ -107,82 +101,69 @@ class TripUploadDioService implements TripUploadService {
     required DateTime startedAt,
     required String deviceId,
     int? sourceTripId,
-  }) =>
-      _send(
-        () async => _dio.post(
-          '$_base/start',
-          data: {
-            'client_session_id': clientSessionId,
-            'schema_version': 1,
-            'started_at': startedAt.toUtc().toIso8601String(),
-            'device_id': deviceId,
-            if (sourceTripId != null)
-              'source_trip_id': sourceTripId, // Nel caso replay
-          },
-          options: await _options(),
-        ),
-        (data) =>
-            UploadStartResultDto.fromJson(data as Map<String, dynamic>),
-      );
+  }) => _send(
+    () async => _dio.post(
+      '$_base/start',
+      data: {
+        'client_session_id': clientSessionId,
+        'schema_version': 1,
+        'started_at': startedAt.toUtc().toIso8601String(),
+        'device_id': deviceId,
+        if (sourceTripId != null)
+          'source_trip_id': sourceTripId, // Nel caso replay
+      },
+      options: await _options(),
+    ),
+    (data) => UploadStartResultDto.fromJson(data as Map<String, dynamic>),
+  );
 
   @override
   Future<void> abandonUpload({
     required int uploadId,
     required String deviceId,
-  }) =>
-      _sendVoid(
-        () async => _dio.post(
-          '$_base/$uploadId/abandon',
-          data: {'device_id': deviceId},
-          options: await _options(),
-        ),
-      );
+  }) => _sendVoid(
+    () async => _dio.post(
+      '$_base/$uploadId/abandon',
+      data: {'device_id': deviceId},
+      options: await _options(),
+    ),
+  );
 
   @override
   Future<void> heartbeatUpload({
     required int uploadId,
     required String clientSessionId,
     required String deviceId,
-  }) =>
-      _sendVoid(
-        () async => _dio.post(
-          '$_base/$uploadId/heartbeat',
-          data: {
-            'client_session_id': clientSessionId,
-            'device_id': deviceId,
-          },
-          options: await _options(),
-        ),
-      );
+  }) => _sendVoid(
+    () async => _dio.post(
+      '$_base/$uploadId/heartbeat',
+      data: {'client_session_id': clientSessionId, 'device_id': deviceId},
+      options: await _options(),
+    ),
+  );
 
   // Mando i dati Gps e Transizioni al backend
   @override
   Future<InlineCoreResultDto> postCoreInline({
     required Map<String, dynamic> body,
-  }) =>
-      _send(
-        () async =>
-            _dio.post('$_base/core', data: body, options: await _options()),
-        (data) => InlineCoreResultDto.fromJson(data as Map<String, dynamic>),
-      );
+  }) => _send(
+    () async => _dio.post('$_base/core', data: body, options: await _options()),
+    (data) => InlineCoreResultDto.fromJson(data as Map<String, dynamic>),
+  );
 
   @override
   Future<PresignResultDto> presignPart(
     int uploadId, {
     required int sequence,
     required String sha256,
-  }) =>
-      _send(
-        () async => _dio.post(
-          '$_base/$uploadId/parts/presign',
-          data: {
-            'sequence': sequence,
-            'sha256': sha256,
-          },
-          options: await _options(),
-        ),
-        (data) => PresignResultDto.fromJson(data as Map<String, dynamic>),
-      );
+  }) => _send(
+    () async => _dio.post(
+      '$_base/$uploadId/parts/presign',
+      data: {'sequence': sequence, 'sha256': sha256},
+      options: await _options(),
+    ),
+    (data) => PresignResultDto.fromJson(data as Map<String, dynamic>),
+  );
 
   @override
   Future<void> uploadPart(
@@ -197,7 +178,8 @@ class TripUploadDioService implements TripUploadService {
       };
       final options = Options(
         headers: uploadHeaders,
-        contentType: uploadHeaders['content-type'] ??
+        contentType:
+            uploadHeaders['content-type'] ??
             uploadHeaders['Content-Type'] ??
             'application/gzip',
         sendTimeout: const Duration(minutes: 5),
@@ -224,20 +206,16 @@ class TripUploadDioService implements TripUploadService {
     int uploadId, {
     required int sequence,
     required String sha256,
-  }) =>
-      _sendVoid(
-        () async => _dio.post(
-          '$_base/$uploadId/parts/confirm',
-          data: {'sequence': sequence, 'sha256': sha256},
-          options: await _options(),
-        ),
-      );
+  }) => _sendVoid(
+    () async => _dio.post(
+      '$_base/$uploadId/parts/confirm',
+      data: {'sequence': sequence, 'sha256': sha256},
+      options: await _options(),
+    ),
+  );
 
   @override
-  Future<void> completeRawUpload(
-    int uploadId, {
-    required int totalParts,
-  }) =>
+  Future<void> completeRawUpload(int uploadId, {required int totalParts}) =>
       _sendVoid(
         () async => _dio.post(
           '$_base/$uploadId/complete-raw',
@@ -248,9 +226,9 @@ class TripUploadDioService implements TripUploadService {
 
   @override
   Future<UploadStatusDto> getStatus(int uploadId) => _send(
-        () async => _dio.get('$_base/$uploadId', options: await _options()),
-        (data) => UploadStatusDto.fromJson(data as Map<String, dynamic>),
-      );
+    () async => _dio.get('$_base/$uploadId', options: await _options()),
+    (data) => UploadStatusDto.fromJson(data as Map<String, dynamic>),
+  );
 
   @override
   Future<ReplayDataDto> getReplayData(int tripId) async {

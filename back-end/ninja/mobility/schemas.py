@@ -26,7 +26,6 @@ class PlaceVisitOut(Schema):
 
 
 class PlaceLabelIn(Schema):
-    # Categoria chiusa (casa/universita/lavoro/palestra/altro) o "" per azzerare.
     category: str = ""
     custom_name: str = Field(default="", max_length=128)
 
@@ -51,16 +50,12 @@ class PlaceReviewOut(Schema):
     lat: float
     lon: float
     radius_meters: float
-    # CANDIDATE / CONFIRMED / REJECTED
     state: str
-    # Etichetta visualizzabile (nome manuale, categoria, o "luogo abituale").
     label: str
     category: str
     custom_name: str
-    # Contesto: perche' il luogo e' stato proposto/confermato.
     visit_count: int
     distinct_days: int
-    # Evidenza di mappa: le visite che compongono il luogo.
     visits: list[PlaceVisitOut]
 
 
@@ -70,7 +65,7 @@ class SegmentOut(Schema):
     end_timestamp: datetime
     activity_label: str
     distance_meters: float
-    path_geojson: dict[str, Any] | None = None # Non invio l'oggetto Geo, invio il GeoJson
+    path_geojson: dict[str, Any] | None = None # Non invio l'oggetto LineString, invio il GeoJson
     place: PlaceOut | None = None
 
 
@@ -99,7 +94,6 @@ class TripListItemOut(Schema):
     status: str
     distance_meters: float | None
     note: str
-    # True se esiste una traiettoria disegnabile (path con >= 2 punti).
     has_track: bool
     is_reloadable: bool
     is_derived: bool
@@ -165,7 +159,6 @@ class ReplayDataOut(Schema):
 
 
 class RouteAssistantClassifyIn(Schema):
-    # Finestra grezza accelerometro+giroscopio: HAR_WINDOW_SAMPLE_COUNT righe x 6.
     samples: list[list[float]]
 
 
@@ -175,7 +168,6 @@ class RouteAssistantClassifyOut(Schema):
 
 
 class RouteAssistantSensorWindowOut(Schema):
-    # Finestra grezza (500x6) estratta dal viaggio sorgente per il replay live.
     samples: list[list[float]]
 
 
@@ -184,20 +176,15 @@ class PrivacyExportSegmentOut(Schema):
     start_label: str
     end_label: str
     activity_label: str
-    # Titolo mostrabile: attivita' per i MOVE, etichetta reale solo se la vista
-    # e' `precise`, altrimenti una dicitura generica per le soste.
     title: str
     point_count: int
-    # Coordinate privacy-aware approssimate per i MOVE; vuota per le soste.
     coordinates: list[list[float]]
 
 
 class PrivacyExportOut(Schema):
     trip_id: int
     level: str
-    # False solo per `precise`: l'export non protegge la geometria.
     protected: bool
-    # True quando le coordinate rappresentano celle e non letture GPS reali.
     approximated_coordinates: bool
     cell_size_meters: int | None
     text: str
@@ -205,14 +192,12 @@ class PrivacyExportOut(Schema):
 
 
 class AnalyticsCategorySliceOut(Schema):
-    # Categoria di Mobilita: fermo | a_piedi | corsa | in_bici | in_auto.
     category: str
     seconds: float
     distance_meters: float
 
 
 class AnalyticsBucketOut(Schema):
-    # Un intervallo della Finestra Analitica (un giorno o una settimana).
     label: str
     categories: list[AnalyticsCategorySliceOut]
 
@@ -236,9 +221,7 @@ class AnalyticsWeeklyHeatmapOut(Schema):
 
 
 class AnalyticsOut(Schema):
-
     granularity: str
-    # False quando l'utente non ha ancora Viaggi sincronizzati (empty state).
     has_data: bool
     buckets: list[AnalyticsBucketOut]
     prevalent_mode: str | None

@@ -1,9 +1,6 @@
 import 'package:latlong2/latlong.dart' as ll;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 
-/// Movimenti di camera e stato del puck nativo per la mappa live.
-/// Non decide *se* seguire l'utente (quella e' UI state, vive in
-/// `_LiveMapState._followUser`): esegue solo l'operazione richiesta.
 class LiveMapCameraController {
   LiveMapCameraController(this._map);
 

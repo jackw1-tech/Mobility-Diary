@@ -4,22 +4,8 @@ import 'package:diary/theme/color_palette.dart';
 import 'package:diary/theme/dimensions.dart';
 import 'package:diary/theme/semantic_colors.dart';
 
-/// Tema ispirato al design system Uber:
-///  - duetto bianco/nero, nero `primary` come unico colore di conversione;
-///  - la pillola (`borderRadiusPill`) come forma firma di ogni elemento
-///    interattivo;
-///  - card piatte (Level 0) con raggio 16px;
-///  - input riempiti su canvas-soft;
-///  - nav e scaffold su canvas bianco.
-///
-/// In dark mode il contrasto si inverte: sfondo quasi nero, testo bianco,
-/// il bianco diventa il colore di conversione.
 class AppTheme {
   static const StadiumBorder _pill = StadiumBorder();
-
-  // ─────────────────────────────────────────────────────────────────────
-  // LIGHT THEME
-  // ─────────────────────────────────────────────────────────────────────
 
   static ThemeData get lightTheme {
     const colorScheme = ColorScheme(
@@ -51,7 +37,6 @@ class AppTheme {
         space: 1,
       ),
 
-      // Nav bar Uber: canvas bianco, testo ink, piatta.
       appBarTheme: const AppBarTheme(
         backgroundColor: ColorPalette.surface,
         foregroundColor: ColorPalette.textPrimary,
@@ -67,7 +52,6 @@ class AppTheme {
         ),
       ),
 
-      // CTA primario: pillola nera.
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           backgroundColor: ColorPalette.primary,
@@ -93,7 +77,7 @@ class AppTheme {
           shape: _pill,
         ),
       ),
-      // CTA secondario: pillola bianca con bordo ink.
+
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: ColorPalette.textPrimary,
@@ -106,7 +90,6 @@ class AppTheme {
           shape: _pill,
         ),
       ),
-      // Azione terziaria: testo ink, comunque a pillola per il ripple.
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: ColorPalette.textPrimary,
@@ -118,7 +101,6 @@ class AppTheme {
         ),
       ),
 
-      // Card canonica: piatta, raggio 16, bordo hairline.
       cardTheme: CardThemeData(
         color: ColorPalette.surface,
         surfaceTintColor: Colors.transparent,
@@ -130,7 +112,6 @@ class AppTheme {
         ),
       ),
 
-      // Input riempito su canvas-soft, raggio 8, senza linea.
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: ColorPalette.surfaceSoft,
@@ -157,18 +138,12 @@ class AppTheme {
         labelStyle: const TextStyle(color: ColorPalette.textSecondary),
         hintStyle: const TextStyle(color: ColorPalette.textHint),
       ),
-
-      // Chip / category-button: pillola su canvas-soft.
       chipTheme: ChipThemeData(
         backgroundColor: ColorPalette.surfaceSoft,
         labelStyle: AppTextStyles.button.copyWith(fontSize: 14),
         side: BorderSide.none,
         shape: _pill,
       ),
-
-      // SnackBar / toast: ink nero, testo bianco. Ancorato in basso (fixed):
-      // il comportamento floating puo' finire fuori schermo sopra la mappa a
-      // tutto schermo e mandare in crash il layout (assert scaffold.dart).
       snackBarTheme: SnackBarThemeData(
         backgroundColor: ColorPalette.primary,
         contentTextStyle: const TextStyle(color: Colors.white),
@@ -178,7 +153,6 @@ class AppTheme {
         ),
       ),
 
-      // Drawer / dialog su canvas bianco.
       drawerTheme: const DrawerThemeData(
         backgroundColor: ColorPalette.surface,
         surfaceTintColor: Colors.transparent,
@@ -201,10 +175,6 @@ class AppTheme {
       ),
     );
   }
-
-  // ─────────────────────────────────────────────────────────────────────
-  // DARK THEME — inversione contrasto Uber-style
-  // ─────────────────────────────────────────────────────────────────────
 
   static ThemeData get darkTheme {
     const colorScheme = ColorScheme(
@@ -236,7 +206,6 @@ class AppTheme {
         space: 1,
       ),
 
-      // Nav bar: sfondo scuro, testo bianco, piatta.
       appBarTheme: const AppBarTheme(
         backgroundColor: ColorPalette.darkSurface,
         foregroundColor: ColorPalette.darkTextPrimary,
@@ -252,7 +221,6 @@ class AppTheme {
         ),
       ),
 
-      // CTA primario: pillola bianca.
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           backgroundColor: ColorPalette.darkPrimary,
@@ -278,7 +246,7 @@ class AppTheme {
           shape: _pill,
         ),
       ),
-      // CTA secondario: pillola scura con bordo bianco.
+
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: ColorPalette.darkTextPrimary,
@@ -291,7 +259,7 @@ class AppTheme {
           shape: _pill,
         ),
       ),
-      // Azione terziaria: testo bianco.
+
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: ColorPalette.darkTextPrimary,
@@ -303,7 +271,6 @@ class AppTheme {
         ),
       ),
 
-      // Card canonica: sfondo scuro, raggio 16, bordo hairline scuro.
       cardTheme: CardThemeData(
         color: ColorPalette.darkSurface,
         surfaceTintColor: Colors.transparent,
@@ -315,7 +282,6 @@ class AppTheme {
         ),
       ),
 
-      // Input riempito su surface-soft scuro.
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: ColorPalette.darkSurfaceSoft,
@@ -333,8 +299,10 @@ class AppTheme {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(Dimensions.borderRadiusSmall),
-          borderSide:
-              const BorderSide(color: ColorPalette.darkPrimary, width: 1.5),
+          borderSide: const BorderSide(
+            color: ColorPalette.darkPrimary,
+            width: 1.5,
+          ),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(Dimensions.borderRadiusSmall),
@@ -344,7 +312,6 @@ class AppTheme {
         hintStyle: const TextStyle(color: ColorPalette.darkTextHint),
       ),
 
-      // Chip: pillola su surface-soft scuro.
       chipTheme: ChipThemeData(
         backgroundColor: ColorPalette.darkSurfaceSoft,
         labelStyle: AppTextStyles.button.copyWith(fontSize: 14),
@@ -352,7 +319,6 @@ class AppTheme {
         shape: _pill,
       ),
 
-      // SnackBar: bianco su scuro.
       snackBarTheme: SnackBarThemeData(
         backgroundColor: ColorPalette.darkPrimary,
         contentTextStyle: const TextStyle(color: ColorPalette.darkSurface),
@@ -362,7 +328,6 @@ class AppTheme {
         ),
       ),
 
-      // Drawer / dialog su surface scuro.
       drawerTheme: const DrawerThemeData(
         backgroundColor: ColorPalette.darkSurface,
         surfaceTintColor: Colors.transparent,

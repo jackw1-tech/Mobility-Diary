@@ -1,13 +1,3 @@
-"""Riconoscimento dei Luoghi Significativi: scoperta user-scoped dei luoghi.
-
-Seam unico per il mining (PRD). Internamente, due fasi sostituibili:
-  - detect_visits: stay-detection pura sui GpsPoint grezzi -> Visite Candidate.
-  - mine_user_significant_places: ricomputo per-utente, serializzato (ADR 0027).
-
-La scoperta parte SOLO dai GpsPoint grezzi (ADR 0029), dopo l'arricchimento
-finale del diario (ADR 0020).
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -234,7 +224,6 @@ def _take_nearby_manual_place(lat: float, lon: float, manual_places: list):
 
 
 def place_label(place: HabitualPlace) -> str:
-    """Etichetta del luogo: nome manuale > categoria > dicitura neutra (ADR 0023)."""
     return place.custom_name or place.category or NEUTRAL_PLACE_LABEL
 
 

@@ -44,8 +44,6 @@ class LiveAcquisitionStrategy implements AcquisitionStrategy {
 
   AcquisitionSnapshot get currentSnapshot => _currentSnapshot;
 
-  /// Aggiorna lo stato locale e notifica la UI tramite [onSnapshot].
-  /// Se la strategia è in fase di chiusura (_acceptSnapshots == false), scarta l'evento.
   void emitSnapshot(AcquisitionSnapshot snapshot) {
     if (!_acceptSnapshots) {
       return;
@@ -83,26 +81,26 @@ class LiveAcquisitionStrategy implements AcquisitionStrategy {
     Duration staleSessionThreshold = const Duration(minutes: 30),
     DateTime Function()? now,
     HeartbeatTimerFactory? heartbeatTimerFactory,
-  })  : _config = config,
-        _database = database ?? AcquisitionLocalDatabase(),
-        _uuid = uuid ?? const Uuid(),
-        _deviceId = deviceId,
-        _deviceIdProvider = deviceIdProvider,
-        _uploadService = uploadService,
-        _mapper = mapper ?? UploadMapper(),
-        _acquisitionMapper = acquisitionMapper ?? AcquisitionMapper(),
-        _staleSessionThreshold = staleSessionThreshold,
-        _now = now ?? DateTime.now,
-        _ownsRuntime = enableRuntime && runtime == null,
-        _runtime =
-            enableRuntime ? runtime ?? AcquisitionSensorRuntime() : null {
+  }) : _config = config,
+       _database = database ?? AcquisitionLocalDatabase(),
+       _uuid = uuid ?? const Uuid(),
+       _deviceId = deviceId,
+       _deviceIdProvider = deviceIdProvider,
+       _uploadService = uploadService,
+       _mapper = mapper ?? UploadMapper(),
+       _acquisitionMapper = acquisitionMapper ?? AcquisitionMapper(),
+       _staleSessionThreshold = staleSessionThreshold,
+       _now = now ?? DateTime.now,
+       _ownsRuntime = enableRuntime && runtime == null,
+       _runtime = enableRuntime ? runtime ?? AcquisitionSensorRuntime() : null {
     _dao = _database.acquisitionDao;
     _fsm = AcquisitionFsm(config: _config);
     _harWindows = HarWindowRecorder(_dao);
     _heartbeat = UploadHeartbeat(
       service: uploadService,
       interval: heartbeatInterval,
-      timerFactory: heartbeatTimerFactory ??
+      timerFactory:
+          heartbeatTimerFactory ??
           ((duration, callback) => Timer.periodic(duration, callback)),
       target: _heartbeatTarget,
       isTracking: () => currentSnapshot.isTracking,
@@ -160,8 +158,9 @@ class LiveAcquisitionStrategy implements AcquisitionStrategy {
         startedAt: now,
         deviceId: deviceId,
       );
-      remoteStart =
-          startDto == null ? null : _mapper.mapUploadStartResult(startDto);
+      remoteStart = startDto == null
+          ? null
+          : _mapper.mapUploadStartResult(startDto);
     } on UploadApiException catch (error) {
       if (allowConflictRecovery &&
           error.statusCode == 409 &&
@@ -217,10 +216,7 @@ class LiveAcquisitionStrategy implements AcquisitionStrategy {
     final endedAt = _now().toUtc();
 
     if (sessionId != null) {
-      await _dao.endSession(
-        id: sessionId,
-        endedAt: endedAt,
-      );
+      await _dao.endSession(id: sessionId, endedAt: endedAt);
     }
 
     _currentSessionId = null;
@@ -308,7 +304,9 @@ class LiveAcquisitionStrategy implements AcquisitionStrategy {
 
   Future<AcquisitionStopResult> resumeOrReconcile() async {
     await _resumeOpenTrackingSessionIfNeeded();
-    await _reconcileRemoteActiveUpload();
+    if (_pendingSyncSessionId == null) {
+      await _reconcileRemoteActiveUpload();
+    }
     final syncSessionId = takePendingSyncSessionId();
     if (syncSessionId == null) {
       return const AcquisitionStopResult.none();
@@ -387,12 +385,6 @@ class LiveAcquisitionStrategy implements AcquisitionStrategy {
         remoteUploadId: active.uploadId,
       );
       if (!resumed) {
-        // La sessione era stantia: e' stata chiusa e messa in coda di sync,
-        // ma il backend continua a considerarla attiva finche' il suo core
-        // non arriva (non possiamo abbandonarla: perderemmo i dati raccolti
-        // prima del buco, il backend rifiuta il core di un'upload
-        // abbandonata). L'utente deve attendere che quella sync completi,
-        // come per qualunque altro sync pendente.
         throw const UploadApiException('Richiesta upload fallita');
       }
       return true;
@@ -444,10 +436,7 @@ class LiveAcquisitionStrategy implements AcquisitionStrategy {
         return;
       }
 
-      await api.abandonUpload(
-        uploadId: active.uploadId,
-        deviceId: deviceId,
-      );
+      await api.abandonUpload(uploadId: active.uploadId, deviceId: deviceId);
     } on UploadApiException {
       // La riconciliazione all'avvio non deve bloccare la UI o la sync locale.
     }

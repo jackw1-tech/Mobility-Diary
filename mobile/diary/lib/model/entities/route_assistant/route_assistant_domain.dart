@@ -1,10 +1,9 @@
 import 'package:latlong2/latlong.dart' as ll;
 
-/// Modalita' di mobilita' che guida il profilo Mapbox Directions.
 enum RouteMode { walking, cycling, driving }
 
 extension RouteModeProfile on RouteMode {
-  /// Nome del profilo Mapbox Directions (`mapbox/{profilo}`).
+  /// Nome del profilo Mapbox Directions.
   String get mapboxProfile {
     switch (this) {
       case RouteMode.walking:
@@ -17,7 +16,7 @@ extension RouteModeProfile on RouteMode {
   }
 }
 
-/// Risultato di geocoding: un luogo con etichetta leggibile e coordinate.
+/// Risultato di geocoding
 class GeocodingPlace {
   final String label;
   final ll.LatLng location;
@@ -37,7 +36,7 @@ class RouteAssistantRoute {
   });
 }
 
-/// Errore delle chiamate Mapbox (geocoding / directions).
+/// Errore delle chiamate Mapbox.
 class RouteAssistantException implements Exception {
   final String message;
 

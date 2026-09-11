@@ -9,18 +9,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-/// Apre il preview testuale dell'export privacy-aware del viaggio.
-///
-/// Il diario mobile normale resta privato e preciso: questo foglio usa la
-/// Preferenza Privacy salvata e mostra l'anteprima prima di copiare/condividere.
 Future<void> showTripPrivacyExportSheet(BuildContext context, int tripId) {
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
-    // Il repository va risolto dal context del BlocProvider (ancorato allo
-    // stesso DependencyInjector), mai da un context esterno alla UI: la
-    // schermata deve dipendere solo dal Cubit, mai direttamente dal Repository.
     builder: (_) => BlocProvider<TripPrivacyExportCubit>(
       create: (context) =>
           TripPrivacyExportCubit(context.read<TripPrivacyExportRepository>())
@@ -86,8 +79,9 @@ class _ReadyView extends StatelessWidget {
             Expanded(
               child: Text(
                 'Export diario',
-                style:
-                    textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+                style: textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
             _ProtectionChip(isProtected: export.isProtected),
@@ -107,23 +101,22 @@ class _ReadyView extends StatelessWidget {
         Expanded(
           child: DecoratedBox(
             decoration: BoxDecoration(
-              color:
-                  Theme.of(context).extension<SemanticColors>()!.surfaceSofter,
-              borderRadius:
-                  BorderRadius.circular(Dimensions.borderRadiusMedium),
+              color: Theme.of(
+                context,
+              ).extension<SemanticColors>()!.surfaceSofter,
+              borderRadius: BorderRadius.circular(
+                Dimensions.borderRadiusMedium,
+              ),
               border: Border.all(
-                  color:
-                      Theme.of(context).extension<SemanticColors>()!.hairline),
+                color: Theme.of(context).extension<SemanticColors>()!.hairline,
+              ),
             ),
             child: Scrollbar(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(Dimensions.paddingMedium),
                 child: SelectableText(
                   export.text,
-                  style: const TextStyle(
-                    fontFamily: 'monospace',
-                    height: 1.4,
-                  ),
+                  style: const TextStyle(fontFamily: 'monospace', height: 1.4),
                 ),
               ),
             ),
@@ -221,8 +214,11 @@ class _ErrorView extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.error_outline,
-              color: Theme.of(context).colorScheme.onSurfaceVariant, size: 40),
+          Icon(
+            Icons.error_outline,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            size: 40,
+          ),
           const SizedBox(height: Dimensions.paddingSmall),
           Text(message, textAlign: TextAlign.center),
           const SizedBox(height: Dimensions.paddingMedium),

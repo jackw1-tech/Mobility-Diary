@@ -1,5 +1,3 @@
-/// DTO grezzo (shape wire) delle impostazioni privacy utente
-/// (`GET/PUT /privacy/settings`). Consumato solo da [PrivacySettingsMapper].
 class PrivacySettingsDto {
   final String privacyLevel;
   final bool isFirstLogin;

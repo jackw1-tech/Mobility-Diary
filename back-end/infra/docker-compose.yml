@@ -120,8 +120,7 @@ services:
       retries: 60
       start_period: 120s
 
-  # Object storage S3-compatibile per lo sviluppo locale (REPORT_STRATEGIA_INGESTION_ASINCRONA.md D7).
-  # In deploy su Railway viene sostituito da Railway Buckets cambiando solo le env var S3_*.
+  
   minio:
     image: minio/minio:latest
     restart: unless-stopped
@@ -143,7 +142,7 @@ services:
       timeout: 3s
       retries: 20
 
-  # Crea il bucket locale al primo avvio, poi esce. Idempotente (mb --ignore-existing).
+
   minio-init:
     image: minio/mc:latest
     restart: "no"

@@ -6,9 +6,6 @@ import 'package:diary/ui/pages/analytics_presenter.dart';
 import 'package:flutter/material.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 
-/// Mappa di Frequentazione: heatmap statica dei Luoghi Significativi pesati per
-/// visite. La mappa e' non interattiva per non entrare in conflitto con lo
-/// scroll della pagina; l'intensita' usa il peso normalizzato sul massimo.
 class AnalyticsHeatmapMap extends StatefulWidget {
   final AnalyticsHeatmap heatmap;
   final bool interactive;

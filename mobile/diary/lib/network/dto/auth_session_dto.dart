@@ -1,7 +1,5 @@
 import 'package:diary/network/dto/user_dto.dart';
 
-/// DTO grezzo (shape wire) della sessione di autenticazione restituita da
-/// `/auth/login` e `/auth/register`. Consumato solo da [AuthMapper].
 class AuthSessionDto {
   final UserDto user;
   final String accessToken;

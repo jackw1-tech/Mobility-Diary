@@ -1,10 +1,7 @@
 import 'package:diary/model/entities/acquisition/acquisition_domain.dart';
 import 'package:latlong2/latlong.dart';
 
-enum AcquisitionCubitStatus {
-  idle,
-  tracking,
-}
+enum AcquisitionCubitStatus { idle, tracking }
 
 class AcquisitionCubitState {
   final AcquisitionCubitStatus status;
@@ -13,8 +10,6 @@ class AcquisitionCubitState {
   final String? errorMessage;
   final bool isTransitioning;
 
-  /// Percorso accumulato durante la sessione di tracking corrente, in ordine
-  /// cronologico. Si svuota a ogni nuovo `startTracking`.
   final List<LatLng> routePoints;
   final int? completedReplayTripId;
 
@@ -68,8 +63,9 @@ class AcquisitionCubitState {
       status: status ?? this.status,
       snapshot: snapshot ?? this.snapshot,
       syncSnapshot: syncSnapshot ?? this.syncSnapshot,
-      errorMessage:
-          clearErrorMessage ? null : errorMessage ?? this.errorMessage,
+      errorMessage: clearErrorMessage
+          ? null
+          : errorMessage ?? this.errorMessage,
       isTransitioning: isTransitioning ?? this.isTransitioning,
       routePoints: routePoints ?? this.routePoints,
       completedReplayTripId: clearCompletedReplayTripId
@@ -82,7 +78,6 @@ class AcquisitionCubitState {
 
   bool get isReplay => snapshot.isReplay;
 
-  /// Ultima posizione GPS nota (latest fix della sessione), se disponibile.
   LatLng? get latestPosition {
     if (!snapshot.hasPosition) return null;
     return LatLng(snapshot.latitude!, snapshot.longitude!);

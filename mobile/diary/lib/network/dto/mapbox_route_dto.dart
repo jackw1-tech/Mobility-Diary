@@ -1,6 +1,3 @@
-/// DTO grezzo (shape wire) di un percorso della risposta Mapbox Directions
-/// (`/directions/v5/mapbox/{profile}`). Consumato solo da
-/// [RouteAssistantMapper].
 class MapboxRouteDto {
   final num? distanceMeters;
   final num? durationSeconds;
@@ -18,8 +15,9 @@ class MapboxRouteDto {
     return MapboxRouteDto(
       distanceMeters: json['distance'] as num?,
       durationSeconds: json['duration'] as num?,
-      coordinates:
-          geometry is Map ? geometry['coordinates'] as List<dynamic>? : null,
+      coordinates: geometry is Map
+          ? geometry['coordinates'] as List<dynamic>?
+          : null,
     );
   }
 }

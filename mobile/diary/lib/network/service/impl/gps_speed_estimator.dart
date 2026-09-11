@@ -16,8 +16,6 @@ class GpsSpeedFix {
   });
 }
 
-/// Usa la velocita' della piattaforma quando e' valida e la ricava dalle
-/// coordinate quando iOS/Android la riportano come non disponibile.
 class GpsSpeedEstimator {
   static const int _maxFixes = 5;
   static const int _maxSpeedSamples = 3;
@@ -98,7 +96,8 @@ class GpsSpeedEstimator {
     final endLatitude = _radians(end.latitude);
     final deltaLatitude = _radians(end.latitude - start.latitude);
     final deltaLongitude = _radians(end.longitude - start.longitude);
-    final haversine = sin(deltaLatitude / 2) * sin(deltaLatitude / 2) +
+    final haversine =
+        sin(deltaLatitude / 2) * sin(deltaLatitude / 2) +
         cos(startLatitude) *
             cos(endLatitude) *
             sin(deltaLongitude / 2) *

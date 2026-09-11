@@ -1,22 +1,9 @@
 import 'package:diary/model/entities/route_assistant/route_assistant_domain.dart';
 import 'package:latlong2/latlong.dart' as ll;
 
-/// Ricerca dei luoghi e calcolo del percorso sono due operazioni asincrone
-/// indipendenti — possono essere in corso insieme — quindi hanno uno stato
-/// ciascuna invece del singolo `status` degli altri cubit.
-enum RouteAssistantSearchStatus {
-  initial,
-  loading,
-  loaded,
-  error,
-}
+enum RouteAssistantSearchStatus { initial, loading, loaded, error }
 
-enum RouteAssistantRouteStatus {
-  initial,
-  loading,
-  loaded,
-  error,
-}
+enum RouteAssistantRouteStatus { initial, loading, loaded, error }
 
 class RouteAssistantState {
   final RouteAssistantSearchStatus searchStatus;
@@ -30,10 +17,8 @@ class RouteAssistantState {
   final DateTime? routeUpdatedAt;
   final String? routeError;
 
-  /// Modalita' Live: la modalita' e' guidata dal classificatore, non dai chip.
   final bool isLive;
 
-  /// Ultima modalita' rilevata dal classificatore (evidenziata in giallo).
   final RouteMode? detectedMode;
   final bool hasDetectedModeResult;
 
@@ -54,29 +39,26 @@ class RouteAssistantState {
   });
 
   const RouteAssistantState.initial()
-      : searchStatus = RouteAssistantSearchStatus.initial,
-        routeStatus = RouteAssistantRouteStatus.initial,
-        isSearchOpen = false,
-        mode = RouteMode.walking,
-        searchResults = const [],
-        searchError = null,
-        destination = null,
-        route = null,
-        routeUpdatedAt = null,
-        routeError = null,
-        isLive = false,
-        detectedMode = null,
-        hasDetectedModeResult = false;
+    : searchStatus = RouteAssistantSearchStatus.initial,
+      routeStatus = RouteAssistantRouteStatus.initial,
+      isSearchOpen = false,
+      mode = RouteMode.walking,
+      searchResults = const [],
+      searchError = null,
+      destination = null,
+      route = null,
+      routeUpdatedAt = null,
+      routeError = null,
+      isLive = false,
+      detectedMode = null,
+      hasDetectedModeResult = false;
 
   bool get isSearching => searchStatus == RouteAssistantSearchStatus.loading;
 
   bool get isRouting => routeStatus == RouteAssistantRouteStatus.loading;
 
-  /// Un solo messaggio per la UI: se il percorso e' fallito e' quello a contare,
-  /// altrimenti resta l'errore della ricerca.
   String? get errorMessage => routeError ?? searchError;
 
-  /// Pallini e selettori sono visibili solo con un percorso calcolato.
   bool get isActive => routePoints.isNotEmpty;
 
   List<ll.LatLng> get routePoints => route?.points ?? const [];
@@ -110,12 +92,14 @@ class RouteAssistantState {
       searchError: clearSearchError ? null : (searchError ?? this.searchError),
       destination: clearDestination ? null : (destination ?? this.destination),
       route: clearRoute ? null : (route ?? this.route),
-      routeUpdatedAt:
-          clearRoute ? null : (routeUpdatedAt ?? this.routeUpdatedAt),
+      routeUpdatedAt: clearRoute
+          ? null
+          : (routeUpdatedAt ?? this.routeUpdatedAt),
       routeError: clearRouteError ? null : (routeError ?? this.routeError),
       isLive: isLive ?? this.isLive,
       detectedMode: clearDetected ? null : (detectedMode ?? this.detectedMode),
-      hasDetectedModeResult: hasDetectedModeResult ??
+      hasDetectedModeResult:
+          hasDetectedModeResult ??
           (clearDetected ? false : this.hasDetectedModeResult),
     );
   }

@@ -1,16 +1,5 @@
-"""Business logic della dashboard web (superficie staff): track, diario e
-vista privacy-aware di un Trip.
-
-Prima dell'introduzione di questo modulo, l'intera costruzione della vista
-(query GPS/Luoghi Confermati, overlay delle soste, approssimazione spaziale) era
-duplicata dentro `accounts.auth_web.users_api`, che reimplementava a mano una
-buona parte di cio' che questo context espone gia' altrove
-(`mobility.diary_export`, `mobility.diary_projection`,
-`mobility.services.diary_view`, `mobility.privacy`,
-`mobility.significant_places`). Il router web ora chiama solo queste funzioni
-e mappa il risultato sul proprio schema Ninja.
+"""Dashboard web
 """
-
 from __future__ import annotations
 
 import json

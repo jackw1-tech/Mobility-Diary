@@ -11,8 +11,7 @@ import 'package:diary/ui/widgets/state_message.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-/// Schermata di review dei Luoghi Significativi: sezioni Confermati e Candidati.
-/// I dati arrivano da GET /mobility/places (user-scoped).
+/// Schermata di review dei Luoghi Significativ
 @RoutePage()
 class PlacesPage extends StatelessWidget {
   const PlacesPage({super.key});
@@ -80,7 +79,6 @@ class _PlacesBody extends StatelessWidget {
   }
 }
 
-/// PENDING/RUNNING:
 class _MiningInProgressMessage extends StatelessWidget {
   final VoidCallback onRefresh;
 

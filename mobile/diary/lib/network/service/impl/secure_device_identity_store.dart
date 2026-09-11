@@ -2,9 +2,7 @@ import 'package:diary/network/service/device_identity_store.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:uuid/uuid.dart';
 
-/// Identita' del dispositivo: un UUID generato alla prima esecuzione e
-/// conservato nello storage sicuro (Keychain/Keystore), quindi stabile per
-/// tutta la vita dell'installazione. Non e' un identificativo hardware.
+/// Identita' del dispositivo
 class SecureDeviceIdentityStore implements DeviceIdentityStore {
   static const deviceIdKey = 'acquisition.device_id';
 

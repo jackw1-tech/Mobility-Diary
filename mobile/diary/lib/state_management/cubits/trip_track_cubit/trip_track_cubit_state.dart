@@ -3,13 +3,7 @@ import 'package:latlong2/latlong.dart';
 
 const _notProvided = Object();
 
-enum TripTrackStatus {
-  initial,
-  loading,
-  loaded,
-  empty,
-  error,
-}
+enum TripTrackStatus { initial, loading, loaded, empty, error }
 
 enum TrackLoadStatus { initial, loading, loaded, failed }
 
@@ -27,9 +21,6 @@ class TripTrackCubitState {
   final bool processingPending;
   final bool processingFailed;
 
-  /// Il diario non e' arrivato per un errore di trasporto e un nuovo
-  /// tentativo e' gia' programmato: distingue l'attesa dal fallimento
-  /// definitivo dell'elaborazione.
   final bool diaryRetryPending;
   final String? processingErrorMessage;
   final String? trackError;
@@ -55,21 +46,21 @@ class TripTrackCubitState {
   });
 
   const TripTrackCubitState.initial()
-      : tripId = null,
-        status = TripTrackStatus.initial,
-        trackStatus = TrackLoadStatus.initial,
-        diaryStatus = DiaryLoadStatus.initial,
-        points = const [],
-        segments = const [],
-        diarySegments = const [],
-        distanceMeters = 0,
-        processingPending = false,
-        processingFailed = false,
-        diaryRetryPending = false,
-        processingErrorMessage = null,
-        trackError = null,
-        diaryError = null,
-        error = null;
+    : tripId = null,
+      status = TripTrackStatus.initial,
+      trackStatus = TrackLoadStatus.initial,
+      diaryStatus = DiaryLoadStatus.initial,
+      points = const [],
+      segments = const [],
+      diarySegments = const [],
+      distanceMeters = 0,
+      processingPending = false,
+      processingFailed = false,
+      diaryRetryPending = false,
+      processingErrorMessage = null,
+      trackError = null,
+      diaryError = null,
+      error = null;
 
   bool get isLoading => status == TripTrackStatus.loading;
   bool get isSegmented => segments.isNotEmpty;

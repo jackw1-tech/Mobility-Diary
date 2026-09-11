@@ -2,10 +2,6 @@ import 'package:diary/theme/semantic_colors.dart';
 import 'package:diary/theme/dimensions.dart';
 import 'package:flutter/material.dart';
 
-/// Card generica con sfondo `surface`, bordo hairline, angoli arrotondati e
-/// padding standard — pattern ripetuto identico in piu' pagine (home,
-/// statistiche, dettaglio viaggio). Puramente di presentazione: nessuna
-/// logica applicativa (Pine: layer UI).
 class SurfaceCard extends StatelessWidget {
   final Widget child;
   final String? title;
@@ -31,10 +27,9 @@ class SurfaceCard extends StatelessWidget {
                 children: [
                   Text(
                     title,
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w700),
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                   const SizedBox(height: Dimensions.paddingMedium),
                   child,

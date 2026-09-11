@@ -1,13 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:diary/theme/color_palette.dart';
 
-/// Colori semantici non presenti nel [ColorScheme] di Material 3.
-///
-/// Registrata come [ThemeExtension] sia nel light che nel dark theme,
-/// così ogni widget può accedervi con:
-/// ```dart
-/// Theme.of(context).extension<SemanticColors>()!.success
-/// ```
 @immutable
 class SemanticColors extends ThemeExtension<SemanticColors> {
   const SemanticColors({
@@ -32,7 +25,6 @@ class SemanticColors extends ThemeExtension<SemanticColors> {
   final Color surfacePressed;
   final Color hairline;
 
-  /// Istanza per il tema chiaro.
   static const light = SemanticColors(
     success: ColorPalette.success,
     warning: ColorPalette.warning,
@@ -45,7 +37,6 @@ class SemanticColors extends ThemeExtension<SemanticColors> {
     hairline: ColorPalette.hairline,
   );
 
-  /// Istanza per il tema scuro — colori semantici più luminosi per sfondo scuro.
   static const dark = SemanticColors(
     success: ColorPalette.darkSuccess,
     warning: ColorPalette.darkWarning,

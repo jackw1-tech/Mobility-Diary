@@ -6,8 +6,6 @@ import 'package:diary/theme/dimensions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-/// Bottom sheet di ricerca destinazione (punto B). Su "Vai" calcola il percorso
-/// e si chiude, lasciando la mappa libera con pallini e selettori.
 class RouteAssistantSearchSheet extends StatefulWidget {
   const RouteAssistantSearchSheet({super.key});
 
@@ -87,8 +85,8 @@ class _RouteAssistantSearchSheetState extends State<RouteAssistantSearchSheet> {
                 Text(
                   state.errorMessage!,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
+                    color: Theme.of(context).colorScheme.error,
+                  ),
                 ),
               ],
               const SizedBox(height: Dimensions.paddingSmall),
@@ -130,7 +128,6 @@ class _RouteAssistantSearchSheetState extends State<RouteAssistantSearchSheet> {
   }
 }
 
-/// Apre il bottom sheet di ricerca fornendo il RouteAssistantCubit gia' esistente.
 Future<void> showRouteAssistantSearch(BuildContext context) {
   final cubit = context.read<RouteAssistantCubit>()..openSearch();
   return showModalBottomSheet<void>(

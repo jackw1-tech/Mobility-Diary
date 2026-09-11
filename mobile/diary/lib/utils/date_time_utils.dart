@@ -11,15 +11,14 @@ class DateTimeUtils {
     return formatter.format(time.toLocal());
   }
 
-  static String formatDateTime(DateTime dateTime,
-      {String format = 'dd/MM/yyyy HH:mm'}) {
+  static String formatDateTime(
+    DateTime dateTime, {
+    String format = 'dd/MM/yyyy HH:mm',
+  }) {
     final formatter = DateFormat(format);
     return formatter.format(dateTime.toLocal());
   }
 
-  /// ISO 8601 UTC con precisione al microsecondo (a differenza di
-  /// [DateTime.toIso8601String], che si ferma ai millisecondi), usato dai
-  /// payload di upload. Omette del tutto la parte frazionaria se zero.
   static String toUtcIso(DateTime value) {
     final utc = value.toUtc();
     final year = utc.year.toString().padLeft(4, '0');

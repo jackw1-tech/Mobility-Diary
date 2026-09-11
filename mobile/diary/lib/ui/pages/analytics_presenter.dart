@@ -1,8 +1,6 @@
 import 'package:diary/model/entities/analytics/analytics.dart';
 import 'package:flutter/material.dart';
 
-/// Categoria di Mobilita mostrata nel grafico, in ordine di stack. I colori
-/// sono allineati a quelli della dashboard web per coerenza cross-piattaforma.
 class MobilityCategory {
   final String key;
   final String label;
@@ -20,7 +18,6 @@ const kMobilityCategories = <MobilityCategory>[
 
 class AnalyticsBar {
   final String label;
-  // Secondi per categoria, allineati a kMobilityCategories.
   final List<double> secondsByCategory;
   const AnalyticsBar(this.label, this.secondsByCategory);
 }
@@ -32,9 +29,6 @@ class AnalyticsCategoryTotal {
   const AnalyticsCategoryTotal(this.category, this.time, this.distanceMeters);
 }
 
-/// Statistiche di un insieme di bucket (la finestra intera o un singolo
-/// giorno/settimana selezionato): tempo "In movimento", distanza e dettaglio
-/// per Categoria di Mobilita.
 class AnalyticsTotals {
   final Duration movementTime;
   final double totalDistanceMeters;
@@ -56,7 +50,6 @@ MobilityCategory? categoryByKey(String? key) {
   return null;
 }
 
-/// Abitudini di sempre: modalita' prevalente + Percorsi Frequenti, cumulativi.
 class AnalyticsHabits {
   final MobilityCategory? prevalentMode;
   final List<AnalyticsRoute> routes;
@@ -68,7 +61,6 @@ class AnalyticsHabits {
 AnalyticsHabits buildAnalyticsHabits(Analytics data) =>
     AnalyticsHabits(categoryByKey(data.prevalentMode), data.frequentRoutes);
 
-/// Mappa di Frequentazione: Luoghi Significativi pesati per visite, cumulativi.
 class AnalyticsHeatmap {
   final List<AnalyticsHeatPoint> points;
   final double maxWeight;
@@ -110,7 +102,6 @@ List<AnalyticsWeeklyHeatmapViewModel> buildWeeklyHeatmaps(Analytics data) => [
     ),
 ];
 
-/// Una barra per bucket: secondi per categoria, allineati a kMobilityCategories.
 List<AnalyticsBar> analyticsBars(Analytics data) {
   return [
     for (final bucket in data.buckets)
@@ -161,8 +152,6 @@ double _sliceSeconds(AnalyticsBucket bucket, String key) {
   return 0;
 }
 
-/// Aggrega uno o piu' bucket (l'intera finestra, o il singolo giorno/settimana
-/// selezionato) in tempo per categoria, tempo "In movimento" e distanza totale.
 AnalyticsTotals calculateAnalyticsTotals(Iterable<AnalyticsBucket> buckets) {
   final seconds = {for (final c in kMobilityCategories) c.key: 0.0};
   final meters = {for (final c in kMobilityCategories) c.key: 0.0};

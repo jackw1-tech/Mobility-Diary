@@ -1,9 +1,4 @@
 """Cache Redis delle finestre sensore decodificate di un viaggio sorgente.
-
-Evita di riscaricare da object storage, decomprimere e decodificare l'intero
-set di parti raw ad ogni tick di classificazione durante una stessa sessione
-di Riproduzione Live: le finestre di un viaggio gia' concluso non cambiano
-mai, quindi vengono decodificate una sola volta e riusate fino a scadenza TTL.
 """
 
 from __future__ import annotations
@@ -36,10 +31,6 @@ def get_cached_windows(trip_id: int) -> list[PipelineSensorWindow] | None:
         return pickle.loads(raw)
     except (pickle.PickleError, EOFError, TypeError, ValueError,
             ImportError, AttributeError):
-        # Una entry scritta da una versione precedente del codice puo'
-        # riferirsi a un modulo o a una classe che nel frattempo sono
-        # stati rinominati (ModuleNotFoundError/AttributeError): la
-        # cache deve degradare a miss, mai far fallire il chiamante.
         return None
 
 """ 

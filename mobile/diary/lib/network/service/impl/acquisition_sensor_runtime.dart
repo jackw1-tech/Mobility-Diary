@@ -27,19 +27,12 @@ class AcquisitionSensorRuntime {
   HarWindowCallback? _onHarWindow;
   SamplingProfile? _currentSamplingProfile;
   bool _isStarted = false;
-
-  // Contatore diagnostico: incrementato ad OGNI callback grezza
-  // dell'accelerometro, indipendentemente dal completamento di una finestra.
-  // Serve a distinguere "l'OS ha smesso di consegnare eventi" (es. app in
-  // background) da "gli eventi arrivano ma la finestra non si completa".
   int _rawAccelerometerEventCount = 0;
   DateTime? _latestRawAccelerometerEventAt;
 
   int get rawAccelerometerEventCount => _rawAccelerometerEventCount;
   DateTime? get latestRawAccelerometerEventAt => _latestRawAccelerometerEventAt;
 
-  // Stessa logica del contatore raw: totali assoluti, non "quante volte la UI
-  // si e' ridisegnata" — cosi' non si perdono conteggi se la UI salta frame.
   int _completedSigmaWindowCount = 0;
   int _gpsFixCount = 0;
 
@@ -200,11 +193,7 @@ class AcquisitionSensorRuntime {
     _latestRawAccelerometerEventAt = DateTime.now().toUtc();
 
     _accelerationWindow.add(
-      AccelerationSample(
-        x: event.x,
-        y: event.y,
-        z: event.z,
-      ),
+      AccelerationSample(x: event.x, y: event.y, z: event.z),
     );
     final timestamp = DateTime.now().toUtc();
     await _appendHarSensorSample(event, timestamp);
@@ -220,12 +209,7 @@ class AcquisitionSensorRuntime {
     final sigma = MotionMetrics.accelerationMagnitudeSigma(window);
 
     // LiveAcquisitionStrategy -> ingestEvent
-    await onEvent(
-      MotionWindowEvaluated(
-        timestamp: timestamp,
-        sigma: sigma,
-      ),
-    );
+    await onEvent(MotionWindowEvaluated(timestamp: timestamp, sigma: sigma));
   }
 
   void _onGyroscopeEvent(GyroscopeEvent event) {
@@ -345,10 +329,7 @@ class AcquisitionSensorRuntime {
       );
     }
 
-    return LocationSettings(
-      accuracy: accuracy,
-      distanceFilter: distanceFilter,
-    );
+    return LocationSettings(accuracy: accuracy, distanceFilter: distanceFilter);
   }
 
   Duration _samplingPeriodFor(int frequencyHz) {

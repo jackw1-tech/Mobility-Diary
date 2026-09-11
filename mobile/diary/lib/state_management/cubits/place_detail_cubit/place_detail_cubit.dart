@@ -5,13 +5,11 @@ import 'package:diary/repositories/places_repository.dart';
 import 'package:diary/state_management/cubits/place_detail_cubit/place_detail_state.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-/// Gestisce le azioni manuali su un singolo luogo (conferma, rifiuto, riattiva,
-/// etichetta). Ogni azione restituisce il luogo aggiornato dal backend.
 class PlaceDetailCubit extends Cubit<PlaceDetailState> {
   final PlacesRepository _repository;
 
   PlaceDetailCubit(this._repository, PlaceReview place)
-      : super(PlaceDetailState.initial(place));
+    : super(PlaceDetailState.initial(place));
 
   Future<void> loadReviewStatus() async {
     final result = await _repository.fetchPlacesStatus();
@@ -43,12 +41,12 @@ class PlaceDetailCubit extends Cubit<PlaceDetailState> {
       _run(() => _repository.reactivatePlace(state.place.id));
 
   Future<void> label(String category, String customName) => _run(
-        () => _repository.labelPlace(
-          state.place.id,
-          category: category,
-          customName: customName,
-        ),
-      );
+    () => _repository.labelPlace(
+      state.place.id,
+      category: category,
+      customName: customName,
+    ),
+  );
 
   Future<void> _run(Future<AppResult<PlaceReview>> Function() action) async {
     if (!state.canReview) {

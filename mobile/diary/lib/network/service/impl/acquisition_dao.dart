@@ -33,17 +33,10 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
     );
   }
 
-  Future<void> endSession({
-    required String id,
-    required DateTime endedAt,
-  }) {
+  Future<void> endSession({required String id, required DateTime endedAt}) {
     return (update(acquisitionSessions)
           ..where((session) => session.id.equals(id)))
-        .write(
-      AcquisitionSessionsCompanion(
-        endedAt: Value(asUtc(endedAt)),
-      ),
-    );
+        .write(AcquisitionSessionsCompanion(endedAt: Value(asUtc(endedAt))));
   }
 
   // Get dell'acquisition session
@@ -57,23 +50,19 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
   Future<AcquisitionSession?> latestOpenSession() {
     return (select(acquisitionSessions)
           ..where((session) => session.endedAt.isNull())
-          ..orderBy([
-            (session) => OrderingTerm.desc(session.startedAt),
-          ])
+          ..orderBy([(session) => OrderingTerm.desc(session.startedAt)])
           ..limit(1))
         .getSingleOrNull()
         .then((session) => session == null ? null : sessionAsUtc(session));
   }
 
   Future<AcquisitionSession?> findOpenSession(String id) {
-    return (select(acquisitionSessions)
-          ..where(
-            (session) => session.id.equals(id) & session.endedAt.isNull(),
-          ))
+    return (select(
+          acquisitionSessions,
+        )..where((session) => session.id.equals(id) & session.endedAt.isNull()))
         .getSingleOrNull()
         .then((session) => session == null ? null : sessionAsUtc(session));
   }
-
 
   Future<void> insertTransition({
     required String sessionId,
@@ -98,9 +87,7 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
   Future<List<StateTransition>> transitionsForSession(String sessionId) {
     return (select(stateTransitions)
           ..where((transition) => transition.sessionId.equals(sessionId))
-          ..orderBy([
-            (transition) => OrderingTerm.asc(transition.timestamp),
-          ]))
+          ..orderBy([(transition) => OrderingTerm.asc(transition.timestamp)]))
         .get()
         .then((transitions) => transitions.map(transitionAsUtc).toList());
   }
@@ -108,15 +95,14 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
   Future<StateTransition?> latestTransitionForSession(String sessionId) {
     return (select(stateTransitions)
           ..where((transition) => transition.sessionId.equals(sessionId))
-          ..orderBy([
-            (transition) => OrderingTerm.desc(transition.timestamp),
-          ])
+          ..orderBy([(transition) => OrderingTerm.desc(transition.timestamp)])
           ..limit(1))
         .getSingleOrNull()
-        .then((transition) =>
-            transition == null ? null : transitionAsUtc(transition));
+        .then(
+          (transition) =>
+              transition == null ? null : transitionAsUtc(transition),
+        );
   }
-
 
   Future<int> insertGpsPoint({
     required String sessionId,
@@ -187,17 +173,11 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
   Future<List<SensorWindow>> sensorWindowsForSession(String sessionId) {
     return (select(sensorWindows)
           ..where((window) => window.sessionId.equals(sessionId))
-          ..orderBy([
-            (window) => OrderingTerm.asc(window.startTimestamp),
-          ]))
+          ..orderBy([(window) => OrderingTerm.asc(window.startTimestamp)]))
         .get()
         .then((windows) => windows.map(sensorWindowAsUtc).toList());
   }
 
-  /// Legge una porzione ordinata delle finestre senza materializzare in RAM
-  /// tutta una registrazione lunga. Le sessioni vengono impacchettate solo
-  /// dopo lo stop, quindi la paginazione per offset lavora su un insieme
-  /// stabile e non puo' saltare righe inserite durante la lettura.
   Future<List<SensorWindow>> sensorWindowsPageForSession(
     String sessionId, {
     required int limit,
@@ -238,37 +218,39 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
     return query.map((row) => row.read(count) ?? 0).getSingle();
   }
 
-
-  /// Cancella del tutto una sessione ormai
+  /// Cancella del tutto una sessione
   Future<void> purgeSyncedSession(String sessionId) {
     return transaction(() async {
-      await (delete(stateTransitions)
-            ..where((t) => t.sessionId.equals(sessionId)))
-          .go();
-      await (delete(gpsPoints)..where((p) => p.sessionId.equals(sessionId)))
-          .go();
-      await (delete(sensorWindows)..where((w) => w.sessionId.equals(sessionId)))
-          .go();
-      await (delete(syncJobs)..where((j) => j.localSessionId.equals(sessionId)))
-          .go();
-      await (delete(acquisitionSessions)..where((s) => s.id.equals(sessionId)))
-          .go();
+      await (delete(
+        stateTransitions,
+      )..where((t) => t.sessionId.equals(sessionId))).go();
+      await (delete(
+        gpsPoints,
+      )..where((p) => p.sessionId.equals(sessionId))).go();
+      await (delete(
+        sensorWindows,
+      )..where((w) => w.sessionId.equals(sessionId))).go();
+      await (delete(
+        syncJobs,
+      )..where((j) => j.localSessionId.equals(sessionId))).go();
+      await (delete(
+        acquisitionSessions,
+      )..where((s) => s.id.equals(sessionId))).go();
     });
   }
 
-
   Future<String?> localSessionIdForRemoteTrip(int tripId) async {
-    final job = await (select(syncJobs)
-          ..where((j) => j.remoteTripId.equals(tripId)))
-        .getSingleOrNull();
+    final job = await (select(
+      syncJobs,
+    )..where((j) => j.remoteTripId.equals(tripId))).getSingleOrNull();
     return job?.localSessionId;
   }
 
   /// Crea il SyncJob per la sessione oppure se esiste già returna quello in corso
   Future<SyncJob> createSyncJobIfAbsent(String localSessionId) async {
-    final existing = await (select(syncJobs)
-          ..where((j) => j.localSessionId.equals(localSessionId)))
-        .getSingleOrNull();
+    final existing = await (select(
+      syncJobs,
+    )..where((j) => j.localSessionId.equals(localSessionId))).getSingleOrNull();
     if (existing != null) {
       return syncJobAsUtc(existing);
     }
@@ -282,21 +264,23 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
         updatedAt: now,
       ),
     );
-    final created = await (select(syncJobs)
-          ..where((j) => j.localSessionId.equals(localSessionId)))
-        .getSingle();
+    final created = await (select(
+      syncJobs,
+    )..where((j) => j.localSessionId.equals(localSessionId))).getSingle();
     return syncJobAsUtc(created);
   }
 
   Future<List<SyncJob>> claimableSyncJobs(DateTime now) {
     final nowUtc = asUtc(now);
     return (select(syncJobs)
-          ..where((j) =>
-              (j.coreStatus.isIn(syncJobActiveStatuses) |
-                  (j.coreStatus.equals(syncJobCompleted) &
-                      j.rawStatus.isIn(syncJobActiveStatuses))) &
-              (j.nextRetryAt.isNull() |
-                  j.nextRetryAt.isSmallerOrEqualValue(nowUtc)))
+          ..where(
+            (j) =>
+                (j.coreStatus.isIn(syncJobActiveStatuses) |
+                    (j.coreStatus.equals(syncJobCompleted) &
+                        j.rawStatus.isIn(syncJobActiveStatuses))) &
+                (j.nextRetryAt.isNull() |
+                    j.nextRetryAt.isSmallerOrEqualValue(nowUtc)),
+          )
           ..orderBy([(j) => OrderingTerm.asc(j.createdAt)]))
         .get()
         .then((jobs) => jobs.map(syncJobAsUtc).toList());
@@ -340,8 +324,9 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
   }) async {
     await (update(syncJobs)..where((j) => j.id.equals(id))).write(
       SyncJobsCompanion(
-        coreStatus:
-            coreStatus == null ? const Value.absent() : Value(coreStatus),
+        coreStatus: coreStatus == null
+            ? const Value.absent()
+            : Value(coreStatus),
         rawStatus: rawStatus == null ? const Value.absent() : Value(rawStatus),
         attempts: attempts == null ? const Value.absent() : Value(attempts),
         remoteUploadId: remoteUploadId,
@@ -354,7 +339,8 @@ class AcquisitionDao extends DatabaseAccessor<AcquisitionLocalDatabase>
             : Value(coreMapAvailable),
         nextRetryAt: nextRetryAt.present
             ? Value(
-                nextRetryAt.value == null ? null : asUtc(nextRetryAt.value!))
+                nextRetryAt.value == null ? null : asUtc(nextRetryAt.value!),
+              )
             : const Value.absent(),
         lastError: lastError,
         updatedAt: Value(DateTime.now().toUtc()),

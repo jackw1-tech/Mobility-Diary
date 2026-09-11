@@ -11,17 +11,14 @@ import 'package:diary/ui/widgets/trips_drawer_presenter.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-/// Drawer laterale con tutti i viaggi dell'utente e, per ognuno, il pulsante
-/// "Dettaglio". La lista arriva dall'endpoint backend GET /mobility/trips.
 class TripsDrawer extends StatelessWidget {
   const TripsDrawer({super.key});
 
   @override
   Widget build(BuildContext context) {
     return BlocProvider(
-      create: (context) => TripsListCubit(
-        context.read<TripsRepository>(),
-      )..load(),
+      create: (context) =>
+          TripsListCubit(context.read<TripsRepository>())..load(),
       child: const Drawer(child: SafeArea(child: _TripsDrawerBody())),
     );
   }
@@ -51,9 +48,9 @@ class _TripsDrawerBodyState extends State<_TripsDrawerBody> {
               const SizedBox(width: Dimensions.paddingSmall),
               Text(
                 'I miei viaggi',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
               ),
               const Spacer(),
               IconButton(
@@ -70,10 +67,7 @@ class _TripsDrawerBodyState extends State<_TripsDrawerBody> {
         const Divider(height: 1),
         Padding(
           padding: const EdgeInsets.all(Dimensions.paddingMedium),
-          child: TripsDrawerModeToggle(
-            value: _mode,
-            onChanged: _changeMode,
-          ),
+          child: TripsDrawerModeToggle(value: _mode, onChanged: _changeMode),
         ),
         const Divider(height: 1),
         Expanded(
@@ -102,16 +96,13 @@ class _TripsDrawerBodyState extends State<_TripsDrawerBody> {
                   return _mode == TripsDrawerMode.list
                       ? TripsListView(trips: state.trips)
                       : _mode == TripsDrawerMode.reloadable
-                          ? TripsListView(
-                              trips: state.trips,
-                              reloadable: true,
-                            )
-                          : TripsByDayView(
-                              groups: groupTrackTripsByLocalDay(state.trips),
-                              selectedDay: _selectedDay,
-                              onSelectDay: _selectDay,
-                              onBackToDays: _backToDays,
-                            );
+                      ? TripsListView(trips: state.trips, reloadable: true)
+                      : TripsByDayView(
+                          groups: groupTrackTripsByLocalDay(state.trips),
+                          selectedDay: _selectedDay,
+                          onSelectDay: _selectDay,
+                          onBackToDays: _backToDays,
+                        );
               }
             },
           ),

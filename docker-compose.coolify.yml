@@ -96,10 +96,7 @@ services:
       redis:
         condition: service_healthy
 
-  # Coolify inietta un container_name fisso per ogni servizio del compose,
-  # incompatibile con `scale:`/`deploy.replicas` (coollabsio/coolify#5480).
-  # Workaround della community: duplicare il servizio con un nome diverso
-  # invece di scalarlo, cosi' ogni container ha un nome unico per Coolify.
+  # Coolify
   worker-2: *worker
 
   migrate:

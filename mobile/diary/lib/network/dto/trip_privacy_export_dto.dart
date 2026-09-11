@@ -1,10 +1,5 @@
 import 'package:diary/model/entities/privacy/privacy_level.dart';
 
-/// Vista Privacy-Aware testuale del diario, pronta per l'export mobile.
-///
-/// Le coordinate dei MOVE sono gia' approssimate dal backend per i livelli non
-/// precisi, quindi il preview puo' mostrarle come "approssimate" senza mai
-/// esporre la geometria GPS reale.
 class TripPrivacyExportDto {
   final int tripId;
   final PrivacyLevel level;
@@ -34,9 +29,11 @@ class TripPrivacyExportDto {
       cellSizeMeters: json['cell_size_meters'] as int?,
       text: json['text'] as String? ?? '',
       segments: (json['segments'] as List<dynamic>? ?? const [])
-          .map((value) => TripPrivacyExportSegmentDto.fromJson(
-                Map<String, dynamic>.from(value as Map<dynamic, dynamic>),
-              ))
+          .map(
+            (value) => TripPrivacyExportSegmentDto.fromJson(
+              Map<String, dynamic>.from(value as Map<dynamic, dynamic>),
+            ),
+          )
           .toList(growable: false),
     );
   }
@@ -70,10 +67,12 @@ class TripPrivacyExportSegmentDto {
       title: json['title'] as String? ?? '',
       pointCount: json['point_count'] as int? ?? 0,
       coordinates: (json['coordinates'] as List<dynamic>? ?? const [])
-          .map((coordinate) => [
-                for (final value in (coordinate as List<dynamic>))
-                  (value as num).toDouble(),
-              ])
+          .map(
+            (coordinate) => [
+              for (final value in (coordinate as List<dynamic>))
+                (value as num).toDouble(),
+            ],
+          )
           .toList(growable: false),
     );
   }

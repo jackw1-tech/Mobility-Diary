@@ -6,13 +6,6 @@ import 'package:diary/state_management/cubits/route_assistant_cubit/route_assist
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:latlong2/latlong.dart' as ll;
 
-/// Assistente di percorso, completamente separato dall'AcquisitionCubit.
-/// Il punto A e' la posizione attiva della sessione, quando disponibile, oppure
-/// la posizione GPS corrente (via `_locationProvider`); il punto B arriva dal
-/// geocoding. Il percorso e' effimero: chiudendo si azzera tutto.
-///
-/// In modalita' Live la modalita' di mobilita' e' riconosciuta ogni
-/// [_tickInterval] classificando la finestra sensori di `_sensorWindowProvider`.
 class RouteAssistantCubit extends Cubit<RouteAssistantState> {
   final RouteAssistantRepository _repository;
   final Future<ll.LatLng?> Function() _locationProvider;
@@ -32,11 +25,11 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
     ll.LatLng? Function()? activeLocationProvider,
     required Future<List<List<double>>> Function() sensorWindowProvider,
     Duration tickInterval = const Duration(seconds: 15),
-  })  : _locationProvider = locationProvider,
-        _activeLocationProvider = activeLocationProvider,
-        _sensorWindowProvider = sensorWindowProvider,
-        _tickInterval = tickInterval,
-        super(const RouteAssistantState.initial());
+  }) : _locationProvider = locationProvider,
+       _activeLocationProvider = activeLocationProvider,
+       _sensorWindowProvider = sensorWindowProvider,
+       _tickInterval = tickInterval,
+       super(const RouteAssistantState.initial());
 
   void openSearch() => emit(state.copyWith(isSearchOpen: true));
 
@@ -45,55 +38,63 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
   Future<void> search(String query) async {
     if (query.trim().isEmpty) {
       _searchGeneration++;
-      emit(state.copyWith(
-        searchStatus: RouteAssistantSearchStatus.initial,
-        searchResults: const [],
-        clearSearchError: true,
-      ));
+      emit(
+        state.copyWith(
+          searchStatus: RouteAssistantSearchStatus.initial,
+          searchResults: const [],
+          clearSearchError: true,
+        ),
+      );
       return;
     }
     final generation = ++_searchGeneration;
-    emit(state.copyWith(
-      searchStatus: RouteAssistantSearchStatus.loading,
-      clearSearchError: true,
-    ));
+    emit(
+      state.copyWith(
+        searchStatus: RouteAssistantSearchStatus.loading,
+        clearSearchError: true,
+      ),
+    );
     try {
       final proximity = await _currentOrigin();
-      final result =
-          await _repository.searchPlaces(query, proximity: proximity);
+      final result = await _repository.searchPlaces(
+        query,
+        proximity: proximity,
+      );
       if (isClosed || generation != _searchGeneration) return;
       final failure = result.failure;
       if (failure != null) {
-        emit(state.copyWith(
-          searchStatus: RouteAssistantSearchStatus.error,
-          searchError: failure.message,
-        ));
+        emit(
+          state.copyWith(
+            searchStatus: RouteAssistantSearchStatus.error,
+            searchError: failure.message,
+          ),
+        );
         return;
       }
-      emit(state.copyWith(
-        searchStatus: RouteAssistantSearchStatus.loaded,
-        searchResults: result.requireValue,
-        clearSearchError: true,
-      ));
+      emit(
+        state.copyWith(
+          searchStatus: RouteAssistantSearchStatus.loaded,
+          searchResults: result.requireValue,
+          clearSearchError: true,
+        ),
+      );
     } catch (error) {
       if (isClosed || generation != _searchGeneration) return;
-      emit(state.copyWith(
-        searchStatus: RouteAssistantSearchStatus.error,
-        searchError: error.toString(),
-      ));
+      emit(
+        state.copyWith(
+          searchStatus: RouteAssistantSearchStatus.error,
+          searchError: error.toString(),
+        ),
+      );
     }
   }
 
   void selectDestination(GeocodingPlace place) =>
       emit(state.copyWith(destination: place));
 
-  /// "Vai": chiude la ricerca e calcola il percorso verso la destinazione.
   Future<void> confirmDestination() async {
     if (state.destination == null) return;
-    emit(state.copyWith(
-      isSearchOpen: false,
-      mode: _initialRouteMode(),
-    ));
+    emit(state.copyWith(isSearchOpen: false, mode: _initialRouteMode()));
     await _fetchRoute();
   }
 
@@ -103,9 +104,6 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
     if (state.destination != null) await _fetchRoute();
   }
 
-  /// Accende/spegne la modalita' Live. Il timer di ricalcolo (avviato al primo
-  /// percorso) continua a girare: Live ON aggiunge la classificazione sensori
-  /// prima di ogni ricalcolo periodico.
   void toggleLive() {
     if (state.isLive) {
       emit(state.copyWith(isLive: false, clearDetected: true));
@@ -141,8 +139,6 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
     }
   }
 
-  /// Tick periodico: se Live e' ON classifica prima e aggiorna il profilo;
-  /// poi ricalcola sempre il percorso per seguire il movimento dell'utente.
   Future<void> _tick() async {
     if (isClosed) return;
     final shouldClassifyForLive = state.isActive && state.isLive;
@@ -168,8 +164,6 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
     }
   }
 
-  /// Chiude l'assistente: ferma il Live, invalida le richieste in volo (ricerca
-  /// e routing) e azzera tutto lo stato.
   void dismiss() {
     _liveTimer?.cancel();
     _liveTimer = null;
@@ -193,16 +187,20 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
     final from = await _currentOrigin();
     if (isClosed || generation != _routeGeneration) return;
     if (from == null) {
-      emit(state.copyWith(
-        routeStatus: RouteAssistantRouteStatus.error,
-        routeError: 'Posizione corrente non disponibile',
-      ));
+      emit(
+        state.copyWith(
+          routeStatus: RouteAssistantRouteStatus.error,
+          routeError: 'Posizione corrente non disponibile',
+        ),
+      );
       return;
     }
-    emit(state.copyWith(
-      routeStatus: RouteAssistantRouteStatus.loading,
-      clearRouteError: true,
-    ));
+    emit(
+      state.copyWith(
+        routeStatus: RouteAssistantRouteStatus.loading,
+        clearRouteError: true,
+      ),
+    );
     try {
       final result = await _repository.fetchRoute(
         from: from,
@@ -212,25 +210,31 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
       if (isClosed || generation != _routeGeneration) return;
       final failure = result.failure;
       if (failure != null) {
-        emit(state.copyWith(
-          routeStatus: RouteAssistantRouteStatus.error,
-          routeError: failure.message,
-        ));
+        emit(
+          state.copyWith(
+            routeStatus: RouteAssistantRouteStatus.error,
+            routeError: failure.message,
+          ),
+        );
         return;
       }
-      emit(state.copyWith(
-        routeStatus: RouteAssistantRouteStatus.loaded,
-        route: result.requireValue,
-        routeUpdatedAt: DateTime.now(),
-        clearRouteError: true,
-      ));
+      emit(
+        state.copyWith(
+          routeStatus: RouteAssistantRouteStatus.loaded,
+          route: result.requireValue,
+          routeUpdatedAt: DateTime.now(),
+          clearRouteError: true,
+        ),
+      );
       _ensureTimer();
     } catch (error) {
       if (isClosed || generation != _routeGeneration) return;
-      emit(state.copyWith(
-        routeStatus: RouteAssistantRouteStatus.error,
-        routeError: error.toString(),
-      ));
+      emit(
+        state.copyWith(
+          routeStatus: RouteAssistantRouteStatus.error,
+          routeError: error.toString(),
+        ),
+      );
     }
   }
 
@@ -249,25 +253,22 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
       return;
     }
     if (_lastDetectedMode == null) {
-      emit(state.copyWith(
-        clearDetected: true,
-        hasDetectedModeResult: true,
-      ));
+      emit(state.copyWith(clearDetected: true, hasDetectedModeResult: true));
       return;
     }
-    emit(state.copyWith(
-      detectedMode: _lastDetectedMode,
-      hasDetectedModeResult: true,
-    ));
+    emit(
+      state.copyWith(
+        detectedMode: _lastDetectedMode,
+        hasDetectedModeResult: true,
+      ),
+    );
   }
 
   Future<void> _classifyCurrentMode({required bool updateRouteMode}) async {
     final samples = await _sensorWindowProvider();
     if (isClosed ||
         samples.isEmpty ||
-        !_classificationStillRelevant(
-          updateRouteMode,
-        )) {
+        !_classificationStillRelevant(updateRouteMode)) {
       return;
     }
     final result = await _repository.classify(samples);
@@ -277,18 +278,17 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
     final detected = result.value;
     if (detected == null) {
       _rememberDetectedMode(null);
-      emit(state.copyWith(
-        clearDetected: true,
-        hasDetectedModeResult: true,
-      ));
+      emit(state.copyWith(clearDetected: true, hasDetectedModeResult: true));
       return;
     }
     _rememberDetectedMode(detected);
-    emit(state.copyWith(
-      detectedMode: detected,
-      hasDetectedModeResult: true,
-      mode: updateRouteMode ? detected : null,
-    ));
+    emit(
+      state.copyWith(
+        detectedMode: detected,
+        hasDetectedModeResult: true,
+        mode: updateRouteMode ? detected : null,
+      ),
+    );
   }
 
   void _rememberDetectedMode(RouteMode? detected) {

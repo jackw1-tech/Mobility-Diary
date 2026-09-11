@@ -1,6 +1,3 @@
-/// DTO grezzo (shape wire) dell'utente cosi' come restituito dal backend
-/// (`/auth/login`, `/auth/register`, `/auth/me`). Consumato solo da
-/// [AuthMapper] per produrre il model di dominio `AuthUser`.
 class UserDto {
   final int id;
   final String email;

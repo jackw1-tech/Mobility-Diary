@@ -10,8 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 
-/// Dettaglio di un Luogo Significativo: mappa con il centro del luogo e le
-/// visite di supporto (evidenza), il contesto, e le azioni manuali di review.
+/// Dettaglio di un Luogo Significativo
 @RoutePage()
 class PlaceDetailPage extends StatelessWidget {
   final PlaceReview place;
@@ -92,8 +91,9 @@ class _PlaceMapState extends State<_PlaceMap> {
     final place = widget.place;
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final onSurfaceVariantColor =
-        Theme.of(context).colorScheme.onSurfaceVariant.toARGB32();
+    final onSurfaceVariantColor = Theme.of(
+      context,
+    ).colorScheme.onSurfaceVariant.toARGB32();
     final sem =
         Theme.of(context).extension<SemanticColors>() ?? SemanticColors.light;
     final stateColor = placeStateColor(place, sem: sem).toARGB32();
@@ -104,8 +104,9 @@ class _PlaceMapState extends State<_PlaceMap> {
     for (final visit in place.visits) {
       await circleManager.create(
         CircleAnnotationOptions(
-          geometry:
-              Point(coordinates: Position(visit.longitude, visit.latitude)),
+          geometry: Point(
+            coordinates: Position(visit.longitude, visit.latitude),
+          ),
           circleColor: onSurfaceVariantColor,
           circleRadius: 6,
           circleStrokeColor: strokeColor,
@@ -178,13 +179,19 @@ class _PlaceEvidencePanel extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(placeStateIcon(place), color: placeStateColor(place, sem: Theme.of(context).extension<SemanticColors>()!)),
+              Icon(
+                placeStateIcon(place),
+                color: placeStateColor(
+                  place,
+                  sem: Theme.of(context).extension<SemanticColors>()!,
+                ),
+              ),
               const SizedBox(width: Dimensions.paddingSmall),
               Text(
                 placeStateLabel(place.state),
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
               ),
             ],
           ),
@@ -192,8 +199,8 @@ class _PlaceEvidencePanel extends StatelessWidget {
           Text(
             placeWhyProposed(place),
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
           ),
         ],
       ),
@@ -228,8 +235,8 @@ class _PlaceActionBar extends StatelessWidget {
             'Review temporaneamente bloccata: l’analisi dei luoghi non e\' ancora pronta.',
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
           ),
         ),
       );
@@ -301,8 +308,9 @@ class _LabelDialogState extends State<_LabelDialog> {
   late String _category = widget.place.category.isEmpty
       ? placeCategories.first
       : widget.place.category;
-  late final TextEditingController _name =
-      TextEditingController(text: widget.place.customName);
+  late final TextEditingController _name = TextEditingController(
+    text: widget.place.customName,
+  );
 
   @override
   void dispose() {
@@ -346,10 +354,10 @@ class _LabelDialogState extends State<_LabelDialog> {
           child: const Text('Annulla'),
         ),
         FilledButton(
-          onPressed: () => Navigator.pop(
-            context,
-            (category: _category, customName: _name.text.trim()),
-          ),
+          onPressed: () => Navigator.pop(context, (
+            category: _category,
+            customName: _name.text.trim(),
+          )),
           child: const Text('Salva'),
         ),
       ],

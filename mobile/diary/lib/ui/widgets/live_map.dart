@@ -15,11 +15,6 @@ import 'package:diary/state_management/cubits/route_assistant_cubit/route_assist
 import 'package:diary/state_management/cubits/route_assistant_cubit/route_assistant_cubit_state.dart';
 import 'package:diary/ui/widgets/route_assistant_controls.dart';
 
-/// Mappa live a tutto schermo:
-///  - mostra subito il "puck" della posizione corrente (Location Component
-///    nativo di Mapbox), che si muove in modo fluido a ogni fix GPS;
-///  - durante il tracking disegna la polyline del percorso leggendo
-///    `routePoints` dall'[AcquisitionCubit].
 class LiveMap extends StatefulWidget {
   const LiveMap({super.key});
 
@@ -36,7 +31,6 @@ class _LiveMapState extends State<LiveMap> {
   RouteAssistantCubit? _routeAssistantCubit;
   PlacesCubit? _placesCubit;
 
-  /// Se true la camera insegue automaticamente la posizione corrente.
   bool _followUser = true;
 
   @override
@@ -74,19 +68,15 @@ class _LiveMapState extends State<LiveMap> {
     setState(() {
       _initialCenter = location == null
           ? Point(coordinates: Position(0, 0))
-          : Point(
-              coordinates: Position(location.longitude, location.latitude),
-            );
+          : Point(coordinates: Position(location.longitude, location.latitude));
     });
   }
 
   Future<void> _onMapCreated(MapboxMap map) async {
     _map = map;
     _camera = LiveMapCameraController(map);
-    // Niente bussola/scale ridondanti: la UI ha già i suoi overlay.
     await map.scaleBar.updateSettings(ScaleBarSettings(enabled: false));
     await map.compass.updateSettings(CompassSettings(enabled: false));
-    // Puck nativo: pallino + alone di accuratezza + freccia di direzione.
     await _camera!.syncNativePuck(isReplay: false);
   }
 
@@ -112,8 +102,6 @@ class _LiveMapState extends State<LiveMap> {
     await _syncHabitualPlaces(isTracking: cubit.state.isTracking);
   }
 
-  // Mostra i luoghi abituali confermati solo quando non c'e' nessun tracking
-  // in corso (niente registrazione, niente replay).
   Future<void> _syncHabitualPlaces({required bool isTracking}) async {
     if (isTracking) {
       await _layers?.updateHabitualPlaces(const []);
@@ -140,8 +128,6 @@ class _LiveMapState extends State<LiveMap> {
     setState(() => _followUser = false);
   }
 
-  // Ogni volta che il repository emette uno snapshot con nuovi punti GPS,
-  // aggiorna la polyline
   void _onStateChanged(AcquisitionCubitState state) {
     _layers?.redrawRoute(state.routePoints);
     _camera?.syncNativePuck(isReplay: state.isReplay);
@@ -227,21 +213,22 @@ class _LiveMapState extends State<LiveMap> {
                   previous.isTracking != current.isTracking,
               builder: (context, acquisitionState) =>
                   BlocBuilder<RouteAssistantCubit, RouteAssistantState>(
-                buildWhen: (previous, current) =>
-                    previous.isActive != current.isActive ||
-                    previous.detectedMode != current.detectedMode ||
-                    previous.hasDetectedModeResult !=
-                        current.hasDetectedModeResult,
-                builder: (context, assistantState) {
-                  if (!acquisitionState.isTracking || assistantState.isActive) {
-                    return const SizedBox.shrink();
-                  }
-                  return RouteDetectedModeIndicator(
-                    mode: assistantState.detectedMode,
-                    hasResult: assistantState.hasDetectedModeResult,
-                  );
-                },
-              ),
+                    buildWhen: (previous, current) =>
+                        previous.isActive != current.isActive ||
+                        previous.detectedMode != current.detectedMode ||
+                        previous.hasDetectedModeResult !=
+                            current.hasDetectedModeResult,
+                    builder: (context, assistantState) {
+                      if (!acquisitionState.isTracking ||
+                          assistantState.isActive) {
+                        return const SizedBox.shrink();
+                      }
+                      return RouteDetectedModeIndicator(
+                        mode: assistantState.detectedMode,
+                        hasResult: assistantState.hasDetectedModeResult,
+                      );
+                    },
+                  ),
             ),
             BlocBuilder<AcquisitionCubit, AcquisitionCubitState>(
               buildWhen: (previous, current) =>
@@ -256,13 +243,16 @@ class _LiveMapState extends State<LiveMap> {
                 active: _followUser,
                 onPressed: () async {
                   setState(() => _followUser = true);
-                  final latest =
-                      context.read<AcquisitionCubit>().state.latestPosition;
+                  final latest = context
+                      .read<AcquisitionCubit>()
+                      .state
+                      .latestPosition;
                   if (latest != null) {
                     await _followTo(latest);
                   } else {
-                    final location =
-                        await context.read<CurrentLocationCubit>().resolve();
+                    final location = await context
+                        .read<CurrentLocationCubit>()
+                        .resolve();
                     if (location != null) {
                       await _followTo(location);
                     }
@@ -289,8 +279,9 @@ class _RecenterButton extends StatelessWidget {
     return FloatingActionButton.small(
       heroTag: 'live-map-recenter',
       backgroundColor: colorScheme.surface,
-      foregroundColor:
-          active ? colorScheme.primary : colorScheme.onSurfaceVariant,
+      foregroundColor: active
+          ? colorScheme.primary
+          : colorScheme.onSurfaceVariant,
       onPressed: onPressed,
       child: const Icon(Icons.my_location),
     );

@@ -13,8 +13,6 @@ import 'package:diary/ui/widgets/surface_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-/// Analitiche Personali: andamento recente e abitudini di sempre dell'utente.
-/// I dati arrivano aggregati da GET /mobility/analytics (user-scoped, ADR 0030).
 @RoutePage()
 class AnalyticsPage extends StatelessWidget {
   const AnalyticsPage({super.key});
@@ -89,7 +87,8 @@ class _AnalyticsBody extends StatelessWidget {
                     title: 'Abitudini di sempre',
                     child: habits.isEmpty
                         ? const AnalyticsSectionEmpty(
-                            text: 'Servono piu\' viaggi tra luoghi noti '
+                            text:
+                                'Servono piu\' viaggi tra luoghi noti '
                                 'per riconoscere le tue abitudini',
                           )
                         : AnalyticsHabitsContent(habits: habits),

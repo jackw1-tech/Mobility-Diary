@@ -6,8 +6,6 @@ import 'package:diary/ui/widgets/route_assistant_controls.dart';
 import 'package:latlong2/latlong.dart' as ll;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 
-/// Un punto con etichetta testuale e categoria da mostrare sulla mappa (es.
-/// un luogo abituale confermato).
 class LabeledPoint {
   final ll.LatLng position;
   final String label;
@@ -39,13 +37,13 @@ class LiveMapLayers {
   final int _surfaceColor;
   bool _habitualPlacesReady = false;
 
-  LiveMapLayers._(this._map,
-      {required int primaryColor, required int surfaceColor})
-      : _primaryColor = primaryColor,
-        _surfaceColor = surfaceColor;
+  LiveMapLayers._(
+    this._map, {
+    required int primaryColor,
+    required int surfaceColor,
+  }) : _primaryColor = primaryColor,
+       _surfaceColor = surfaceColor;
 
-  /// Installa tutti i source/layer sullo style appena caricato.
-  /// I colori vengono passati dal tema corrente.
   static Future<LiveMapLayers> install(
     MapboxMap map, {
     required Color primary,
@@ -64,41 +62,45 @@ class LiveMapLayers {
   }
 
   Future<void> _installLiveRouteLayer() async {
-    await _map.style.addSource(GeoJsonSource(
-      id: _liveRouteSourceId,
-      data: _lineGeoJson(const []),
-    ));
-    await _map.style.addLayer(LineLayer(
-      id: _liveRouteCasingLayerId,
-      sourceId: _liveRouteSourceId,
-      lineColor: _surfaceColor,
-      lineWidth: 8.0,
-      lineJoin: LineJoin.ROUND,
-      lineCap: LineCap.ROUND,
-    ));
-    await _map.style.addLayer(LineLayer(
-      id: _liveRouteLayerId,
-      sourceId: _liveRouteSourceId,
-      lineColor: _primaryColor,
-      lineWidth: 4.5,
-      lineJoin: LineJoin.ROUND,
-      lineCap: LineCap.ROUND,
-    ));
+    await _map.style.addSource(
+      GeoJsonSource(id: _liveRouteSourceId, data: _lineGeoJson(const [])),
+    );
+    await _map.style.addLayer(
+      LineLayer(
+        id: _liveRouteCasingLayerId,
+        sourceId: _liveRouteSourceId,
+        lineColor: _surfaceColor,
+        lineWidth: 8.0,
+        lineJoin: LineJoin.ROUND,
+        lineCap: LineCap.ROUND,
+      ),
+    );
+    await _map.style.addLayer(
+      LineLayer(
+        id: _liveRouteLayerId,
+        sourceId: _liveRouteSourceId,
+        lineColor: _primaryColor,
+        lineWidth: 4.5,
+        lineJoin: LineJoin.ROUND,
+        lineCap: LineCap.ROUND,
+      ),
+    );
   }
 
   Future<void> _installAssistantRouteLayer() async {
-    await _map.style.addSource(GeoJsonSource(
-      id: _assistantRouteSourceId,
-      data: _lineGeoJson(const []),
-    ));
-    await _map.style.addLayer(LineLayer(
-      id: _assistantRouteLayerId,
-      sourceId: _assistantRouteSourceId,
-      lineColor: routeAssistantRouteColor.toARGB32(),
-      lineWidth: 5.0,
-      lineJoin: LineJoin.ROUND,
-      lineCap: LineCap.ROUND,
-    ));
+    await _map.style.addSource(
+      GeoJsonSource(id: _assistantRouteSourceId, data: _lineGeoJson(const [])),
+    );
+    await _map.style.addLayer(
+      LineLayer(
+        id: _assistantRouteLayerId,
+        sourceId: _assistantRouteSourceId,
+        lineColor: routeAssistantRouteColor.toARGB32(),
+        lineWidth: 5.0,
+        lineJoin: LineJoin.ROUND,
+        lineCap: LineCap.ROUND,
+      ),
+    );
   }
 
   // Isolata in try/catch: se la registrazione delle icone fallisse a runtime,
@@ -121,24 +123,28 @@ class LiveMapLayers {
           null,
         );
       }
-      await _map.style.addSource(GeoJsonSource(
-        id: _habitualPlacesSourceId,
-        data: _labeledPointsGeoJson(const []),
-      ));
-      await _map.style.addLayer(SymbolLayer(
-        id: _habitualPlacesLabelLayerId,
-        sourceId: _habitualPlacesSourceId,
-        iconImageExpression: ['get', 'iconId'],
-        iconAllowOverlap: true,
-        textFieldExpression: ['get', 'label'],
-        textSize: 12,
-        textColor: _primaryColor,
-        textHaloColor: _surfaceColor,
-        textHaloWidth: 1.5,
-        textAnchor: TextAnchor.TOP,
-        textOffset: [0, 1.1],
-        textAllowOverlap: true,
-      ));
+      await _map.style.addSource(
+        GeoJsonSource(
+          id: _habitualPlacesSourceId,
+          data: _labeledPointsGeoJson(const []),
+        ),
+      );
+      await _map.style.addLayer(
+        SymbolLayer(
+          id: _habitualPlacesLabelLayerId,
+          sourceId: _habitualPlacesSourceId,
+          iconImageExpression: ['get', 'iconId'],
+          iconAllowOverlap: true,
+          textFieldExpression: ['get', 'label'],
+          textSize: 12,
+          textColor: _primaryColor,
+          textHaloColor: _surfaceColor,
+          textHaloWidth: 1.5,
+          textAnchor: TextAnchor.TOP,
+          textOffset: [0, 1.1],
+          textAllowOverlap: true,
+        ),
+      );
       _habitualPlacesReady = true;
     } catch (_) {
       // Ignorato: il layer dei luoghi abituali e' opzionale.
@@ -146,25 +152,28 @@ class LiveMapLayers {
   }
 
   Future<void> _installReplayMarkerLayer() async {
-    await _map.style.addSource(GeoJsonSource(
-      id: _replayMarkerSourceId,
-      data: _pointsGeoJson(const []),
-    ));
-    await _map.style.addLayer(CircleLayer(
-      id: _replayMarkerHaloLayerId,
-      sourceId: _replayMarkerSourceId,
-      circleColor: _primaryColor,
-      circleOpacity: 0.22,
-      circleRadius: 18,
-    ));
-    await _map.style.addLayer(CircleLayer(
-      id: _replayMarkerDotLayerId,
-      sourceId: _replayMarkerSourceId,
-      circleColor: _primaryColor,
-      circleRadius: 8,
-      circleStrokeColor: _surfaceColor,
-      circleStrokeWidth: 3,
-    ));
+    await _map.style.addSource(
+      GeoJsonSource(id: _replayMarkerSourceId, data: _pointsGeoJson(const [])),
+    );
+    await _map.style.addLayer(
+      CircleLayer(
+        id: _replayMarkerHaloLayerId,
+        sourceId: _replayMarkerSourceId,
+        circleColor: _primaryColor,
+        circleOpacity: 0.22,
+        circleRadius: 18,
+      ),
+    );
+    await _map.style.addLayer(
+      CircleLayer(
+        id: _replayMarkerDotLayerId,
+        sourceId: _replayMarkerSourceId,
+        circleColor: _primaryColor,
+        circleRadius: 8,
+        circleStrokeColor: _surfaceColor,
+        circleStrokeWidth: 3,
+      ),
+    );
   }
 
   Future<void> redrawRoute(List<ll.LatLng> points) => _map.style
@@ -177,8 +186,6 @@ class LiveMapLayers {
         _lineGeoJson(points),
       );
 
-  /// Mostra i luoghi abituali confermati (pallino + etichetta) sulla mappa
-  /// live, tipicamente solo quando non c'e' un tracking in corso.
   Future<void> updateHabitualPlaces(List<LabeledPoint> places) {
     if (!_habitualPlacesReady) return Future.value();
     return _map.style.setStyleSourceProperty(
@@ -191,12 +198,11 @@ class LiveMapLayers {
   Future<void> updateReplayMarker({
     required bool isReplay,
     required ll.LatLng? latest,
-  }) =>
-      _map.style.setStyleSourceProperty(
-        _replayMarkerSourceId,
-        'data',
-        _pointsGeoJson(isReplay && latest != null ? [latest] : const []),
-      );
+  }) => _map.style.setStyleSourceProperty(
+    _replayMarkerSourceId,
+    'data',
+    _pointsGeoJson(isReplay && latest != null ? [latest] : const []),
+  );
 
   static String _lineGeoJson(List<ll.LatLng> points) {
     return jsonEncode({

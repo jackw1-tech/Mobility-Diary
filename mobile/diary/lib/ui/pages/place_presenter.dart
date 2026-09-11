@@ -3,8 +3,6 @@ import 'package:diary/model/entities/places/place_review.dart';
 import 'package:diary/theme/semantic_colors.dart';
 import 'package:flutter/material.dart';
 
-/// Helper di presentazione condivisi fra la lista e il dettaglio dei luoghi.
-
 Color placeStateColor(PlaceReview place, {required SemanticColors sem}) {
   switch (place.state) {
     case 'CONFIRMED':
@@ -38,7 +36,6 @@ String placeStateLabel(String state) {
   }
 }
 
-/// "3 visite · 2 giorni": il contesto che spiega l'evidenza del luogo.
 String placeEvidenceText(PlaceReview place) {
   final visits = place.visitCount == 1
       ? '1 visita'
@@ -49,7 +46,6 @@ String placeEvidenceText(PlaceReview place) {
   return '$visits · $days';
 }
 
-/// Frase che spiega perche' un luogo e' stato proposto o confermato.
 String placeWhyProposed(PlaceReview place) {
   final evidenceText = placeEvidenceText(place);
   return place.isConfirmed
@@ -57,7 +53,6 @@ String placeWhyProposed(PlaceReview place) {
       : 'Proposto come possibile luogo abituale ($evidenceText).';
 }
 
-/// Categorie chiuse per l'etichetta manuale (allineate al backend).
 const List<String> placeCategories = [
   'casa',
   'universita',

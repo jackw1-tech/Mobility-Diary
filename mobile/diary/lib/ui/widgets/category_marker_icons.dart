@@ -3,8 +3,6 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
-/// Icona + colore per una categoria di luogo abituale (valori backend:
-/// mobility.models.HabitualPlace.Category).
 class CategoryMarker {
   final String category;
   final IconData icon;
@@ -42,23 +40,17 @@ const List<CategoryMarker> categoryMarkers = [
 ];
 
 const String _fallbackCategory = 'altro';
-final Set<String> _knownCategories =
-    categoryMarkers.map((m) => m.category).toSet();
+final Set<String> _knownCategories = categoryMarkers
+    .map((m) => m.category)
+    .toSet();
 
-/// Id dell'immagine registrata sullo style Mapbox per una categoria. Le
-/// categorie sconosciute o vuote (il campo backend e' opzionale) ricadono
-/// sull'icona generica 'altro'.
 String iconIdForCategory(String category) {
-  final resolved =
-      _knownCategories.contains(category) ? category : _fallbackCategory;
+  final resolved = _knownCategories.contains(category)
+      ? category
+      : _fallbackCategory;
   return 'habitual-place-icon-$resolved';
 }
 
-/// Disegna un pallino colorato con l'icona della categoria al centro e lo
-/// codifica in PNG: nonostante la doc di MbxImage parli di RGBA grezzo,
-/// le implementazioni native di addStyleImage (UIImage(data:) su iOS,
-/// BitmapFactory.decodeByteArray su Android) si aspettano byte di
-/// un'immagine codificata.
 Future<Uint8List> renderCategoryIconPng(
   CategoryMarker marker, {
   double size = 96,

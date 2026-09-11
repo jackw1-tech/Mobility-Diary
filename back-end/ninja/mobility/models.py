@@ -164,8 +164,6 @@ class HabitualPlace(models.Model):
     distinct_days = models.PositiveIntegerField(default=0)
     category = models.CharField(max_length=16, choices=Category.choices, blank=True)
     custom_name = models.CharField(max_length=128, blank=True)
-    # True quando l'utente ha espresso una decisione manuale (conferma, rifiuto o
-    # etichetta): deve sopravvivere al ricomputo completo (ADR 0028).
     manually_reviewed = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

@@ -19,8 +19,8 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
   TripTrackCubit(
     this._repository, {
     TripDiaryLoadPolicy diaryLoadPolicy = const TripDiaryLoadPolicy(),
-  })  : _diaryLoadPolicy = diaryLoadPolicy,
-        super(const TripTrackCubitState.initial());
+  }) : _diaryLoadPolicy = diaryLoadPolicy,
+       super(const TripTrackCubitState.initial());
 
   // Funzione richiamata dal cubit che chiede i dati del singolo viaggio in Trip Detail Page
   Future<void> load(int tripId) {
@@ -34,8 +34,6 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
     await _startLoad(tripId);
   }
 
-  /// Ritenta subito il diario senza ricaricare la traccia gia' disegnata.
-  /// Serve al pulsante di riprova: l'attesa del backoff viene azzerata.
   Future<void> retryDiaryNow() async {
     final tripId = _tripId;
     if (tripId == null) return;
@@ -72,9 +70,7 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
     if (cached != null) {
       result = AppResult.success(cached);
     } else {
-      result = await _safeTimedFetch(
-        () => _repository.fetchTrack(tripId),
-      );
+      result = await _safeTimedFetch(() => _repository.fetchTrack(tripId));
     }
     if (!_isCurrent(tripId, generation)) {
       return;
@@ -95,13 +91,15 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
     final track = result.requireValue;
     _trackCache[tripId] = track;
     final points = track.points;
-    final diaryProvidesDistance = state.diaryStatus == DiaryLoadStatus.loaded &&
+    final diaryProvidesDistance =
+        state.diaryStatus == DiaryLoadStatus.loaded &&
         state.diarySegments.isNotEmpty;
     final next = state.copyWith(
       trackStatus: TrackLoadStatus.loaded,
       points: points.isEmpty ? state.points : points,
-      distanceMeters:
-          diaryProvidesDistance ? state.distanceMeters : track.distanceMeters,
+      distanceMeters: diaryProvidesDistance
+          ? state.distanceMeters
+          : track.distanceMeters,
       trackError: null,
     );
     _emitResolved(next);
@@ -123,12 +121,14 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
     if (failure != null) {
       _diaryFailureStreak += 1;
       final retryDelay = _diaryLoadPolicy.retryDelay(_diaryFailureStreak);
-      final keepsPreviousDiary = state.diaryStatus == DiaryLoadStatus.loaded ||
+      final keepsPreviousDiary =
+          state.diaryStatus == DiaryLoadStatus.loaded ||
           state.diaryStatus == DiaryLoadStatus.pending;
       _emitResolved(
         state.copyWith(
-          diaryStatus:
-              keepsPreviousDiary ? state.diaryStatus : DiaryLoadStatus.failed,
+          diaryStatus: keepsPreviousDiary
+              ? state.diaryStatus
+              : DiaryLoadStatus.failed,
           processingFailed: false,
           processingErrorMessage: null,
           diaryError: keepsPreviousDiary ? null : failure.message,
@@ -160,14 +160,12 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
           endTimestamp: segment.endTimestamp,
         ),
     ];
-    final fallbackPoints = [
-      for (final segment in segments) ...segment.points,
-    ];
+    final fallbackPoints = [for (final segment in segments) ...segment.points];
     final diaryStatus = processingFailed
         ? DiaryLoadStatus.failed
         : processingPending
-            ? DiaryLoadStatus.pending
-            : DiaryLoadStatus.loaded;
+        ? DiaryLoadStatus.pending
+        : DiaryLoadStatus.loaded;
     final failureMessage = processingFailed
         ? _processingFailureMessage(diary.processingFailureReason)
         : null;
@@ -176,13 +174,11 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
         ? state.segments
         : segments;
     // Mostro il diario solo quando il viaggo è stato interamente processato
-    final rawDiarySegments =
-        diary.processed ? diary.segments : const <TripDiarySegment>[];
-    final nextDiarySegments = _sameList(
-      state.diarySegments,
-      rawDiarySegments,
-      _sameDiarySegment,
-    )
+    final rawDiarySegments = diary.processed
+        ? diary.segments
+        : const <TripDiarySegment>[];
+    final nextDiarySegments =
+        _sameList(state.diarySegments, rawDiarySegments, _sameDiarySegment)
         ? state.diarySegments
         : rawDiarySegments;
     final next = state.copyWith(
@@ -220,9 +216,7 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
           : await future.timeout(
               timeout,
               onTimeout: () => AppResult<T>.failure(
-                NetworkFailure(
-                  'Richiesta scaduta dopo ${timeout.inSeconds}s',
-                ),
+                NetworkFailure('Richiesta scaduta dopo ${timeout.inSeconds}s'),
               ),
             );
       return result;
@@ -238,9 +232,11 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
   // Funzione chiamata in modo asincrono tra loadTrack e loadDiary, in base allo stato fa aggiornare la UI
   void _emitResolved(TripTrackCubitState next) {
     if (isClosed) return;
-    final trackDone = next.trackStatus == TrackLoadStatus.loaded ||
+    final trackDone =
+        next.trackStatus == TrackLoadStatus.loaded ||
         next.trackStatus == TrackLoadStatus.failed;
-    final diaryDone = next.diaryStatus == DiaryLoadStatus.loaded ||
+    final diaryDone =
+        next.diaryStatus == DiaryLoadStatus.loaded ||
         next.diaryStatus == DiaryLoadStatus.failed;
 
     if (next.points.isNotEmpty) {

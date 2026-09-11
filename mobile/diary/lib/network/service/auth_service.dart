@@ -10,9 +10,6 @@ class AuthApiException implements Exception {
   String toString() => message;
 }
 
-/// Provider layer (Pine): accesso grezzo alle REST API di autenticazione.
-/// Restituisce sempre DTO grezzi: la trasformazione in model di dominio e'
-/// compito esclusivo di [AuthMapper] (layer Mapper).
 abstract class AuthService {
   Future<AuthSessionDto> login({
     required String email,

@@ -1,10 +1,6 @@
-
 import 'package:diary/theme/dimensions.dart';
 import 'package:flutter/material.dart';
 
-/// Placeholder centrato per stati vuoti/errore di una pagina o sezione:
-/// icona + testo + pulsante "Riprova" opzionale. Pattern ripetuto identico
-/// in piu' pagine (Pine: solo UI, nessuna logica applicativa).
 class StateMessage extends StatelessWidget {
   final IconData icon;
   final String text;

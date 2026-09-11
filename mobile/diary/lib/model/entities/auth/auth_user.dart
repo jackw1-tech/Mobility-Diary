@@ -26,9 +26,7 @@ class AuthUser {
     return 'Utente';
   }
 
-  /// Serializzazione per la cache locale (vedi `AuthSessionStore.saveUser`).
-  /// La deserializzazione dal wire format del backend e' compito di
-  /// `UserDto.fromJson` + `AuthMapper` (layer Mapper), non del model.
+  /// Serializzazione per la cache locale
   Map<String, dynamic> toJson() {
     return {
       'id': id,

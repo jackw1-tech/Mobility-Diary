@@ -6,15 +6,7 @@ import 'package:diary/network/service/impl/http_json_utils.dart';
 
 typedef AccessTokenProvider = Future<String?> Function();
 
-/// Classificazione live della modalita' di mobilita' via backend (solo CNN).
-///
-/// Provider layer (Pine): restituisce l'etichetta grezza cosi' come arriva
-/// dal backend. La conversione in [RouteMode] e' compito esclusivo di
-/// [RouteAssistantMapper].
 abstract class RouteClassifierService {
-  /// Classifica una finestra 500x6. Restituisce l'etichetta grezza (es.
-  /// `walking`/`cycling`/`driving`), oppure null quando il modello risponde
-  /// "idle" (fermo) o con un valore inatteso.
   Future<String?> classify(List<List<double>> samples);
 }
 
@@ -25,8 +17,8 @@ class RouteClassifierHttpService implements RouteClassifierService {
   RouteClassifierHttpService({
     required AccessTokenProvider tokenProvider,
     HttpClient? client,
-  })  : _tokenProvider = tokenProvider,
-        _client = client ?? HttpClient();
+  }) : _tokenProvider = tokenProvider,
+       _client = client ?? HttpClient();
 
   @override
   Future<String?> classify(List<List<double>> samples) async {
@@ -34,8 +26,9 @@ class RouteClassifierHttpService implements RouteClassifierService {
     if (token == null || token.isEmpty) {
       throw const RouteAssistantException('Sessione non disponibile');
     }
-    final request = await _client
-        .postUrl(resolveApiUri('/mobility/route-assistant/classify'));
+    final request = await _client.postUrl(
+      resolveApiUri('/mobility/route-assistant/classify'),
+    );
     request.headers.contentType = ContentType.json;
     request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
     final encoded = utf8.encode(jsonEncode({'samples': samples}));

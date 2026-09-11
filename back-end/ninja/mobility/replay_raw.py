@@ -1,11 +1,3 @@
-"""Rigenerazione bucket-to-bucket dell'Evidenza Sensoriale Grezza.
-
-Condiviso da Ricaricamento Diretto (`reload_trip`) e Riproduzione Live
-(`create_core_inline`): legge le sensor window sorgente, le shifta nel tempo e,
-con un cutoff opzionale, scarta quelle iniziate dopo lo Stop. Scrive nuovi
-oggetti sotto il prefisso dell'upload e accoda l'HAR finale.
-"""
-
 from __future__ import annotations
 
 import gzip
@@ -33,16 +25,6 @@ from .tasks import process_trip_har_final
 
 
 class ReplayRawError(ServiceError):
-    """Errore di dominio della rigenerazione raw, indipendente dal chiamante.
-
-    E' un modulo di dominio (non un service ne' un router): non deve
-    sollevare `ninja.errors.HttpError` direttamente. I due service che lo
-    invocano (`mobility.services.reload`, `mobility.upload.services`)
-    catturano questa eccezione e la ritraducono nel proprio errore di
-    dominio, cosi' il router continua a vedere solo `ReloadServiceError` /
-    `UploadServiceError` come prima.
-    """
-
     status_code = 409
 
 

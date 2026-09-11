@@ -80,18 +80,10 @@ abstract class AcquisitionSyncRepository {
 
   AcquisitionSyncSnapshot get currentSyncSnapshot;
 
-  /// Riprende in modo opportunistico la sincronizzazione dei SyncJob pendenti
-  /// (es. all'avvio app). Non blocca: la coda lavora in background.
   Future<void> resumeSync();
 }
 
 abstract class AcquisitionLocalTripPurger {
-  /// Ripulisce l'eventuale sessione locale residua di un Trip appena
-  /// eliminato dal backend. Normalmente non c'e' nulla da fare (un fallimento
-  /// definitivo si scarta gia' da solo, una sync riuscita pulisce gia' tutto),
-  /// ma l'utente puo' eliminare un Trip mentre il suo raw e' ancora in coda
-  /// (non ancora fallito ne' completato): in quel caso va ripulita anche
-  /// quella. No-op se non esiste nessuna sessione locale per quel Trip.
   Future<void> purgeLocalDataForRemoteTrip(int tripId);
 }
 

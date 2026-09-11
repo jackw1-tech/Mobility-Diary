@@ -1,6 +1,4 @@
-/// Analitiche Personali: bucket finestrati (tempo per Categoria di Mobilita) +
-/// aggregati cumulativi (modalita' prevalente, Percorsi Frequenti, heatmap).
-/// Generata backend-side (ADR 0030); l'app la mappa e la disegna soltanto.
+/// Analitiche Personali
 class AnalyticsDto {
   final String granularity;
   final bool hasData;
@@ -26,11 +24,15 @@ class AnalyticsDto {
       hasData: json['has_data'] as bool? ?? false,
       buckets: _list(json['buckets'], AnalyticsBucketDto.fromJson),
       prevalentMode: json['prevalent_mode'] as String?,
-      frequentRoutes:
-          _list(json['frequent_routes'], AnalyticsRouteDto.fromJson),
+      frequentRoutes: _list(
+        json['frequent_routes'],
+        AnalyticsRouteDto.fromJson,
+      ),
       heatmap: _list(json['heatmap'], AnalyticsHeatPointDto.fromJson),
-      weeklyHeatmaps:
-          _list(json['weekly_heatmaps'], AnalyticsWeeklyHeatmapDto.fromJson),
+      weeklyHeatmaps: _list(
+        json['weekly_heatmaps'],
+        AnalyticsWeeklyHeatmapDto.fromJson,
+      ),
     );
   }
 }
@@ -126,16 +128,15 @@ class AnalyticsWeeklyHeatmapDto {
       tripIds: (json['trip_ids'] as List<dynamic>? ?? const [])
           .map((value) => (value as num).toInt())
           .toList(growable: false),
-      habitualPlaces:
-          _list(json['habitual_places'], AnalyticsHeatPointDto.fromJson),
+      habitualPlaces: _list(
+        json['habitual_places'],
+        AnalyticsHeatPointDto.fromJson,
+      ),
     );
   }
 }
 
-List<T> _list<T>(
-  dynamic value,
-  T Function(Map<String, dynamic>) fromJson,
-) {
+List<T> _list<T>(dynamic value, T Function(Map<String, dynamic>) fromJson) {
   return (value as List<dynamic>? ?? const [])
       .map((item) => fromJson(Map<String, dynamic>.from(item as Map)))
       .toList(growable: false);

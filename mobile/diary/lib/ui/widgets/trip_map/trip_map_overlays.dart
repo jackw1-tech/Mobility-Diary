@@ -2,8 +2,6 @@ import 'package:diary/theme/dimensions.dart';
 import 'package:diary/ui/pages/trip_diary_presenter.dart';
 import 'package:flutter/material.dart';
 
-/// Banner in cima alla mappa che racconta lo stato dell'elaborazione AI del
-/// diario (in corso oppure fallita).
 class ProcessingBanner extends StatelessWidget {
   final IconData icon;
   final Color color;
@@ -44,8 +42,8 @@ class ProcessingBanner extends StatelessWidget {
                       child: Text(
                         message,
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              fontWeight: FontWeight.w700,
-                            ),
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                   ],
@@ -125,9 +123,9 @@ class DistanceOverlay extends StatelessWidget {
             const SizedBox(width: Dimensions.paddingSmall),
             Text(
               formatDistance(distanceMeters),
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
             ),
           ],
         ),

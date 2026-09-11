@@ -1,11 +1,4 @@
-"""Business logic delle Analitiche Personali (bucketing, heatmap, percorsi frequenti).
-
-Prima di questo modulo l'intera logica viveva in `mobility.selectors.analytics`
-che, oltre alle query, costruiva direttamente le istanze `ninja.Schema`
-(`AnalyticsOut` e affini): un selector/repository non deve conoscere il
-layer di presentazione (vedi regole shared/repositories). Questo service
-ritorna dataclass pure; la mappatura sullo schema Ninja resta nel router
-(`mobility.api`), che e' l'unico a importare `mobility.schemas`.
+"""Analitiche Personali
 """
 
 from __future__ import annotations
@@ -70,8 +63,6 @@ class AnalyticsWeeklyHeatmap:
 
 @dataclass(frozen=True)
 class PersonalAnalytics:
-    """Analitiche Personali: bucket finestrati + aggregati cumulativi (ADR 0030)."""
-
     granularity: str
     has_data: bool
     buckets: list[AnalyticsBucket]
@@ -271,7 +262,7 @@ def _analytics_zone(tz: str):
         pass
     try:
         return ZoneInfo(tz)
-    except Exception:  # noqa: BLE001
+    except Exception:  
         return ZoneInfo("UTC")
 
 

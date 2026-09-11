@@ -267,7 +267,6 @@ def reject_place(request, place_id: int):
     auth=mobile_bearer_auth,
 )
 def reactivate_place(request, place_id: int):
-    """Riattiva un luogo rifiutato: torna candidato e rientra nel flusso automatico."""
     try:
         place = reactivate_place_for_user(request.user.user_id, place_id)
     except PlaceMutationBlockedError as exc:
@@ -491,14 +490,6 @@ def get_trip_track(request, trip_id: int):
 
 @router.get("/analytics", response=AnalyticsOut, auth=mobile_bearer_auth)
 def get_personal_analytics(request, granularity: str = "day", tz: str = "UTC"):
-    """Analitiche Personali aggregate cross-Viaggio dell'utente (ADR 0030).
-
-    `granularity` (Finestra Analitica): day = un bucket per ogni giorno, week =
-    un bucket per ogni settimana, dal Viaggio meno recente dell'utente al piu'
-    recente (bucket vuoti inclusi). `tz` e' il fuso locale del dispositivo per
-    il bucketing. Modalita' prevalente, Percorsi Frequenti e heatmap sono
-    cumulativi su tutta la storia.
-    """
     return personal_analytics_for_user(
         user_id=request.user.user_id,
         granularity=granularity,

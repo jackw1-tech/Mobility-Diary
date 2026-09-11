@@ -1,7 +1,6 @@
 import 'package:diary/network/service/impl/acquisition_local_database.dart';
 import 'package:drift/drift.dart';
 
-/// SQLite e Drift salvano i DateTime come numeri interi, le date vanno normalizzate a UTC
 DateTime asUtc(DateTime value) {
   return value.isUtc ? value : value.toUtc();
 }
