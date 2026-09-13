@@ -22,6 +22,12 @@ class RouteAssistantState {
   final RouteMode? detectedMode;
   final bool hasDetectedModeResult;
 
+  // Incrementato ad ogni classificazione effettivamente arrivata dal
+  // backend (anche quando il risultato e' identico al precedente), cosi'
+  // l'UI puo' distinguere "e' arrivata una nuova risposta" da "il valore
+  // e' cambiato" - il riseed della cache passiva non lo tocca.
+  final int classificationTick;
+
   const RouteAssistantState({
     required this.searchStatus,
     required this.routeStatus,
@@ -36,6 +42,7 @@ class RouteAssistantState {
     this.isLive = false,
     this.detectedMode,
     this.hasDetectedModeResult = false,
+    this.classificationTick = 0,
   });
 
   const RouteAssistantState.initial()
@@ -51,7 +58,8 @@ class RouteAssistantState {
       routeError = null,
       isLive = false,
       detectedMode = null,
-      hasDetectedModeResult = false;
+      hasDetectedModeResult = false,
+      classificationTick = 0;
 
   bool get isSearching => searchStatus == RouteAssistantSearchStatus.loading;
 
@@ -77,6 +85,7 @@ class RouteAssistantState {
     bool? isLive,
     RouteMode? detectedMode,
     bool? hasDetectedModeResult,
+    int? classificationTick,
     bool clearDestination = false,
     bool clearRoute = false,
     bool clearSearchError = false,
@@ -101,6 +110,7 @@ class RouteAssistantState {
       hasDetectedModeResult:
           hasDetectedModeResult ??
           (clearDetected ? false : this.hasDetectedModeResult),
+      classificationTick: classificationTick ?? this.classificationTick,
     );
   }
 }

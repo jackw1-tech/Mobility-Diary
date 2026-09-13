@@ -6,8 +6,6 @@ from django.contrib.gis.geos import LineString
 from mobility.diary_export import (
     DiaryExportSegment,
     _aggregated_text,
-    _ceil_time,
-    _floor_time,
 )
 from mobility.models import MobilitySegment
 from mobility.privacy import approximate_linestring, privacy_metrics
@@ -38,18 +36,6 @@ def test_privacy_metrics_calculates_both_lengths_in_one_query(
 
     assert metrics.private_distance_meters > 0
     assert metrics.privacy_aware_distance_meters > 0
-
-
-def test_time_rounding_preserves_microseconds_until_rounding() -> None:
-    value = datetime(2026, 9, 10, 10, 5, 0, 500_000, tzinfo=timezone.utc)
-    step = timedelta(minutes=5)
-
-    assert _floor_time(value, step) == datetime(
-        2026, 9, 10, 10, 5, tzinfo=timezone.utc
-    )
-    assert _ceil_time(value, step) == datetime(
-        2026, 9, 10, 10, 10, tzinfo=timezone.utc
-    )
 
 
 def test_aggregated_text_groups_readable_details_by_day_period() -> None:

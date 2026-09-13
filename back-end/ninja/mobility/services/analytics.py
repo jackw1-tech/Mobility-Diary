@@ -3,28 +3,18 @@
 
 from __future__ import annotations
 
-from collections import Counter, defaultdict
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
-from datetime import timezone as dt_timezone
 from zoneinfo import ZoneInfo
 
-from django.utils import timezone
-
-from ..geo import haversine_meters
+from ..models import ActivityLabel
 from ..selectors import analytics as analytics_repository
-from ..selectors.places import confirmed_places_for_user
-from ..significant_places import place_label
+from ..significant_places import NEUTRAL_PLACE_LABEL
 
-_CATEGORY_BY_ACTIVITY = {
-    "IDLE": "fermo",
-    "WALKING": "a_piedi",
-    "RUNNING": "corsa",
-    "BIKING": "in_bici",
-    "MOVING_VEHICLE": "in_auto",
-}
-_MOBILITY_CATEGORIES = ["fermo", "a_piedi", "corsa", "in_bici", "in_auto"]
+_MOBILITY_CATEGORIES = tuple(ActivityLabel.values)
 _ANALYTICS_MAX_SPAN = timedelta(days=3650)
+_ANALYTICS_ZONE = ZoneInfo("Europe/Rome")
 
 
 @dataclass(frozen=True)
@@ -68,7 +58,6 @@ class PersonalAnalytics:
     buckets: list[AnalyticsBucket]
     prevalent_mode: str | None
     frequent_routes: list[AnalyticsRoute]
-    heatmap: list[AnalyticsHeatPoint]
     weekly_heatmaps: list[AnalyticsWeeklyHeatmap]
 
 
@@ -76,21 +65,22 @@ def personal_analytics_for_user(
     *,
     user_id: int,
     granularity: str,
-    tz: str,
 ) -> PersonalAnalytics:
     granularity = granularity if granularity in {"day", "week"} else "day"
-    zone = _analytics_zone(tz)
     return PersonalAnalytics(
         granularity=granularity,
         has_data=analytics_repository.user_has_trips(user_id),
-        buckets=analytics_buckets(user_id, granularity, zone),
+        buckets=analytics_buckets(user_id, granularity, _ANALYTICS_ZONE),
         prevalent_mode=prevalent_mode(user_id),
         frequent_routes=frequent_routes(user_id),
-        heatmap=analytics_heatmap(user_id),
-        weekly_heatmaps=weekly_heatmaps(user_id, zone),
+        weekly_heatmaps=(
+            weekly_heatmaps(user_id, _ANALYTICS_ZONE)
+            if granularity == "week"
+            else []
+        ),
     )
 
-
+#Barre delle statistiche front end client
 def analytics_buckets(
     user_id: int, granularity: str, zone: ZoneInfo
 ) -> list[AnalyticsBucket]:
@@ -123,7 +113,9 @@ def analytics_buckets(
         index = index_by_start.get(_bucket_start_of(local_date, granularity))
         if index is None:
             continue
-        category = _CATEGORY_BY_ACTIVITY.get(row["activity_label"], "fermo")
+        category = row["activity_label"]
+        if category not in _MOBILITY_CATEGORIES:
+            continue
         seconds = (row["end_timestamp"] - row["start_timestamp"]).total_seconds()
         cell = totals[index][category]
         cell[0] += max(0.0, seconds)
@@ -145,140 +137,57 @@ def analytics_buckets(
     ]
 
 
-def analytics_heatmap(user_id: int) -> list[AnalyticsHeatPoint]:
-    places = confirmed_places_for_user(user_id, only_fields=("center", "visit_count"))
-    return [
-        AnalyticsHeatPoint(
-            lat=place.center.y,
-            lon=place.center.x,
-            weight=float(place.visit_count),
-        )
-        for place in places
-    ]
-
-
 def weekly_heatmaps(user_id: int, zone: ZoneInfo) -> list[AnalyticsWeeklyHeatmap]:
-    today = timezone.now().astimezone(zone).date()
-    anchor = _bucket_start_of(today, "week")
-    starts = [anchor - timedelta(weeks=i) for i in range(7, -1, -1)]
-    index_by_start = {start: i for i, start in enumerate(starts)}
-    trip_ids: list[list[int]] = [[] for _ in starts]
-    place_hits = [Counter() for _ in starts]
-
-    places = confirmed_places_for_user(user_id, only_fields=("center", "radius_meters"))
-    if not places:
-        return []
-
-    by_id = {place.id: place for place in places}
-    window_start = datetime.combine(starts[0], time.min, tzinfo=zone)
-    trips = analytics_repository.trips_with_path_since(user_id, since=window_start)
-
-    for trip in trips:
-        local_date = trip.started_at.astimezone(zone).date()
-        index = index_by_start.get(_bucket_start_of(local_date, "week"))
-        if index is None:
-            continue
-        trip_ids[index].append(trip.id)
-        coords = trip.path.coords
-        if len(coords) < 2:
-            continue
-        matched = {
-            place.id
-            for place in (
-                _nearest_place(coords[0], places),
-                _nearest_place(coords[-1], places),
-            )
-            if place is not None
-        }
-        for place_id in matched:
-            place_hits[index][place_id] += 1
-
     return [
         AnalyticsWeeklyHeatmap(
-            label=start.strftime("%d/%m"),
-            trip_ids=ids,
+            label=row["week_start"].strftime("%d/%m/%y"),
+            trip_ids=row["trip_ids"],
             habitual_places=[
                 AnalyticsHeatPoint(
-                    lat=by_id[place_id].center.y,
-                    lon=by_id[place_id].center.x,
-                    weight=float(weight),
+                    lat=point["lat"],
+                    lon=point["lon"],
+                    weight=point["weight"],
                 )
-                for place_id, weight in hits.most_common()
+                for point in row["habitual_places"]
             ],
         )
-        for start, ids, hits in zip(starts, trip_ids, place_hits)
-        if ids or hits
+        for row in analytics_repository.weekly_heatmap_rows(
+            user_id,
+            timezone_name=zone.key,
+        )
     ]
 
-
+#Somma di tutti i segmenti storici , tolto IDLE -> restituisce il più frequente
 def prevalent_mode(user_id: int) -> str | None:
     rows = analytics_repository.mobility_segment_activity_rows(user_id)
     totals: dict[str, float] = defaultdict(float)
     for row in rows:
-        category = _CATEGORY_BY_ACTIVITY.get(row["activity_label"], "fermo")
-        if category == "fermo":
+        category = row["activity_label"]
+        if category == ActivityLabel.IDLE or category not in _MOBILITY_CATEGORIES:
             continue
         totals[category] += (
             row["end_timestamp"] - row["start_timestamp"]
         ).total_seconds()
     return max(totals, key=totals.get) if totals else None
 
-
+#Trova i percorsi più frequenti tra i luoghi abituali confermati.
 def frequent_routes(user_id: int, limit: int = 5) -> list[AnalyticsRoute]:
-    places = confirmed_places_for_user(
-        user_id,
-        only_fields=("center", "radius_meters", "custom_name", "category"),
-    )
-    if not places:
-        return []
-
-    pairs: Counter = Counter()
-    trips = analytics_repository.trips_with_path_since(user_id)
-    for trip in trips:
-        coords = trip.path.coords
-        if len(coords) < 2:
-            continue
-        origin = _nearest_place(coords[0], places)
-        destination = _nearest_place(coords[-1], places)
-        if origin is None or destination is None or origin.id == destination.id:
-            continue
-        pairs[(origin.id, destination.id)] += 1
-
-    by_id = {place.id: place for place in places}
     return [
         AnalyticsRoute(
-            origin_label=place_label(by_id[origin_id]),
-            destination_label=place_label(by_id[destination_id]),
-            trip_count=count,
+            origin_label=row["origin_custom_name"]
+            or row["origin_category"]
+            or NEUTRAL_PLACE_LABEL,
+            destination_label=row["destination_custom_name"]
+            or row["destination_category"]
+            or NEUTRAL_PLACE_LABEL,
+            trip_count=row["trip_count"],
         )
-        for (origin_id, destination_id), count in pairs.most_common(limit)
+        for row in analytics_repository.frequent_route_rows(user_id, limit=limit)
     ]
 
 
-def _analytics_zone(tz: str):
-    try:
-        return dt_timezone(timedelta(minutes=int(tz)))
-    except ValueError:
-        pass
-    try:
-        return ZoneInfo(tz)
-    except Exception:  
-        return ZoneInfo("UTC")
-
-
+"Determina la data iniziale del bucket in cui inserire un segmento"
 def _bucket_start_of(local_date, granularity: str):
     if granularity == "week":
         return local_date - timedelta(days=local_date.weekday())
     return local_date
-
-
-def _nearest_place(coord, places):
-    lon, lat = coord[0], coord[1]
-    best, best_distance = None, None
-    for place in places:
-        distance = haversine_meters(lat, lon, place.center.y, place.center.x)
-        if distance <= max(place.radius_meters or 0, 150.0) and (
-            best_distance is None or distance < best_distance
-        ):
-            best, best_distance = place, distance
-    return best

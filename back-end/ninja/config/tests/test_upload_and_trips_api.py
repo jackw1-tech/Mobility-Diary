@@ -404,7 +404,7 @@ def test_analytics_returns_a_stable_empty_state_before_enrichment(
     api_client, mobile_session
 ):
     response = api_client.get(
-        "/api/mobility/analytics?granularity=day&tz=Europe/Rome",
+        "/api/mobility/analytics?granularity=day",
         HTTP_AUTHORIZATION=mobile_session["headers"]["HTTP_AUTHORIZATION"],
     )
 
@@ -415,6 +415,5 @@ def test_analytics_returns_a_stable_empty_state_before_enrichment(
         "buckets": [],
         "prevalent_mode": None,
         "frequent_routes": [],
-        "heatmap": [],
         "weekly_heatmaps": [],
     }

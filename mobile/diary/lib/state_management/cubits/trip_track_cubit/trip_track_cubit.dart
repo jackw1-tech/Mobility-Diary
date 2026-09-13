@@ -100,6 +100,7 @@ class TripTrackCubit extends Cubit<TripTrackCubitState> {
       distanceMeters: diaryProvidesDistance
           ? state.distanceMeters
           : track.distanceMeters,
+      trackDistanceMeters: track.distanceMeters,
       trackError: null,
     );
     _emitResolved(next);

@@ -18,6 +18,7 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
   bool _passiveModeDetectionEnabled = false;
   RouteMode? _lastDetectedMode;
   bool _hasLastDetectedModeResult = false;
+  int _classificationTick = 0;
 
   RouteAssistantCubit(
     this._repository, {
@@ -281,9 +282,16 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
     final failure = result.failure;
     if (failure != null) throw failure;
     final detected = result.value;
+    _classificationTick++;
     if (detected == null) {
       _rememberDetectedMode(null);
-      emit(state.copyWith(clearDetected: true, hasDetectedModeResult: true));
+      emit(
+        state.copyWith(
+          clearDetected: true,
+          hasDetectedModeResult: true,
+          classificationTick: _classificationTick,
+        ),
+      );
       return;
     }
     _rememberDetectedMode(detected);
@@ -292,6 +300,7 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
         detectedMode: detected,
         hasDetectedModeResult: true,
         mode: updateRouteMode ? detected : null,
+        classificationTick: _classificationTick,
       ),
     );
   }

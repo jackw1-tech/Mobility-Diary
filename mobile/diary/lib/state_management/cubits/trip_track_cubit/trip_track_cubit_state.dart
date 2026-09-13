@@ -18,6 +18,11 @@ class TripTrackCubitState {
   final List<TripTrackSegmentState> segments;
   final List<TripDiarySegment> diarySegments;
   final double distanceMeters;
+  // Distanza dell'intero percorso (dalla prima GET del track), mai
+  // sovrascritta dal diario: usata per la tab Statistiche, a differenza di
+  // [distanceMeters] che invece diventa la somma dei soli segmenti di
+  // movimento una volta che il diario e' caricato (usata nella tab Mappa).
+  final double trackDistanceMeters;
   final bool processingPending;
   final bool processingFailed;
 
@@ -36,6 +41,7 @@ class TripTrackCubitState {
     this.segments = const [],
     this.diarySegments = const [],
     this.distanceMeters = 0,
+    this.trackDistanceMeters = 0,
     this.processingPending = false,
     this.processingFailed = false,
     this.diaryRetryPending = false,
@@ -54,6 +60,7 @@ class TripTrackCubitState {
       segments = const [],
       diarySegments = const [],
       distanceMeters = 0,
+      trackDistanceMeters = 0,
       processingPending = false,
       processingFailed = false,
       diaryRetryPending = false,
@@ -73,6 +80,7 @@ class TripTrackCubitState {
     List<TripTrackSegmentState>? segments,
     List<TripDiarySegment>? diarySegments,
     double? distanceMeters,
+    double? trackDistanceMeters,
     bool? processingPending,
     bool? processingFailed,
     bool? diaryRetryPending,
@@ -90,6 +98,7 @@ class TripTrackCubitState {
       segments: segments ?? this.segments,
       diarySegments: diarySegments ?? this.diarySegments,
       distanceMeters: distanceMeters ?? this.distanceMeters,
+      trackDistanceMeters: trackDistanceMeters ?? this.trackDistanceMeters,
       processingPending: processingPending ?? this.processingPending,
       processingFailed: processingFailed ?? this.processingFailed,
       diaryRetryPending: diaryRetryPending ?? this.diaryRetryPending,

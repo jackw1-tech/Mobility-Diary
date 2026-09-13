@@ -75,7 +75,7 @@ class TripStatsTab extends StatelessWidget {
                   context,
                   Icons.route,
                   'Distanza',
-                  formatDistance(stats.distanceMeters),
+                  formatDistance(state.trackDistanceMeters),
                 ),
                 _metricCard(
                   context,

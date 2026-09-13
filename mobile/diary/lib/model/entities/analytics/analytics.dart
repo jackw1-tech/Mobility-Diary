@@ -4,7 +4,6 @@ class Analytics {
   final List<AnalyticsBucket> buckets;
   final String? prevalentMode;
   final List<AnalyticsRoute> frequentRoutes;
-  final List<AnalyticsHeatPoint> heatmap;
   final List<AnalyticsWeeklyHeatmap> weeklyHeatmaps;
 
   const Analytics({
@@ -13,7 +12,6 @@ class Analytics {
     required this.buckets,
     required this.prevalentMode,
     required this.frequentRoutes,
-    required this.heatmap,
     this.weeklyHeatmaps = const [],
   });
 }

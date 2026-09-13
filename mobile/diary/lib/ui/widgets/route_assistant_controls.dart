@@ -94,10 +94,12 @@ class RouteAssistantControls extends StatelessWidget {
 class RouteDetectedModeIndicator extends StatefulWidget {
   final RouteMode? mode;
   final bool hasResult;
+  final int classificationTick;
 
   const RouteDetectedModeIndicator({
     required this.mode,
     required this.hasResult,
+    required this.classificationTick,
     super.key,
   });
 
@@ -128,11 +130,12 @@ class _RouteDetectedModeIndicatorState
   @override
   void didUpdateWidget(RouteDetectedModeIndicator oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Una nuova classificazione e' arrivata: rifaccio lampeggiare l'anello,
-    // anche se il risultato e' identico al precedente (l'utente vuole vedere
-    // che il rilevamento e' ancora vivo, non solo quando cambia modalita').
-    if (widget.mode != oldWidget.mode ||
-        widget.hasResult != oldWidget.hasResult) {
+    // classificationTick cambia ad ogni risposta di classificazione
+    // effettivamente arrivata dal backend, anche quando il risultato e'
+    // identico al precedente: e' quello - non il valore di mode/hasResult -
+    // a dover pilotare il lampeggio, altrimenti due classify di fila con
+    // la stessa modalita' non accenderebbero mai l'anello.
+    if (widget.classificationTick != oldWidget.classificationTick) {
       _pulseController.forward(from: 0);
     }
   }

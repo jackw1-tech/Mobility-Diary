@@ -413,11 +413,11 @@ def test_negative_expected_raw_part_count_is_rejected(
     }
 
 
-def test_invalid_analytics_options_have_stable_safe_fallbacks(
+def test_invalid_analytics_granularity_has_stable_safe_fallback(
     api_client, mobile_session
 ):
     response = api_client.get(
-        "/api/mobility/analytics?granularity=quarter&tz=Not/AZone",
+        "/api/mobility/analytics?granularity=quarter",
         HTTP_AUTHORIZATION=mobile_session["headers"]["HTTP_AUTHORIZATION"],
     )
 

@@ -145,18 +145,13 @@ class TripTile extends StatelessWidget {
   }
 
   String _subtitle(TripListItem trip) {
-    final prefix = trip.note.trim().isEmpty
-        ? ''
-        : '${DateTimeUtils.formatDateTime(trip.startedAt)} - ';
     final distance = trip.distanceMeters;
     if (distance == null || distance <= 0) {
-      return trip.hasTrack
-          ? '${prefix}Traiettoria disponibile'
-          : '${prefix}Nessuna traiettoria';
+      return trip.hasTrack ? 'Traiettoria disponibile' : 'Nessuna traiettoria';
     }
     if (distance >= 1000) {
-      return '$prefix${(distance / 1000).toStringAsFixed(1)} km';
+      return '${(distance / 1000).toStringAsFixed(1)} km';
     }
-    return '$prefix${distance.toStringAsFixed(0)} m';
+    return '${distance.toStringAsFixed(0)} m';
   }
 }

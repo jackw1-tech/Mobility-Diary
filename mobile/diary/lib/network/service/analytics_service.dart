@@ -15,22 +15,22 @@ class AnalyticsHttpService implements AnalyticsService {
   AnalyticsHttpService({
     required AccessTokenProvider tokenProvider,
     HttpClient? client,
-  })  : _tokenProvider = tokenProvider,
-        _client = client ?? HttpClient();
+  }) : _tokenProvider = tokenProvider,
+       _client = client ?? HttpClient();
 
   @override
   Future<AnalyticsDto> fetchAnalytics({String granularity = 'day'}) async {
-    // Offset locale del dispositivo in minuti: bucketing sui giorni locali.
-    final tz = DateTime.now().timeZoneOffset.inMinutes;
-    final data = await _getJson(
-      '/mobility/analytics?granularity=$granularity&tz=$tz',
-    );
+    final data = await _getJson('/mobility/analytics?granularity=$granularity');
     return AnalyticsDto.fromJson(data);
   }
 
   Future<Map<String, dynamic>> _getJson(String path) async {
-    final response =
-        await sendAuthenticatedJson(_client, _tokenProvider, 'GET', path);
+    final response = await sendAuthenticatedJson(
+      _client,
+      _tokenProvider,
+      'GET',
+      path,
+    );
     final decoded = tryDecodeJsonMap(response.body);
 
     if (response.isError) {

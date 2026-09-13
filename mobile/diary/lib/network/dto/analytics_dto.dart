@@ -5,7 +5,6 @@ class AnalyticsDto {
   final List<AnalyticsBucketDto> buckets;
   final String? prevalentMode;
   final List<AnalyticsRouteDto> frequentRoutes;
-  final List<AnalyticsHeatPointDto> heatmap;
   final List<AnalyticsWeeklyHeatmapDto> weeklyHeatmaps;
 
   const AnalyticsDto({
@@ -14,7 +13,6 @@ class AnalyticsDto {
     required this.buckets,
     required this.prevalentMode,
     required this.frequentRoutes,
-    required this.heatmap,
     this.weeklyHeatmaps = const [],
   });
 
@@ -28,7 +26,6 @@ class AnalyticsDto {
         json['frequent_routes'],
         AnalyticsRouteDto.fromJson,
       ),
-      heatmap: _list(json['heatmap'], AnalyticsHeatPointDto.fromJson),
       weeklyHeatmaps: _list(
         json['weekly_heatmaps'],
         AnalyticsWeeklyHeatmapDto.fromJson,

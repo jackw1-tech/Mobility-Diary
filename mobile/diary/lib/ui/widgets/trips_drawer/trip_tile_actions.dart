@@ -185,41 +185,70 @@ Future<void> _runMutation(
   );
 }
 
-Future<String?> _editNote(BuildContext context, TripListItem trip) async {
-  final controller = TextEditingController(text: trip.note);
-  try {
-    return await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Nota viaggio'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLines: 4,
-          maxLength: 500,
-          decoration: const InputDecoration(
-            hintText: 'Aggiungi una nota',
-            border: OutlineInputBorder(),
-          ),
+Future<String?> _editNote(BuildContext context, TripListItem trip) {
+  return showDialog<String>(
+    context: context,
+    builder: (dialogContext) => _NoteDialog(initialNote: trip.note),
+  );
+}
+
+class _NoteDialog extends StatefulWidget {
+  final String? initialNote;
+
+  const _NoteDialog({required this.initialNote});
+
+  @override
+  State<_NoteDialog> createState() => _NoteDialogState();
+}
+
+class _NoteDialogState extends State<_NoteDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialNote);
+  }
+
+  @override
+  void dispose() {
+    // Il framework chiama questo dispose solo a widget davvero smontato,
+    // cioe' dopo la fine dell'animazione di chiusura del dialog: e' il
+    // momento giusto per liberare il controller, a differenza di un
+    // dispose manuale subito dopo l'await di showDialog.
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Nota viaggio'),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        maxLines: 4,
+        maxLength: 500,
+        decoration: const InputDecoration(
+          hintText: 'Aggiungi una nota',
+          border: OutlineInputBorder(),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Annulla'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(''),
-            child: const Text('Svuota'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(controller.text),
-            child: const Text('Salva'),
-          ),
-        ],
       ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Annulla'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(''),
+          child: const Text('Svuota'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_controller.text),
+          child: const Text('Salva'),
+        ),
+      ],
     );
-  } finally {
-    controller.dispose();
   }
 }
 

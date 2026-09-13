@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
+from django.utils.timezone import localtime
+
 from accounts.models import UserPrivacySettings
 
 from .diary_projection import ProjectedDiarySegment
@@ -17,7 +19,6 @@ from .selectors.places import confirmed_places_for_user
 from .significant_places import VisibleStopDetails, place_label, project_diary_with_places
 
 NEUTRAL_VISIBLE_STOP_TITLE = "Sosta rilevata"
-APPROXIMATE_TIME_GRANULARITY = timedelta(minutes=5)
 
 _ACTIVITY_LABELS_IT = {
     "WALKING": "a piedi",
@@ -61,15 +62,13 @@ class DiaryPrivacyExport:
     text: str
     segments: list[DiaryExportSegment]
 
-def _trip_export_segments(
-    trip: Trip, *, level: str, protected: bool
-) -> list[DiaryExportSegment]:
+def _trip_export_segments(trip: Trip, *, level: str) -> list[DiaryExportSegment]:
     persisted_segments = list(trip.segments.all())
     virtual_stop_intervals = list(trip.virtual_stop_intervals.all())
     gps = list(trip.gps_points.order_by("timestamp"))
     confirmed = confirmed_places_for_user(trip.user_id)
     return [
-        _export_segment(segment, stop_details, level=level, protected=protected)
+        _export_segment(segment, stop_details, level=level)
         for segment, stop_details in project_diary_with_places(
             persisted_segments, virtual_stop_intervals, gps, confirmed
         )
@@ -105,7 +104,7 @@ def _build_privacy_export(
 def build_trip_privacy_export(trip: Trip, *, level: str) -> DiaryPrivacyExport:
     cell_size_meters = privacy_cell_size_meters(level)
     protected = level != UserPrivacySettings.Level.PRECISE
-    segments = _trip_export_segments(trip, level=level, protected=protected)
+    segments = _trip_export_segments(trip, level=level)
     return _build_privacy_export(
         trip_id=trip.id,
         level=level,
@@ -125,7 +124,7 @@ def build_day_privacy_export(
         (
             segment
             for trip in trips
-            for segment in _trip_export_segments(trip, level=level, protected=protected)
+            for segment in _trip_export_segments(trip, level=level)
         ),
         key=lambda segment: segment.start_timestamp,
     )
@@ -146,25 +145,22 @@ def _export_segment(
     stop_details: VisibleStopDetails | None,
     *,
     level: str,
-    protected: bool,
 ) -> DiaryExportSegment:
     coordinates, distance_meters = _move_coordinates_and_distance(
         segment,
         level=level,
     )
-    published_start = _published_start(segment.start_timestamp, protected=protected)
-    published_end = _published_end(segment.end_timestamp, protected=protected)
     return DiaryExportSegment(
         kind=segment.kind,
-        start_timestamp=published_start,
-        end_timestamp=published_end,
-        start_label=published_start.strftime("%H:%M"),
-        end_label=published_end.strftime("%H:%M"),
+        start_timestamp=segment.start_timestamp,
+        end_timestamp=segment.end_timestamp,
+        start_label=localtime(segment.start_timestamp).strftime("%H:%M"),
+        end_label=localtime(segment.end_timestamp).strftime("%H:%M"),
         activity_label=segment.activity_label,
         title=_segment_title(segment, stop_details, level=level),
         point_count=len(coordinates),
         coordinates=coordinates,
-        duration=published_end - published_start,
+        duration=segment.end_timestamp - segment.start_timestamp,
         distance_meters=distance_meters,
     )
 
@@ -251,11 +247,7 @@ def _segment_merge_key(segment: DiaryExportSegment) -> tuple:
 
 
 # Accorpa segmenti consecutivi/sovrapposti con la stessa modalita' (MOVE) o
-# lo stesso luogo (STOP): la classificazione HAR puo' "sfarfallare" su
-# intervalli brevi generando tanti micro-segmenti che si accavallano nel
-# tempo (es. veicolo/a piedi/veicolo nello stesso minuto) - qui vengono
-# fusi solo per la resa testuale, senza toccare i segmenti originali (che
-# restano quelli usati per i dati strutturati esportati/serviti dalle API).
+# lo stesso luogo (STOP)
 def _merge_overlapping_segments(
     segments: list[DiaryExportSegment],
 ) -> list[DiaryExportSegment]:
@@ -271,7 +263,7 @@ def _merge_overlapping_segments(
             merged[-1] = replace(
                 last,
                 end_timestamp=new_end,
-                end_label=new_end.strftime("%H:%M"),
+                end_label=localtime(new_end).strftime("%H:%M"),
                 duration=last.duration + segment.duration,
                 distance_meters=last.distance_meters + segment.distance_meters,
                 point_count=last.point_count + segment.point_count,
@@ -321,32 +313,6 @@ def _adjacent_stop_title(
 
 def _activity_label_it(activity_label: str) -> str:
     return _ACTIVITY_LABELS_IT.get(activity_label, activity_label.lower())
-
-
-# Se protetto, approssimo la data di inzio di quel segmento
-def _published_start(value: datetime, *, protected: bool) -> datetime:
-    if not protected:
-        return value
-    return _floor_time(value, APPROXIMATE_TIME_GRANULARITY)
-
-# Se protetto, approssimo la data di fine di quel segmento
-def _published_end(value: datetime, *, protected: bool) -> datetime:
-    if not protected:
-        return value
-    return _ceil_time(value, APPROXIMATE_TIME_GRANULARITY)
-
-
-
-def _floor_time(value: datetime, step: timedelta) -> datetime:
-    seconds = step.total_seconds()
-    timestamp = value.timestamp()
-    floored = timestamp - timestamp % seconds
-    return datetime.fromtimestamp(floored, tz=value.tzinfo)
-
-
-def _ceil_time(value: datetime, step: timedelta) -> datetime:
-    floored = _floor_time(value, step)
-    return floored if value == floored else floored + step
 
 
 def _format_duration(duration: timedelta) -> str:

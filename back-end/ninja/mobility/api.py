@@ -489,9 +489,8 @@ def get_trip_track(request, trip_id: int):
 
 
 @router.get("/analytics", response=AnalyticsOut, auth=mobile_bearer_auth)
-def get_personal_analytics(request, granularity: str = "day", tz: str = "UTC"):
+def get_personal_analytics(request, granularity: str = "day"):
     return personal_analytics_for_user(
         user_id=request.user.user_id,
         granularity=granularity,
-        tz=tz,
     )

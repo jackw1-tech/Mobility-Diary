@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
 from django.contrib.gis.geos import LineString, Point
@@ -10,6 +11,7 @@ from mobility.models import (
     PlaceMiningStatus,
     Trip,
 )
+from mobility.services.analytics import frequent_routes, weekly_heatmaps
 
 from .test_upload_and_trips_api import complete_core, post_json, start_recording
 
@@ -35,6 +37,88 @@ def create_candidate_place(user_id):
         point_count=5,
     )
     return place
+
+
+def test_route_analytics_are_aggregated_by_postgis(
+    mobile_session, django_assert_num_queries
+):
+    user_id = mobile_session["user"]["id"]
+    home = HabitualPlace.objects.create(
+        user_id=user_id,
+        center=Point(9.19, 45.46, srid=4326),
+        radius_meters=50,
+        state=HabitualPlace.State.CONFIRMED,
+        category=HabitualPlace.Category.CASA,
+        custom_name="Casa",
+    )
+    work = HabitualPlace.objects.create(
+        user_id=user_id,
+        center=Point(9.20, 45.47, srid=4326),
+        radius_meters=50,
+        state=HabitualPlace.State.CONFIRMED,
+        category=HabitualPlace.Category.LAVORO,
+        custom_name="Ufficio",
+    )
+
+    def create_trip(sequence, origin, destination, *, started_at=None):
+        started_at = started_at or datetime(
+            2026, 9, sequence, 8, tzinfo=timezone.utc
+        )
+        return Trip.objects.create(
+            user_id=user_id,
+            device_id=f"route-test-{sequence}",
+            status=Trip.Status.PROCESSED,
+            started_at=started_at,
+            ended_at=started_at + timedelta(minutes=20),
+            path=LineString(origin, destination, srid=4326),
+        )
+
+    old_trip = create_trip(
+        5,
+        home.center.coords,
+        work.center.coords,
+        started_at=datetime(2024, 1, 2, 8, tzinfo=timezone.utc),
+    )
+    pathless_trip = Trip.objects.create(
+        user_id=user_id,
+        device_id="route-test-pathless",
+        status=Trip.Status.PROCESSED,
+        started_at=datetime(2023, 6, 14, 8, tzinfo=timezone.utc),
+        ended_at=datetime(2023, 6, 14, 8, 20, tzinfo=timezone.utc),
+        path=None,
+    )
+    recent_trips = [
+        create_trip(1, home.center.coords, work.center.coords),
+        create_trip(2, home.center.coords, work.center.coords),
+        create_trip(3, work.center.coords, home.center.coords),
+        create_trip(4, home.center.coords, home.center.coords),
+    ]
+
+    with django_assert_num_queries(1):
+        routes = frequent_routes(user_id)
+
+    assert [
+        (route.origin_label, route.destination_label, route.trip_count)
+        for route in routes
+    ] == [
+        ("Casa", "Ufficio", 3),
+        ("Ufficio", "Casa", 1),
+    ]
+
+    with django_assert_num_queries(1):
+        heatmaps = weekly_heatmaps(user_id, ZoneInfo("Europe/Rome"))
+
+    assert [heatmap.label for heatmap in heatmaps] == [
+        "12/06/23",
+        "01/01/24",
+        "31/08/26",
+    ]
+    assert heatmaps[0].trip_ids == [pathless_trip.id]
+    assert heatmaps[0].habitual_places == []
+    assert heatmaps[1].trip_ids == [old_trip.id]
+    assert [point.weight for point in heatmaps[1].habitual_places] == [1.0, 1.0]
+    assert heatmaps[2].trip_ids == [trip.id for trip in recent_trips]
+    assert [point.weight for point in heatmaps[2].habitual_places] == [4.0, 3.0]
 
 
 def test_place_review_exposes_evidence_but_blocks_changes_until_mining_succeeds(
@@ -153,7 +237,7 @@ def test_diary_and_analytics_expose_enriched_segments_through_public_apis(
 
     diary = api_client.get(f"/api/mobility/trips/{trip_id}/diary", HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"])
     analytics = api_client.get(
-        "/api/mobility/analytics?granularity=day&tz=UTC", HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"]
+        "/api/mobility/analytics?granularity=day", HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"]
     )
 
     assert diary.status_code == 200
@@ -176,6 +260,6 @@ def test_diary_and_analytics_expose_enriched_segments_through_public_apis(
     walking = next(
         category
         for category in analytics.json()["buckets"][0]["categories"]
-        if category["category"] == "a_piedi"
+        if category["category"] == "WALKING"
     )
-    assert walking == {"category": "a_piedi", "seconds": 600.0, "distance_meters": 650.0}
+    assert walking == {"category": "WALKING", "seconds": 600.0, "distance_meters": 650.0}

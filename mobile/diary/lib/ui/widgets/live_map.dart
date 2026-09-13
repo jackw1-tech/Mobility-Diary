@@ -217,7 +217,9 @@ class _LiveMapState extends State<LiveMap> {
                         previous.isActive != current.isActive ||
                         previous.detectedMode != current.detectedMode ||
                         previous.hasDetectedModeResult !=
-                            current.hasDetectedModeResult,
+                            current.hasDetectedModeResult ||
+                        previous.classificationTick !=
+                            current.classificationTick,
                     builder: (context, assistantState) {
                       if (!acquisitionState.isTracking ||
                           assistantState.isActive) {
@@ -226,6 +228,7 @@ class _LiveMapState extends State<LiveMap> {
                       return RouteDetectedModeIndicator(
                         mode: assistantState.detectedMode,
                         hasResult: assistantState.hasDetectedModeResult,
+                        classificationTick: assistantState.classificationTick,
                       );
                     },
                   ),

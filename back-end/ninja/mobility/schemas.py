@@ -226,5 +226,4 @@ class AnalyticsOut(Schema):
     buckets: list[AnalyticsBucketOut]
     prevalent_mode: str | None
     frequent_routes: list[AnalyticsRouteOut]
-    heatmap: list[AnalyticsHeatPointOut]
     weekly_heatmaps: list[AnalyticsWeeklyHeatmapOut]

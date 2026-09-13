@@ -1134,18 +1134,17 @@ compromesso privacy/utilità in Sezione~\ref{sec:results}.
 
 \subsubsection{Costruzione del diario in base al livello di privacy}
 
-I tre livelli di privacy non si limitano ad approssimare le sole
-coordinate: incidono sulla costruzione dell'intero diario in modo
-crescente. Nella vista \emph{precise} nessun dato viene trasformato:
+I tre livelli di privacy incidono sulla rappresentazione geografica e
+sul dettaglio con cui vengono descritti i luoghi. Gli orari di inizio e
+fine dei segmenti restano invece invariati in tutti i livelli. Nella
+vista \emph{precise} nessun dato viene trasformato:
 ogni segmento mostra l'orario esatto di inizio e fine, il percorso
 GPS realmente registrato e, di conseguenza, la distanza realmente
 percorsa; per una sosta, viene mostrato il nome vero del luogo
 abituale a cui è stata associata, se esiste.
 
-Nella vista \emph{approximate}, gli orari di inizio e fine di ogni
-segmento vengono arrotondati a un multiplo di 5 minuti (per difetto
-l'inizio, per eccesso la fine), e il percorso mostrato non è più
-quello realmente registrato ma quello ottenuto dopo l'approssimazione
+Nella vista \emph{approximate}, il percorso mostrato non è più quello
+realmente registrato ma quello ottenuto dopo l'approssimazione
 a griglia descritta sopra: la distanza del segmento viene quindi
 ricalcolata su questo percorso approssimato, non su quello vero. Il
 nome del luogo associato a una sosta, invece, resta visibile come
@@ -1153,8 +1152,8 @@ nella vista precisa: poiché la posizione è già protetta
 dall'approssimazione a griglia delle coordinate, mostrare anche il
 nome del luogo non aggiunge un rischio significativo ulteriore.
 
-La vista \emph{aggregated} applica le stesse trasformazioni di orario
-e percorso della vista approssimata, ma con una griglia più larga
+La vista \emph{aggregated} applica la stessa trasformazione del
+percorso della vista approssimata, ma con una griglia più larga
 (400\,m anziché 150\,m), e in più nasconde anche l'identità dei
 luoghi: al posto del nome del luogo abituale mostra solo la sua
 categoria generica o un'etichetta neutra se la sosta non è associata a

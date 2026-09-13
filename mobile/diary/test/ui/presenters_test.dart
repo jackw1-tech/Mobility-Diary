@@ -130,17 +130,17 @@ void main() {
         label: '2026-08-30',
         categories: [
           AnalyticsCategorySlice(
-            category: 'fermo',
+            category: 'IDLE',
             seconds: 300,
             distanceMeters: 0,
           ),
           AnalyticsCategorySlice(
-            category: 'a_piedi',
+            category: 'WALKING',
             seconds: 600,
             distanceMeters: 800,
           ),
           AnalyticsCategorySlice(
-            category: 'in_bici',
+            category: 'BIKING',
             seconds: 120,
             distanceMeters: 500,
           ),

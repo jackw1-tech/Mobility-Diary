@@ -9,11 +9,11 @@ class MobilityCategory {
 }
 
 const kMobilityCategories = <MobilityCategory>[
-  MobilityCategory('fermo', 'Fermo', Color(0xFF8C8C8C)),
-  MobilityCategory('a_piedi', 'A piedi', Color(0xFF1F8A70)),
-  MobilityCategory('corsa', 'Corsa', Color(0xFFC43D3D)),
-  MobilityCategory('in_bici', 'In bici', Color(0xFF2563EB)),
-  MobilityCategory('in_auto', 'In auto', Color(0xFF8A5CF6)),
+  MobilityCategory('IDLE', 'Fermo', Color(0xFF8C8C8C)),
+  MobilityCategory('WALKING', 'A piedi', Color(0xFF1F8A70)),
+  MobilityCategory('RUNNING', 'Corsa', Color(0xFFC43D3D)),
+  MobilityCategory('BIKING', 'In bici', Color(0xFF2563EB)),
+  MobilityCategory('MOVING_VEHICLE', 'In auto', Color(0xFF8A5CF6)),
 ];
 
 class AnalyticsBar {
@@ -79,10 +79,6 @@ class AnalyticsWeeklyHeatmapViewModel {
     required this.tripIds,
     required this.heatmap,
   });
-}
-
-AnalyticsHeatmap buildAnalyticsHeatmap(Analytics data) {
-  return buildHeatmapFromPoints(data.heatmap);
 }
 
 AnalyticsHeatmap buildHeatmapFromPoints(List<AnalyticsHeatPoint> points) {
@@ -173,7 +169,7 @@ AnalyticsTotals calculateAnalyticsTotals(Iterable<AnalyticsBucket> buckets) {
       ),
   ];
   final movementTime = categoryTotals
-      .where((total) => total.category.key != 'fermo')
+      .where((total) => total.category.key != 'IDLE')
       .fold(Duration.zero, (sum, total) => sum + total.time);
 
   return AnalyticsTotals(

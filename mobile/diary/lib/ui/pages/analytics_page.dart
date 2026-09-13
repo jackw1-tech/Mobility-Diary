@@ -84,7 +84,7 @@ class _AnalyticsBody extends StatelessWidget {
                   ],
                   const SizedBox(height: Dimensions.paddingMedium),
                   SurfaceCard(
-                    title: 'Abitudini di sempre',
+                    title: 'Abitudini',
                     child: habits.isEmpty
                         ? const AnalyticsSectionEmpty(
                             text:
