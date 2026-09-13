@@ -110,7 +110,7 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
       return;
     }
     emit(state.copyWith(isLive: true));
-    _tick(); // classifica e ricalcola subito senza aspettare il prossimo tick
+    _tick();
   }
 
   void _ensureTimer() {
@@ -141,7 +141,9 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
 
   Future<void> _tick() async {
     if (isClosed) return;
+    // Route assistant attivo e l'utente ha cliccato il tasto live nella modalità di spostamento
     final shouldClassifyForLive = state.isActive && state.isLive;
+    // Route assistant non attivo ma viaggio vero o replay in corso
     final shouldClassifyForIndicator =
         _passiveModeDetectionEnabled && !state.isActive;
     final shouldFetchRoute = state.isActive;
@@ -264,8 +266,10 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
     );
   }
 
+  // Funzione da cui parte la classificazione degli ultimi 5 secondi di viaggio
   Future<void> _classifyCurrentMode({required bool updateRouteMode}) async {
     final samples = await _sensorWindowProvider();
+    //Meccanismo di sicurezz
     if (isClosed ||
         samples.isEmpty ||
         !_classificationStillRelevant(updateRouteMode)) {
@@ -296,6 +300,7 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
     _hasLastDetectedModeResult = true;
   }
 
+  //Controllo ulteriore se la situazione non è cambiata che fa _classifyCurrentMode
   bool _classificationStillRelevant(bool updateRouteMode) {
     return updateRouteMode
         ? state.isActive && state.isLive

@@ -91,7 +91,7 @@ class RouteAssistantControls extends StatelessWidget {
   }
 }
 
-class RouteDetectedModeIndicator extends StatelessWidget {
+class RouteDetectedModeIndicator extends StatefulWidget {
   final RouteMode? mode;
   final bool hasResult;
 
@@ -102,6 +102,48 @@ class RouteDetectedModeIndicator extends StatelessWidget {
   });
 
   @override
+  State<RouteDetectedModeIndicator> createState() =>
+      _RouteDetectedModeIndicatorState();
+}
+
+class _RouteDetectedModeIndicatorState
+    extends State<RouteDetectedModeIndicator>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulseController;
+  late final Animation<double> _pulseOpacity;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+    _pulseOpacity = CurvedAnimation(
+      parent: _pulseController,
+      curve: Curves.easeOut,
+    ).drive(Tween(begin: 1.0, end: 0.0));
+  }
+
+  @override
+  void didUpdateWidget(RouteDetectedModeIndicator oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Una nuova classificazione e' arrivata: rifaccio lampeggiare l'anello,
+    // anche se il risultato e' identico al precedente (l'utente vuole vedere
+    // che il rilevamento e' ancora vivo, non solo quando cambia modalita').
+    if (widget.mode != oldWidget.mode ||
+        widget.hasResult != oldWidget.hasResult) {
+      _pulseController.forward(from: 0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Positioned(
       left: 8,
@@ -109,15 +151,35 @@ class RouteDetectedModeIndicator extends StatelessWidget {
       child: SafeArea(
         child: Tooltip(
           message: _tooltip,
-          child: Material(
-            color: Theme.of(context).colorScheme.surface,
-            shape: const CircleBorder(),
-            elevation: 2,
-            child: SizedBox.square(
-              dimension: 48,
-              child: Icon(
-                _icon,
-                color: Theme.of(context).colorScheme.onSurface,
+          child: AnimatedBuilder(
+            animation: _pulseOpacity,
+            builder: (context, child) {
+              return Container(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: _detectedColor.withValues(
+                        alpha: 0.6 * _pulseOpacity.value,
+                      ),
+                      blurRadius: 10,
+                      spreadRadius: 4 * _pulseOpacity.value,
+                    ),
+                  ],
+                ),
+                child: child,
+              );
+            },
+            child: Material(
+              color: Theme.of(context).colorScheme.surface,
+              shape: const CircleBorder(),
+              elevation: 2,
+              child: SizedBox.square(
+                dimension: 48,
+                child: Icon(
+                  _icon,
+                  color: Theme.of(context).colorScheme.onSurface,
+                ),
               ),
             ),
           ),
@@ -127,8 +189,8 @@ class RouteDetectedModeIndicator extends StatelessWidget {
   }
 
   IconData get _icon {
-    if (!hasResult) return Icons.more_horiz;
-    switch (mode) {
+    if (!widget.hasResult) return Icons.more_horiz;
+    switch (widget.mode) {
       case RouteMode.walking:
         return Icons.directions_walk;
       case RouteMode.cycling:
@@ -141,8 +203,8 @@ class RouteDetectedModeIndicator extends StatelessWidget {
   }
 
   String get _tooltip {
-    if (!hasResult) return 'Modalità in rilevamento';
-    switch (mode) {
+    if (!widget.hasResult) return 'Modalità in rilevamento';
+    switch (widget.mode) {
       case RouteMode.walking:
         return 'A piedi';
       case RouteMode.cycling:

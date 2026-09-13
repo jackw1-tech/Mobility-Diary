@@ -6,6 +6,7 @@ import json
 from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
 
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -18,10 +19,12 @@ from .upload.raw_sensor_codec import (
     InvalidRawSensorPayload,
     decode_sensor_windows_payload,
 )
-from .models import Trip, TripUpload
+from .models import RawSensorReading, Trip, TripUpload
 from .replay_windows_cache import cache_windows, get_cached_windows
 from .selectors import har_jobs as har_jobs_repository
 from .tasks import process_trip_har_final
+
+_TIMESCALE_WINDOW_DURATION = timedelta(seconds=5)
 
 
 class ReplayRawError(ServiceError):
@@ -89,15 +92,49 @@ def _shifted_part_body(object_key: str, shift, cutoff) -> bytes | None:
     return gzip.compress(json.dumps(payload).encode("utf-8"))
 
 
-""" 
+# Prova a ricostruire la finestra 500x6 direttamente da TimescaleDB
+# (RawSensorReading), evitando di scaricare/decomprimere i file raw.
+def _sensor_window_from_timescale(
+    source: Trip, target: datetime
+) -> list[list[float]] | None:
+    started_at = source.started_at
+    if started_at is None:
+        return None
+    elapsed = target - started_at
+    window_index = elapsed // _TIMESCALE_WINDOW_DURATION
+    window_start = started_at + window_index * _TIMESCALE_WINDOW_DURATION
+    window_end = window_start + _TIMESCALE_WINDOW_DURATION
+    rows = list(
+        RawSensorReading.objects.filter(
+            trip_id=source.id,
+            timestamp__gte=window_start,
+            timestamp__lt=window_end,
+        )
+        .order_by("timestamp")
+        .values_list("accel_x", "accel_y", "accel_z", "gyro_x", "gyro_y", "gyro_z")
+    )
+    if len(rows) != settings.HAR_WINDOW_SAMPLE_COUNT:
+        return None
+    return [[float(value) for value in row] for row in rows]
+
+
+"""
 Dato il trip e l'offset calcolato come durata * velocità
 Recupera tutte le TripUploadPart
 Per oguna di esse scarica i dati dei sensori e i dati aggiuntivi se non sono già in cache
 Usa start_us e end_us per trovare la 500 x 6 giusta
+
+Serve per il tick() lato mobile
 """
 def source_sensor_window_at(
     source: Trip, offset_seconds: int
 ) -> list[list[float]] | None:
+    if source.started_at is not None:
+        target = source.started_at + timedelta(seconds=offset_seconds)
+        from_timescale = _sensor_window_from_timescale(source, target)
+        if from_timescale is not None:
+            return from_timescale
+
     windows = get_cached_windows(source.id)
     if windows is None:
         parts = upload_selectors.completed_raw_parts_for_trip(source)

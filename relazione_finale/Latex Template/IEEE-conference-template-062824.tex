@@ -279,7 +279,7 @@ acquisizione quando l'utente è fermo.
   {\parbox{2.3cm}{\raggedright
    evidenza \emph{stationary}: azzera timer moving\\[2pt]
    evidenza \emph{uncertain}: timer invariato\\[2pt]
-   evidenza \emph{moving} ($<5$\,s): timer in accumulo}}
+   evidenza \emph{moving} ($<10$\,s): timer in accumulo}}
   (stationary);
 
 \draw[arrow] (movement) to[out=45,in=-45,looseness=5]
@@ -291,7 +291,7 @@ acquisizione quando l'utente è fermo.
   (movement);
 
 \draw[arrow] (stationary) to[bend left=20] node[above, align=center]
-  {evidenza \emph{moving}\\sostenuta $\geq 5$\,s} (movement);
+  {evidenza \emph{moving}\\sostenuta $\geq 10$\,s} (movement);
 
 \draw[arrow] (movement) to[bend left=20] node[below, align=center]
   {evidenza \emph{stationary}\\sostenuta $\geq 120$\,s} (stationary);
@@ -391,7 +391,7 @@ un'evidenza sostenuta per un tempo minimo prima di confermare il
 cambio di stato.
 Questo è un ulteriore filtro contro i micro-spostamenti, che
 raramente durano abbastanza a lungo da superarla. Da
-\texttt{stationary} a \texttt{movement} sono richiesti 5\,s di
+\texttt{stationary} a \texttt{movement} sono richiesti 10\,s di
 evidenza di movimento sostenuta, mentre da \texttt{movement} a
 \texttt{stationary} ne sono richiesti 120\,s. Questa asimmetria evita
 che una breve sosta durante uno spostamento (ad esempio a un semaforo)
@@ -1210,6 +1210,87 @@ celle più piccole.
 Il campione di segmenti in bicicletta è troppo piccolo (\emph{n}=3) per trarne conclusioni robuste, ed è
 riportato solo per completezza.
 
+\subsection{Latenza della pipeline di ingestione}
+
+Per misurare il tempo impiegato dalle diverse fasi della pipeline di
+caricamento ed elaborazione di un viaggio è stato eseguito un test di
+carico con un client sintetico che riproduce il comportamento
+dell'applicazione mobile reale (Sezione~\ref{sec:implementation}).
+Sono stati simulati 25 utenti che caricano contemporaneamente viaggi
+di circa un'ora: poiché un utente non può avere più di un viaggio in
+corso alla volta (Sezione~\ref{sec:implementation}), ciascuno ha
+caricato i propri viaggi in sequenza, uno alla volta, per un totale
+di 10 viaggi a testa (250 viaggi complessivi). La fase di upload raw è
+stata cronometrata lato client; le altre quattro fasi, lato backend.
+Il test è stato eseguito su un
+ambiente locale equivalente a quello di produzione (stessi container
+Docker), non sull'hardware di produzione stesso: i valori assoluti
+vanno quindi letti come indicativi, mentre le proporzioni relative
+tra le fasi restano informative.
+
+\begin{table}[htbp]
+\caption{Latenza media delle fasi della pipeline di ingestione (250 viaggi, 25 utenti concorrenti)}
+\centering
+\scriptsize
+\begin{tabular}{|l|r|r|r|r|}
+\hline
+\textbf{Fase} & \textbf{Media} & \textbf{Dev.std} & \textbf{Min} & \textbf{Max} \\
+\hline
+Core (GPS+transizioni) & 2,02\,s & 2,61\,s & 0,25\,s & 15,83\,s \\
+\hline
+Upload raw (client) & 3,04\,s & 2,56\,s & 0,43\,s & 28,59\,s \\
+\hline
+HAR + diario & 4,62\,s & 1,50\,s & 1,99\,s & 11,06\,s \\
+\hline
+Batch insert raw & 29,68\,s & 8,235\,s & 20,39\,s & 53,97\,s \\
+\hline
+Data mining luoghi & 0,97\,s & 0,64\,s & 0,27\,s & 2,74\,s \\
+\hline
+\end{tabular}
+\label{tab:pipeline-latency}
+\end{table}
+
+La fase nettamente più onerosa è l'inserimento in batch dei dati
+sensoriali grezzi (media 29,68\,s, fino a quasi 1 minuto nel caso
+peggiore), dovuto al volume di righe scritte in
+\texttt{RawSensorReading} -- una per ogni campione, quindi fino a
+360.000 righe per un singolo viaggio di un'ora (720 finestre da 500
+campioni). L'inserimento usa già \texttt{bulk\_create} a gruppi di
+5000 righe (72 batch per un viaggio di un'ora), quindi il costo non
+è dovuto a query singole per riga, ma al volume assoluto di dati
+scritti a questa granularità, aggravato dalla contesa sul database
+sotto 25 utenti concorrenti. 
+Va però notato che il batch insert dei dati grezzi non è una fase
+percepita dall'utente: il diario del viaggio è già disponibile non
+appena termina la fase HAR, mentre la persistenza dei dati grezzi
+prosegue in background. La latenza effettivamente percepita
+dall'utente -- core, upload raw e HAR/diario -- resta quindi
+complessivamente bassa, dell'ordine di pochi secondi.
+
+Per correttezza va infine segnalato che la velocità della fase HAR
+è in parte dovuta al fatto che il modello viene caricato in memoria
+una sola volta all'avvio di ciascun processo worker Celery
+(\texttt{warm\_har\_model\_on\_worker\_start}, agganciato al segnale
+\texttt{worker\_process\_init}), anziché ad ogni singola richiesta di
+inferenza. Questo rende l'inferenza rapida a runtime, ma ha come
+contropartita un utilizzo di RAM elevato per ciascun worker, dato il
+peso del modello tenuto costantemente in memoria.
+
+Questo suggerisce due direzioni per un'eventuale scalatura del
+sistema oltre il semplice aumento del numero di worker. La prima
+riguarda proprio il modello HAR: passare da una copia caricata in
+RAM per ciascun worker a un'unica istanza condivisa, interrogata dai
+worker come servizio separato, ridurrebbe l'occupazione di memoria
+aggregata a scapito di una latenza leggermente più alta sulla
+singola richiesta di inferenza -- un compromesso favorevole quando
+l'obiettivo è aumentare il numero di worker eseguibili in parallelo
+sulla stessa macchina. La seconda riguarda il database: durante il
+test di carico è stato il componente più sollecitato in assoluto (più
+dei worker Celery stessi), per cui scalare orizzontalmente il sistema
+richiederebbe anche di replicare il database e introdurre una logica
+di sincronizzazione tra le repliche, oltre alla sola duplicazione dei
+worker applicativi.
+
 \section*{Conclusione}
 
 In questo lavoro ho presentato Mobility Diary, un sistema
@@ -1231,6 +1312,17 @@ gli spostamenti in auto, tipicamente lunghi e rettilinei, la Quality
 of Service resta pressoché stabile anche con la griglia più larga,
 mentre per la camminata, fatta di percorsi più brevi, l'aggregazione
 comporta una perdita di utilità più marcata.
+
+Sul fronte delle prestazioni, il test di carico sulla pipeline di
+ingestione mostra che la latenza effettivamente percepita
+dall'utente -- upload dei dati e classificazione HAR, dopo la quale
+il diario è già consultabile -- resta dell'ordine di pochi secondi,
+mentre la persistenza dei dati sensoriali grezzi, molto più lenta,
+avviene in background senza impatto percepito. Sotto carico
+concorrente il database si conferma il componente più sollecitato,
+indicando che una futura scalata del sistema richiederebbe la sua
+replica, oltre a un modello HAR condiviso tra i worker invece che
+duplicato in RAM su ciascuno.
 
 Il sistema presenta comunque dei limiti. La macchina a stati finiti
 che rileva il movimento è un'euristica costruita ad hoc su

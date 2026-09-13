@@ -57,14 +57,14 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
     Uuid? uuid,
     String deviceId = 'local_device',
     Future<String> Function()? deviceIdProvider,
-  })  : _sourceTripId = sourceTripId,
-        _scheduledStartAt = scheduledStartAt?.toUtc(),
-        _requestedReplaySpeedMultiplier = replaySpeedMultiplier,
-        _uploadService = uploadService,
-        _mapper = mapper ?? UploadMapper(),
-        _uuid = uuid ?? const Uuid(),
-        _deviceId = deviceId,
-        _deviceIdProvider = deviceIdProvider;
+  }) : _sourceTripId = sourceTripId,
+       _scheduledStartAt = scheduledStartAt?.toUtc(),
+       _requestedReplaySpeedMultiplier = replaySpeedMultiplier,
+       _uploadService = uploadService,
+       _mapper = mapper ?? UploadMapper(),
+       _uuid = uuid ?? const Uuid(),
+       _deviceId = deviceId,
+       _deviceIdProvider = deviceIdProvider;
 
   @override
   Future<void> start() async {
@@ -84,8 +84,9 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
         deviceId: deviceId,
         sourceTripId: _sourceTripId,
       );
-      remoteStart =
-          startDto == null ? null : _mapper.mapUploadStartResult(startDto);
+      remoteStart = startDto == null
+          ? null
+          : _mapper.mapUploadStartResult(startDto);
     } on UploadApiException {
       throw const UploadApiException('Richiesta upload fallita');
     }
@@ -123,6 +124,8 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
     return const [];
   }
 
+  // Funzione eseguita dal tick() di route assistant cubit
+  // Restituisce la 500 x 6
   @override
   Future<List<List<double>>> currentSensorWindow() async {
     final offset = _currentReplayOffsetSeconds();
@@ -166,11 +169,13 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
     final transitions = source.transitions;
 
     final firstPoint = points.isNotEmpty ? points.first.timestamp : null;
-    final firstTransition =
-        transitions.isNotEmpty ? transitions.first.timestamp : null;
+    final firstTransition = transitions.isNotEmpty
+        ? transitions.first.timestamp
+        : null;
     final lastPoint = points.isNotEmpty ? points.last.timestamp : null;
-    final lastTransition =
-        transitions.isNotEmpty ? transitions.last.timestamp : null;
+    final lastTransition = transitions.isNotEmpty
+        ? transitions.last.timestamp
+        : null;
     final startTime = _earlier(firstPoint, firstTransition);
     final endTime = _later(lastPoint, lastTransition);
 
@@ -220,9 +225,9 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
 
       //Salva l'ultima transizione fino al t attuale di replay time
       while (nextTransitionIdx < transitions.length &&
-          !transitions[nextTransitionIdx]
-              .timestamp
-              .isAfter(currentReplayTime)) {
+          !transitions[nextTransitionIdx].timestamp.isAfter(
+            currentReplayTime,
+          )) {
         final t = transitions[nextTransitionIdx];
         final nextState = TrackingState.fromWire(t.toState);
         lastFsmTransition = FsmTransition(
@@ -296,21 +301,24 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
             .toList();
 
     final now = DateTime.now().toUtc();
-    final firstSourceTimestamp = [
-      ...filteredPoints.map((p) => p.timestamp),
-      ...filteredTransitions.map((t) => t.timestamp),
-    ].fold<DateTime?>(null, (earliest, timestamp) {
-      if (earliest == null || timestamp.isBefore(earliest)) return timestamp;
-      return earliest;
-    });
+    final firstSourceTimestamp =
+        [
+          ...filteredPoints.map((p) => p.timestamp),
+          ...filteredTransitions.map((t) => t.timestamp),
+        ].fold<DateTime?>(null, (earliest, timestamp) {
+          if (earliest == null || timestamp.isBefore(earliest))
+            return timestamp;
+          return earliest;
+        });
 
     //Shitf tutte le transizioni e i punti e le transizioni
     final scheduledStartAt = _scheduledStartAt;
     final shift = scheduledStartAt != null && firstSourceTimestamp != null
         ? scheduledStartAt.difference(firstSourceTimestamp)
         : now.difference(cutoffTimestamp);
-    final replayEndedAt =
-        scheduledStartAt != null ? cutoffTimestamp.add(shift) : now;
+    final replayEndedAt = scheduledStartAt != null
+        ? cutoffTimestamp.add(shift)
+        : now;
 
     final shiftedPoints = [
       for (final point in filteredPoints) point.shiftedBy(shift),
@@ -322,8 +330,8 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
     final firstShiftedTs = shiftedPoints.isNotEmpty
         ? shiftedPoints.first.timestamp
         : (shiftedTransitions.isNotEmpty
-            ? shiftedTransitions.first.timestamp
-            : now);
+              ? shiftedTransitions.first.timestamp
+              : now);
 
     final corePayload = TripCorePayload(
       _mapper.toCorePayloadJson(
@@ -338,8 +346,9 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
         cutoffSourceTimestamp: cutoffTimestamp,
       ),
     );
-    final response =
-        await _uploadService?.postCoreInline(body: corePayload.requestBody);
+    final response = await _uploadService?.postCoreInline(
+      body: corePayload.requestBody,
+    );
 
     if (response == null) {
       throw const UploadApiException('Network error during stopReplay');
@@ -356,6 +365,7 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
     return ReplayStopResult(tripId: response.tripId);
   }
 
+  // calcola a che secondo del viaggio originale sei arrivato
   int? _currentReplayOffsetSeconds() {
     final start = _replayStartWallClock;
     if (start == null) return null;

@@ -334,6 +334,8 @@ class LiveAcquisitionStrategy implements AcquisitionStrategy {
     ];
   }
 
+  // Funzione eseguita dal tick() di route assistant cubit
+  // Restituisce la 500 x 6 prendendola dal telefono
   @override
   Future<List<List<double>>> currentSensorWindow() async {
     final sessionId = _currentSessionId;

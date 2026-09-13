@@ -14,7 +14,7 @@ class FsmConfig {
   final double stationaryMotionSigmaThreshold;
 
   const FsmConfig({
-    this.movingEvidenceRequired = const Duration(seconds: 5),
+    this.movingEvidenceRequired = const Duration(seconds: 10),
     this.stationaryEvidenceRequired = const Duration(seconds: 120),
     this.motionSigmaFreshness = const Duration(seconds: 10),
     this.gpsSpeedFreshness = const Duration(seconds: 20),
@@ -54,11 +54,7 @@ class FsmDecision {
   bool get didTransition => transition != null;
 }
 
-enum MotionEvidence {
-  moving,
-  stationary,
-  uncertain,
-}
+enum MotionEvidence { moving, stationary, uncertain }
 
 enum StationaryTimerAction {
   notApplicable,
@@ -106,10 +102,7 @@ class _FsmOutcome {
   });
 }
 
-enum FsmEvidenceMode {
-  inertialAndGps,
-  gpsOnly,
-}
+enum FsmEvidenceMode { inertialAndGps, gpsOnly }
 
 class AcquisitionFsm {
   final FsmConfig config;
@@ -158,8 +151,10 @@ class AcquisitionFsm {
     final evidence = _evidenceAt(event.timestamp, evidenceMode);
 
     final outcome = switch (_state) {
-      TrackingState.stationary =>
-        _evaluateStationary(evidence, event.timestamp),
+      TrackingState.stationary => _evaluateStationary(
+        evidence,
+        event.timestamp,
+      ),
       TrackingState.movement => _evaluateMovement(evidence, event.timestamp),
     };
 
@@ -193,10 +188,7 @@ class AcquisitionFsm {
   }
 
   // In partenza siamo stationary, valuto la nuova evidenza
-  _FsmOutcome _evaluateStationary(
-    MotionEvidence evidence,
-    DateTime timestamp,
-  ) {
+  _FsmOutcome _evaluateStationary(MotionEvidence evidence, DateTime timestamp) {
     switch (evidence) {
       case MotionEvidence.moving:
         _movingEvidenceStartedAt ??=
@@ -216,10 +208,7 @@ class AcquisitionFsm {
   }
 
   // Sono in movimento, valuto i nuovi dati
-  _FsmOutcome _evaluateMovement(
-    MotionEvidence evidence,
-    DateTime timestamp,
-  ) {
+  _FsmOutcome _evaluateMovement(MotionEvidence evidence, DateTime timestamp) {
     switch (evidence) {
       case MotionEvidence.stationary:
         _stationaryEvidenceStartedAt ??=
@@ -239,10 +228,7 @@ class AcquisitionFsm {
   }
 
   //Classificatore del singolo evento che arriva dai sensori o gps
-  MotionEvidence _evidenceAt(
-    DateTime timestamp,
-    FsmEvidenceMode evidenceMode,
-  ) {
+  MotionEvidence _evidenceAt(DateTime timestamp, FsmEvidenceMode evidenceMode) {
     final gpsSpeed = _freshGpsSpeed(timestamp);
 
     // Circa 2.5 m/s (9 km/h) -> Sono in auto o in bici, non ho bisogno dell'accellerometro
@@ -331,10 +317,7 @@ class AcquisitionFsm {
   }
 
   // Cambio di stato, resetto i timer
-  _FsmOutcome _transitionTo(
-    TrackingState nextState,
-    DateTime timestamp,
-  ) {
+  _FsmOutcome _transitionTo(TrackingState nextState, DateTime timestamp) {
     final previousState = _state;
     _state = nextState;
     _movingEvidenceStartedAt = null;
@@ -353,10 +336,7 @@ class AcquisitionFsm {
 
   // Resto nello stato attuale
   _FsmOutcome _stay() {
-    return _FsmOutcome(
-      state: _state,
-      samplingProfile: _samplingProfileFor(),
-    );
+    return _FsmOutcome(state: _state, samplingProfile: _samplingProfileFor());
   }
 
   SamplingProfile _samplingProfileFor() {
@@ -378,25 +358,29 @@ class AcquisitionFsm {
       TrackingState.movement when transitionedToStationary =>
         StationaryTimerAction.transitioned,
       TrackingState.movement => switch (evidence) {
-          MotionEvidence.stationary => stationaryEvidenceStartedAt == null
+        MotionEvidence.stationary =>
+          stationaryEvidenceStartedAt == null
               ? StationaryTimerAction.started
               : StationaryTimerAction.accumulating,
-          MotionEvidence.moving => stationaryEvidenceStartedAt == null
+        MotionEvidence.moving =>
+          stationaryEvidenceStartedAt == null
               ? StationaryTimerAction.idle
               : StationaryTimerAction.reset,
-          MotionEvidence.uncertain => stationaryEvidenceStartedAt == null
+        MotionEvidence.uncertain =>
+          stationaryEvidenceStartedAt == null
               ? StationaryTimerAction.idle
               : StationaryTimerAction.preserved,
-        },
+      },
     };
-    final elapsed = previousState == TrackingState.movement &&
+    final elapsed =
+        previousState == TrackingState.movement &&
             stationaryEvidenceStartedAt != null &&
             evidence != MotionEvidence.moving
         ? timestamp.difference(stationaryEvidenceStartedAt)
         : (previousState == TrackingState.movement &&
-                evidence == MotionEvidence.stationary
-            ? Duration.zero
-            : null);
+                  evidence == MotionEvidence.stationary
+              ? Duration.zero
+              : null);
 
     return FsmDecisionDiagnostics(
       previousState: previousState,

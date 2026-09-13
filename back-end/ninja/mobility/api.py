@@ -414,7 +414,7 @@ def get_replay_data(request, trip_id: int):
         "state_transitions": source.state_transitions.order_by("timestamp"),
     }
 
-
+#Funzione richiamata dal replay per ottenere la 500 x 6 del viaggio originale
 @router.get(
     "/trips/reloadable/{trip_id}/sensor-window",
     response=RouteAssistantSensorWindowOut,
