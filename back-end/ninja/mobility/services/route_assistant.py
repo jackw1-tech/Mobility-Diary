@@ -27,7 +27,7 @@ _ASSISTANT_MODE_BY_LABEL = {
     "MOVING_VEHICLE": "driving",
 }
 
-
+#Prendo la 500 x 6 e lo mando all'ai
 def classify_route_assistant_samples(
     samples: list[list[float]],
 ) -> RouteAssistantClassification:

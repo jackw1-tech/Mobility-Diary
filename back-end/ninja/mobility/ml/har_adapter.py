@@ -93,6 +93,7 @@ def _load_model_bundle() -> HarModelBundle:
     return _MODEL_BUNDLE
 
 
+#Prende la matrice grezza 500 x 6 , la pulisca e la prepara nel modo che vuole il modlelo
 def _prepare_har_window_matrix(matrix) -> np.ndarray:
     arr = np.asarray(matrix, dtype=np.float32)
     expected_samples = settings.HAR_WINDOW_SAMPLE_COUNT
@@ -154,9 +155,9 @@ def _predict(matrices: np.ndarray) -> tuple[list[str], list[float], list[str]]:
     confidences = [float(prob.max()) for prob in probs]
     return labels, confidences, classes
 
-
+#Predizione singola in modalità live della 500 x 6
 def predict_window_label(matrix) -> tuple[str, float]:
-    matrices = np.expand_dims(_prepare_har_window_matrix(matrix), axis=0)
+    matrices = np.expand_dims(_prepare_har_window_matrix(matrix), axis=0) #Aggiunge 1 dimensione (1,500,6)
     labels, confidences, _classes = _predict(matrices)
     return labels[0], confidences[0]
 

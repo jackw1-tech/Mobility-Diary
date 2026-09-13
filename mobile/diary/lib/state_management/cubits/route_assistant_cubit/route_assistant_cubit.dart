@@ -154,13 +154,14 @@ class RouteAssistantCubit extends Cubit<RouteAssistantState> {
       return;
     }
     try {
+      //Prima chiedo la nuova classificazione
       if (shouldClassifyForLive || shouldClassifyForIndicator) {
         await _classifyCurrentMode(updateRouteMode: shouldClassifyForLive);
       }
       if (isClosed || !shouldFetchRoute) return;
+      //E poi, con la nuova modalità di movimentorielvata, rifaccio la chiamata a mapbox per la rotta
       if (state.isActive) await _fetchRoute();
     } catch (_) {
-      // ignora: il prossimo tick riprovera'
     } finally {
       _stopTimerIfIdle();
     }
