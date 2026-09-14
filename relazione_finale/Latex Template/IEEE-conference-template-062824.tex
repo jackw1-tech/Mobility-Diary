@@ -21,7 +21,7 @@
 \begin{document}
 
 \title{Mobility Diary: un sistema Context-Aware per il diario personale
-di mobilità con Human Activity Recognition e privacy sulla posizione}
+di mobilità con Human Activity Recognition}
 
 \author{\IEEEauthorblockN{Giacomo Bianco}
 \IEEEauthorblockA{\textit{Dipartimento di Informatica} \\
@@ -38,19 +38,12 @@ che ricostruisce un diario personale di mobilità a partire da tracce
 GPS e dati inerziali dello smartphone. Un modello di riconoscimento
 delle attività individua la modalità di spostamento dell'utente,
 mentre le posizioni ricorrenti vengono raggruppate automaticamente in
-luoghi abituali con un'etichetta leggibile. La posizione dell'utente è
+luoghi abituali. La posizione dell'utente è
 protetta da una tecnica di perturbazione spaziale, che genera una
 vista privata dettagliata e una vista condivisibile meno precisa, con
 un compromesso tra privacy e qualità del dato misurato
-sperimentalmente. Il sistema include inoltre un assistente di percorso
-sensibile al contesto, statistiche personali sulle abitudini di
-mobilità e una dashboard web per il personale autorizzato. L'intera
-piattaforma è containerizzata e avviabile con Docker Compose.
+sperimentalmente.
 \end{abstract}
-
-\begin{IEEEkeywords}
-context-awareness, human activity recognition, location privacy, mobility diary
-\end{IEEEkeywords}
 
 \section{Introduzione}
 
@@ -79,9 +72,8 @@ specifico, il sistema realizza:
 \begin{itemize}
     \item una pipeline di ingestione asincrona dei dati grezzi raccolti
     dal dispositivo mobile, basata su un pattern di caricamento diretto
-    verso uno storage a oggetti (S3-compatible) seguito da una fase di
-    conferma esplicita (\emph{direct-to-storage upload with confirm
-    step}), che evita che i dati grezzi transitino dal server
+    verso uno storage a oggetti (MinIO) seguito da una fase di
+    conferma esplicita, che evita che i dati grezzi transitino dal server
     applicativo, seguito da un'elaborazione asincrona lato server che
     materializza la traccia di mobilità;
     \item la ricostruzione della mobilità dell'utente come sequenza di
@@ -91,16 +83,18 @@ specifico, il sistema realizza:
     \item un modulo di Human Activity Recognition basato su una pipeline
     a due fasi CNN1D + GRU bidirezionale, addestrata sul dataset
     pubblico SHL (Sussex-Huawei Locomotion)~\cite{wang2018shl} per riconoscere cinque
-    modalità di mobilità (\emph{idle}, \emph{walking}, \emph{running},
-    \emph{biking}, \emph{moving vehicle}), con un'accuratezza dell'84,88\%
-    sul validation set ufficiale dopo l'ottimizzazione del modello per
-    l'inferenza in produzione;
+    modalità di mobilità (\texttt{IDLE}, \texttt{WALKING}, \texttt{RUNNING},
+    \texttt{BIKING}, \texttt{MOVING\_VEHICLE}), con un'accuratezza dell'84,88\%
+    sul validation set ufficiale;
     \item la generazione di viste privacy-aware del diario a tre livelli
     (\emph{precise}, \emph{approximate}, \emph{aggregated}), ottenute
     tramite una tecnica di generalizzazione spaziale a griglia (spatial
     cloaking) sulle tracce GPS, con valutazione quantitativa del
-    compromesso tra perturbazione della posizione e qualità del servizio
-    (Privacy Perturbation e Quality of Service).
+    compromesso tra perturbazione della posizione e qualità del servizio;
+    \item una dashboard Web per la consultazione del diario di mobilità
+    da parte del personale autorizzato, con confronto diretto tra la
+    traccia vera e la traccia perturbata secondo il livello di privacy
+    selezionato.
 \end{itemize}
 
 Il resto dell'articolo è organizzato come segue: la Sezione~\ref{sec:architecture}
@@ -113,8 +107,8 @@ risultati sperimentali ottenuti.
 
 \subsection{Panoramica}
 
-Il sistema è composto da due client -- l'applicazione mobile e la
-dashboard Web -- e da un back-end raggiungibile attraverso un unico
+Il sistema è composto da due client, un applicazione mobile,una
+dashboard Web e da un back-end raggiungibile attraverso un unico
 gateway, come mostrato in Fig.~\ref{fig:architecture}. Il back-end
 gestisce sia le operazioni sincrone del diario, sia l'elaborazione
 asincrona dei dati grezzi caricati dal dispositivo, descritte nel
@@ -163,7 +157,7 @@ della privacy, alla dashboard Web.
 \draw[arrow] (worker.east) to[bend left=15] node[midway, right] {\scriptsize scrittura diario} (db.south);
 
 \end{tikzpicture}
-\caption{Architettura ad alto livello del sistema.}
+\caption{Architettura ad alto livello del sistema}
 \label{fig:architecture}
 \end{figure*}
 
@@ -274,15 +268,15 @@ quando cambiano le etichette dei luoghi.
 \hline
 \texttt{MobilityTrace} & \texttt{Trip}, \texttt{GpsPoint} &
 Un \texttt{Trip} delimita una sessione di mobilità e conserva stato,
-intervallo temporale, distanza e percorso \texttt{LineString}. I
-\texttt{GpsPoint} mantengono timestamp, coordinata PostGIS, velocità e
+intervallo temporale, distanza e percorso \texttt{LineString}.
+I \texttt{GpsPoint} mantengono timestamp, coordinate PostGIS, velocità e
 accuratezza della misura. \\
 \hline
 \texttt{MobilitySegment} & \texttt{MobilitySegment} &
 Una riga persistente del diario, di tipo \texttt{MOVE} o \texttt{STOP},
 con inizio, fine, attività riconosciuta, distanza e percorso opzionale. \\
 \hline
-\texttt{SignificantPlace} & \texttt{HabitualPlace} e \texttt{CandidateVisit} &
+\texttt{SignificantPlace} & \texttt{HabitualPlace}  \texttt{CandidateVisit} &
 Una \texttt{CandidateVisit} rappresenta una singola permanenza; visite
 spazialmente ricorrenti vengono aggregate in un \texttt{HabitualPlace},
 con centro, raggio, conteggi, stato di revisione, categoria e nome scelto
@@ -303,69 +297,6 @@ I campioni inerziali sono inoltre conservati in
 \texttt{HarJob} e \texttt{TripUpload}. Queste entità sono operative e
 non modificano il vocabolario di dominio richiesto dalla traccia.
 
-\subsection{API REST}
-
-L'app mobile usa token Bearer distinti dalle credenziali staff della
-dashboard. Tutte le risposte applicative sono JSON; le geometrie sono
-serializzate come GeoJSON in coordinate WGS84. La
-Tabella~\ref{tab:rest-api} riassume gli endpoint principali; la specifica
-OpenAPI completa e interattiva è pubblicata in \texttt{/api/docs}.
-
-\begin{table*}[htbp]
-\caption{Principali API REST usate dall'applicazione e dalla dashboard}
-\centering
-\scriptsize
-\begin{tabular}{|p{3.8cm}|p{1.1cm}|p{4.7cm}|p{6cm}|}
-\hline
-\textbf{Endpoint} & \textbf{Metodo} & \textbf{Input principale} & \textbf{Output principale} \\
-\hline
-\texttt{/api/upload/trips/start} & POST &
-Identificativo sessione client, dispositivo e timestamp iniziale &
-Identificativo upload e stato della sessione idempotente \\
-\hline
-\texttt{/api/upload/trips/core} & POST &
-Upload id, punti GPS e transizioni FSM &
-Trip id, stato delle fasi core/raw e disponibilità della mappa \\
-\hline
-\texttt{/api/upload/trips/}\newline
-\texttt{\{id\}/parts/*} & POST &
-Numero parte, dimensione, checksum e conferma dell'upload &
-URL firmata S3 oppure stato della parte; la chiusura accoda l'HAR \\
-\hline
-\texttt{/api/mobility/trips/}\newline
-\texttt{\{id\}/track} & GET & Trip id &
-Numero punti, distanza e traccia \texttt{LineString} GeoJSON \\
-\hline
-\texttt{/api/mobility/trips/}\newline
-\texttt{\{id\}/diary} & GET & Trip id &
-Stato di elaborazione e segmenti con intervallo, attività, distanza,
-percorso e luogo associato \\
-\hline
-\texttt{/api/mobility/trips/}\newline
-\texttt{\{id\}/privacy-export} & GET &
-Trip id; il livello proviene dalle preferenze utente &
-Diario condivisibile, coordinate pubblicate, dimensione cella e testo \\
-\hline
-\texttt{/api/mobility/places} & GET & Utente autenticato &
-Luoghi candidati/confermati, categorie e visite di evidenza \\
-\hline
-\texttt{/api/mobility/analytics} & GET &
-\texttt{granularity=day|week} & Bucket temporali, modalità prevalente,
-rotte frequenti e, per la vista settimanale, heatmap \\
-\hline
-\texttt{/api/mobility/}\newline
-\texttt{route-assistant/classify} & POST &
-Matrice $500\times6$ di accelerometro e giroscopio &
-Modalità di routing e confidenza della predizione \\
-\hline
-\texttt{/api/web/users/...} & GET &
-Utente o trip id e filtri temporali/stato &
-Proiezioni staff di utenti, viaggi, diario, privacy e statistiche sensore \\
-\hline
-\end{tabular}
-\label{tab:rest-api}
-\end{table*}
-
 \subsection{Dashboard}
 
 La dashboard Web, realizzata in Vue, non è pensata per l'utente
@@ -385,14 +316,8 @@ riconosciuta, viaggio o intervallo temporale.
 L'intera piattaforma server è avviabile con Docker Compose. Un gateway
 Nginx costituisce l'unico ingresso HTTP e instrada \texttt{/api},
 \texttt{/admin} e i file statici verso Django, gli oggetti caricati verso
-MinIO e le restanti richieste verso la single-page application Vue,
-compilata in uno stadio Node e servita da un container Nginx dedicato.
-Completano lo stack PostgreSQL con PostGIS, Redis, i worker Celery, il
-job di migrazione e il job di inizializzazione del bucket MinIO. Health
-check e dipendenze di avvio impediscono al gateway di ricevere traffico
-prima che dashboard, API, database e code siano disponibili. In ambiente
-locale l'intera piattaforma viene costruita e avviata con
-\texttt{docker compose -f back-end/infra/docker-compose.yml up --build}.
+MinIO e le restanti richieste verso la single-page application Vue.
+Completano lo stack PostgreSQL con PostGIS, Redis, i worker Celery.
 
 \section{Implementazione}
 \label{sec:implementation}
@@ -400,8 +325,8 @@ locale l'intera piattaforma viene costruita e avviata con
 \subsection{Applicazione mobile}
 
 L'intero codice dell'applicazione mobile è organizzato seguendo Pine,
-un'architettura leggera per progetti Flutter che separa in layer
-distinti la UI, la logica di presentazione (Cubit/BLoC), i repository
+un'architettura per progetti Flutter che separa in layer
+distinti la UI, la logica di state management (Cubit/BLoC), i repository
 e i servizi esterni, con dipendenze che attraversano i layer in una
 sola direzione~\cite{pine-architecture}. Le sottosezioni seguenti
 descrivono i moduli applicativi costruiti sopra questa struttura.
@@ -456,13 +381,13 @@ acquisizione quando l'utente è fermo.
 \end{tikzpicture}
 \caption{Macchina a stati finiti di rilevamento del movimento: stati,
 transizioni ed effetto di ciascun tipo di evidenza sui timer di
-isteresi.}
+isteresi}
 \label{fig:fsm}
 \end{figure*}
 
 Per decidere se cambiare stato, la macchina osserva due valori: la
 velocità istantanea fornita dal GPS e $\sigma$, la deviazione
-standard della Signal Vector Magnitude (SVM) dell'accelerometro --
+standard della Signal Vector Magnitude (SVM) dell'accelerometro, 
 la SVM di un campione è $\sqrt{x^2+y^2+z^2}$ sulle tre componenti
 dell'accelerazione. $\sigma$ non viene ricalcolato a ogni singolo
 campione dell'accelerometro, ma accumulando i campioni in una
@@ -524,7 +449,7 @@ stato corrente è \texttt{movement} la decisione si basa solo su
 $\sigma$: valori pari o superiori a 1.2 indicano movimento, valori
 inferiori a 0.8 indicano sosta, i valori intermedi restano incerti.
 Viene data priorità a $\sigma$ per due motivi legati fra loro: quando
-la macchina a stati si trova in \texttt{movement} e deve stabilire se l'utente
+la macchina a stati si trova in \texttt{movement} e deve stabilirbe se l'utente
 si è davvero fermato, la sosta avviene tipicamente in un luogo chiuso,
 dove il GPS diventa meno preciso; inoltre, se l'utente è realmente
 fermo, il filtro di distanza di 3\,m descritto sopra fa sì che il GPS
@@ -644,7 +569,7 @@ Al momento della sincronizzazione, le finestre non vengono caricate
 una alla volta né tutte insieme, ma raggruppate in più file. Le righe
 della tabella vengono lette dal database a pagine di 128 finestre e
 accumulate in un buffer finché la loro dimensione, misurata sul JSON
-non compresso, non supera un budget di 12\,MB; a quel punto il buffer
+non compresso, non supera la soglia di 12\,MB; a quel punto il buffer
 viene scritto su un file e se ne apre uno nuovo. Ogni finestra pesa
 circa 29\,KB da non compressa: il JSON è testo, e ogni valore viene
 prima arrotondato a sei decimali, ad esempio per una singola riga a
@@ -657,10 +582,10 @@ Con valori di questa forma, una
 riga pesa circa 58 caratteri (51 per i sei numeri più 7 tra virgole e
 parentesi), pari a circa 58 byte in UTF-8, dove ogni cifra o simbolo
 occupa esattamente un byte; su 500 righe per finestra si ottengono
-circa 29\,000 byte, coerenti con il valore osservato. Un file da
+circa 29\,000 byte. Un file da
 12\,MB contiene quindi approssimativamente 430 finestre (circa 36
 minuti di registrazione).
-Questo budget è tenuto volutamente basso per limitare il picco di
+Questo valore è tenuto volutamente basso per limitare il picco di
 memoria della serializzazione sul telefono, indipendentemente dalla
 durata complessiva del viaggio.
 
@@ -687,7 +612,7 @@ I dati raccolti localmente vengono sincronizzati verso il back-end
 attraverso la tabella \texttt{SyncJobs} del database SQLite locale,
 un record della quale gestisce di fatto una coda di sincronizzazione:
 ogni sessione di raccolta genera un job, elaborato in ordine
-cronologico -- i più vecchi per primi -- uno alla volta, per evitare
+cronologico, i più vecchi per primi, uno alla volta, per evitare
 di saturare la connessione con più sessioni in parallelo.
 
 Il caricamento di ogni job avviene in due fasi. Nella fase
@@ -721,8 +646,8 @@ Il sistema è pensato attorno a un'unica linea temporale per utente: il
 diario è una sequenza di viaggi consecutivi, e non ha senso, in questo
 modello, che due viaggi risultino in corso nello stesso momento. Questo
 vincolo è realizzato facendo sì che, nel momento in cui l'utente preme
-Start, venga già creato lato back-end un record del viaggio -- con
-data di inizio e dispositivo associato -- anche se in quel momento i
+Start, venga già creato lato back-end un record del viaggio, con
+data di inizio e dispositivo associato, anche se in quel momento i
 dati non vengono ancora inviati: l'invio effettivo di tracce GPS e
 dati sensoriali non è progressivo durante la registrazione, ma avviene
 tutto in blocco solo alla pressione di Stop, secondo la coda di
@@ -732,7 +657,7 @@ L'esistenza di questo record fin dall'avvio è ciò che permette di far
 rispettare il vincolo: se l'utente prova ad avviare un nuovo viaggio da
 un dispositivo diverso mentre, sullo stesso account, un viaggio
 risulta già avviato e non ancora concluso, il back-end rifiuta la
-richiesta con un conflitto, impedendo che due registrazioni si
+richiesta, impedendo che due registrazioni si
 sovrappongano sulla stessa linea temporale.
 
 Durante il viaggio, l'applicazione invia inoltre al back-end un
@@ -741,8 +666,8 @@ freschezza associato al viaggio in corso. Questo meccanismo protegge
 da un caso limite: un viaggio che risulti ancora attivo ma che in
 realtà non riceva aggiornamenti da troppo tempo.
 Se un viaggio attivo resta senza heartbeat per più di 24 ore, viene chiuso
-automaticamente non appena l'utente prova ad avviarne uno nuovo -- da
-un altro dispositivo o dallo stesso -- permettendo alla registrazione
+automaticamente non appena l'utente prova ad avviarne uno nuovo, da
+un altro dispositivo o dallo stesso, permettendo alla registrazione
 di ripartire anziché restare bloccata indefinitamente da un viaggio
 ormai inattivo.
 
@@ -764,9 +689,9 @@ back-end con cadenza di un secondo, richiedendo a ogni chiamata lo
 stato di elaborazione del viaggio. Il back-end restituisce il diario
 come completo solo quando il viaggio risulta processato, condizione
 che si verifica nel momento in cui le fasi 1 e 2 della pipeline
-asincrona -- classificazione dell'attività e inserimento nel diario --
-sono terminate; le fasi 3 e 4 -- inserimento batch dei dati
-sensoriali e data mining dei luoghi abituali -- non sono invece
+asincrona, classificazione dell'attività e inserimento nel diario,
+sono terminate; le fasi 3 e 4, inserimento batch dei dati
+sensoriali e data mining dei luoghi abituali, non sono invece
 necessarie per mostrare il diario e proseguono indipendentemente. Il
 punto rilevante è quindi che l'utente non deve attendere il
 completamento dell'intera elaborazione asincrona per vedere,
@@ -801,7 +726,7 @@ nell'interfaccia.
 \node[align=center] at (7.9,2.9) {\scriptsize utente vede diario\\\scriptsize e mappa segmentata};
 
 \end{tikzpicture}
-\caption{Pipeline completa di caricamento ed elaborazione.}
+\caption{Pipeline completa di caricamento ed elaborazione}
 \label{fig:pipeline-timeline}
 \end{figure*}
 
@@ -832,8 +757,8 @@ invece sono trascorsi meno di 30 minuti, la sessione viene ripresa
 normalmente. In questo caso, tuttavia, il sistema effettua una
 correzione: se l'ultimo stato noto della macchina era
 \texttt{movement}, ma nel frattempo i dati dei sensori hanno smesso di
-arrivare, quel \texttt{movement} non è più considerato affidabile --
-non essendoci conferma recente che l'utente sia ancora in movimento --
+arrivare, quel \texttt{movement} non è più considerato affidabile,
+non essendoci conferma recente che l'utente sia ancora in movimento
 e il sistema forza lo stato a \texttt{stationary} a partire da quando
 i dati si sono interrotti; la macchina a stati riprende quindi da
 questo stato corretto, anziché dall'ultimo realmente osservato.
@@ -855,7 +780,7 @@ altrimenti in veicolo).
 
 L'assistente di percorso usa come punto A la posizione GPS corrente e
 consente all'utente di cercare e selezionare un punto B tramite il
-geocoding Mapbox. La richiesta Directions~\cite{mapbox-directions} usa uno dei tre profili
+geocoding Mapbox. La richiesta ~\cite{mapbox-directions} usa uno dei tre profili
 \texttt{walking}, \texttt{cycling} e \texttt{driving}; la risposta
 GeoJSON viene mostrata sulla mappa insieme a distanza e durata stimate.
 Il profilo può essere scelto manualmente oppure derivato dal modulo HAR:
@@ -871,9 +796,7 @@ profilo coerente. Il ricalcolo usa anche la posizione corrente più
 recente, perciò reagisce sia a un cambio del mezzo sia allo spostamento
 dell'utente. Contatori di generazione associati alle richieste di
 geocoding e routing impediscono a risposte asincrone obsolete di
-sovrascrivere una scelta più recente. La modalità può essere simulata
-durante un replay, rendendo il cambio di percorso riproducibile nella
-dimostrazione senza richiedere tre spostamenti reali differenti.
+sovrascrivere una scelta più recente. 
 
 \subsection{Classificazione dell'attività (HAR)}
 
@@ -884,9 +807,7 @@ Locomotion)~\cite{wang2018shl}, raccolto con smartphone Huawei
 indossati simultaneamente in quattro posizioni del corpo (tasca,
 borsa, petto, mano). Ogni posizione registra a 100\,Hz accelerometro,
 giroscopio e magnetometro, già pre-segmentati in finestre da 500
-campioni (5\,s). Mescolare le quattro posizioni nel training rende il
-modello robusto al fatto che, in un uso reale, non si sa dove l'utente
-tenga il telefono.
+campioni (5\,s).
 
 Le otto classi originali del dataset (\texttt{IDLE}, \texttt{WALKING},
 \texttt{RUNNING}, \texttt{DRIVING}, \texttt{BIKING}, \texttt{BUS},
@@ -898,9 +819,7 @@ molto simili) e la fusione le trasforma da errori in predizioni
 corrette, senza eliminare informazione utile al sistema, che non deve
 distinguere tra mezzi di trasporto motorizzati diversi.
 
-Le finestre consecutive distano solo 5\,s, quindi uno split casuale
-porterebbe campioni quasi uguali in training e test (leakage
-temporale). Il protocollo adottato usa il training set ufficiale,
+Il protocollo adottato usa il training set ufficiale,
 riserva la sua ultima porzione temporale (15\%) all'early stopping e
 impiega il validation set ufficiale solo per la valutazione finale.
 
@@ -911,83 +830,50 @@ leggendo tutti i canali dei sensori a ogni passo: due blocchi
 convoluzione+pooling (\texttt{Conv1D(64)}, \texttt{Conv1D(128)}, kernel
 10, con \texttt{MaxPooling1D}) seguiti da un \texttt{Dense(128)} e da
 uno strato di uscita softmax sulle cinque classi, per circa 2 milioni
-di parametri complessivi. Le convoluzioni sulle serie inerziali
-multicanale seguono l'approccio di feature learning per HAR
-di~\cite{yang2015cnn}.
+di parametri complessivi.
 
-Non vengono calcolate feature statistiche manuali come media, varianza,
-energia, minimo o massimo. L'ingresso è la finestra grezza
+L'ingresso è la finestra grezza
 $500\times6$ di accelerometro e giroscopio.
 
 I filtri convoluzionali apprendono pattern locali discriminanti e il
-livello denso li comprime in un embedding di 128 valori. La
-GRU~\cite{cho2014gru} apprende le dipendenze tra gli embedding di
-finestre consecutive.
+livello denso li comprime in un embedding di 128 valori.
+
+Una GRU (Gated Recurrent Unit)~\cite{cho2014gru} è un tipo di rete
+neurale ricorrente pensata per elaborare sequenze: a differenza della
+CNN, che classifica ogni finestra di 5\,s isolatamente, la GRU
+mantiene uno stato interno che si aggiorna finestra dopo finestra,
+condizionando la predizione corrente sul contesto delle finestre
+vicine. I suoi due gate (reset e update) regolano quanta informazione
+dello stato precedente mantenere o scartare, permettendole di
+catturare dipendenze anche su sequenze relativamente lunghe con meno
+parametri di una LSTM equivalente.
+
+Nel sistema la GRU è bidirezionale: legge la sequenza di embedding sia
+in avanti sia all'indietro, in modo che la predizione su una finestra
+sfrutti sia il contesto precedente sia quello successivo. Questo è il
+motivo per cui è stata scelta al posto della sola CNN: una finestra
+isolata non basta a distinguere, ad esempio, un veicolo fermo nel
+traffico (circondato da altre finestre di guida) da una persona ferma
+(circondata da cammino), un caso di ambiguità discusso nel dettaglio
+in Sezione~\ref{sec:har-ambiguous}, mentre il contesto temporale
+fornito dalla GRU rende questa distinzione possibile.
 
 Una normalizzazione per-canale, calcolata solo sul training set e
 riapplicata a validation e test, e una \emph{focal loss} contrastano
 lo sbilanciamento delle classi (\texttt{MOVING\_VEHICLE} è circa il
 51\% dei dati, pesando di più gli esempi rari e quelli difficili).
 
-Il contesto temporale è appreso, non imposto con una regola fissa: una
-GRU bidirezionale legge sequenze di \emph{embedding} prodotti dalla
-CNN su finestre consecutive (rispettando i confini tra le quattro
-posizioni del corpo) e produce una predizione per ciascuna finestra
-della sequenza, informata dal contesto passato e futuro.
 
-Il confronto tra le varianti e le metriche del modello distribuito
-sono riportati nella Sezione~\ref{sec:har-results}.
 
-\subsubsection{Ottimizzazione per l'inferenza in produzione}
-
-Il modello distribuito in produzione usa 6 canali (solo accelerometro
-e giroscopio, senza magnetometro): quello dei telefoni reali si è
-rivelato meno affidabile di quello del dataset SHL, tanto da rendere
-preferibile ometterlo. La configurazione iniziale usava sequenze da 32
-finestre; la valutazione quantitativa è riportata nei Risultati.
-
-Nella pipeline a due fasi originale (CNN e GRU come due modelli
-separati), l'inferenza in produzione mostrava tempi incoerenti e non
-proporzionali al numero di finestre elaborate. L'analisi ha
-individuato più cause concorrenti: la ricompilazione del grafo di
-calcolo (\emph{graph retracing}) ogni volta che \texttt{model.predict()}
-riceveva una dimensione di batch mai vista dal processo, costosa circa
-2,3\,s per la rete CNN+GRU; un ciclo Python che chiamava la GRU una
-volta per ogni gruppo di 32 finestre invece che con un'unica chiamata
-sull'intero batch, circa 4,4 volte più lento; e uno stato
-dell'ottimizzatore Adam rimasto nei checkpoint, inutile in inferenza e
-responsabile di gran parte della loro dimensione su disco.
-
-La soluzione applicata combina due interventi indipendenti. Primo, la
-CNN e la GRU sono state fuse in un unico modello end-to-end, con i
-pesi copiati (non riaddestrati) dai due checkpoint esistenti e
-l'equivalenza numerica verificata rispetto alla pipeline originale
-(differenza massima sulle probabilità dell'ordine di $10^{-7}$,
-rumore numerico). Secondo, il modello fuso è avvolto in una
-\texttt{tf.function} con una \texttt{input\_signature} esplicita a
-batch dinamico ma lunghezza di sequenza fissa, così da forzare
-un'unica compilazione valida per qualunque numero di finestre per
-richiesta, eseguita una volta sola al posto di ripetersi a ogni nuova
-dimensione di batch; una chiamata di riscaldamento all'avvio del
-processo worker sposta questo costo di compilazione dalla prima
-richiesta reale al momento dell'inizializzazione.
-
-La lunghezza di sequenza della GRU, fissata a 32 finestre nella pipeline
-originale, non era stata ritarata dopo il passaggio a sei canali.
-La configurazione distribuita usa 128 finestre, scelta mediante la
-valutazione riportata nella Sezione~\ref{sec:har-results}.
-
-Il confronto di accuratezza e latenza tra pipeline originale e
-ottimizzata è presentato nella stessa sezione.
 
 \subsection{Inserimento nel diario e persistenza dei dati sensoriali}
 
 \subsubsection{Rappresentazione geospaziale e query di distanza}
 
-Tutti i dati geospaziali del sistema -- i punti GPS, il percorso di
-ogni segmento, i centroidi delle visite e dei luoghi abituali -- sono
+Tutti i dati geospaziali del sistema, i punti GPS, il percorso di
+ogni segmento, i centroidi delle visite e dei luoghi abituali, sono
 salvati nel database non come geometria piana, ma con il tipo
-\texttt{geography} di PostGIS (coordinate WGS84, SRID 4326). Questa
+\texttt{geography} di PostGIS (SRID 4326). Questa
 scelta permette a PostGIS di calcolare le operazioni geospaziali
 tenendo conto della curvatura della Terra, invece di trattare
 latitudine e longitudine come coordinate su un piano: in particolare,
@@ -1027,7 +913,7 @@ evidenza di quiete sostenuta (Sezione~\ref{sec:implementation}).
 Durante quei 120\,s, però, il dispositivo continua comunque a
 raccogliere e classificare finestre sensoriali, ed è molto probabile
 che il modulo HAR le etichetti correttamente come \texttt{IDLE},
-perché l'utente è di fatto già fermo -- anche se il macro-segmento
+perché l'utente è di fatto già fermo, anche se il macro-segmento
 costruito dalla macchina a stati etichetta ancora quell'intervallo
 come \texttt{movement}, non avendo essa stessa completato la propria
 isteresi. Per questo, un gruppo di finestre classificate
@@ -1175,7 +1061,7 @@ pipeline, dai punti GPS grezzi al ciclo di vita del luogo abituale.
 \end{tikzpicture}
 \caption{Pipeline di individuazione dei luoghi abituali: dai punti GPS
 grezzi alla stay detection, al raggruppamento DBSCAN, fino al ciclo di
-vita candidate/confirmed del luogo.}
+vita candidate/confirmed del luogo}
 \label{fig:place-mining}
 \end{figure}
 
@@ -1188,48 +1074,16 @@ Questa dipendenza in lettura ha una conseguenza diretta su come il
 diario privato viene servito: non esiste, in senso stretto, una
 versione definitiva e già pronta del diario da restituire, perché il
 suo contenuto dipende anche dai luoghi abituali dell'utente, che
-possono cambiare nel tempo indipendentemente dal viaggio stesso -- ad
+possono cambiare nel tempo indipendentemente dal viaggio stesso, ad
 esempio quando l'utente conferma, rifiuta o rietichetta un luogo dalla
 dashboard. Per questo il diario privato è tenuto in una cache (Redis),
 ma la chiave di cache include, oltre all'identificativo del viaggio,
 un contatore di versione dei luoghi dell'utente: ogni revisione di un
 luogo incrementa questo contatore, e la cache esistente diventa
 automaticamente irraggiungibile con la nuova chiave, senza bisogno di
-invalidarla esplicitamente. La richiesta successiva del diario trova
-quindi la cache mancante e lo ricostruisce da zero, con le
-associazioni ai luoghi aggiornate.
+invalidarla esplicitamente.
 
-\subsection{Analitiche personali}
 
-L'endpoint \texttt{/api/mobility/analytics} costruisce un'unica
-risposta usata dalla pagina statistiche dell'app. Il parametro
-\texttt{granularity} accetta \texttt{day} o \texttt{week}; il back-end
-assegna timestamp e settimane nel fuso \texttt{Europe/Rome}, includendo
-automaticamente il passaggio tra ora solare e legale. I bucket
-giornalieri o settimanali sommano durata e distanza dei
-\texttt{MobilitySegment} per ciascuna delle cinque etichette HAR. Il
-client mostra al massimo sette bucket alla volta e consente di scorrere
-l'intero storico con uno slider.
-
-Le abitudini generali non dipendono dal bucket selezionato. La modalità
-prevalente è l'attività non \texttt{IDLE} con durata storica totale
-maggiore. Le rotte frequenti sono calcolate direttamente in PostGIS:
-per ogni viaggio con una linea valida vengono estratti primo e ultimo
-punto, associati al luogo confermato più vicino entro il massimo tra il
-raggio del luogo e 150\,m, e infine raggruppati per coppia ordinata
-origine--destinazione. Le coppie con stessa origine e destinazione sono
-escluse e vengono restituite le cinque più frequenti.
-
-Quando la granularità è settimanale, una seconda aggregazione PostGIS
-restituisce tutte e sole le settimane storiche che contengono almeno un
-viaggio, ordinate cronologicamente. Ogni settimana contiene gli id dei
-viaggi e una heatmap dei luoghi confermati raggiunti alle estremità dei
-percorsi; il peso di un luogo è il numero di viaggi distinti della
-settimana che lo toccano. Un viaggio privo di path mantiene visibile la
-settimana ma non contribuisce ai punti della heatmap. Con granularità
-giornaliera questa query non viene eseguita. La pagina presenta inoltre
-tempo totale in movimento, distanza, ripartizione per attività, modalità
-prevalente e rotte frequenti.
 
 \subsection{Modulo di privacy}
 
@@ -1239,15 +1093,12 @@ applicano davvero una protezione: la vista \emph{precise} non è
 sottoposta ad alcuna trasformazione ed espone le coordinate GPS
 esattamente come raccolte, per cui non è un vero livello di privacy ma
 la vista personale, non protetta, dell'utente sui propri dati. 
-Le viste \emph{approximate} e
-\emph{aggregated} sono ottenute con una generalizzazione spaziale
-ispirata allo \emph{spatial cloaking}~\cite{gruteser2003cloaking}.
-La variante usa una griglia deterministica e non dichiara le garanzie
-di $k$-anonimato del metodo originale. Ogni coordinata
-GPS viene proiettata in Web Mercator (EPSG:3857) e riposizionata al
-centro della cella di una griglia di lato fisso a cui appartiene --
+Le viste \emph{approximate} 
+\emph{aggregated} sono ottenute con una tecnica di \emph{spatial cloaking}~\cite{gruteser2003cloaking}.
+Ogni coordinata GPS viene proiettata in Web Mercator (EPSG:3857) e riposizionata al
+centro della cella di una griglia di lato fisso a cui appartiene,
 150\,m per la vista \emph{approximate}, 400\,m per
-\emph{aggregated} -- prima di essere riproiettata in coordinate
+\emph{aggregated}, prima di essere riproiettata in coordinate
 geografiche, come mostrato in Fig.~\ref{fig:privacy-grid}.
 
 \begin{figure}[htbp]
@@ -1295,17 +1146,7 @@ la vista \emph{approximate} (griglia da 150\,m) dello stesso percorso.}
 \label{fig:privacy-grid-example}
 \end{figure}
 
-Per valutare quantitativamente l'effetto di questa trasformazione,
-vengono calcolate due metriche per ciascuna traccia. La
-\emph{Privacy Perturbation} è la distanza media e massima, calcolata
-con la formula di haversine, tra ciascun punto originale e il
-corrispondente punto pubblicato dopo l'approssimazione a griglia. La
-\emph{Quality of Service} è invece misurata come errore relativo tra
-la lunghezza geodetica del percorso originale e quella del percorso
-pubblicato,ed esprime quanto la generalizzazione spaziale distorce la
-distanza realmente percorsa. Queste due metriche, calcolate per i tre
-livelli di privacy, sono quelle riportate nella valutazione del
-compromesso privacy/utilità in Sezione~\ref{sec:results}.
+
 
 \subsubsection{Costruzione del diario in base al livello di privacy}
 
@@ -1342,7 +1183,7 @@ nessun luogo confermato.
 
 Le valutazioni usano il validation set ufficiale SHL~\cite{wang2018shl},
 mai impiegato per aggiornare i pesi. La Tabella~\ref{tab:har-variants}
-distingue la linea sperimentale dal modello realmente distribuito.
+distingue la linea sperimentale dal modello.
 
 \begin{table}[htbp]
 \caption{Confronto delle varianti CNN+GRU sul validation set ufficiale}
@@ -1364,13 +1205,13 @@ Le due varianti condividono lo stesso checkpoint CNN+GRU: cambia solo
 la lunghezza di sequenza usata in valutazione, non i pesi.
 
 Poiché i pesi della GRU non dipendono dalla lunghezza della sequenza con
-cui viene interrogata -- il layer applica la stessa trasformazione a
-ogni passo, indipendentemente da quanti passi compongono la sequenza --
+cui viene interrogata, il layer applica la stessa trasformazione a
+ogni passo, indipendentemente da quanti passi compongono la sequenza,
 lo stesso checkpoint è stato valutato a più lunghezze di sequenza, per
 osservare l'andamento dell'accuratezza e verificare se il guadagno
 osservato passando da 32 a 128 continui, si stabilizzi o si inverta
 per lunghezze ancora maggiori. La Tabella~\ref{tab:har-seqlen-sweep} e
-la Figura~\ref{fig:har-seqlen-sweep} riportano l'andamento misurato
+la Fig.~\ref{fig:har-seqlen-sweep} riportano l'andamento misurato
 sul validation set ufficiale (115.156 finestre).
 
 \begin{table}[htbp]
@@ -1424,7 +1265,7 @@ sul validation set ufficiale (115.156 finestre).
 \end{tikzpicture}
 \caption{Accuratezza sul validation set ufficiale al variare della
 lunghezza di sequenza data in ingresso alla GRU, a parità di pesi
-(nessun riaddestramento).}
+(nessun riaddestramento)}
 \label{fig:har-seqlen-sweep}
 \end{figure}
 
@@ -1440,10 +1281,9 @@ un punto di saturazione dell'accuratezza.
 
 Questo guadagno di accuratezza da solo non giustifica però un
 aumento di $L$ in produzione: la latenza è stata misurata direttamente
-sul codice e sul modello reali (\texttt{HARClassifier}, stesso metodo
-della Tabella~\ref{tab:har-latency} -- stesso processo, a caldo, stessi
-input), per ciascuna lunghezza di sequenza e per dimensioni di
-richiesta realistiche.
+sul codice e sul modello reali (\texttt{HARClassifier}), nello stesso
+processo, a caldo, per ciascuna lunghezza di sequenza e per dimensioni
+di richiesta realistiche.
 
 \begin{table}[htbp]
 \caption{Latenza di HARClassifier al variare della lunghezza di sequenza (ms)}
@@ -1549,8 +1389,8 @@ come \texttt{MOVING\_VEHICLE} e, simmetricamente, 6.346 finestre reali
 \texttt{MOVING\_VEHICLE} vengono classificate come \texttt{IDLE}. Il
 segnale accelerometrico e giroscopico di un veicolo fermo è infatti
 indistinguibile, su una singola finestra di 5\,s, da quello di una
-persona ferma: l'informazione che li distingue -- una velocità media
-diversa da zero nei minuti circostanti -- esiste solo a livello di
+persona ferma: l'informazione che li distingue, una velocità media
+diversa da zero nei minuti circostanti, esiste solo a livello di
 sequenza, non di singola finestra isolata.
 
 \subsubsection{Cammino veloce confuso con la bicicletta}
@@ -1574,7 +1414,7 @@ errore locale coerente con l'analisi precedente; la segmentazione del
 diario (Sezione~\ref{sec:implementation}) non lo propaga come sosta a
 sé stante, perché riassegna all'etichetta circostante ogni gruppo di
 finestre con etichetta diversa che duri meno di 60\,s
-(Figura~\ref{fig:isolated-label}) -- una finestra isolata non genera
+(Fig.~\ref{fig:isolated-label}), una finestra isolata non genera
 quindi una sosta spuria nel diario finale.
 
 \subsubsection{Cambio di mezzo di trasporto}
@@ -1589,32 +1429,13 @@ rumore da correggere), ma diventa il confine tra due segmenti del
 diario non appena la sequenza di etichette si stabilizza nella nuova
 modalità.
 
-La Tabella~\ref{tab:har-latency} confronta le pipeline nello stesso
-processo, a caldo e sugli stessi input. La fusione del modello e la
-chiamata in batch riducono il costo senza cambiare i pesi.
-
-\begin{table}[htbp]
-\caption{Latenza dell'inferenza, pipeline originale e ottimizzata}
-\centering
-\scriptsize
-\begin{tabular}{|r|r|r|r|}
-\hline
-\textbf{Finestre} & \textbf{Originale} & \textbf{Ottimizzata} & \textbf{Speedup} \\
-\hline
-141 & 110,9\,ms & 42,1\,ms & 2,6$\times$ \\
-579 & 410,6\,ms & 93,6\,ms & 4,4$\times$ \\
-1060 & 728,2\,ms & 145,8\,ms & 5,0$\times$ \\
-\hline
-\end{tabular}
-\label{tab:har-latency}
-\end{table}
-
-Sull'intero validation set la pipeline passa da 68,4\,s a 25,7\,s,
-uno speedup di 2,7$\times$. L'accuracy passa dal 79,47\% della
-configurazione originale al valore distribuito di 84,88\%.
-
-Il guadagno di velocità deriva dal pattern di chiamata; quello di
-accuratezza dal contesto più lungo. Sono quindi due effetti distinti.
+La fusione del modello in un unico grafo e la chiamata in batch
+riducono il costo di inferenza rispetto alla pipeline a due stadi
+originale, senza cambiare i pesi né l'accuracy: il guadagno di
+velocità deriva dal pattern di chiamata, quello di accuratezza dal
+contesto più lungo dato alla GRU. Sono quindi due effetti distinti,
+entrambi discussi con numeri nella Tabella~\ref{tab:har-variants} e
+nella Tabella~\ref{tab:har-seqlen-latency}.
 
 \subsection{Compromesso privacy/utilità}
 
@@ -1758,7 +1579,7 @@ Data mining luoghi & 0,97\,s & 0,64\,s & 0,27\,s & 2,74\,s \\
 La fase nettamente più onerosa è l'inserimento in batch dei dati
 sensoriali grezzi (media 29,68\,s, fino a quasi 1 minuto nel caso
 peggiore), dovuto al volume di righe scritte in
-\texttt{RawSensorReading} -- una per ogni campione, quindi fino a
+\texttt{RawSensorReading}, una per ogni campione, quindi fino a
 360.000 righe per un singolo viaggio di un'ora (720 finestre da 500
 campioni). L'inserimento usa già \texttt{bulk\_create} a gruppi di
 5000 righe (72 batch per un viaggio di un'ora), quindi il costo non
@@ -1769,7 +1590,7 @@ Va però notato che il batch insert dei dati grezzi non è una fase
 percepita dall'utente: il diario del viaggio è già disponibile non
 appena termina la fase HAR, mentre la persistenza dei dati grezzi
 prosegue in background. La latenza effettivamente percepita
-dall'utente -- core, upload raw e HAR/diario -- resta quindi
+dall'utente, core, upload raw e HAR/diario, resta quindi
 complessivamente bassa, dell'ordine di pochi secondi.
 
 Per correttezza va infine segnalato che la velocità della fase HAR
@@ -1787,7 +1608,7 @@ riguarda proprio il modello HAR: passare da una copia caricata in
 RAM per ciascun worker a un'unica istanza condivisa, interrogata dai
 worker come servizio separato, ridurrebbe l'occupazione di memoria
 aggregata a scapito di una latenza leggermente più alta sulla
-singola richiesta di inferenza -- un compromesso favorevole quando
+singola richiesta di inferenza, un compromesso favorevole quando
 l'obiettivo è aumentare il numero di worker eseguibili in parallelo
 sulla stessa macchina. La seconda riguarda il database: durante il
 test di carico è stato il componente più sollecitato in assoluto (più
@@ -1858,8 +1679,8 @@ comporta una perdita di utilità più marcata.
 
 Sul fronte delle prestazioni, il test di carico sulla pipeline di
 ingestione mostra che la latenza effettivamente percepita
-dall'utente -- upload dei dati e classificazione HAR, dopo la quale
-il diario è già consultabile -- resta dell'ordine di pochi secondi,
+dall'utente, upload dei dati e classificazione HAR, dopo la quale
+il diario è già consultabile, resta dell'ordine di pochi secondi,
 mentre la persistenza dei dati sensoriali grezzi, molto più lenta,
 avviene in background senza impatto percepito. Sotto carico
 concorrente il database si conferma il componente più sollecitato,
@@ -1873,7 +1694,7 @@ accelerometro e GPS, ed è verosimilmente meno precisa delle API di
 riconoscimento dell'attività fornite nativamente dal sistema
 operativo del telefono, che non sono state utilizzate. Il modulo HAR,
 inoltre, non distingue tra le diverse modalità di trasporto
-motorizzato -- auto, autobus, treno -- che vengono tutte classificate
+motorizzato, auto, autobus, treno, che vengono tutte classificate
 in un'unica etichetta \texttt{MOVING\_VEHICLE}.
 
 Due direzioni di sviluppo futuro appaiono particolarmente rilevanti.

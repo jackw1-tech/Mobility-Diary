@@ -9,6 +9,7 @@
 \@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-A}}Panoramica}{1}{subsection.2.1}\protected@file@percent }
 \citation{postgis-manual}
 \citation{timescale-hypertables}
+\citation{pine-architecture}
 \@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-B}}Applicazione mobile}{2}{subsection.2.2}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-C}}Livello di ingresso e servizio applicativo}{2}{subsection.2.3}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-D}}Pipeline di ingestione ed elaborazione}{2}{subsection.2.4}\protected@file@percent }
@@ -19,107 +20,98 @@
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {II-D}4}Analisi dei luoghi abituali}{2}{subsubsection.2.4.4}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-E}}Persistenza}{2}{subsection.2.5}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-F}}Modello dei dati}{2}{subsection.2.6}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-G}}API REST}{2}{subsection.2.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-H}}Dashboard}{2}{subsection.2.8}\protected@file@percent }
-\citation{pine-architecture}
-\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Architettura ad alto livello del sistema.}}{3}{figure.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-G}}Dashboard}{2}{subsection.2.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-H}}Containerizzazione}{2}{subsection.2.8}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Architettura ad alto livello del sistema}}{3}{figure.1}\protected@file@percent }
 \newlabel{fig:architecture}{{1}{3}{Architettura ad alto livello del sistema}{figure.1}{}}
 \@writefile{lot}{\contentsline {table}{\numberline {I}{\ignorespaces Corrispondenza tra le entità della traccia e il modello implementato}}{3}{table.1}\protected@file@percent }
 \newlabel{tab:domain-model}{{I}{3}{Corrispondenza tra le entità della traccia e il modello implementato}{table.1}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-I}}Containerizzazione}{3}{subsection.2.9}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{\numberline {III}Implementazione}{3}{section.3}\protected@file@percent }
 \newlabel{sec:implementation}{{III}{3}{Implementazione}{section.3}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-A}}Applicazione mobile}{3}{subsection.3.1}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-A}1}Macchina a stati finiti di rilevamento del movimento}{3}{subsubsection.3.1.1}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {II}{\ignorespaces Principali API REST usate dall'applicazione e dalla dashboard}}{4}{table.2}\protected@file@percent }
-\newlabel{tab:rest-api}{{II}{4}{Principali API REST usate dall'applicazione e dalla dashboard}{table.2}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {III}{\ignorespaces Frequenza dei sensori e generazione degli eventi per la macchina a stati}}{4}{table.3}\protected@file@percent }
-\newlabel{tab:sensor-events}{{III}{4}{Frequenza dei sensori e generazione degli eventi per la macchina a stati}{table.3}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Macchina a stati finiti di rilevamento del movimento: stati, transizioni ed effetto di ciascun tipo di evidenza sui timer di isteresi.}}{5}{figure.2}\protected@file@percent }
-\newlabel{fig:fsm}{{2}{5}{Macchina a stati finiti di rilevamento del movimento: stati, transizioni ed effetto di ciascun tipo di evidenza sui timer di isteresi}{figure.2}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Macchina a stati finiti di rilevamento del movimento: stati, transizioni ed effetto di ciascun tipo di evidenza sui timer di isteresi}}{4}{figure.2}\protected@file@percent }
+\newlabel{fig:fsm}{{2}{4}{Macchina a stati finiti di rilevamento del movimento: stati, transizioni ed effetto di ciascun tipo di evidenza sui timer di isteresi}{figure.2}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {II}{\ignorespaces Frequenza dei sensori e generazione degli eventi per la macchina a stati}}{4}{table.2}\protected@file@percent }
+\newlabel{tab:sensor-events}{{II}{4}{Frequenza dei sensori e generazione degli eventi per la macchina a stati}{table.2}{}}
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-A}2}Rapporto tra macchina a stati e sistema HAR}{5}{subsubsection.3.1.2}\protected@file@percent }
 \@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Dati persistiti localmente in SQLite lungo un viaggio composto da tre segmenti: nelle fasi \texttt  {stationary} viene salvato solo il GPS, mentre nella fase \texttt  {movement} vengono salvati anche accelerometro e giroscopio, usati per la classificazione HAR.}}{5}{figure.3}\protected@file@percent }
 \newlabel{fig:sensor-timeline}{{3}{5}{Dati persistiti localmente in SQLite lungo un viaggio composto da tre segmenti: nelle fasi \texttt {stationary} viene salvato solo il GPS, mentre nella fase \texttt {movement} vengono salvati anche accelerometro e giroscopio, usati per la classificazione HAR}{figure.3}{}}
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-A}3}Struttura e impacchettamento dei dati sensoriali per l'HAR}{5}{subsubsection.3.1.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-A}4}Coda di sincronizzazione offline}{6}{subsubsection.3.1.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-A}4}Coda di sincronizzazione offline}{5}{subsubsection.3.1.4}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-A}5}Vincolo di un viaggio attivo alla volta}{6}{subsubsection.3.1.5}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-A}6}Visualizzazione progressiva dei risultati}{6}{subsubsection.3.1.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-A}7}Gestione dell'applicazione in background}{6}{subsubsection.3.1.7}\protected@file@percent }
 \citation{mapbox-directions}
 \citation{wang2018shl}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-A}7}Gestione dell'applicazione in background}{7}{subsubsection.3.1.7}\protected@file@percent }
+\citation{cho2014gru}
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Pipeline completa di caricamento ed elaborazione}}{7}{figure.4}\protected@file@percent }
+\newlabel{fig:pipeline-timeline}{{4}{7}{Pipeline completa di caricamento ed elaborazione}{figure.4}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-B}}Route assistant context-aware}{7}{subsection.3.2}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-C}}Classificazione dell'attività (HAR)}{7}{subsection.3.3}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-C}1}Dataset e preparazione}{7}{subsubsection.3.3.1}\protected@file@percent }
-\citation{yang2015cnn}
-\citation{cho2014gru}
-\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Pipeline completa di caricamento ed elaborazione.}}{8}{figure.4}\protected@file@percent }
-\newlabel{fig:pipeline-timeline}{{4}{8}{Pipeline completa di caricamento ed elaborazione}{figure.4}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-C}2}Architettura del modello}{8}{subsubsection.3.3.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-C}3}Ottimizzazione per l'inferenza in produzione}{8}{subsubsection.3.3.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-C}2}Architettura del modello}{7}{subsubsection.3.3.2}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-D}}Inserimento nel diario e persistenza dei dati sensoriali}{8}{subsection.3.4}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-D}1}Rappresentazione geospaziale e query di distanza}{8}{subsubsection.3.4.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-D}2}Segmentazione del diario}{9}{subsubsection.3.4.2}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces Correzione di un cambio di etichetta isolato e breve (durata $<60$\,s): il gruppo centrale viene riassegnato all'etichetta circostante.}}{9}{figure.5}\protected@file@percent }
-\newlabel{fig:isolated-label}{{5}{9}{Correzione di un cambio di etichetta isolato e breve (durata $<60$\,s): il gruppo centrale viene riassegnato all'etichetta circostante}{figure.5}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces Una pausa virtuale rilevata dentro un macro-segmento \texttt  {movement} viene unita, nel diario finale, alla sosta \texttt  {stationary} adiacente decisa dalla FSM.}}{9}{figure.6}\protected@file@percent }
-\newlabel{fig:virtual-stop-merge}{{6}{9}{Una pausa virtuale rilevata dentro un macro-segmento \texttt {movement} viene unita, nel diario finale, alla sosta \texttt {stationary} adiacente decisa dalla FSM}{figure.6}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-D}3}Persistenza dei dati sensoriali grezzi}{9}{subsubsection.3.4.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-D}4}Utilizzo analitico dei dati sensoriali grezzi}{9}{subsubsection.3.4.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-E}}Data mining dei luoghi abituali}{9}{subsection.3.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-D}2}Segmentazione del diario}{8}{subsubsection.3.4.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces Correzione di un cambio di etichetta isolato e breve (durata $<60$\,s): il gruppo centrale viene riassegnato all'etichetta circostante.}}{8}{figure.5}\protected@file@percent }
+\newlabel{fig:isolated-label}{{5}{8}{Correzione di un cambio di etichetta isolato e breve (durata $<60$\,s): il gruppo centrale viene riassegnato all'etichetta circostante}{figure.5}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces Una pausa virtuale rilevata dentro un macro-segmento \texttt  {movement} viene unita, nel diario finale, alla sosta \texttt  {stationary} adiacente decisa dalla FSM.}}{8}{figure.6}\protected@file@percent }
+\newlabel{fig:virtual-stop-merge}{{6}{8}{Una pausa virtuale rilevata dentro un macro-segmento \texttt {movement} viene unita, nel diario finale, alla sosta \texttt {stationary} adiacente decisa dalla FSM}{figure.6}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-D}3}Persistenza dei dati sensoriali grezzi}{8}{subsubsection.3.4.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-D}4}Utilizzo analitico dei dati sensoriali grezzi}{8}{subsubsection.3.4.4}\protected@file@percent }
 \citation{ester1996dbscan}
 \citation{gruteser2003cloaking}
-\@writefile{lof}{\contentsline {figure}{\numberline {7}{\ignorespaces Pipeline di individuazione dei luoghi abituali: dai punti GPS grezzi alla stay detection, al raggruppamento DBSCAN, fino al ciclo di vita candidate/confirmed del luogo.}}{10}{figure.7}\protected@file@percent }
-\newlabel{fig:place-mining}{{7}{10}{Pipeline di individuazione dei luoghi abituali: dai punti GPS grezzi alla stay detection, al raggruppamento DBSCAN, fino al ciclo di vita candidate/confirmed del luogo}{figure.7}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-F}}Analitiche personali}{10}{subsection.3.6}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-G}}Modulo di privacy}{10}{subsection.3.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-E}}Data mining dei luoghi abituali}{9}{subsection.3.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-F}}Modulo di privacy}{9}{subsection.3.6}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {7}{\ignorespaces Pipeline di individuazione dei luoghi abituali: dai punti GPS grezzi alla stay detection, al raggruppamento DBSCAN, fino al ciclo di vita candidate/confirmed del luogo}}{9}{figure.7}\protected@file@percent }
+\newlabel{fig:place-mining}{{7}{9}{Pipeline di individuazione dei luoghi abituali: dai punti GPS grezzi alla stay detection, al raggruppamento DBSCAN, fino al ciclo di vita candidate/confirmed del luogo}{figure.7}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {8}{\ignorespaces Generalizzazione spaziale a griglia: lo stesso punto reale viene pubblicato al centro della cella a cui appartiene; una cella più grande (\emph  {aggregated}) sposta il punto pubblicato più lontano da quello reale.}}{9}{figure.8}\protected@file@percent }
+\newlabel{fig:privacy-grid}{{8}{9}{Generalizzazione spaziale a griglia: lo stesso punto reale viene pubblicato al centro della cella a cui appartiene; una cella più grande (\emph {aggregated}) sposta il punto pubblicato più lontano da quello reale}{figure.8}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-F}1}Costruzione del diario in base al livello di privacy}{9}{subsubsection.3.6.1}\protected@file@percent }
 \citation{wang2018shl}
-\@writefile{lof}{\contentsline {figure}{\numberline {8}{\ignorespaces Generalizzazione spaziale a griglia: lo stesso punto reale viene pubblicato al centro della cella a cui appartiene; una cella più grande (\emph  {aggregated}) sposta il punto pubblicato più lontano da quello reale.}}{11}{figure.8}\protected@file@percent }
-\newlabel{fig:privacy-grid}{{8}{11}{Generalizzazione spaziale a griglia: lo stesso punto reale viene pubblicato al centro della cella a cui appartiene; una cella più grande (\emph {aggregated}) sposta il punto pubblicato più lontano da quello reale}{figure.8}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {9}{\ignorespaces Esempio su dati reali di un viaggio in auto: la linea continua è il percorso realmente registrato; la linea tratteggiata è la vista \emph  {approximate} (griglia da 150\,m) dello stesso percorso.}}{11}{figure.9}\protected@file@percent }
-\newlabel{fig:privacy-grid-example}{{9}{11}{Esempio su dati reali di un viaggio in auto: la linea continua è il percorso realmente registrato; la linea tratteggiata è la vista \emph {approximate} (griglia da 150\,m) dello stesso percorso}{figure.9}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-G}1}Costruzione del diario in base al livello di privacy}{11}{subsubsection.3.7.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {IV}Risultati}{11}{section.4}\protected@file@percent }
-\newlabel{sec:results}{{IV}{11}{Risultati}{section.4}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-A}}Valutazione del riconoscimento HAR}{11}{subsection.4.1}\protected@file@percent }
-\newlabel{sec:har-results}{{\mbox  {IV-A}}{11}{Valutazione del riconoscimento HAR}{subsection.4.1}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {IV}{\ignorespaces Confronto delle varianti CNN+GRU sul validation set ufficiale}}{11}{table.4}\protected@file@percent }
-\newlabel{tab:har-variants}{{IV}{11}{Confronto delle varianti CNN+GRU sul validation set ufficiale}{table.4}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {V}{\ignorespaces Accuratezza del modello distribuito al variare della lunghezza di sequenza}}{11}{table.5}\protected@file@percent }
-\newlabel{tab:har-seqlen-sweep}{{V}{11}{Accuratezza del modello distribuito al variare della lunghezza di sequenza}{table.5}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {10}{\ignorespaces Accuratezza sul validation set ufficiale al variare della lunghezza di sequenza data in ingresso alla GRU, a parità di pesi (nessun riaddestramento).}}{12}{figure.10}\protected@file@percent }
-\newlabel{fig:har-seqlen-sweep}{{10}{12}{Accuratezza sul validation set ufficiale al variare della lunghezza di sequenza data in ingresso alla GRU, a parità di pesi (nessun riaddestramento)}{figure.10}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {VI}{\ignorespaces Latenza di HARClassifier al variare della lunghezza di sequenza (ms)}}{12}{table.6}\protected@file@percent }
-\newlabel{tab:har-seqlen-latency}{{VI}{12}{Latenza di HARClassifier al variare della lunghezza di sequenza (ms)}{table.6}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-B}}Discussione dei casi ambigui}{12}{subsection.4.2}\protected@file@percent }
-\newlabel{sec:har-ambiguous}{{\mbox  {IV-B}}{12}{Discussione dei casi ambigui}{subsection.4.2}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {IV-B}1}Veicolo fermo nel traffico o a un semaforo}{12}{subsubsection.4.2.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {IV-B}2}Cammino veloce confuso con la bicicletta}{12}{subsubsection.4.2.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {IV-B}3}Fermate temporanee durante uno spostamento}{12}{subsubsection.4.2.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {IV-B}4}Cambio di mezzo di trasporto}{12}{subsubsection.4.2.4}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {VII}{\ignorespaces Metriche per classe del modello CNN+GRU a sei canali distribuito in produzione}}{13}{table.7}\protected@file@percent }
-\newlabel{tab:har-metrics}{{VII}{13}{Metriche per classe del modello CNN+GRU a sei canali distribuito in produzione}{table.7}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {VIII}{\ignorespaces Confusion matrix del modello CNN+GRU a sei canali distribuito; righe reali e colonne predette}}{13}{table.8}\protected@file@percent }
-\newlabel{tab:har-confusion}{{VIII}{13}{Confusion matrix del modello CNN+GRU a sei canali distribuito; righe reali e colonne predette}{table.8}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {IX}{\ignorespaces Latenza dell'inferenza, pipeline originale e ottimizzata}}{13}{table.9}\protected@file@percent }
-\newlabel{tab:har-latency}{{IX}{13}{Latenza dell'inferenza, pipeline originale e ottimizzata}{table.9}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-C}}Compromesso privacy/utilità}{13}{subsection.4.3}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {X}{\ignorespaces Privacy Perturbation media e Quality of Service (errore relativo di distanza) per modalità, sui due livelli protetti}}{13}{table.10}\protected@file@percent }
-\newlabel{tab:privacy-results}{{X}{13}{Privacy Perturbation media e Quality of Service (errore relativo di distanza) per modalità, sui due livelli protetti}{table.10}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-D}}Latenza della pipeline di ingestione}{13}{subsection.4.4}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {XI}{\ignorespaces Latenza media delle fasi della pipeline di ingestione (250 viaggi, 25 utenti concorrenti)}}{13}{table.11}\protected@file@percent }
-\newlabel{tab:pipeline-latency}{{XI}{13}{Latenza media delle fasi della pipeline di ingestione (250 viaggi, 25 utenti concorrenti)}{table.11}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {11}{\ignorespaces Trade-off misurato tra protezione della posizione e utilità. La griglia più ampia aumenta sempre la perturbazione, mentre la distorsione della distanza dipende dalla geometria e dalla lunghezza tipica dei segmenti di ciascuna modalità.}}{14}{figure.11}\protected@file@percent }
-\newlabel{fig:privacy-qos-tradeoff}{{11}{14}{Trade-off misurato tra protezione della posizione e utilità. La griglia più ampia aumenta sempre la perturbazione, mentre la distorsione della distanza dipende dalla geometria e dalla lunghezza tipica dei segmenti di ciascuna modalità}{figure.11}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {IV-D}1}Confronto e ricerca}{14}{subsubsection.4.4.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {IV-D}2}Scrittura di codice}{14}{subsubsection.4.4.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {9}{\ignorespaces Esempio su dati reali di un viaggio in auto: la linea continua è il percorso realmente registrato; la linea tratteggiata è la vista \emph  {approximate} (griglia da 150\,m) dello stesso percorso.}}{10}{figure.9}\protected@file@percent }
+\newlabel{fig:privacy-grid-example}{{9}{10}{Esempio su dati reali di un viaggio in auto: la linea continua è il percorso realmente registrato; la linea tratteggiata è la vista \emph {approximate} (griglia da 150\,m) dello stesso percorso}{figure.9}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {IV}Risultati}{10}{section.4}\protected@file@percent }
+\newlabel{sec:results}{{IV}{10}{Risultati}{section.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-A}}Valutazione del riconoscimento HAR}{10}{subsection.4.1}\protected@file@percent }
+\newlabel{sec:har-results}{{\mbox  {IV-A}}{10}{Valutazione del riconoscimento HAR}{subsection.4.1}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {III}{\ignorespaces Confronto delle varianti CNN+GRU sul validation set ufficiale}}{10}{table.3}\protected@file@percent }
+\newlabel{tab:har-variants}{{III}{10}{Confronto delle varianti CNN+GRU sul validation set ufficiale}{table.3}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {IV}{\ignorespaces Accuratezza del modello distribuito al variare della lunghezza di sequenza}}{10}{table.4}\protected@file@percent }
+\newlabel{tab:har-seqlen-sweep}{{IV}{10}{Accuratezza del modello distribuito al variare della lunghezza di sequenza}{table.4}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {10}{\ignorespaces Accuratezza sul validation set ufficiale al variare della lunghezza di sequenza data in ingresso alla GRU, a parità di pesi (nessun riaddestramento)}}{10}{figure.10}\protected@file@percent }
+\newlabel{fig:har-seqlen-sweep}{{10}{10}{Accuratezza sul validation set ufficiale al variare della lunghezza di sequenza data in ingresso alla GRU, a parità di pesi (nessun riaddestramento)}{figure.10}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {V}{\ignorespaces Latenza di HARClassifier al variare della lunghezza di sequenza (ms)}}{11}{table.5}\protected@file@percent }
+\newlabel{tab:har-seqlen-latency}{{V}{11}{Latenza di HARClassifier al variare della lunghezza di sequenza (ms)}{table.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-B}}Discussione dei casi ambigui}{11}{subsection.4.2}\protected@file@percent }
+\newlabel{sec:har-ambiguous}{{\mbox  {IV-B}}{11}{Discussione dei casi ambigui}{subsection.4.2}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {IV-B}1}Veicolo fermo nel traffico o a un semaforo}{11}{subsubsection.4.2.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {IV-B}2}Cammino veloce confuso con la bicicletta}{11}{subsubsection.4.2.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {IV-B}3}Fermate temporanee durante uno spostamento}{11}{subsubsection.4.2.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {IV-B}4}Cambio di mezzo di trasporto}{11}{subsubsection.4.2.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-C}}Compromesso privacy/utilità}{11}{subsection.4.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-D}}Latenza della pipeline di ingestione}{11}{subsection.4.4}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {VI}{\ignorespaces Metriche per classe del modello CNN+GRU a sei canali distribuito in produzione}}{12}{table.6}\protected@file@percent }
+\newlabel{tab:har-metrics}{{VI}{12}{Metriche per classe del modello CNN+GRU a sei canali distribuito in produzione}{table.6}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {VII}{\ignorespaces Confusion matrix del modello CNN+GRU a sei canali distribuito; righe reali e colonne predette}}{12}{table.7}\protected@file@percent }
+\newlabel{tab:har-confusion}{{VII}{12}{Confusion matrix del modello CNN+GRU a sei canali distribuito; righe reali e colonne predette}{table.7}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {11}{\ignorespaces Trade-off misurato tra protezione della posizione e utilità. La griglia più ampia aumenta sempre la perturbazione, mentre la distorsione della distanza dipende dalla geometria e dalla lunghezza tipica dei segmenti di ciascuna modalità.}}{12}{figure.11}\protected@file@percent }
+\newlabel{fig:privacy-qos-tradeoff}{{11}{12}{Trade-off misurato tra protezione della posizione e utilità. La griglia più ampia aumenta sempre la perturbazione, mentre la distorsione della distanza dipende dalla geometria e dalla lunghezza tipica dei segmenti di ciascuna modalità}{figure.11}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {VIII}{\ignorespaces Privacy Perturbation media e Quality of Service (errore relativo di distanza) per modalità, sui due livelli protetti}}{12}{table.8}\protected@file@percent }
+\newlabel{tab:privacy-results}{{VIII}{12}{Privacy Perturbation media e Quality of Service (errore relativo di distanza) per modalità, sui due livelli protetti}{table.8}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {IX}{\ignorespaces Latenza media delle fasi della pipeline di ingestione (250 viaggi, 25 utenti concorrenti)}}{12}{table.9}\protected@file@percent }
+\newlabel{tab:pipeline-latency}{{IX}{12}{Latenza media delle fasi della pipeline di ingestione (250 viaggi, 25 utenti concorrenti)}{table.9}{}}
 \bibcite{wang2018shl}{1}
 \bibcite{postgis-manual}{2}
 \bibcite{timescale-hypertables}{3}
 \bibcite{mapbox-directions}{4}
 \bibcite{yang2015cnn}{5}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {IV-D}1}Confronto e ricerca}{13}{subsubsection.4.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {IV-D}2}Scrittura di codice}{13}{subsubsection.4.4.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{References}{13}{section*.3}\protected@file@percent }
 \bibcite{cho2014gru}{6}
 \bibcite{ester1996dbscan}{7}
 \bibcite{gruteser2003cloaking}{8}
 \bibcite{pine-architecture}{9}
-\@writefile{toc}{\contentsline {section}{References}{15}{section*.3}\protected@file@percent }
-\gdef \@abspage@last{15}
+\gdef \@abspage@last{14}

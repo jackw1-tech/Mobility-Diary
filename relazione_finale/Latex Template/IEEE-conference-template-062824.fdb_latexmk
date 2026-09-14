@@ -1,6 +1,6 @@
 # Fdb version 4
-["pdflatex"] 1789405008.95801 "/Users/giacomobianco/Downloads/Mobility-Diary/relazione_finale/Latex Template/IEEE-conference-template-062824.tex" "IEEE-conference-template-062824.pdf" "IEEE-conference-template-062824" 1789405023.32149 0
-  "/Users/giacomobianco/Downloads/Mobility-Diary/relazione_finale/Latex Template/IEEE-conference-template-062824.tex" 1789404970.37729 91481 baa385eb860587658edbeed38e68d717 ""
+["pdflatex"] 1789408861.96304 "/Users/giacomobianco/Downloads/Mobility-Diary/relazione_finale/Latex Template/IEEE-conference-template-062824.tex" "IEEE-conference-template-062824.pdf" "IEEE-conference-template-062824" 1789408875.98846 0
+  "/Users/giacomobianco/Downloads/Mobility-Diary/relazione_finale/Latex Template/IEEE-conference-template-062824.tex" 1789408851.16728 82307 96a3c90fe627092c12ee3ec75a4f1198 ""
   "/usr/local/texlive/2024/texmf-dist/fonts/enc/dvips/base/8r.enc" 1165713224 4850 80dc9bab7f31fb78a000ccfed0e27cab ""
   "/usr/local/texlive/2024/texmf-dist/fonts/map/fontname/texfonts.map" 1577235249 3524 cb3e574dea2d1052e39280babc910dc8 ""
   "/usr/local/texlive/2024/texmf-dist/fonts/tfm/adobe/courier/pcrr7t.tfm" 1136768653 960 379cc0019370a9e0208a0a3f949f847a ""
@@ -212,7 +212,6 @@
   "/usr/local/texlive/2024/texmf-dist/tex/latex/pgfplots/pgfplots.sty" 1496704190 4904 ee78b44e85d6fccf08cd99370557481e ""
   "/usr/local/texlive/2024/texmf-dist/tex/latex/placeins/placeins.sty" 1137110565 4087 636308456f60d2b31cbf97867db5708d ""
   "/usr/local/texlive/2024/texmf-dist/tex/latex/preprint/balance.sty" 1137110595 3366 d938ad2440edc1ea1c9042843580ec42 ""
-  "/usr/local/texlive/2024/texmf-dist/tex/latex/psnfss/omspcr.fd" 1137110629 576 907c194ce74186f4e40247f2ba1986cf ""
   "/usr/local/texlive/2024/texmf-dist/tex/latex/psnfss/ot1pcr.fd" 1137110629 985 1ed784d7bfe47179f3550d2303b073f8 ""
   "/usr/local/texlive/2024/texmf-dist/tex/latex/psnfss/ot1ptm.fd" 1137110629 961 15056f4a61917ceed3a44e4ac11fcc52 ""
   "/usr/local/texlive/2024/texmf-dist/tex/latex/refcount/refcount.sty" 1576624809 9878 9e94e8fa600d95f9c7731bb21dfb67a4 ""
@@ -223,9 +222,9 @@
   "/usr/local/texlive/2024/texmf-var/fonts/map/pdftex/updmap/pdftex.map" 1733244669.61711 5467645 128b85b7cde5f5edc5cb7f1dd7ff8736 ""
   "/usr/local/texlive/2024/texmf-var/web2c/pdftex/pdflatex.fmt" 1733244654 8221428 6f9aea3ed63fc9097d4e0959ef9161cd ""
   "/usr/local/texlive/2024/texmf.cnf" 1710266656 577 e590dabc9e28c5b61546e15f63eebcdf ""
-  "IEEE-conference-template-062824.aux" 1789405022.93581 17496 443e95ebb2dea8aa12b2066c38e7947c "pdflatex"
-  "IEEE-conference-template-062824.out" 1789405022.94043 10928 9f78fed76d057d8149d21700492c4412 "pdflatex"
-  "IEEE-conference-template-062824.tex" 1789404970.37729 91481 baa385eb860587658edbeed38e68d717 ""
+  "IEEE-conference-template-062824.aux" 1789408875.24708 16474 6a31a5d27f479d5c04d4356e2955490f "pdflatex"
+  "IEEE-conference-template-062824.out" 1789408875.25217 10366 6d476535be45c094334791caeed8e077 "pdflatex"
+  "IEEE-conference-template-062824.tex" 1789408851.16728 82307 96a3c90fe627092c12ee3ec75a4f1198 ""
   "IEEEtran.cls" 1789114233.2113 288304 b67b6fc6c2abb39f9b461923f5199343 ""
   "privacy_grid_example.png" 1789132152.30144 311624 ab15671de6611e7d92db1936b3ae946b ""
   (generated)

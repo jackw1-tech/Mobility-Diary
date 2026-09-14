@@ -31,6 +31,13 @@ cp back-end/infra/.env.example back-end/infra/.env
 docker compose -f back-end/infra/docker-compose.yml up --build -d
 ```
 
+This is also the complete first-start procedure: Compose waits for PostgreSQL
+and MinIO initialization, applies all database migrations, creates the demo
+accounts, imports the demo trip and then starts the application services. On a
+fresh installation—especially when x86 images are emulated on an ARM host—the
+initialization can take a few minutes. Its progress can be checked with the
+command below; no second `docker compose up` invocation should be necessary.
+
 Before the Web service starts, the local Compose stack automatically creates
 two demo accounts.
 
@@ -205,4 +212,3 @@ docker compose -f back-end/infra/docker-compose.yml down
 
 To reset the demo database and object storage, remove the named volumes only
 after making a backup.
-

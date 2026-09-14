@@ -164,7 +164,10 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mobility} -d ${POSTGRES_DB:-mobility}"]
+      # The image starts a temporary Unix-socket-only server while running the
+      # init scripts. Checking TCP prevents dependent services from starting
+      # during the final PostgreSQL restart.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER:-mobility} -d ${POSTGRES_DB:-mobility}"]
       interval: 5s
       timeout: 3s
       retries: 60
