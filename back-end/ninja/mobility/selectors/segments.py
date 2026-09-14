@@ -1,9 +1,4 @@
 """Repository di MobilitySegment e VirtualStopInterval.
-
-Unico punto in cui compaiono `MobilitySegment.objects` e
-`VirtualStopInterval.objects` (le letture per-trip passano dal related
-manager di un'istanza Trip gia' caricata, es. `trip.segments.all()`, che non
-e' `Model.objects` e resta quindi nel chiamante).
 """
 
 from __future__ import annotations

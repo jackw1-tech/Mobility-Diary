@@ -2,8 +2,12 @@ class ApiConstants {
   static const String _productionApiUrl =
       'https://mobilitydiary.giacomobianco.com/api';
 
+  static const String _apiBaseUrlOverride = String.fromEnvironment(
+    'API_BASE_URL',
+  );
+
   static String get baseApiUrl {
-    // lascialo cosi, non toccare
+    if (_apiBaseUrlOverride.isNotEmpty) return _apiBaseUrlOverride;
     return _productionApiUrl;
   }
 

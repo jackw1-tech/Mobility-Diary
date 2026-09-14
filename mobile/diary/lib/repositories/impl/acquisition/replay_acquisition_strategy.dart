@@ -306,8 +306,10 @@ class ReplayAcquisitionStrategy implements AcquisitionStrategy {
           ...filteredPoints.map((p) => p.timestamp),
           ...filteredTransitions.map((t) => t.timestamp),
         ].fold<DateTime?>(null, (earliest, timestamp) {
-          if (earliest == null || timestamp.isBefore(earliest))
+          if (earliest == null || timestamp.isBefore(earliest)) {
             return timestamp;
+          }
+
           return earliest;
         });
 

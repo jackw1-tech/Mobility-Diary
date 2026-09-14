@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
-import importlib.util
 from pathlib import Path
 from typing import Any
 
@@ -46,24 +45,16 @@ def warm_har_model() -> None:
 
 
 def _load_inference_class():
-    inference_path = Path(settings.HAR_FUSED_INFERENCE_PATH)
-    if not inference_path.exists():
+    try:
+        from manual_har.inference import HARClassifier
+    except ModuleNotFoundError as exc:
         raise HarModelUnavailable(
-            f"modulo inferenza HAR fused non trovato: {inference_path}"
-        )
-    spec = importlib.util.spec_from_file_location(
-        "manual_har_fused_inference",
-        inference_path,
-    )
-    if spec is None or spec.loader is None:
-        raise HarModelUnavailable(
-            f"modulo inferenza HAR fused non caricabile: {inference_path}"
-        )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module.HARClassifier
+            f"modulo inferenza HAR fused non disponibile: {exc}"
+        ) from exc
+    return HARClassifier
 
 
+#Caricamento / Creazione del modello
 def _load_model_bundle() -> HarModelBundle:
     global _MODEL_BUNDLE
     if _MODEL_BUNDLE is not None:
@@ -118,39 +109,24 @@ def _confidence_metrics(confidences: list[float]) -> dict:
     }
 
 
-def _validated_classes(classes) -> list[str]:
-    class_names = [str(name) for name in classes]
-    unknown = set(class_names) - set(ActivityLabel.values)
-    if unknown:
-        raise ValueError(
-            f"modello HAR con classi non supportate: {', '.join(sorted(unknown))}"
-        )
-    return class_names
+# Chiama l'har davvero
+def _predict(model_bundle: HarModelBundle, matrices: np.ndarray) -> tuple[list[str], list[float], list[str]]:
+    prediction = model_bundle.classifier.predict(matrices)
+    probs = np.asarray(prediction["probs"], dtype=np.float32)
+    label_indices = np.asarray(prediction["labels"])
+    classes = [str(c) for c in prediction["classes"]]
 
-
-def _predict(matrices: np.ndarray) -> tuple[list[str], list[float], list[str]]:
-    prediction = _load_model_bundle().classifier.predict(matrices)
-    try:
-        probs = np.asarray(prediction["probs"], dtype=np.float32)
-        label_indices = np.asarray(prediction["labels"])
-        classes = _validated_classes(prediction["classes"])
-    except (KeyError, TypeError) as exc:
-        raise ValueError("output del modello HAR incompleto") from exc
+    for c in classes:
+        if c not in ActivityLabel.values:
+            raise ValueError(f"modello HAR con classi non supportate: {c}")
 
     expected_shape = (len(matrices), len(classes))
-    if probs.shape != expected_shape:
+    if probs.shape != expected_shape or label_indices.shape != (len(matrices),):
         raise ValueError(
-            f"modello HAR ha prodotto probabilita con shape {probs.shape}, "
-            f"attesa {expected_shape}"
+            f"modello HAR ha prodotto output con shape inattesa: "
+            f"probs={probs.shape}, labels={label_indices.shape}"
         )
-    if label_indices.shape != (len(matrices),):
-        raise ValueError(
-            f"modello HAR ha prodotto label con shape {label_indices.shape}, "
-            f"attesa {(len(matrices),)}"
-        )
-    if np.any(label_indices < 0) or np.any(label_indices >= len(classes)):
-        raise ValueError("modello HAR ha prodotto indici di classe non validi")
-
+    #Traduciamo numeri modello har -> label di movimento
     labels = [classes[int(index)] for index in label_indices]
     confidences = [float(prob.max()) for prob in probs]
     return labels, confidences, classes
@@ -158,10 +134,11 @@ def _predict(matrices: np.ndarray) -> tuple[list[str], list[float], list[str]]:
 #Predizione singola in modalità live della 500 x 6
 def predict_window_label(matrix) -> tuple[str, float]:
     matrices = np.expand_dims(_prepare_har_window_matrix(matrix), axis=0) #Aggiunge 1 dimensione (1,500,6)
-    labels, confidences, _classes = _predict(matrices)
+    labels, confidences, _classes = _predict(_load_model_bundle(), matrices)
     return labels[0], confidences[0]
 
 
+#Wrapper che poi chiama davvero l har
 def predict_activity_windows(windows) -> HarPredictionResult:
     if not windows:
         return HarPredictionResult(
@@ -178,8 +155,8 @@ def predict_activity_windows(windows) -> HarPredictionResult:
     matrices = np.stack(
         [_prepare_har_window_matrix(window.matrix) for window in windows]
     )
-    labels, confidences, classes = _predict(matrices)
     model_bundle = _load_model_bundle()
+    labels, confidences, classes = _predict(model_bundle, matrices)
     return HarPredictionResult(
         labels=labels,
         confidences=confidences,

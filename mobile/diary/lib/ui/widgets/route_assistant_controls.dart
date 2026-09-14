@@ -108,8 +108,7 @@ class RouteDetectedModeIndicator extends StatefulWidget {
       _RouteDetectedModeIndicatorState();
 }
 
-class _RouteDetectedModeIndicatorState
-    extends State<RouteDetectedModeIndicator>
+class _RouteDetectedModeIndicatorState extends State<RouteDetectedModeIndicator>
     with SingleTickerProviderStateMixin {
   late final AnimationController _pulseController;
   late final Animation<double> _pulseOpacity;
@@ -130,11 +129,6 @@ class _RouteDetectedModeIndicatorState
   @override
   void didUpdateWidget(RouteDetectedModeIndicator oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // classificationTick cambia ad ogni risposta di classificazione
-    // effettivamente arrivata dal backend, anche quando il risultato e'
-    // identico al precedente: e' quello - non il valore di mode/hasResult -
-    // a dover pilotare il lampeggio, altrimenti due classify di fila con
-    // la stessa modalita' non accenderebbero mai l'anello.
     if (widget.classificationTick != oldWidget.classificationTick) {
       _pulseController.forward(from: 0);
     }

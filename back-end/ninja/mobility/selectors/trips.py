@@ -22,8 +22,6 @@ from ..models import GpsPoint, Trip, TripUpload, TripUploadPart
 
 @dataclass(frozen=True)
 class TripFilters:
-    """Filtri gia' validati per la lista Viaggi della dashboard web."""
-
     started_from: datetime | None = None
     started_to: datetime | None = None
     status: str | None = None
@@ -36,7 +34,6 @@ def trip_by_id_for_user(trip_id: int, user_id: int) -> Trip | None:
 
 
 def create_trip(**fields) -> Trip:
-    """Crea un Trip con i campi indicati (nessuna decisione: la sceglie il chiamante)."""
     return Trip.objects.create(**fields)
 
 
@@ -82,7 +79,6 @@ def trip_has_completed_upload(trip: Trip) -> bool:
 
 
 def trip_object_keys(trip: Trip) -> list[str]:
-    """Object key S3 delle parti raw del viaggio."""
     upload_keys = TripUploadPart.objects.filter(
         upload__trip=trip
     ).values_list("object_key", flat=True)
@@ -94,7 +90,6 @@ def delete_trip_uploads(trip: Trip) -> None:
 
 
 def apply_trip_filters(queryset, filters: TripFilters):
-    """Applica filtri gia' validati alla queryset Trip (nessuna decisione qui)."""
     if filters.started_from:
         queryset = queryset.filter(started_at__gte=filters.started_from)
     if filters.started_to:
@@ -113,7 +108,6 @@ def apply_trip_filters(queryset, filters: TripFilters):
 
 
 def web_trip_list_projection(queryset) -> list[dict[str, Any]]:
-    """Proiezione Viaggio per la dashboard web (id/stato/distanza/traccia)."""
     return list(
         queryset.annotate(
             processed=Case(
@@ -147,12 +141,7 @@ def trip_overlaps_window(
     end,
     exclude_client_session_id: str | None = None,
 ) -> bool:
-    """True se l'utente ha gia' un Trip che copre (start, end).
 
-    Query unica per questa esigenza: prima era ripetuta quasi identica in
-    `mobility.services.reload._user_trip_overlaps` e in
-    `mobility.upload.services._validate_replay_slot`.
-    """
     queryset = Trip.objects.filter(user_id=user_id, started_at__lt=end).filter(
         Q(ended_at__isnull=True) | Q(ended_at__gt=start)
     )
@@ -162,12 +151,6 @@ def trip_overlaps_window(
 
 
 def trips_overlapping_window(user_id: int, *, start, end):
-    """Tutti i Trip dell'utente che si sovrappongono a (start, end).
-
-    Stessa logica di sovrapposizione di `trip_overlaps_window`, ma restituisce
-    i viaggi stessi invece di un booleano - usata per raggruppare i viaggi di
-    una giornata (es. esportazione diario mobile).
-    """
     return (
         Trip.objects.filter(user_id=user_id, started_at__lt=end)
         .filter(Q(ended_at__isnull=True) | Q(ended_at__gt=start))

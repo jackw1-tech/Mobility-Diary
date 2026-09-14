@@ -113,8 +113,6 @@ Widget? _stateMessage(
     case DiaryLoadStatus.pending:
       return _message(context, Icons.auto_awesome, pending);
     case DiaryLoadStatus.failed:
-      // Solo l'arricchimento fallito e' definitivo: un errore di trasporto
-      // viene gia' ritentato da solo, e l'utente puo' forzarlo subito.
       if (state.processingFailed) {
         return _message(
           context,

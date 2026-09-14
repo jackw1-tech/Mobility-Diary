@@ -12,7 +12,4 @@ class AuthSession {
     required this.tokenType,
     required this.expiresAt,
   });
-
-  // La deserializzazione dal wire format del backend e' compito di
-  // `AuthSessionDto.fromJson` + `AuthMapper` (layer Mapper), non del model.
 }

@@ -103,8 +103,6 @@ class LiveMapLayers {
     );
   }
 
-  // Isolata in try/catch: se la registrazione delle icone fallisse a runtime,
-  // non deve interrompere l'installazione degli altri layer (route, replay).
   Future<void> _installHabitualPlacesLayer() async {
     try {
       for (final marker in categoryMarkers) {
@@ -146,9 +144,7 @@ class LiveMapLayers {
         ),
       );
       _habitualPlacesReady = true;
-    } catch (_) {
-      // Ignorato: il layer dei luoghi abituali e' opzionale.
-    }
+    } catch (_) {}
   }
 
   Future<void> _installReplayMarkerLayer() async {

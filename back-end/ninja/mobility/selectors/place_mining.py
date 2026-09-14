@@ -1,10 +1,4 @@
 """Repository del mining dei Luoghi Significativi.
-
-Unico punto in cui compaiono `GpsPoint.objects`, `HabitualPlace.objects` (per
-la fase di mining) e `CandidateVisit.objects`, incluso il DBSCAN spaziale via
-SQL raw (che e' comunque una query, non una decisione di dominio). L'algoritmo
-(stay-detection, clustering, riassegnazione manuale) resta in
-`mobility.significant_places`.
 """
 
 from __future__ import annotations

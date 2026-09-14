@@ -13,7 +13,7 @@ EXPECTED_CHANNEL_COUNT = 6
 
 # Il modello HAR lavora in float32: convertire qui evita che il resto della
 # pipeline debba conoscere il dtype scelto a monte.
-_MATRIX_DTYPE = "<f4"
+_MATRIX_DTYPE = "float32"
 
 
 class InvalidRawSensorPayload(ValueError):

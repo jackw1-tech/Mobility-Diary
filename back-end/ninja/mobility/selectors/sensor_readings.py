@@ -63,18 +63,6 @@ _SENSOR_GAP_QUERY = """
 def find_sensor_gaps(
     trip_id: int, *, threshold_ms: int = 10
 ) -> list[tuple[datetime, datetime, timedelta]]:
-    """Buchi (>threshold_ms) tra letture sensore consecutive di un viaggio.
-
-    Limitata ai soli intervalli classificati MOVE, e calcolata per singolo
-    segmento (PARTITION BY seg.id): un buco durante una sosta e' atteso (il
-    dispositivo non ha bisogno di campionare densamente da fermo), quindi non
-    e' un'anomalia da segnalare; allo stesso modo lo scarto tra la fine di un
-    segmento di movimento e l'inizio del successivo (che attraversa una sosta
-    nel mezzo) non deve mai comparire come "buco".
-
-    Usata sia dall'admin Django sia dalla dashboard web/staff, cosi' la
-    query LAG() resta definita in un solo posto.
-    """
     reading_table = connection.ops.quote_name(RawSensorReading._meta.db_table)
     segment_table = connection.ops.quote_name(MobilitySegment._meta.db_table)
     with connection.cursor() as cursor:
@@ -88,13 +76,6 @@ def find_sensor_gaps(
 
 
 def find_motion_stats_by_activity(user_id: int) -> list[dict]:
-    """Media/deviazione standard di accelerometro e giroscopio per modalita'.
-
-    Unisce le letture raw (TimescaleDB) ai segmenti di movimento (MOVE) di
-    *tutti* i viaggi dell'utente, raggruppando per activity_label. Serve a
-    confrontare come si comporta il segnale grezzo tra le diverse modalita'
-    riconosciute (WALKING/RUNNING/BIKING/MOVING_VEHICLE).
-    """
     aggregates = ", ".join(
         f"avg(r.{axis}) AS {axis}_mean, stddev(r.{axis}) AS {axis}_std"
         for axis in MOTION_AXES

@@ -274,9 +274,6 @@ def diary_view(
 def significant_places_view(
     trip: Trip, *, level: str, precise_segments: list | None = None
 ) -> list[SignificantPlaceView]:
-    # Solo aggregated maschera anche il nome del luogo (coerente con
-    # _segment_title in diary_export.py): approximate lo mostra reale, la
-    # privacy sulla posizione la fa gia' il cloaking spaziale delle coordinate.
     masked = level == UserPrivacySettings.Level.AGGREGATED
     diary_segments = (
         build_private_diary(trip) if precise_segments is None else precise_segments

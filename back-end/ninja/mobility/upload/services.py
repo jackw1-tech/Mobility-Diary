@@ -417,22 +417,13 @@ def presign_raw_part(
         upload_url=upload_url,
         upload_headers={
             "Content-Type": "application/gzip",
-            # Deve essere lo stesso valore firmato dentro upload_url: S3
-            # confronta questo header con l'hash reale dei byte ricevuti e
-            # rifiuta l'upload se non torna.
             "x-amz-checksum-sha256": storage.checksum_header_value(sha256),
         },
         expires_in=settings.S3_PRESIGN_EXPIRES_SECONDS,
     )
 
 
-"""
-Conferma la ricezione di una parte raw gia' presignata. L'integrita' del
-contenuto e' gia' garantita da S3/MinIO stesso (ha rifiutato l'upload se il
-checksum non corrispondeva ai byte ricevuti): qui controlliamo solo che
-l'oggetto ci sia davvero e porti il checksum atteso per QUESTA parte, poi
-segniamo la parte come ricevuta e valutiamo se la fase raw e' completa.
-"""
+
 def confirm_raw_part(
     *,
     user_id: int,
@@ -455,8 +446,6 @@ def confirm_raw_part(
     head = storage.head_object(part.object_key)
     if head is None:
         raise UploadPartMismatch("oggetto non presente sullo storage")
-    # ChecksumSHA256 e' verificato da S3/MinIO stesso al momento dell'upload:
-    # se il valore letto qui e' presente, i byte sono per forza integri.
     stored_checksum = head.get("ChecksumSHA256")
     if stored_checksum != storage.checksum_header_value(part.sha256):
         raise UploadPartMismatch("checksum sha256 non corrisponde")

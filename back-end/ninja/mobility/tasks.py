@@ -1,4 +1,3 @@
-import time
 from datetime import timedelta
 
 from celery import shared_task
@@ -221,7 +220,6 @@ def _finish_place_mining_run(
 #Task asincrono per l'analisi dei luoghi significativi
 @shared_task(bind=True, max_retries=3, retry_backoff=True)
 def mine_significant_places(self, user_id: int) -> dict:
-    _benchmark_started_at = time.monotonic()
     if not _begin_place_mining_run(user_id):
         return {"skipped": "place mining not pending"}
     result = mine_user_significant_places(user_id)
@@ -230,10 +228,6 @@ def mine_significant_places(self, user_id: int) -> dict:
         status_value=PlaceMiningStatus.Status.SUCCEEDED,
     ):
         _schedule_place_mining(user_id) ## Se qualcun'altro nel mentre ha impostato rerun_requested = true, rischedula un altro task
-    print(
-        f"[BENCHMARK] user_id={user_id} "
-        f"phase=place_mining duration_s={time.monotonic() - _benchmark_started_at:.3f}"
-    )
     return result
 
 #Metti in coda il task di mining dei punti gps
@@ -254,7 +248,6 @@ def persist_trip_raw_sensor_readings(
     raw_clone_shift_microseconds: int | None = None,
 ) -> dict:
     trip_id = None
-    _benchmark_started_at = time.monotonic()
     try:
         upload = upload_repository.trip_upload_with_trip(upload_id)
         job = har_jobs_repository.har_job_for_raw_persistence(job_id)
@@ -294,10 +287,6 @@ def persist_trip_raw_sensor_readings(
                 "raw_readings_persistence_status": "COMPLETED",
             },
         )
-        print(
-            f"[BENCHMARK] upload_id={upload_id} trip_id={trip_id} "
-            f"phase=batch_raw_insert duration_s={time.monotonic() - _benchmark_started_at:.3f}"
-        )
         return {
             "trip_id": trip_id,
             "raw_readings_persisted": persisted_readings,
@@ -325,7 +314,6 @@ def process_trip_har_final(
     upload_id: int,
     raw_clone_shift_microseconds: int | None = None,
 ) -> dict:
-    _benchmark_started_at = time.monotonic()
 #Sezione di preparazione (cambio di stato d TripUpload e HarJob)
     with transaction.atomic():
         upload = upload_repository.locked_trip_upload_by_id(upload_id)
@@ -377,10 +365,6 @@ def process_trip_har_final(
             job.result = result
             job.error = ""
             job.save(update_fields=["status", "result", "error", "updated_at"]) #Per il front end l'intero processo finisce qui
-        print(
-            f"[BENCHMARK] upload_id={upload_id} trip_id={trip.id} "
-            f"phase=har_diario duration_s={time.monotonic() - _benchmark_started_at:.3f}"
-        )
 
     except Exception as exc:
         will_retry = self.request.retries < self.max_retries

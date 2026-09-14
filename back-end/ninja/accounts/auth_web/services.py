@@ -1,8 +1,4 @@
-"""Business logic dell'autenticazione web/staff: emissione e rotazione token.
-
-Query e persistenza del WebRefreshToken passano da
-`accounts.auth_web.repositories`; l'encoding/decoding JWT passa dagli helper
-di `accounts.auth_web.auth`.
+"""Services dell'autenticazione web
 """
 
 from __future__ import annotations

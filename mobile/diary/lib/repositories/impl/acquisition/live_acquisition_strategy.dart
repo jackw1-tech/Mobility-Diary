@@ -411,37 +411,28 @@ class LiveAcquisitionStrategy implements AcquisitionStrategy {
       return;
     }
 
-    try {
-      final activeDto = await api.getActiveUpload();
-      if (activeDto == null) {
-        return;
-      }
-      final active = _mapper.mapActiveUpload(activeDto);
-
-      final deviceId = await _resolveDeviceId();
-      if (active.deviceId != deviceId) {
-        return;
-      }
-
-      final localSession = await _dao.findOpenSession(active.clientSessionId);
-      if (localSession != null) {
-        await _resumeSession(localSession, remoteUploadId: active.uploadId);
-        return;
-      }
-
-      // Una sessione fermata offline ha ``endedAt`` valorizzato (quindi non e'
-      // "open") ma puo' avere ancora un core sync pendente: il backend la vede
-      // attiva perche' ``recording_closed_at`` viene scritto solo all'arrivo del
-      // core. Non dobbiamo abbandonarla, altrimenti la sync successiva fallirebbe
-      // con "viaggio abbandonato" e il viaggio andrebbe perso.
-      if (await _hasPendingCoreSync(active.clientSessionId)) {
-        return;
-      }
-
-      await api.abandonUpload(uploadId: active.uploadId, deviceId: deviceId);
-    } on UploadApiException {
-      // La riconciliazione all'avvio non deve bloccare la UI o la sync locale.
+    final activeDto = await api.getActiveUpload();
+    if (activeDto == null) {
+      return;
     }
+    final active = _mapper.mapActiveUpload(activeDto);
+
+    final deviceId = await _resolveDeviceId();
+    if (active.deviceId != deviceId) {
+      return;
+    }
+
+    final localSession = await _dao.findOpenSession(active.clientSessionId);
+    if (localSession != null) {
+      await _resumeSession(localSession, remoteUploadId: active.uploadId);
+      return;
+    }
+
+    if (await _hasPendingCoreSync(active.clientSessionId)) {
+      return;
+    }
+
+    await api.abandonUpload(uploadId: active.uploadId, deviceId: deviceId);
   }
 
   Future<bool> _hasPendingCoreSync(String localSessionId) async {

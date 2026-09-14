@@ -1,11 +1,3 @@
-"""Repository del context accounts per gli aggregati User e UserPrivacySettings.
-
-Unico punto del context in cui compaiono `User.objects` / `_default_manager`
-e `UserPrivacySettings.objects`. I sottomoduli (auth_mobile, auth_web,
-privacy) e altri context (mobility) che hanno bisogno di questi dati passano
-da qui invece di interrogare direttamente i model Django.
-"""
-
 from __future__ import annotations
 
 from django.contrib.auth import get_user_model
@@ -72,9 +64,8 @@ def update_or_create_privacy_settings(
     )
     return settings
 
-
+"""Utenti non staff,con le statistiche Viaggio per la dashboard web."""
 def web_user_overviews_queryset() -> QuerySet:
-    """Utenti non staff, annotati con le statistiche Viaggio per la dashboard web."""
     return (
         user_model()
         ._default_manager.filter(is_staff=False, is_superuser=False)
@@ -93,6 +84,7 @@ def web_user_overviews_queryset() -> QuerySet:
             ),
         )
     )
+
 
 
 def web_user_overview_values(queryset: QuerySet) -> QuerySet:

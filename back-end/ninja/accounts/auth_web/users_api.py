@@ -1,9 +1,4 @@
-"""Superficie web/staff sui Proprietari del Viaggio e i loro Viaggi.
-
-Router thin: parsing input, chiamata a repository/service, mappatura
-sull'output. Tutta la logica di dominio (diario, privacy-aware, filtri sui
-Viaggi) vive in `mobility.services` / `mobility.selectors`; le statistiche
-Utente restano in `accounts.repositories`.
+"""Punto con tutte tutte le rotte lato admin
 """
 
 from __future__ import annotations
@@ -164,7 +159,6 @@ def list_web_users(request):
 @router.get("/users/{user_id}/trips", response=WebUserTripsOut, auth=web_dashboard_auth)
 def list_web_user_trips(request, user_id: int):
     owner = _owner_overview_or_404(user_id)
-
     try:
         filters = parse_trip_filters(
             RawTripFilterParams(

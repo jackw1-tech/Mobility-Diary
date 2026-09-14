@@ -20,9 +20,8 @@ def _payload(settings: UserPrivacySettings) -> dict:
         "is_first_login": settings.is_first_login,
     }
 
-
+"""Preferenza privacy corrente; la crea con i default se è il primo accesso."""
 def get_privacy_settings(user_id: int) -> dict:
-    """Preferenza privacy corrente; la crea con i default se e' il primo accesso."""
     settings = repositories.get_or_create_privacy_settings(user_id)
     return _payload(settings)
 

@@ -9,11 +9,25 @@ services:
     depends_on:
       web:
         condition: service_healthy
+      frontend:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ../../web
+    restart: unless-stopped
+    expose:
+      - "80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
 
   web:
     build:
       context: ../ninja
-    scale: 2
+    scale: 1
     restart: unless-stopped
     command: >
       sh -c "gunicorn config.asgi:application
@@ -33,7 +47,7 @@ services:
       retries: 12
       start_period: 20s
     depends_on:
-      migrate:
+      seed-demo-trip:
         condition: service_completed_successfully
       db:
         condition: service_healthy
@@ -43,7 +57,7 @@ services:
   worker:
     build:
       context: ../ninja
-    scale: 4
+    scale: 2
     restart: unless-stopped
     command: >
       sh -c "celery -A config worker -l info
@@ -81,6 +95,42 @@ services:
     depends_on:
       db:
         condition: service_healthy
+
+  demo-user-init:
+    build:
+      context: ../ninja
+    restart: "no"
+    command: python manage.py ensure_demo_accounts
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+    volumes:
+      - ../ninja:/app
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  seed-demo-trip:
+    build:
+      context: ../ninja
+    restart: "no"
+    command: python manage.py seed_demo_trip
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      S3_ENDPOINT_URL: http://minio:9000
+    volumes:
+      - ../ninja:/app
+      - ./demo-seed:/demo-seed:ro
+    depends_on:
+      demo-user-init:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
 
   redis:
     image: redis:7-alpine

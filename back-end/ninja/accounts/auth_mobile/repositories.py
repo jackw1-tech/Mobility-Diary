@@ -1,6 +1,4 @@
 """Repository dell'AccessToken (autenticazione mobile).
-
-Unico punto del sottomodulo auth_mobile in cui compare `AccessToken.objects`.
 """
 
 from __future__ import annotations

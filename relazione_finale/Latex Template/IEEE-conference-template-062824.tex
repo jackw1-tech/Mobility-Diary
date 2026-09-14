@@ -8,10 +8,14 @@
 \usepackage{xcolor}
 \usepackage{tikz}
 \usetikzlibrary{arrows.meta}
+\usepackage{pgfplots}
+\usepgfplotslibrary{groupplots}
+\pgfplotsset{compat=1.18}
 \usepackage{hyperref}
 \hypersetup{colorlinks=true, linkcolor=black, citecolor=black, urlcolor=blue}
 \usepackage{placeins}
 \usepackage{multirow}
+\usepackage{balance}
 \def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
     T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
 \begin{document}
@@ -20,7 +24,7 @@
 di mobilità con Human Activity Recognition e privacy sulla posizione}
 
 \author{\IEEEauthorblockN{Giacomo Bianco}
-\IEEEauthorblockA{\textit{Dipartimento di Informatica -- Scienza e Ingegneria} \\
+\IEEEauthorblockA{\textit{Dipartimento di Informatica} \\
 \textit{Università di Bologna}\\
 Bologna, Italia \\
 \href{mailto:giacomo.bianco4@studio.unibo.it}{giacomo.bianco4@studio.unibo.it}}
@@ -29,7 +33,19 @@ Bologna, Italia \\
 \maketitle
 
 \begin{abstract}
-%TODO: abstract da scrivere per ultimo, quando le altre sezioni sono complete.
+Questo lavoro presenta Mobility Diary, una piattaforma context-aware
+che ricostruisce un diario personale di mobilità a partire da tracce
+GPS e dati inerziali dello smartphone. Un modello di riconoscimento
+delle attività individua la modalità di spostamento dell'utente,
+mentre le posizioni ricorrenti vengono raggruppate automaticamente in
+luoghi abituali con un'etichetta leggibile. La posizione dell'utente è
+protetta da una tecnica di perturbazione spaziale, che genera una
+vista privata dettagliata e una vista condivisibile meno precisa, con
+un compromesso tra privacy e qualità del dato misurato
+sperimentalmente. Il sistema include inoltre un assistente di percorso
+sensibile al contesto, statistiche personali sulle abitudini di
+mobilità e una dashboard web per il personale autorizzato. L'intera
+piattaforma è containerizzata e avviabile con Docker Compose.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -74,9 +90,9 @@ specifico, il sistema realizza:
     tracce raccolte dal dispositivo;
     \item un modulo di Human Activity Recognition basato su una pipeline
     a due fasi CNN1D + GRU bidirezionale, addestrata sul dataset
-    pubblico SHL (Sussex-Huawei Locomotion) per riconoscere cinque
+    pubblico SHL (Sussex-Huawei Locomotion)~\cite{wang2018shl} per riconoscere cinque
     modalità di mobilità (\emph{idle}, \emph{walking}, \emph{running},
-    \emph{biking}, \emph{moving vehicle}), con un'accuratezza dell'84,9\%
+    \emph{biking}, \emph{moving vehicle}), con un'accuratezza dell'84,88\%
     sul validation set ufficiale dopo l'ottimizzazione del modello per
     l'inferenza in produzione;
     \item la generazione di viste privacy-aware del diario a tre livelli
@@ -198,20 +214,30 @@ applicativo tramite una coda di messaggi (Redis).
 L'elaborazione avviene in quattro
 fasi in sequenza, ciascuna dipendente
 dall'output della precedente:
-\begin{enumerate}
-    \item \textbf{classificazione dell'attività}: che etichetta le
-    finestre di dati sensoriali presenti nello storage con la modalità di movimento
-    riconosciuta;
-    \item \textbf{inserimento nel diario}: che materializza la traccia
-    di mobilità, i relativi segmenti e le etichette di movimento a
-    partire dai dati caricati e dalle etichette prodotte al passo
-    precedente;
-    \item \textbf{inserimento batch dei dati sensoriali}: che persiste
-    le misure grezze nel database (TimescaleDB);
-    \item \textbf{analisi dei luoghi abituali}: che individua i
-    luoghi significativi frequentati dall'utente a partire dai dati di
-    posizione inseriti nel diario.
-\end{enumerate}
+\subsubsection{Classificazione dell'attività}
+
+Etichetta le
+finestre di dati sensoriali presenti nello storage con la modalità di movimento
+riconosciuta.
+
+\subsubsection{Inserimento nel diario}
+
+Materializza la traccia
+di mobilità, i relativi segmenti e le etichette di movimento a
+partire dai dati caricati e dalle etichette prodotte al passo
+precedente.
+
+\subsubsection{Inserimento batch dei dati sensoriali}
+
+Persiste
+le misure grezze nel database (TimescaleDB).
+
+\subsubsection{Analisi dei luoghi abituali}
+
+Individua i
+luoghi significativi frequentati dall'utente a partire dai dati di
+posizione inseriti nel diario.
+
 La natura asincrona di queste quattro fasi permette di gestire
 carichi di lavoro computazionalmente costosi (in particolare fase 1 e fase 3) senza impattare la latenza delle richieste
 sincrone del servizio applicativo. I dettagli realizzativi di ciascuna
@@ -222,13 +248,123 @@ fase sono discussi nella Sezione~\ref{sec:implementation}.
 Il sistema utilizza due meccanismi di persistenza distinti, scelti in
 base alla natura del dato. I dati strutturati del diario, ovvero tracce,
 segmenti, luoghi significativi ed etichette di attività, sono
-memorizzati in un database relazionale esteso con supporto per dati
-spaziali e per serie temporali, che permettono di eseguire query
+memorizzati in un database relazionale esteso con PostGIS~\cite{postgis-manual}
+e TimescaleDB~\cite{timescale-hypertables}, che permettono di eseguire query
 geografiche e query di analisi pesanti basate su aggregazioni. 
 I dati grezzi provenienti dai sensori, che non necessitano di essere
 interrogati singolarmente ma solo recuperati per intero durante
 l'elaborazione asincrona, sono invece mantenuti in uno storage a
 oggetti separato dal database.
+
+\subsection{Modello dei dati}
+
+Le entità richieste dalla traccia sono rappresentate nel modello
+persistente con i nomi riportati nella Tabella~\ref{tab:domain-model}.
+La separazione tra traccia, segmenti e luoghi consente di conservare
+l'evidenza grezza e di ricostruire una vista del diario aggiornata
+quando cambiano le etichette dei luoghi.
+
+\begin{table*}[htbp]
+\caption{Corrispondenza tra le entità della traccia e il modello implementato}
+\centering
+\scriptsize
+\begin{tabular}{|p{2.7cm}|p{3.7cm}|p{9.2cm}|}
+\hline
+\textbf{Entità concettuale} & \textbf{Modello implementato} & \textbf{Significato e attributi principali} \\
+\hline
+\texttt{MobilityTrace} & \texttt{Trip}, \texttt{GpsPoint} &
+Un \texttt{Trip} delimita una sessione di mobilità e conserva stato,
+intervallo temporale, distanza e percorso \texttt{LineString}. I
+\texttt{GpsPoint} mantengono timestamp, coordinata PostGIS, velocità e
+accuratezza della misura. \\
+\hline
+\texttt{MobilitySegment} & \texttt{MobilitySegment} &
+Una riga persistente del diario, di tipo \texttt{MOVE} o \texttt{STOP},
+con inizio, fine, attività riconosciuta, distanza e percorso opzionale. \\
+\hline
+\texttt{SignificantPlace} & \texttt{HabitualPlace} e \texttt{CandidateVisit} &
+Una \texttt{CandidateVisit} rappresenta una singola permanenza; visite
+spazialmente ricorrenti vengono aggregate in un \texttt{HabitualPlace},
+con centro, raggio, conteggi, stato di revisione, categoria e nome scelto
+dall'utente. \\
+\hline
+\texttt{ActivityLabel} & \texttt{ActivityLabel} &
+Vocabolario controllato condiviso dai segmenti e dal classificatore:
+\texttt{IDLE}, \texttt{WALKING}, \texttt{RUNNING}, \texttt{BIKING} e
+\texttt{MOVING\_VEHICLE}. \\
+\hline
+\end{tabular}
+\label{tab:domain-model}
+\end{table*}
+
+I campioni inerziali sono inoltre conservati in
+\texttt{RawSensorReading}; le transizioni della macchina a stati in
+\texttt{StateTransition}; lo stato della lavorazione asincrona in
+\texttt{HarJob} e \texttt{TripUpload}. Queste entità sono operative e
+non modificano il vocabolario di dominio richiesto dalla traccia.
+
+\subsection{API REST}
+
+L'app mobile usa token Bearer distinti dalle credenziali staff della
+dashboard. Tutte le risposte applicative sono JSON; le geometrie sono
+serializzate come GeoJSON in coordinate WGS84. La
+Tabella~\ref{tab:rest-api} riassume gli endpoint principali; la specifica
+OpenAPI completa e interattiva è pubblicata in \texttt{/api/docs}.
+
+\begin{table*}[htbp]
+\caption{Principali API REST usate dall'applicazione e dalla dashboard}
+\centering
+\scriptsize
+\begin{tabular}{|p{3.8cm}|p{1.1cm}|p{4.7cm}|p{6cm}|}
+\hline
+\textbf{Endpoint} & \textbf{Metodo} & \textbf{Input principale} & \textbf{Output principale} \\
+\hline
+\texttt{/api/upload/trips/start} & POST &
+Identificativo sessione client, dispositivo e timestamp iniziale &
+Identificativo upload e stato della sessione idempotente \\
+\hline
+\texttt{/api/upload/trips/core} & POST &
+Upload id, punti GPS e transizioni FSM &
+Trip id, stato delle fasi core/raw e disponibilità della mappa \\
+\hline
+\texttt{/api/upload/trips/}\newline
+\texttt{\{id\}/parts/*} & POST &
+Numero parte, dimensione, checksum e conferma dell'upload &
+URL firmata S3 oppure stato della parte; la chiusura accoda l'HAR \\
+\hline
+\texttt{/api/mobility/trips/}\newline
+\texttt{\{id\}/track} & GET & Trip id &
+Numero punti, distanza e traccia \texttt{LineString} GeoJSON \\
+\hline
+\texttt{/api/mobility/trips/}\newline
+\texttt{\{id\}/diary} & GET & Trip id &
+Stato di elaborazione e segmenti con intervallo, attività, distanza,
+percorso e luogo associato \\
+\hline
+\texttt{/api/mobility/trips/}\newline
+\texttt{\{id\}/privacy-export} & GET &
+Trip id; il livello proviene dalle preferenze utente &
+Diario condivisibile, coordinate pubblicate, dimensione cella e testo \\
+\hline
+\texttt{/api/mobility/places} & GET & Utente autenticato &
+Luoghi candidati/confermati, categorie e visite di evidenza \\
+\hline
+\texttt{/api/mobility/analytics} & GET &
+\texttt{granularity=day|week} & Bucket temporali, modalità prevalente,
+rotte frequenti e, per la vista settimanale, heatmap \\
+\hline
+\texttt{/api/mobility/}\newline
+\texttt{route-assistant/classify} & POST &
+Matrice $500\times6$ di accelerometro e giroscopio &
+Modalità di routing e confidenza della predizione \\
+\hline
+\texttt{/api/web/users/...} & GET &
+Utente o trip id e filtri temporali/stato &
+Proiezioni staff di utenti, viaggi, diario, privacy e statistiche sensore \\
+\hline
+\end{tabular}
+\label{tab:rest-api}
+\end{table*}
 
 \subsection{Dashboard}
 
@@ -242,12 +378,33 @@ temporale, e le statistiche aggregate sulle attività riconosciute
 prodotte dalla fase di data mining della pipeline. Permette inoltre
 di confrontare la traccia reale con la corrispondente vista
 privacy-aware, e di filtrare i dati mostrati per giorno, attività
-riconosciuta, luogo significativo o intervallo temporale.
+riconosciuta, viaggio o intervallo temporale.
+
+\subsection{Containerizzazione}
+
+L'intera piattaforma server è avviabile con Docker Compose. Un gateway
+Nginx costituisce l'unico ingresso HTTP e instrada \texttt{/api},
+\texttt{/admin} e i file statici verso Django, gli oggetti caricati verso
+MinIO e le restanti richieste verso la single-page application Vue,
+compilata in uno stadio Node e servita da un container Nginx dedicato.
+Completano lo stack PostgreSQL con PostGIS, Redis, i worker Celery, il
+job di migrazione e il job di inizializzazione del bucket MinIO. Health
+check e dipendenze di avvio impediscono al gateway di ricevere traffico
+prima che dashboard, API, database e code siano disponibili. In ambiente
+locale l'intera piattaforma viene costruita e avviata con
+\texttt{docker compose -f back-end/infra/docker-compose.yml up --build}.
 
 \section{Implementazione}
 \label{sec:implementation}
 
 \subsection{Applicazione mobile}
+
+L'intero codice dell'applicazione mobile è organizzato seguendo Pine,
+un'architettura leggera per progetti Flutter che separa in layer
+distinti la UI, la logica di presentazione (Cubit/BLoC), i repository
+e i servizi esterni, con dipendenze che attraversano i layer in una
+sola direzione~\cite{pine-architecture}. Le sottosezioni seguenti
+descrivono i moduli applicativi costruiti sopra questa struttura.
 
 \subsubsection{Macchina a stati finiti di rilevamento del movimento}
 
@@ -450,7 +607,7 @@ Sezione~\ref{sec:architecture-pipeline}.
 \draw[-{Latex[length=2mm]}] (0,1.55) -- (7.8,1.55) node[right] {tempo};
 
 \draw (0,0) rectangle (2.4,1) node[midway] {\texttt{stationary}};
-\draw[fill=gray!12] (2.4,0) rectangle (5.4,1) node[midway] {\texttt{movement}};
+\draw[fill=gray!10] (2.4,0) rectangle (5.4,1) node[midway] {\texttt{movement}};
 \draw (5.4,0) rectangle (7.8,1) node[midway] {\texttt{stationary}};
 
 \node[align=center] at (1.2,-0.6) {GPS};
@@ -694,12 +851,36 @@ quell'intervallo, classificandola secondo soglie fisse (a piedi sotto
 gli 8\,km/h, di corsa fino a 13\,km/h, in bicicletta fino a 25\,km/h,
 altrimenti in veicolo).
 
+\subsection{Route assistant context-aware}
+
+L'assistente di percorso usa come punto A la posizione GPS corrente e
+consente all'utente di cercare e selezionare un punto B tramite il
+geocoding Mapbox. La richiesta Directions~\cite{mapbox-directions} usa uno dei tre profili
+\texttt{walking}, \texttt{cycling} e \texttt{driving}; la risposta
+GeoJSON viene mostrata sulla mappa insieme a distanza e durata stimate.
+Il profilo può essere scelto manualmente oppure derivato dal modulo HAR:
+\texttt{WALKING} e \texttt{RUNNING} diventano \texttt{walking},
+\texttt{BIKING} diventa \texttt{cycling}, mentre
+\texttt{MOVING\_VEHICLE} diventa \texttt{driving}.
+
+Quando è attiva la modalità live, ogni 15 secondi il client preleva
+l'ultima finestra inerziale $500\times6$ e la invia all'endpoint di
+classificazione. Se la modalità riconosciuta cambia, lo stato del
+client viene aggiornato e la rotta viene nuovamente richiesta usando il
+profilo coerente. Il ricalcolo usa anche la posizione corrente più
+recente, perciò reagisce sia a un cambio del mezzo sia allo spostamento
+dell'utente. Contatori di generazione associati alle richieste di
+geocoding e routing impediscono a risposte asincrone obsolete di
+sovrascrivere una scelta più recente. La modalità può essere simulata
+durante un replay, rendendo il cambio di percorso riproducibile nella
+dimostrazione senza richiedere tre spostamenti reali differenti.
+
 \subsection{Classificazione dell'attività (HAR)}
 
 \subsubsection{Dataset e preparazione}
 
 Il modulo HAR è addestrato sul dataset pubblico SHL (Sussex-Huawei
-Locomotion), raccolto dall'Università del Sussex con smartphone Huawei
+Locomotion)~\cite{wang2018shl}, raccolto con smartphone Huawei
 indossati simultaneamente in quattro posizioni del corpo (tasca,
 borsa, petto, mano). Ogni posizione registra a 100\,Hz accelerometro,
 giroscopio e magnetometro, già pre-segmentati in finestre da 500
@@ -717,19 +898,11 @@ molto simili) e la fusione le trasforma da errori in predizioni
 corrette, senza eliminare informazione utile al sistema, che non deve
 distinguere tra mezzi di trasporto motorizzati diversi.
 
-Una prima valutazione con split casuale del dataset (70/15/15) dava
-un'accuratezza dell'84,0\%. Le finestre consecutive distano però solo
-5\,s e sono quasi identiche tra loro: uno split casuale lascia quindi
-finestre praticamente uguali sia nel training sia nel test,
-gonfiandone artificialmente l'accuratezza (\emph{data leakage}
-temporale). Valutando lo stesso modello sul validation set ufficiale
-di SHL -- una sessione di registrazione mai vista in training --
-l'accuratezza onesta scende al 73,3\%, undici punti percentuali più
-bassa. Tutte le valutazioni successive, comprese quelle riportate qui,
-usano esclusivamente questo protocollo corretto: training set ufficiale
-per l'addestramento, l'ultima porzione temporale del training per
-l'early stopping, e il validation set ufficiale solo per la
-valutazione finale.
+Le finestre consecutive distano solo 5\,s, quindi uno split casuale
+porterebbe campioni quasi uguali in training e test (leakage
+temporale). Il protocollo adottato usa il training set ufficiale,
+riserva la sua ultima porzione temporale (15\%) all'early stopping e
+impiega il validation set ufficiale solo per la valutazione finale.
 
 \subsubsection{Architettura del modello}
 
@@ -738,44 +911,40 @@ leggendo tutti i canali dei sensori a ogni passo: due blocchi
 convoluzione+pooling (\texttt{Conv1D(64)}, \texttt{Conv1D(128)}, kernel
 10, con \texttt{MaxPooling1D}) seguiti da un \texttt{Dense(128)} e da
 uno strato di uscita softmax sulle cinque classi, per circa 2 milioni
-di parametri complessivi.
+di parametri complessivi. Le convoluzioni sulle serie inerziali
+multicanale seguono l'approccio di feature learning per HAR
+di~\cite{yang2015cnn}.
 
-A partire da questa base, il modello finale è stato raggiunto per
-passi incrementali, ciascuno motivato da un problema osservato sul
-validation set ufficiale:
-\begin{itemize}
-    \item uno \emph{smoothing} temporale a maggioranza in
-    post-processing, che sfrutta il fatto che le attività hanno
-    inerzia (non si cambia stato ogni 5\,s), ha recuperato 7,2 punti
-    (dal 73,3\% all'80,5\%) senza riaddestrare nulla;
-    \item l'aggiunta del magnetometro (9 canali), una normalizzazione
-    per-canale calcolata solo sul training set e una \emph{focal loss}
-    per contrastare lo sbilanciamento delle classi (\texttt{MOVING\_
-    VEHICLE} è circa il 51\% dei dati) hanno portato il modello grezzo
-    al 75,4\%, all'80,8\% con lo smoothing;
-    \item sostituire lo smoothing, una regola fissa, con un contesto
-    temporale appreso -- una GRU bidirezionale che legge sequenze di
-    \emph{embedding} prodotti dalla CNN su ciascuna finestra -- ha
-    infine portato l'accuratezza onesta all'83,7\%, il risultato
-    migliore ottenuto.
-\end{itemize}
+Non vengono calcolate feature statistiche manuali come media, varianza,
+energia, minimo o massimo. L'ingresso è la finestra grezza
+$500\times6$ di accelerometro e giroscopio.
 
-L'errore residuo dominante, anche nel modello migliore, resta la
-confusione tra \texttt{IDLE} e \texttt{MOVING\_VEHICLE}: un veicolo
-fermo a lungo (semaforo, ingorgo, stazione) produce un segnale
-inerziale indistinguibile da quello di una persona ferma. È un limite
-fisico dei soli sensori inerziali, che né il magnetometro né il
-contesto temporale risolvono del tutto, e che rappresenta la
-maggioranza degli errori residui del classificatore.
+I filtri convoluzionali apprendono pattern locali discriminanti e il
+livello denso li comprime in un embedding di 128 valori. La
+GRU~\cite{cho2014gru} apprende le dipendenze tra gli embedding di
+finestre consecutive.
+
+Una normalizzazione per-canale, calcolata solo sul training set e
+riapplicata a validation e test, e una \emph{focal loss} contrastano
+lo sbilanciamento delle classi (\texttt{MOVING\_VEHICLE} è circa il
+51\% dei dati, pesando di più gli esempi rari e quelli difficili).
+
+Il contesto temporale è appreso, non imposto con una regola fissa: una
+GRU bidirezionale legge sequenze di \emph{embedding} prodotti dalla
+CNN su finestre consecutive (rispettando i confini tra le quattro
+posizioni del corpo) e produce una predizione per ciascuna finestra
+della sequenza, informata dal contesto passato e futuro.
+
+Il confronto tra le varianti e le metriche del modello distribuito
+sono riportati nella Sezione~\ref{sec:har-results}.
 
 \subsubsection{Ottimizzazione per l'inferenza in produzione}
 
-Il modello effettivamente distribuito in produzione non è quello a 9
-canali appena descritto, ma una variante a 6 canali (solo
-accelerometro e giroscopio): il magnetometro dei telefoni reali si è
+Il modello distribuito in produzione usa 6 canali (solo accelerometro
+e giroscopio, senza magnetometro): quello dei telefoni reali si è
 rivelato meno affidabile di quello del dataset SHL, tanto da rendere
-preferibile ometterlo. La sua accuratezza onesta sul validation
-ufficiale è del 79,47\%.
+preferibile ometterlo. La configurazione iniziale usava sequenze da 32
+finestre; la valutazione quantitativa è riportata nei Risultati.
 
 Nella pipeline a due fasi originale (CNN e GRU come due modelli
 separati), l'inferenza in produzione mostrava tempi incoerenti e non
@@ -803,42 +972,13 @@ dimensione di batch; una chiamata di riscaldamento all'avvio del
 processo worker sposta questo costo di compilazione dalla prima
 richiesta reale al momento dell'inizializzazione.
 
-In questa stessa fase è emerso che la lunghezza di sequenza della GRU,
-fissata a 32 finestre nella pipeline originale, non era mai stata
-ritarata dopo il passaggio a 6 canali: aumentarla a 128 finestre ha
-migliorato l'accuratezza onesta dal 79,47\% all'84,90\%, un
-compromesso scelto perché vicino al plateau del guadagno (che continua
-solo marginalmente oltre le 256 finestre) a un costo di latenza ancora
-trascurabile. Il guadagno viene soprattutto dalla confusione dominante
-\texttt{IDLE}/\texttt{MOVING\_VEHICLE}, a fronte di una lieve perdita
-di recall sulla classe \texttt{BIKING}.
+La lunghezza di sequenza della GRU, fissata a 32 finestre nella pipeline
+originale, non era stata ritarata dopo il passaggio a sei canali.
+La configurazione distribuita usa 128 finestre, scelta mediante la
+valutazione riportata nella Sezione~\ref{sec:har-results}.
 
-Misurato sullo stesso processo e sugli stessi dati, il confronto tra
-la pipeline originale e quella ottimizzata mostra un miglioramento sia
-di latenza sia di accuratezza, indipendenti tra loro: il primo deriva
-dalla correzione del pattern di chiamata (a rischio nullo, le
-predizioni restano identiche a parità di lunghezza di sequenza), il
-secondo dall'aumento del contesto temporale della GRU.
-\begin{table}[htbp]
-\caption{Latenza dell'inferenza, pipeline originale vs ottimizzata (stesso processo, a caldo)}
-\begin{center}
-\begin{tabular}{|r|r|r|r|}
-\hline
-\textbf{Finestre} & \textbf{Originale} & \textbf{Ottimizzata} & \textbf{Speedup} \\
-\hline
-141 & 110,9\,ms & 42,1\,ms & 2,6$\times$ \\
-\hline
-579 & 410,6\,ms & 93,6\,ms & 4,4$\times$ \\
-\hline
-1060 & 728,2\,ms & 145,8\,ms & 5,0$\times$ \\
-\hline
-\end{tabular}
-\end{center}
-\end{table}
-
-Sull'intero validation set ufficiale (115.156 finestre), l'accuratezza
-sale dal 79,48\% all'84,88\% e il tempo totale di elaborazione scende
-da 68,4\,s a 25,7\,s (2,7 volte più veloce in throughput aggregato).
+Il confronto di accuratezza e latenza tra pipeline originale e
+ottimizzata è presentato nella stessa sezione.
 
 \subsection{Inserimento nel diario e persistenza dei dati sensoriali}
 
@@ -999,7 +1139,8 @@ e se ne inizia uno nuovo. Un cluster diventa una \emph{visita}
 candidata solo se contiene almeno 3 punti e copre almeno 5 minuti,
 condizioni che scartano soste troppo brevi.
 
-Le visite individuate vengono poi raggruppate spazialmente con DBSCAN.
+Le visite individuate vengono poi raggruppate spazialmente con
+DBSCAN~\cite{ester1996dbscan}.
 Per ogni cluster risultante vengono calcolati il centroide, il raggio (la distanza massima tra il
 centroide e una visita del cluster) e il numero di giorni distinti in
 cui è stata osservata una visita. Un cluster di punti individuato dal DBSCAN viene 
@@ -1014,8 +1155,8 @@ pipeline, dai punti GPS grezzi al ciclo di vita del luogo abituale.
 \begin{tikzpicture}[
   font=\scriptsize,
   block/.style={draw, rounded corners, minimum width=3.4cm,
-    minimum height=0.9cm, align=center},
-  arrow/.style={-{Latex[length=1.5mm]}, thick}
+    minimum height=0.9cm, align=center, fill=gray!8},
+  arrow/.style={-{Latex[length=2mm]}, thick}
 ]
 
 \node[block] (gps) at (0,8.0) {Punti GPS};
@@ -1058,6 +1199,38 @@ invalidarla esplicitamente. La richiesta successiva del diario trova
 quindi la cache mancante e lo ricostruisce da zero, con le
 associazioni ai luoghi aggiornate.
 
+\subsection{Analitiche personali}
+
+L'endpoint \texttt{/api/mobility/analytics} costruisce un'unica
+risposta usata dalla pagina statistiche dell'app. Il parametro
+\texttt{granularity} accetta \texttt{day} o \texttt{week}; il back-end
+assegna timestamp e settimane nel fuso \texttt{Europe/Rome}, includendo
+automaticamente il passaggio tra ora solare e legale. I bucket
+giornalieri o settimanali sommano durata e distanza dei
+\texttt{MobilitySegment} per ciascuna delle cinque etichette HAR. Il
+client mostra al massimo sette bucket alla volta e consente di scorrere
+l'intero storico con uno slider.
+
+Le abitudini generali non dipendono dal bucket selezionato. La modalità
+prevalente è l'attività non \texttt{IDLE} con durata storica totale
+maggiore. Le rotte frequenti sono calcolate direttamente in PostGIS:
+per ogni viaggio con una linea valida vengono estratti primo e ultimo
+punto, associati al luogo confermato più vicino entro il massimo tra il
+raggio del luogo e 150\,m, e infine raggruppati per coppia ordinata
+origine--destinazione. Le coppie con stessa origine e destinazione sono
+escluse e vengono restituite le cinque più frequenti.
+
+Quando la granularità è settimanale, una seconda aggregazione PostGIS
+restituisce tutte e sole le settimane storiche che contengono almeno un
+viaggio, ordinate cronologicamente. Ogni settimana contiene gli id dei
+viaggi e una heatmap dei luoghi confermati raggiunti alle estremità dei
+percorsi; il peso di un luogo è il numero di viaggi distinti della
+settimana che lo toccano. Un viaggio privo di path mantiene visibile la
+settimana ma non contribuisce ai punti della heatmap. Con granularità
+giornaliera questa query non viene eseguita. La pagina presenta inoltre
+tempo totale in movimento, distanza, ripartizione per attività, modalità
+prevalente e rotte frequenti.
+
 \subsection{Modulo di privacy}
 
 Delle tre viste del diario (\emph{precise}, \emph{approximate},
@@ -1067,8 +1240,10 @@ sottoposta ad alcuna trasformazione ed espone le coordinate GPS
 esattamente come raccolte, per cui non è un vero livello di privacy ma
 la vista personale, non protetta, dell'utente sui propri dati. 
 Le viste \emph{approximate} e
-\emph{aggregated} sono invece ottenute con una tecnica di
-generalizzazione spaziale a griglia: ogni coordinata
+\emph{aggregated} sono ottenute con una generalizzazione spaziale
+ispirata allo \emph{spatial cloaking}~\cite{gruteser2003cloaking}.
+La variante usa una griglia deterministica e non dichiara le garanzie
+di $k$-anonimato del metodo originale. Ogni coordinata
 GPS viene proiettata in Web Mercator (EPSG:3857) e riposizionata al
 centro della cella di una griglia di lato fisso a cui appartiene --
 150\,m per la vista \emph{approximate}, 400\,m per
@@ -1162,6 +1337,285 @@ nessun luogo confermato.
 \section{Risultati}
 \label{sec:results}
 
+\subsection{Valutazione del riconoscimento HAR}
+\label{sec:har-results}
+
+Le valutazioni usano il validation set ufficiale SHL~\cite{wang2018shl},
+mai impiegato per aggiornare i pesi. La Tabella~\ref{tab:har-variants}
+distingue la linea sperimentale dal modello realmente distribuito.
+
+\begin{table}[htbp]
+\caption{Confronto delle varianti CNN+GRU sul validation set ufficiale}
+\centering
+\scriptsize
+\begin{tabular}{|l|c|c|r|}
+\hline
+\textbf{Variante} & \textbf{Canali} & \textbf{Sequenza} & \textbf{Accuracy} \\
+\hline
+Produzione originale & 6 & 32 & 79,47\% \\
+\hline
+Produzione distribuita & 6 & 128 & 84,88\% \\
+\hline
+\end{tabular}
+\label{tab:har-variants}
+\end{table}
+
+Le due varianti condividono lo stesso checkpoint CNN+GRU: cambia solo
+la lunghezza di sequenza usata in valutazione, non i pesi.
+
+Poiché i pesi della GRU non dipendono dalla lunghezza della sequenza con
+cui viene interrogata -- il layer applica la stessa trasformazione a
+ogni passo, indipendentemente da quanti passi compongono la sequenza --
+lo stesso checkpoint è stato valutato a più lunghezze di sequenza, per
+osservare l'andamento dell'accuratezza e verificare se il guadagno
+osservato passando da 32 a 128 continui, si stabilizzi o si inverta
+per lunghezze ancora maggiori. La Tabella~\ref{tab:har-seqlen-sweep} e
+la Figura~\ref{fig:har-seqlen-sweep} riportano l'andamento misurato
+sul validation set ufficiale (115.156 finestre).
+
+\begin{table}[htbp]
+\caption{Accuratezza del modello distribuito al variare della lunghezza di sequenza}
+\centering
+\scriptsize
+\begin{tabular}{|c|r|}
+\hline
+\textbf{Lunghezza sequenza} & \textbf{Accuracy} \\
+\hline
+32  & 79,46\% \\
+\hline
+64  & 82,50\% \\
+\hline
+128 & 84,88\% \\
+\hline
+256 & 86,08\% \\
+\hline
+512 & 86,38\% \\
+\hline
+\end{tabular}
+\label{tab:har-seqlen-sweep}
+\end{table}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}
+\begin{semilogxaxis}[
+  width=\columnwidth,
+  height=5.2cm,
+  xlabel={Lunghezza di sequenza (finestre da 5\,s)},
+  ylabel={Accuracy},
+  log basis x={2},
+  xtick={32,64,128,256,512},
+  xticklabels={32,64,128,256,512},
+  ymin=75, ymax=90,
+  ytick distance=5,
+  yticklabel={\pgfmathprintnumber{\tick}\%},
+  tick label style={font=\scriptsize},
+  label style={font=\scriptsize},
+  grid=major,
+]
+\addplot[mark=*, blue, thick] coordinates {
+  (32,79.46)
+  (64,82.50)
+  (128,84.88)
+  (256,86.08)
+  (512,86.38)
+};
+\end{semilogxaxis}
+\end{tikzpicture}
+\caption{Accuratezza sul validation set ufficiale al variare della
+lunghezza di sequenza data in ingresso alla GRU, a parità di pesi
+(nessun riaddestramento).}
+\label{fig:har-seqlen-sweep}
+\end{figure}
+
+Il guadagno è marcato passando da 32 a 128 finestre (+5,4 punti), poi
+si riduce progressivamente (128$\to$256: +1,2 punti; 256$\to$512: +0,3
+punti) senza però invertirsi: fino a 512 finestre (~43 minuti di
+contesto) l'accuratezza continua a salire, sia pure con rendimenti
+marginali decrescenti. Non si osserva quindi, in questo intervallo, il
+plateau o il lieve calo ipotizzato oltre i 256; la scelta di 128 per la
+produzione resta un compromesso guidato dal costo di latenza (la GRU
+bidirezionale non scala linearmente su CPU), non dal raggiungimento di
+un punto di saturazione dell'accuratezza.
+
+Questo guadagno di accuratezza da solo non giustifica però un
+aumento di $L$ in produzione: la latenza è stata misurata direttamente
+sul codice e sul modello reali (\texttt{HARClassifier}, stesso metodo
+della Tabella~\ref{tab:har-latency} -- stesso processo, a caldo, stessi
+input), per ciascuna lunghezza di sequenza e per dimensioni di
+richiesta realistiche.
+
+\begin{table}[htbp]
+\caption{Latenza di HARClassifier al variare della lunghezza di sequenza (ms)}
+\centering
+\scriptsize
+\begin{tabular}{|c|r|r|r|r|r|}
+\hline
+\textbf{L} & \textbf{100} & \textbf{500} & \textbf{1000} & \textbf{2000} & \textbf{Warmup} \\
+\hline
+32  & 81,7  & 131,0 & 567,0 & 921,7  & 7,2\,s \\
+\hline
+64  & 87,4  & 211,3 & 659,4 & 1186,0 & 15,0\,s \\
+\hline
+128 & 130,9 & 265,9 & 507,0 & 1212,7 & 30,4\,s \\
+\hline
+256 & 345,2 & 404,1 & 947,0 & 1479,1 & 73,2\,s \\
+\hline
+512 & 605,1 & 518,3 & 982,5 & 1299,5 & 166,2\,s \\
+\hline
+\end{tabular}
+\label{tab:har-seqlen-latency}
+\end{table}
+
+Il costo di avvio (\emph{warmup}, la compilazione del grafo effettuata
+una volta per processo worker) cresce da 30,4\,s a 128 finestre a
+166,2\,s a 512, un fattore 5,5$\times$. Sulla dimensione di richiesta
+più piccola (100 finestre), la latenza a caldo passa da 130,9\,ms a
+605,1\,ms, un fattore 4,6$\times$. A fronte di questi costi, il
+guadagno di 1,5 punti di accuratezza rispetto a 128 non è sufficiente
+a giustificare il passaggio a $L=512$ in produzione: la scelta di
+$L=128$ resta motivata dal costo di latenza, ora misurato direttamente
+e non solo ipotizzato, e non da un plateau di accuratezza già
+raggiunto.
+
+Per valutare il modello distribuito sono state usate 115.156 finestre.
+I valori grezzi dei primi sei canali sono stati ripristinati dal
+tensore normalizzato prima dell'inferenza.
+
+Le sequenze sono state costruite separatamente per ciascuna delle
+quattro posizioni corporee. In questo modo il contesto della GRU non
+attraversa registrazioni indipendenti.
+
+L'accuracy è 84,88\%. Precision, recall e F1 macro sono 87,67\%,
+77,12\% e 80,08\%; le corrispondenti medie pesate sono 85,60\%,
+84,88\% e 84,30\%.
+
+\begin{table*}[htbp]
+\caption{Metriche per classe del modello CNN+GRU a sei canali distribuito in produzione}
+\centering
+\scriptsize
+\begin{tabular}{|l|r|r|r|r|}
+\hline
+\textbf{Classe} & \textbf{Supporto} & \textbf{Precision} & \textbf{Recall} & \textbf{F1} \\
+\hline
+IDLE & 23.856 & 0,737 & 0,855 & 0,792 \\
+WALKING & 20.920 & 0,848 & 0,946 & 0,894 \\
+RUNNING & 2.220 & 0,998 & 0,754 & 0,859 \\
+BIKING & 9.624 & 0,906 & 0,414 & 0,569 \\
+MOVING\_VEHICLE & 58.536 & 0,894 & 0,887 & 0,890 \\
+\hline
+\end{tabular}
+\label{tab:har-metrics}
+\end{table*}
+
+\begin{table*}[htbp]
+\caption{Confusion matrix del modello CNN+GRU a sei canali distribuito; righe reali e colonne predette}
+\centering
+\scriptsize
+\begin{tabular}{|l|r|r|r|r|r|}
+\hline
+\textbf{Reale $\backslash$ predetta} & \textbf{IDLE} & \textbf{WALK} & \textbf{RUN} & \textbf{BIKE} & \textbf{VEHICLE} \\
+\hline
+IDLE & 20.395 & 346 & 0 & 106 & 3.009 \\
+WALKING & 626 & 19.786 & 3 & 92 & 413 \\
+RUNNING & 0 & 332 & 1.674 & 213 & 1 \\
+BIKING & 301 & 2.581 & 0 & 3.989 & 2.753 \\
+MOVING\_VEHICLE & 6.346 & 285 & 0 & 2 & 51.903 \\
+\hline
+\end{tabular}
+\label{tab:har-confusion}
+\end{table*}
+
+L'errore dominante è la confusione tra \texttt{IDLE} e
+\texttt{MOVING\_VEHICLE}. Un veicolo fermo a un semaforo o nel traffico
+può produrre un segnale simile a quello di una persona ferma.
+
+La classe \texttt{BIKING} ha recall 0,414: viene confusa soprattutto
+con \texttt{WALKING} e \texttt{MOVING\_VEHICLE}. \texttt{RUNNING} ha
+precision 0,998 ma recall 0,754, anche per il supporto ridotto.
+
+\subsection{Discussione dei casi ambigui}
+\label{sec:har-ambiguous}
+
+La confusion matrix (Tabella~\ref{tab:har-confusion}) permette di
+analizzare quantitativamente alcuni casi che la sola accuracy
+nasconderebbe.
+
+\subsubsection{Veicolo fermo nel traffico o a un semaforo}
+
+È il caso ambiguo
+più frequente: 3.009 finestre reali \texttt{IDLE} vengono classificate
+come \texttt{MOVING\_VEHICLE} e, simmetricamente, 6.346 finestre reali
+\texttt{MOVING\_VEHICLE} vengono classificate come \texttt{IDLE}. Il
+segnale accelerometrico e giroscopico di un veicolo fermo è infatti
+indistinguibile, su una singola finestra di 5\,s, da quello di una
+persona ferma: l'informazione che li distingue -- una velocità media
+diversa da zero nei minuti circostanti -- esiste solo a livello di
+sequenza, non di singola finestra isolata.
+
+\subsubsection{Cammino veloce confuso con la bicicletta}
+
+\texttt{BIKING} ha
+il recall più basso del modello (0,414): 2.581 finestre reali di
+bicicletta vengono classificate come \texttt{WALKING} e 2.753 come
+\texttt{MOVING\_VEHICLE}. Un cammino sostenuto o una discesa in
+bicicletta a bassa velocità producono profili di accelerazione
+sovrapposti, e \texttt{BIKING} ha inoltre il supporto più basso tra le
+classi frequenti (9.624 finestre), rendendo il confine di decisione
+meno stabile.
+
+\subsubsection{Fermate temporanee durante uno spostamento}
+
+Una sosta breve
+(es. attesa a un incrocio durante una camminata) può generare qualche
+finestra isolata classificata \texttt{IDLE} in mezzo a una sequenza
+altrimenti \texttt{WALKING}. A livello di singola finestra questo è un
+errore locale coerente con l'analisi precedente; la segmentazione del
+diario (Sezione~\ref{sec:implementation}) non lo propaga come sosta a
+sé stante, perché riassegna all'etichetta circostante ogni gruppo di
+finestre con etichetta diversa che duri meno di 60\,s
+(Figura~\ref{fig:isolated-label}) -- una finestra isolata non genera
+quindi una sosta spuria nel diario finale.
+
+\subsubsection{Cambio di mezzo di trasporto}
+
+Un cambio reale di modalità
+(es. da \texttt{WALKING} a \texttt{MOVING\_VEHICLE} salendo su un
+autobus) produce necessariamente alcune finestre di transizione
+ambigue nell'intorno del cambio, mentre il segnale sensoriale converge
+verso il nuovo pattern di moto. Questo caso va distinto dal
+precedente: non viene rimosso dallo smoothing (è un cambio reale, non
+rumore da correggere), ma diventa il confine tra due segmenti del
+diario non appena la sequenza di etichette si stabilizza nella nuova
+modalità.
+
+La Tabella~\ref{tab:har-latency} confronta le pipeline nello stesso
+processo, a caldo e sugli stessi input. La fusione del modello e la
+chiamata in batch riducono il costo senza cambiare i pesi.
+
+\begin{table}[htbp]
+\caption{Latenza dell'inferenza, pipeline originale e ottimizzata}
+\centering
+\scriptsize
+\begin{tabular}{|r|r|r|r|}
+\hline
+\textbf{Finestre} & \textbf{Originale} & \textbf{Ottimizzata} & \textbf{Speedup} \\
+\hline
+141 & 110,9\,ms & 42,1\,ms & 2,6$\times$ \\
+579 & 410,6\,ms & 93,6\,ms & 4,4$\times$ \\
+1060 & 728,2\,ms & 145,8\,ms & 5,0$\times$ \\
+\hline
+\end{tabular}
+\label{tab:har-latency}
+\end{table}
+
+Sull'intero validation set la pipeline passa da 68,4\,s a 25,7\,s,
+uno speedup di 2,7$\times$. L'accuracy passa dal 79,47\% della
+configurazione originale al valore distribuito di 84,88\%.
+
+Il guadagno di velocità deriva dal pattern di chiamata; quello di
+accuratezza dal contesto più lungo. Sono quindi due effetti distinti.
+
 \subsection{Compromesso privacy/utilità}
 
 Le metriche di Privacy Perturbation e Quality of Service definite in
@@ -1197,6 +1651,58 @@ Sosta & 51 & 35,7 & 97,5 & -- & -- \\
 \end{tabular}
 \label{tab:privacy-results}
 \end{table}
+
+\begin{figure*}[htbp]
+\centering
+\begin{tikzpicture}
+\begin{groupplot}[
+  group style={group size=2 by 1, horizontal sep=1.4cm},
+  width=0.46\textwidth,
+  height=5.2cm,
+  ybar,
+  ymin=0,
+  enlarge x limits=0.18,
+  symbolic x coords={Veicolo,Cammino,Bici,Sosta},
+  xtick=data,
+  x tick label style={rotate=25,anchor=east,font=\scriptsize},
+  tick label style={font=\scriptsize},
+  label style={font=\scriptsize},
+  legend style={font=\scriptsize,at={(0.5,1.02)},anchor=south,legend columns=2},
+]
+\nextgroupplot[
+  ylabel={Perturbazione media (m)},
+  title={Privacy Perturbation},
+  title style={font=\small},
+]
+\addplot[fill=blue!55] coordinates {
+  (Veicolo,37.3) (Cammino,41.9) (Bici,44.8) (Sosta,35.7)
+};
+\addplot[fill=orange!75] coordinates {
+  (Veicolo,100.3) (Cammino,93.0) (Bici,82.3) (Sosta,97.5)
+};
+\legend{Approximate 150 m,Aggregated 400 m}
+
+\nextgroupplot[
+  ylabel={Errore relativo di distanza},
+  title={Quality of Service},
+  title style={font=\small},
+  symbolic x coords={Veicolo,Cammino,Bici},
+]
+\addplot[fill=blue!55] coordinates {
+  (Veicolo,0.64) (Cammino,0.93) (Bici,0.50)
+};
+\addplot[fill=orange!75] coordinates {
+  (Veicolo,0.61) (Cammino,1.06) (Bici,1.28)
+};
+\legend{Approximate 150 m,Aggregated 400 m}
+\end{groupplot}
+\end{tikzpicture}
+\caption{Trade-off misurato tra protezione della posizione e utilità.
+La griglia più ampia aumenta sempre la perturbazione, mentre la
+distorsione della distanza dipende dalla geometria e dalla lunghezza
+tipica dei segmenti di ciascuna modalità.}
+\label{fig:privacy-qos-tradeoff}
+\end{figure*}
 
 La Privacy Perturbation cresce con la dimensione della cella, come
 atteso: passando da \emph{approximate} (150\,m) ad \emph{aggregated}
@@ -1290,6 +1796,44 @@ richiederebbe anche di replicare il database e introdurre una logica
 di sincronizzazione tra le repliche, oltre alla sola duplicazione dei
 worker applicativi.
 
+\subsection*{Dichiarazione sull'utilizzo di strumenti di Intelligenza Artificiale}
+
+Nello sviluppo di questo progetto è stato utilizzato Claude (Anthropic),
+tramite l'interfaccia Claude Code, in due ambiti distinti.
+
+\subsubsection{Confronto e ricerca}
+
+Lo strumento è stato usato come
+supporto alla ricerca e al confronto di idee e scelte progettuali,
+in particolare per
+raccogliere e confrontare più fonti/approcci con relativi
+pro e contro, in tempi più rapidi rispetto a una ricerca manuale
+condotta fonte per fonte.
+
+\subsubsection{Scrittura di codice}
+
+Lo strumento è stato usato per:
+\begin{itemize}
+  \item supportare lo sviluppo dell'interfaccia grafica finale
+  dell'applicazione mobile e della dashboard web;
+  \item refactoring e pulizia del codice esistente, in particolare lato
+  frontend/mobile, per farlo aderire il più possibile
+  all'architettura scelta per il progetto;
+  \item scrivere piccole porzioni di codice per gestire casi limite
+  lato backend;
+  \item scrittura dei DTO (Data Transfer Object) lato frontend, usati
+  per mappare le risposte JSON delle API REST del backend nei modelli
+  dati dell'applicazione mobile e della dashboard web.
+\end{itemize}
+
+
+
+La progettazione dell'architettura, la raccolta e l'elaborazione dei
+dati, l'implementazione delle pipeline di training e valutazione del
+modello HAR, e tutte le decisioni progettuali del sistema sono opera
+dello studente, che dichiara di comprendere integralmente il codice e
+i contenuti presentati in questa relazione.
+
 \section*{Conclusione}
 
 In questo lavoro ho presentato Mobility Diary, un sistema
@@ -1343,5 +1887,62 @@ etichette di attività assegnate dal modulo HAR quando errate (ad
 esempio segnalando che un tratto indicato come cammino era in realtà
 percorso in auto), e una pipeline che raccolga queste correzioni per
 aggiornare periodicamente i pesi del modello.
+
+\balance
+\begin{thebibliography}{00}
+
+\bibitem{wang2018shl}
+``Sussex-Huawei Locomotion \& Transportation Dataset.'' [Online].
+Available: \url{http://www.shl-dataset.org/}. Accessed: Sep. 14, 2026.
+
+\bibitem{postgis-manual}
+PostGIS Project, ``PostGIS Manual: Geography Data Type and
+ST\_Length.'' [Online]. Available:
+\url{https://postgis.net/docs/using_postgis_dbmanagement.html} and
+\url{https://postgis.net/docs/ST_Length.html}. Accessed: Sep. 13, 2026.
+
+\bibitem{timescale-hypertables}
+Timescale, ``Hypertables,'' \emph{Timescale Documentation}. [Online].
+Available: \url{https://docs.timescale.com/use-timescale/latest/hypertables/}.
+Accessed: Sep. 13, 2026.
+
+\bibitem{mapbox-directions}
+Mapbox, ``Geocoding API and Directions API,'' \emph{Mapbox API
+Documentation}. [Online]. Available:
+\url{https://docs.mapbox.com/api/search/geocoding/} and
+\url{https://docs.mapbox.com/api/navigation/directions/}.
+Accessed: Sep. 13, 2026.
+
+\bibitem{yang2015cnn}
+J. Brownlee, ``1D Convolutional Neural Network Models for Human
+Activity Recognition,'' \emph{Machine Learning Mastery}. [Online].
+Available:
+\url{https://machinelearningmastery.com/cnn-models-for-human-activity-recognition-time-series-classification/}.
+Accessed: Sep. 14, 2026.
+
+\bibitem{cho2014gru}
+``Gated Recurrent Unit Networks,'' \emph{GeeksforGeeks}. [Online].
+Available:
+\url{https://www.geeksforgeeks.org/machine-learning/gated-recurrent-unit-networks/}.
+Accessed: Sep. 14, 2026.
+
+\bibitem{ester1996dbscan}
+S. Yıldırım, ``DBSCAN Clustering -- Explained,'' \emph{Towards Data
+Science}. [Online]. Available:
+\url{https://towardsdatascience.com/dbscan-clustering-explained-97556a2ad556/}.
+Accessed: Sep. 14, 2026.
+
+\bibitem{gruteser2003cloaking}
+``Spatial Cloaking,'' \emph{Wikipedia}. [Online]. Available:
+\url{https://en.wikipedia.org/wiki/Spatial_cloaking}. Accessed:
+Sep. 14, 2026.
+
+\bibitem{pine-architecture}
+A. Avvenuti, ``Pine: A Lightweight Architecture Helper for your
+Flutter Projects,'' \emph{Medium}. [Online]. Available:
+\url{https://angeloavv.medium.com/pine-a-lightweight-architecture-helper-for-your-flutter-projects-1ce69ac63f74}.
+Accessed: Sep. 14, 2026.
+
+\end{thebibliography}
 
 \end{document}

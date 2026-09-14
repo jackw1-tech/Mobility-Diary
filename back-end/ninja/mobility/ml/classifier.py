@@ -1,10 +1,3 @@
-"""Classificatore di attivita.
-
-Quando le finestre raw sono disponibili, `classify_windows` invoca l'adapter
-Keras CNN+GRU. I modelli HAR sono obbligatori: se non sono disponibili,
-l'errore risale al chiamante.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass

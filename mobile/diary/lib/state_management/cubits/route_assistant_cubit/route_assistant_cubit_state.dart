@@ -22,10 +22,6 @@ class RouteAssistantState {
   final RouteMode? detectedMode;
   final bool hasDetectedModeResult;
 
-  // Incrementato ad ogni classificazione effettivamente arrivata dal
-  // backend (anche quando il risultato e' identico al precedente), cosi'
-  // l'UI puo' distinguere "e' arrivata una nuova risposta" da "il valore
-  // e' cambiato" - il riseed della cache passiva non lo tocca.
   final int classificationTick;
 
   const RouteAssistantState({

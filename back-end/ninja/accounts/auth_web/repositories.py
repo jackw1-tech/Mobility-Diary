@@ -1,6 +1,4 @@
-"""Repository del WebRefreshToken (autenticazione staff/web).
-
-Unico punto del sottomodulo auth_web in cui compare `WebRefreshToken.objects`.
+"""Repository del WebRefreshToken
 """
 
 from __future__ import annotations

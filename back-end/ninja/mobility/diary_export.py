@@ -201,10 +201,6 @@ def _segment_title(
         return _activity_label_it(segment.activity_label)
 
     place = None if stop_details is None else stop_details.matched_place
-    # Il nome reale del luogo resta visibile per precise e approximate (li'
-    # la privacy sulla posizione la fa gia' il cloaking spaziale delle
-    # coordinate); solo aggregated maschera anche il nome, mostrando solo la
-    # categoria generica del luogo.
     if level != UserPrivacySettings.Level.AGGREGATED:
         return NEUTRAL_VISIBLE_STOP_TITLE if place is None else place_label(place)
     if place is None:

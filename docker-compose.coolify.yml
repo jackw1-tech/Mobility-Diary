@@ -8,6 +8,20 @@ services:
     depends_on:
       web:
         condition: service_healthy
+      frontend:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./web
+    restart: unless-stopped
+    expose:
+      - "80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
 
   web:
     build:

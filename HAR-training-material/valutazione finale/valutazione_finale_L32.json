@@ -1,0 +1,50 @@
+{
+  "accuracy": 0.7945569488346244,
+  "macro_precision": 0.8484581500132347,
+  "macro_recall": 0.7571328444080014,
+  "macro_f1": 0.7782553702421746,
+  "weighted_precision": 0.8292274730203868,
+  "weighted_recall": 0.7945569488346244,
+  "weighted_f1": 0.7965056224697531,
+  "per_class": {
+    "0": {
+      "name": "IDLE",
+      "support": 23856,
+      "precision": 0.5874473784921546,
+      "recall": 0.9008215962441315,
+      "f1": 0.7111419967570071
+    },
+    "1": {
+      "name": "WALKING",
+      "support": 20920,
+      "precision": 0.872132769632095,
+      "recall": 0.9269120458891014,
+      "f1": 0.898688418223108
+    },
+    "2": {
+      "name": "RUNNING",
+      "support": 2220,
+      "precision": 0.9974937343358395,
+      "recall": 0.7171171171171171,
+      "f1": 0.8343815513626834
+    },
+    "3": {
+      "name": "BIKING",
+      "support": 9624,
+      "precision": 0.8889952153110048,
+      "recall": 0.4826475477971737,
+      "f1": 0.6256313556468449
+    },
+    "4": {
+      "name": "MOVING_VEHICLE",
+      "support": 58536,
+      "precision": 0.8962216522950787,
+      "recall": 0.7581659149924832,
+      "f1": 0.8214335292212299
+    }
+  },
+  "sequence_length": 32,
+  "validation_windows": 115156,
+  "model_file": "shl_har_fused.keras",
+  "model_sha256": "cd4420e70674fc2306ca6c64a7cfb1d1a56013e4ae56004d662a30611f55d1ea"
+}

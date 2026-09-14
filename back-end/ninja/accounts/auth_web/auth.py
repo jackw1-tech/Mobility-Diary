@@ -1,9 +1,3 @@
-"""Meccanica di autenticazione web/staff: encoding JWT e Ninja auth class.
-
-L'orchestrazione (emissione, rotazione, revoca dei token) e' business logic e
-vive in `accounts.auth_web.services`, che riusa gli helper di questo modulo.
-"""
-
 from __future__ import annotations
 
 from typing import Any

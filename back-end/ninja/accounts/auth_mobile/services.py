@@ -1,9 +1,4 @@
-"""Business logic dell'autenticazione mobile (registrazione, login, logout).
-
-Orchestra le regole di dominio e delega la persistenza ai repository
-(`accounts.repositories` per User/UserPrivacySettings,
-`accounts.auth_mobile.repositories` per AccessToken). Nessuna query ORM
-diretta in questo modulo.
+"""Services dell'autenticazione mobile (registrazione, login, logout).
 """
 
 from __future__ import annotations
@@ -81,7 +76,7 @@ def _login_response(user, access_token: AccessToken, raw_token: str) -> dict:
         "expires_at": access_token.expires_at,
     }
 
-
+"""Registra un nuovo utente, gli assegna le impostazioni privacy di default e lo autentica."""
 def register_user(
     *,
     email: str,
@@ -89,7 +84,6 @@ def register_user(
     first_name: str,
     last_name: str,
 ) -> dict:
-    """Registra un nuovo utente, gli assegna le impostazioni privacy di default e lo autentica."""
     clean_email = _clean_email(email)
 
     if repositories.email_is_taken(clean_email):

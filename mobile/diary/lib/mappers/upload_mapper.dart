@@ -91,13 +91,11 @@ class UploadMapper {
       if (cutoffSourceTimestamp != null)
         'cutoff_source_timestamp': DateTimeUtils.toUtcIso(
           cutoffSourceTimestamp,
-        ), // Di al back-end di scartare tutte le finestre har oltre quella data e orario
+        ), // Dice al back-end di scartare tutte le finestre har oltre quella data e orario
       'device_id': deviceId,
       'ended_at': DateTimeUtils.toUtcIsoOrNull(endedAt),
       'expected_raw_parts': expectedRawParts,
-      'gps_points': [
-        for (final point in gpsPoints) _gpsPointJson(point),
-      ],
+      'gps_points': [for (final point in gpsPoints) _gpsPointJson(point)],
       if (uploadId != null) 'upload_id': uploadId,
       'schema_version': 1,
       'started_at': DateTimeUtils.toUtcIsoOrNull(startedAt),
@@ -109,20 +107,20 @@ class UploadMapper {
   }
 
   Map<String, dynamic> _gpsPointJson(CoreGpsPoint point) => {
-        'accuracy_meters': point.accuracyMeters,
-        'latitude': point.latitude,
-        'longitude': point.longitude,
-        'speed_mps': point.speedMps,
-        'timestamp': DateTimeUtils.toUtcIso(point.timestamp),
-      };
+    'accuracy_meters': point.accuracyMeters,
+    'latitude': point.latitude,
+    'longitude': point.longitude,
+    'speed_mps': point.speedMps,
+    'timestamp': DateTimeUtils.toUtcIso(point.timestamp),
+  };
 
   Map<String, dynamic> _transitionJson(CoreStateTransition transition) => {
-        'from_state': transition.fromState,
-        'sigma': transition.sigma,
-        'speed_mps': transition.speedMps,
-        'timestamp': DateTimeUtils.toUtcIso(transition.timestamp),
-        'to_state': transition.toState,
-      };
+    'from_state': transition.fromState,
+    'sigma': transition.sigma,
+    'speed_mps': transition.speedMps,
+    'timestamp': DateTimeUtils.toUtcIso(transition.timestamp),
+    'to_state': transition.toState,
+  };
 
   InlineCoreResult mapInlineCoreResult(InlineCoreResultDto dto) {
     return InlineCoreResult(

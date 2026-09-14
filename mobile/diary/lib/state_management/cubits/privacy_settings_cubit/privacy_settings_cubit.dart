@@ -8,61 +8,67 @@ class PrivacySettingsCubit extends Cubit<PrivacySettingsState> {
   final PrivacySettingsRepository _repository;
 
   PrivacySettingsCubit(this._repository)
-      : super(const PrivacySettingsState.initial());
+    : super(const PrivacySettingsState.initial());
 
   Future<void> load() async {
     emit(
-      state.copyWith(
-        status: PrivacySettingsStatus.loading,
-        clearError: true,
-      ),
+      state.copyWith(status: PrivacySettingsStatus.loading, clearError: true),
     );
     final result = await _repository.fetch();
     final failure = result.failure;
     if (failure != null) {
-      emit(state.copyWith(
-        status: PrivacySettingsStatus.error,
-        error: failure.message,
-      ));
+      emit(
+        state.copyWith(
+          status: PrivacySettingsStatus.error,
+          error: failure.message,
+        ),
+      );
       return;
     }
     final settings = result.requireValue;
-    emit(state.copyWith(
-      status: PrivacySettingsStatus.ready,
-      level: settings.level,
-      isFirstLogin: settings.isFirstLogin,
-    ));
+    emit(
+      state.copyWith(
+        status: PrivacySettingsStatus.ready,
+        level: settings.level,
+        isFirstLogin: settings.isFirstLogin,
+      ),
+    );
   }
 
   Future<void> save(PrivacyLevel level) async {
-    // While onboarding (isFirstLogin) we must save even the unchanged default,
-    // otherwise the backend flag never clears and the dialog keeps reopening.
-    final isNoOp = !state.isFirstLogin &&
+    final isNoOp =
+        !state.isFirstLogin &&
         level == state.level &&
         state.status == PrivacySettingsStatus.ready;
     if (isNoOp) return;
 
     final previousLevel = state.level;
-    emit(state.copyWith(
-      status: PrivacySettingsStatus.saving,
-      level: level,
-      clearError: true,
-    ));
+    emit(
+      state.copyWith(
+        status: PrivacySettingsStatus.saving,
+        level: level,
+        clearError: true,
+      ),
+    );
     final result = await _repository.update(level);
     final failure = result.failure;
     if (failure != null) {
-      emit(state.copyWith(
-        status: PrivacySettingsStatus.error,
-        level: previousLevel,
-        error: failure.message,
-      ));
+      emit(
+        state.copyWith(
+          status: PrivacySettingsStatus.error,
+          level: previousLevel,
+          error: failure.message,
+        ),
+      );
       return;
     }
     final saved = result.requireValue;
-    emit(state.copyWith(
-      status: PrivacySettingsStatus.ready,
-      level: saved.level,
-      isFirstLogin: saved.isFirstLogin,
-    ));
+    emit(
+      state.copyWith(
+        status: PrivacySettingsStatus.ready,
+        level: saved.level,
+        isFirstLogin: saved.isFirstLogin,
+      ),
+    );
   }
 }

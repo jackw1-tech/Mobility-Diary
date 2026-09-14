@@ -1,6 +1,4 @@
 """Repository dell'HarJob.
-
-Unico punto del progetto in cui compare `HarJob.objects`.
 """
 
 from __future__ import annotations

@@ -19,22 +19,21 @@ class TripsRepositoryImpl implements TripsRepository {
     required TripsMapper mapper,
     AcquisitionLocalTripPurger? localTripPurger,
     String Function()? reloadRequestIdFactory,
-  })  : _service = service,
-        _mapper = mapper,
-        _localTripPurger = localTripPurger,
-        _reloadRequestIdFactory =
-            reloadRequestIdFactory ?? _defaultReloadRequestId;
+  }) : _service = service,
+       _mapper = mapper,
+       _localTripPurger = localTripPurger,
+       _reloadRequestIdFactory =
+           reloadRequestIdFactory ?? _defaultReloadRequestId;
 
   @override
   Future<AppResult<List<TripListItem>>> fetchTrips() => appResultOf(
-        () async => _mapper.mapTripListItems(await _service.fetchTrips()),
-      );
+    () async => _mapper.mapTripListItems(await _service.fetchTrips()),
+  );
 
   @override
   Future<AppResult<List<TripListItem>>> fetchReloadableTrips() => appResultOf(
-        () async =>
-            _mapper.mapTripListItems(await _service.fetchReloadableTrips()),
-      );
+    () async => _mapper.mapTripListItems(await _service.fetchReloadableTrips()),
+  );
 
   @override
   Future<AppResult<TripReloadSlots>> fetchReloadSlots(int sourceTripId) =>
@@ -46,38 +45,34 @@ class TripsRepositoryImpl implements TripsRepository {
 
   @override
   Future<AppResult<void>> deleteTrip(int tripId) => appVoidResultOf(() async {
-        await _service.deleteTrip(tripId);
-        try {
-          await _localTripPurger?.purgeLocalDataForRemoteTrip(tripId);
-        } catch (_) {
-          // Best-effort: la cancellazione remota e' gia' riuscita.
-        }
-      });
+    await _service.deleteTrip(tripId);
+    try {
+      await _localTripPurger?.purgeLocalDataForRemoteTrip(tripId);
+    } catch (_) {}
+  });
 
   @override
   Future<AppResult<TripListItem>> setTripReloadable({
     required int tripId,
     required bool isReloadable,
-  }) =>
-      appResultOf(
-        () async => _mapper.mapTripListItem(
-          await _service.setTripReloadable(
-            tripId: tripId,
-            isReloadable: isReloadable,
-          ),
-        ),
-      );
+  }) => appResultOf(
+    () async => _mapper.mapTripListItem(
+      await _service.setTripReloadable(
+        tripId: tripId,
+        isReloadable: isReloadable,
+      ),
+    ),
+  );
 
   @override
   Future<AppResult<TripListItem>> updateTripNote({
     required int tripId,
     required String note,
-  }) =>
-      appResultOf(
-        () async => _mapper.mapTripListItem(
-          await _service.updateTripNote(tripId: tripId, note: note),
-        ),
-      );
+  }) => appResultOf(
+    () async => _mapper.mapTripListItem(
+      await _service.updateTripNote(tripId: tripId, note: note),
+    ),
+  );
 
   @override
   Future<AppResult<TripReload>> reloadTrip({

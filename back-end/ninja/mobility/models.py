@@ -24,7 +24,7 @@ class Trip(models.Model):
         null=True,
         blank=True,
     )
-    # UUID della sessione FSM locale, usato come chiave di idempotenza per il sync.
+    # UUID della sessione FSM locale
     client_session_id = models.CharField(
         max_length=64, null=True, blank=True, unique=True
     )
@@ -47,9 +47,6 @@ class Trip(models.Model):
         null=True,
         blank=True,
     )
-    # Inizio reale del viaggio (dichiarato dal client / sorgente), modificabile in
-    # admin. NON usare auto_now_add: il Trip inline nasce allo Stop, quindi quel
-    # default coinciderebbe erroneamente con ended_at.
     started_at = models.DateTimeField(null=True, blank=True)
     ended_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -131,13 +128,6 @@ class StateTransition(models.Model):
 
 
 class HabitualPlace(models.Model):
-    """Luogo Significativo Abituale: luogo user-scoped scoperto dalle visite ricorrenti.
-
-    Vive nella storia di un Proprietario del Viaggio e attraversa gli stati
-    candidato/confermato/rifiutato. L'etichetta manuale (categoria + nome) ha
-    priorita' sul testo automatico del diario.
-    """
-
     class State(models.TextChoices):
         CANDIDATE = "CANDIDATE", "Candidate"
         CONFIRMED = "CONFIRMED", "Confirmed"
@@ -173,11 +163,6 @@ class HabitualPlace(models.Model):
 
 
 class CandidateVisit(models.Model):
-    """Visita Candidata: un episodio di permanenza dai GpsPoint grezzi di un utente.
-
-    Prodotta dalla stay-detection (un singolo periodo di permanenza); piu' visite
-    compatibili vengono poi clusterizzate in un HabitualPlace.
-    """
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -188,8 +173,6 @@ class CandidateVisit(models.Model):
     started_at = models.DateTimeField()
     ended_at = models.DateTimeField()
     point_count = models.PositiveIntegerField()
-    # Valorizzato dal clustering: il Luogo Candidato che aggrega questa visita
-    # (null se la visita resta isolata / rumore). E' l'evidenza di mappa del luogo.
     place = models.ForeignKey(
         HabitualPlace,
         related_name="visits",
@@ -204,8 +187,6 @@ class CandidateVisit(models.Model):
 
 
 class PlaceMiningStatus(models.Model):
-    """Read model operativo user-scoped del mining dei Luoghi Significativi."""
-
     class Status(models.TextChoices):
         IDLE = "IDLE", "Idle"
         PENDING = "PENDING", "Pending"
@@ -233,8 +214,7 @@ class PlaceMiningStatus(models.Model):
 
 
 class MobilitySegment(models.Model):
-    """Una riga del diario: una sosta (STOP) o uno spostamento (MOVE)."""
-
+   
     class Kind(models.TextChoices):
         STOP = "STOP", "Stop"
         MOVE = "MOVE", "Move"
@@ -265,11 +245,7 @@ class MobilitySegment(models.Model):
 
 
 class VirtualStopInterval(models.Model):
-    """Intervallo di sosta virtuale derivato da un run HAR IDLE lungo.
 
-    Non e' un MobilitySegment persistito: rappresenta solo evidenza temporale di
-    fermo, da fondere piu' avanti nella proiezione read-time del diario.
-    """
 
     trip = models.ForeignKey(
         Trip,

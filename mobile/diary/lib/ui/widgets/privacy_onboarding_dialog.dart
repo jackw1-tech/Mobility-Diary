@@ -6,8 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 Future<void> showPrivacyOnboardingDialog(BuildContext context) {
-  // showDialog builds in the root overlay, outside the provider subtree, so we
-  // forward the existing cubit explicitly.
   final cubit = context.read<PrivacySettingsCubit>();
   return showDialog<void>(
     context: context,
@@ -28,8 +26,10 @@ class PrivacyOnboardingDialog extends StatefulWidget {
 }
 
 class _PrivacyOnboardingDialogState extends State<PrivacyOnboardingDialog> {
-  late PrivacyLevel _selected =
-      context.read<PrivacySettingsCubit>().state.level;
+  late PrivacyLevel _selected = context
+      .read<PrivacySettingsCubit>()
+      .state
+      .level;
 
   @override
   Widget build(BuildContext context) {
@@ -67,7 +67,7 @@ class _PrivacyOnboardingDialogState extends State<PrivacyOnboardingDialog> {
                   onSelectionChanged: state.isSaving
                       ? null
                       : (selection) =>
-                          setState(() => _selected = selection.first),
+                            setState(() => _selected = selection.first),
                 ),
                 if (state.isSaving) ...[
                   const SizedBox(height: Dimensions.paddingMedium),
@@ -75,12 +75,14 @@ class _PrivacyOnboardingDialogState extends State<PrivacyOnboardingDialog> {
                 ],
                 if (state.status == PrivacySettingsStatus.error)
                   Padding(
-                    padding:
-                        const EdgeInsets.only(top: Dimensions.paddingMedium),
+                    padding: const EdgeInsets.only(
+                      top: Dimensions.paddingMedium,
+                    ),
                     child: Text(
                       state.error ?? 'Salvataggio non riuscito, riprova.',
-                      style:
-                          TextStyle(color: Theme.of(context).colorScheme.error),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
                     ),
                   ),
               ],
@@ -90,7 +92,7 @@ class _PrivacyOnboardingDialogState extends State<PrivacyOnboardingDialog> {
                 onPressed: state.isSaving
                     ? null
                     : () =>
-                        context.read<PrivacySettingsCubit>().save(_selected),
+                          context.read<PrivacySettingsCubit>().save(_selected),
                 child: const Text('Conferma'),
               ),
             ],

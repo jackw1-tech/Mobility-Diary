@@ -18,10 +18,7 @@ class TripTrackCubitState {
   final List<TripTrackSegmentState> segments;
   final List<TripDiarySegment> diarySegments;
   final double distanceMeters;
-  // Distanza dell'intero percorso (dalla prima GET del track), mai
-  // sovrascritta dal diario: usata per la tab Statistiche, a differenza di
-  // [distanceMeters] che invece diventa la somma dei soli segmenti di
-  // movimento una volta che il diario e' caricato (usata nella tab Mappa).
+  // Distanza dell'intero percorso (dalla prima GET del track)
   final double trackDistanceMeters;
   final bool processingPending;
   final bool processingFailed;

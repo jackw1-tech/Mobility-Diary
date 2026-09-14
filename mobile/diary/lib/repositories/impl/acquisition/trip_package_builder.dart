@@ -81,13 +81,7 @@ class TripPackageBuilder {
     AcquisitionMapper? acquisitionMapper,
     UploadMapper? uploadMapper,
     Future<Directory> Function()? baseDirProvider,
-    // Budget misurato sul JSON non compresso: una finestra pesa ~29 KB, quindi
-    // ~12 MB sono circa 430 finestre (~36 min di registrazione) e diventano
-    // ~5 MB dopo gzip. Tenerlo basso limita il picco di memoria della
-    // serializzazione sul telefono.
     int sensorWindowsPartBudgetBytes = 12 * 1024 * 1024,
-    // La pagina e' intenzionalmente molto piu' piccola di una parte: il picco
-    // di memoria dipende dal budget della parte e non dalla durata del viaggio.
     int sensorWindowsPageSize = 128,
   }) : _dao = dao,
        _acquisitionMapper = acquisitionMapper ?? AcquisitionMapper(),
@@ -213,10 +207,6 @@ class TripPackageBuilder {
           matrixJson: window.matrixJson,
         ),
     ];
-
-    // Serializzazione, UTF-8, gzip, checksum e scrittura sono fuori dal main
-    // isolate. Il gzip riceve una finestra alla volta: non esistono piu' ne'
-    // la String JSON dell'intera parte ne' la sua copia completa in byte.
     final sha256 = await Isolate.run(
       () => _streamCompressedPart(file.path, partWindows),
     );
@@ -249,10 +239,8 @@ String _streamCompressedPart(String filePath, List<_PartSensorWindow> windows) {
     gzipInput.add(utf8.encode('{"windows":['));
     for (var index = 0; index < windows.length; index += 1) {
       final window = windows[index];
-      if (index > 0) gzipInput.add(const [44]); // `,`
+      if (index > 0) gzipInput.add(const [44]);
 
-      // Solo i metadati piccoli vengono concatenati. La matrice, che e' quasi
-      // tutto il payload, entra direttamente nel convertitore UTF-8/gzip.
       gzipInput.add(
         utf8.encode(
           '{"window_start":"${window.startTimestamp.toUtc().toIso8601String()}"'
@@ -326,13 +314,9 @@ bool _belongsToSession(DateTime timestamp, AcquisitionSession? session) {
   return endedAt == null || !timestamp.isAfter(endedAt);
 }
 
-// Overhead JSON di una finestra oltre alla matrice: chiavi, timestamp ISO,
-// contatori e punteggiatura. Stima usata solo per decidere dove tagliare le
-// parti, non deve essere esatta.
 const int _windowJsonOverheadBytes = 220;
 
 int _sensorWindowJsonByteSize(SensorWindow window) {
-  // La matrice e' gia' JSON su disco: la sua lunghezza e' la dimensione reale.
   return _windowJsonOverheadBytes + window.matrixJson.length;
 }
 

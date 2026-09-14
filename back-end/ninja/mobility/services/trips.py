@@ -33,8 +33,6 @@ class TripValidationError(TripServiceError):
 
 @dataclass(frozen=True)
 class RawTripFilterParams:
-    """Parametri grezzi (stringhe) letti dalla querystring della dashboard web."""
-
     started_from: str | None = None
     started_to: str | None = None
     status: str | None = None
@@ -63,12 +61,6 @@ def _parse_bool_filter(name: str, raw_value: str | None) -> bool | None:
 
 
 def parse_trip_filters(params: RawTripFilterParams) -> trips_repository.TripFilters:
-    """Valida i filtri grezzi della dashboard web e li normalizza.
-
-    Business logic (validazione, error raising): la queryset viene poi
-    costruita da `selectors.trips.apply_trip_filters`, che non solleva mai
-    eccezioni HTTP/dominio.
-    """
     status = params.status
     if status and status not in Trip.Status.values:
         raise TripValidationError("Filtro status non valido")
