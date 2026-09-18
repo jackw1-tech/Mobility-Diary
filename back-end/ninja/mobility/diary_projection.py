@@ -8,7 +8,7 @@ from django.contrib.gis.geos import LineString
 from .models import ActivityLabel, MobilitySegment, VirtualStopInterval
 
 # Due intervalli stop-like separati da vengono fusi
-STOP_GAP_TOLERANCE = timedelta(minutes=3)
+STOP_GAP_TOLERANCE = timedelta(minutes=2)
 
 
 @dataclass(frozen=True)

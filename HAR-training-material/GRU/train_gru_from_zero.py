@@ -80,7 +80,7 @@ def make_eval_sequences(emb, blocks, L):
             meta.append((s + i, valid))
     return np.asarray(xs), meta
 
-
+#Loss personalizzata GRU
 def sequence_focal_loss(alpha, gamma=2.0):
     alpha_t = tf.constant(alpha, dtype=tf.float32)
 

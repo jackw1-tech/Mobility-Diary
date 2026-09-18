@@ -15,8 +15,7 @@ from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 from tensorflow.keras.layers import Conv1D, Dense, Dropout, Flatten, Input, MaxPooling1D
 from tensorflow.keras.models import Sequential
 
-# preprocessing.py e metrics.py sono condivisi al livello superiore (usati anche
-# da train_gru_6ch.py), non duplicati qui dentro "cnn 1d/".
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
