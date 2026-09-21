@@ -24,7 +24,10 @@ class MapboxRouteAssistantService implements RouteAssistantService {
   final HttpClient _client;
 
   MapboxRouteAssistantService({
-    String token = const String.fromEnvironment('MAPBOX_ACCESS_TOKEN'),
+    String token = const String.fromEnvironment(
+      'MAPBOX_ACCESS_TOKEN',
+      defaultValue: 'pk.eyJ1IjoicXEyMzI0MTI0MTI1IiwiYSI6ImNtbXFjaTJmMDB1NHkyd3NicHdqaDVuMTEifQ.3REx7uFtnUIaaSCpwgSCLg',
+    ),
     HttpClient? client,
   }) : _token = token,
        _client = client ?? HttpClient();

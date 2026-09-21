@@ -12,12 +12,21 @@ HAR*, for the Context-Aware Systems course. The repository contains:
 - `HAR-training-material`: training and evaluation scripts for the HAR model;
 - `relazione_finale`: IEEE technical report and experimental results.
 
+## Screenshots
+
+<p float="left">
+  <img src="docs/screenshots/1-tracciato-live.png" width="220" />
+  <img src="docs/screenshots/2-route-assistant.png" width="220" />
+  <img src="docs/screenshots/3-tracciato-completo.png" width="220" />
+  <img src="docs/screenshots/4-statistiche.png" width="220" />
+</p>
+
 ## Requirements
 
 - Docker Engine with Docker Compose v2;
 - Flutter and an iOS/Android device for the mobile application;
-- the demo includes its Mapbox public access token; replace it with another
-  public token only if the bundled token is revoked or restricted.
+- a Mapbox account and public access token (free tier is enough), see
+  [Run the mobile application](#run-the-mobile-application).
 
 The complete server and Web dashboard run through Docker. A local Python,
 PostgreSQL, Node.js or Redis installation is not required.
@@ -93,17 +102,19 @@ other paths to the Vue single-page application.
 
 ## Run the mobile application
 
-The distributable Flutter configuration already contains the public Mapbox demo
-token. Install the dependencies, connect an Android device or start an emulator,
-then run the application:
+The mobile app requires a Mapbox public access token (used for the map style
+and the route assistant). Create a free Mapbox account, generate a public
+token from the [Mapbox account dashboard](https://account.mapbox.com/), then
+set it locally:
 
 ```bash
 cd mobile/diary
 flutter pub get
+cp env/dart_defines.example.json env/dart_defines.local.json
 ```
 
-To use another Mapbox account, replace `MAPBOX_ACCESS_TOKEN` in
-`env/dart_defines.local.json` before running the command.
+Replace `MAPBOX_ACCESS_TOKEN` in the newly created `env/dart_defines.local.json`
+with your own token. This file is git-ignored and never committed.
 
 By default the app talks to the production API defined in
 `lib/other/constants/api_constants.dart`. To point it at the local Docker stack

@@ -10,7 +10,10 @@ import 'package:diary/theme/app_theme.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 
-const String _mapboxAccessToken = String.fromEnvironment('MAPBOX_ACCESS_TOKEN');
+const String _mapboxAccessToken = String.fromEnvironment(
+  'MAPBOX_ACCESS_TOKEN',
+  defaultValue: 'pk.eyJ1IjoicXEyMzI0MTI0MTI1IiwiYSI6ImNtbXFjaTJmMDB1NHkyd3NicHdqaDVuMTEifQ.3REx7uFtnUIaaSCpwgSCLg',
+);
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();

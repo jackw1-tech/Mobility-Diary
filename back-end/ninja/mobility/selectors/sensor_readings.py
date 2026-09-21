@@ -59,7 +59,7 @@ _SENSOR_GAP_QUERY = """
     ORDER BY prev_timestamp
 """
 
-
+# Query TimeScale 1
 def find_sensor_gaps(
     trip_id: int, *, threshold_ms: int = 10
 ) -> list[tuple[datetime, datetime, timedelta]]:
@@ -74,8 +74,9 @@ def find_sensor_gaps(
         )
         return cursor.fetchall()
 
-
+# Query TimeScale 2
 def find_motion_stats_by_activity(user_id: int) -> list[dict]:
+    # calcoli matematici che eseguirà il db
     aggregates = ", ".join(
         f"avg(r.{axis}) AS {axis}_mean, stddev(r.{axis}) AS {axis}_std"
         for axis in MOTION_AXES

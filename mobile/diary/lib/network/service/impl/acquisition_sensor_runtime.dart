@@ -57,7 +57,40 @@ class AcquisitionSensorRuntime {
     _gpsFixCount = 0;
     _gpsSpeedEstimator.reset();
     await configure(profile);
+    await _seedInitialGpsFixes();
     await _restartGps(profile);
+  }
+
+  // Il position stream filtrato per distanza (gpsDistanceFilterMeters) emette
+  // un nuovo fix solo dopo che l'utente si e' spostato di quella distanza: da
+  // fermi, allo Start, il trip rischierebbe di partire con zero o un solo
+  // punto GPS. Richiediamo quindi 3 fix in sequenza (uno alla volta, non in
+  // parallelo) prima di aprire lo stream, cosi' il trip ha sempre almeno 3
+  // punti fin dal primo istante, anche se identici perche' non ci si e'
+  // ancora mossi. Ogni fix passa da _onPosition, lo stesso percorso usato
+  // per i fix dello stream, cosi' viene inserito nel DB locale come tutti
+  // gli altri.
+  Future<void> _seedInitialGpsFixes({int count = 3}) async {
+    final hasPermission = await _ensureLocationPermission();
+    if (!hasPermission) {
+      return;
+    }
+    for (var i = 0; i < count; i++) {
+      if (!_isStarted) {
+        return;
+      }
+      try {
+        final position = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+          ),
+        );
+        await _onPosition(position);
+      } catch (_) {
+        // Nessun fix disponibile in questo tentativo: si prosegue comunque
+        // con i successivi e poi con lo stream continuo.
+      }
+    }
   }
 
   // funzione da chiamare quando il profilo di sempling cambia
