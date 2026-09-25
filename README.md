@@ -1,6 +1,6 @@
 # Mobility Diary
 
-Mobility Diary implements project track 2, *Privacy-Aware Mobility Diary with
+Mobility Diary implements a *Privacy-Aware Mobility Diary with
 HAR*, for the Context-Aware Systems course. The repository contains:
 
 - `mobile/diary`: Flutter application for GPS and inertial-sensor acquisition,
